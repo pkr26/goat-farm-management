@@ -12,6 +12,15 @@ services:
   db:
     image: postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
     restart: unless-stopped
+    # Least privilege: the official image's bootstrap needs exactly these
+    # capabilities — CHOWN/DAC_OVERRIDE/FSETID for initdb on the data volume,
+    # SETGID/SETUID to drop from root to the postgres user — and nothing else.
+    # no-new-privileges keeps that drop one-way.
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "DAC_OVERRIDE", "FSETID", "SETGID", "SETUID"]
+    mem_limit: 1g
+    cpus: 2.0
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-goatfarm}
       POSTGRES_USER: ${POSTGRES_USER:-goatfarm}
@@ -34,6 +43,12 @@ services:
   migrate:
     build: .
     command: ["alembic", "upgrade", "head"]
+    # One-shot DDL job running as the image's non-root user: no capabilities,
+    # no privilege escalation path.
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    mem_limit: 1g
+    cpus: 1.0
     depends_on:
       db:
         condition: service_healthy
@@ -50,6 +65,13 @@ services:
   backend:
     build: .
     restart: unless-stopped
+    # The API serves as a non-root user and needs no Linux capabilities; its
+    # filesystem stays writable for Python bytecode caches. The 2g ceiling
+    # leaves headroom for the simulation engine's Monte Carlo runs.
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    mem_limit: 2g
+    cpus: 2.0
     # Uvicorn drains in-flight requests for up to 30 seconds (Dockerfile CMD).
     # Compose otherwise sends SIGKILL after its 10-second default.
     stop_grace_period: 40s
@@ -104,6 +126,11 @@ services:
       args:
         BACKEND_URL: http://backend:8000
     restart: unless-stopped
+    # Next standalone server as its own non-root user: no capabilities needed.
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    mem_limit: 1g
+    cpus: 1.0
     depends_on:
       backend:
         condition: service_healthy
@@ -117,6 +144,18 @@ services:
   edge:
     image: nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de
     restart: unless-stopped
+    # Read-only root filesystem: nginx writes only its temp dirs and pid file,
+    # both redirected to tmpfs. The master listens on the unprivileged 3000
+    # and drops to the nginx user for workers itself, so it needs no
+    # capabilities at all (no-new-privileges keeps that drop one-way).
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+    mem_limit: 256m
+    cpus: 0.5
     depends_on:
       backend:
         condition: service_healthy

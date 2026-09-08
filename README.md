@@ -31,9 +31,12 @@ pnpm install --frozen-lockfile
 pnpm dev                               # http://localhost:3000
 ```
 
-The Next dev server proxies `/api/*`, `/healthz`, and `/readyz` to
-`localhost:8000` (see `frontend/next.config.ts`), so the refresh cookie stays
-first-party and every operation in the generated client remains same-origin.
+The Next dev server proxies `/api/*` and `/readyz` to `localhost:8000` (see
+`frontend/next.config.ts`), so the refresh cookie stays first-party and every
+operation in the generated client remains same-origin. `/healthz` on the Next
+origin is served by a local route handler
+(`frontend/src/app/healthz/route.ts`) that reports the frontend process only —
+it is the container health check, not a backend probe.
 Register → create a farm → start adding animals. Fixed-size global
 reference data (bucket definitions, TMR recipes, vaccine templates) is seeded
 automatically at startup; every new farm receives its role presets and feed
@@ -77,7 +80,13 @@ case-sensitive `__Host-` prefix. The development cookie default is upgraded to
 `__Host-goatfarm_refresh` automatically in production;
 `/docs`, `/redoc` and `/openapi.json` are not served. The auth rate limiter
 is in-memory and per process: run exactly **one** uvicorn worker / replica
-(with N workers the effective limit multiplies by N). Argon2 hashing and
+(with N workers the effective limit multiplies by N). Its storage sits behind
+the `LimiterBackend` seam in `backend/app/ratelimit.py` (`MemoryLimiterBackend`
+is the only implementation); `GOATFARM_RATE_LIMIT_BACKEND` accepts only
+`memory` and startup fails with this same explanation for anything else, so a
+multi-replica deployment cannot boot into silently multiplied limits — a
+shared backend (e.g. Redis) is the future fix if multi-process is ever needed.
+Argon2 hashing and
 verification run off the event loop in a dedicated, queue-free pool bounded by
 `GOATFARM_ARGON2_WORKER_THREADS` (two by default); excess password work gets a
 retryable `429` instead of blocking readiness or allocating an unbounded queue.
@@ -253,7 +262,7 @@ passes. Resume API replicas only after that succeeds.
 cd backend
 ./.venv/bin/python -m pytest            # 3,400+ tests, real PostgreSQL (goatfarm_test)
 ./.venv/bin/ruff format --check . && ./.venv/bin/ruff check .
-./.venv/bin/python -m mypy --strict app
+./.venv/bin/python -m mypy --strict app  # strict-green: 0 errors; keep it that way
 ./.venv/bin/mutmut run --max-children 4 # deterministic, DB-free simulation profile
 ./.venv/bin/mutmut results
 ./.venv/bin/python scripts/export_openapi.py   # regenerate shared/openapi.json
@@ -261,8 +270,8 @@ cd backend
 # Frontend
 cd frontend
 pnpm orval           # regenerate the typed client from shared/openapi.json
-pnpm test            # 1,300+ Vitest + MSW tests
-pnpm exec playwright test   # 34 browser/proxy e2e tests across 16 specs (fresh user+farm
+pnpm test:coverage   # 1,300+ Vitest + MSW tests; 85/80/85/85 thresholds — the CI gate
+pnpm exec playwright test   # browser/proxy e2e suite across 18 specs (fresh user+farm
                      # provisioned per run by e2e/global-setup.ts; serial workers)
 pnpm build           # strict typecheck + production build
 ```
@@ -277,16 +286,29 @@ authoritative run. Mutmut 3.7 can otherwise reuse stale line-coverage mappings;
 test-only changes are invalidated by the configured test-file dependency hash.
 
 **Mutation-score scope (read before quoting a number).** The mutmut campaign
-mutates **only `app/simulation/*.py` and `app/schemas/simulation.py`** —
-20 of the backend tree's ~240 Python files — and runs only the ten deterministic simulation
-suites against each mutant (`only_mutate` and
-`pytest_add_cli_args_test_selection` in `backend/pyproject.toml`). A headline
-like "90% kill rate" is a statement about the simulation package, not the
-routers, services, security, or data layer; those are covered by the
+mutates **only the math-critical financial core** — `app/simulation/engine.py`,
+`finance.py`, `montecarlo.py`, `market.py`, `assumptions.py`, and
+`app/schemas/simulation.py` (~4,400 of the simulation package's ~9,800 lines;
+6 of the backend tree's ~240 Python files) — and runs only the deterministic
+simulation suites against each mutant (`only_mutate` and
+`pytest_add_cli_args_test_selection` in `backend/pyproject.toml`). The earlier
+package-wide scope (`app/simulation/*.py`) generated 10,345 mutants, of which
+no campaign ever classified more than a handful; the narrowed core is what the
+weekly job can actually finish. A headline
+like "90% kill rate" is a statement about that financial core, not the
+planners, explain/daily-ops modules, routers, services, security, or data
+layer; those are covered by the deterministic unit suites and the
 integration suite over real PostgreSQL instead. The same applies to frontend
 Stryker deltas quoted from targeted campaigns — the last full-repo snapshot
 is the authoritative aggregate, and targeted post-remediation reports carry
 live survivors by construction.
+
+Mutation testing runs as a **weekly scheduled campaign**
+(`.github/workflows/mutation.yml`, Mondays) that never gates PRs: it runs the
+deterministic profile, then uploads `mutmut results` and the campaign stats
+JSON as artifacts, cutting itself off after ~5.5 hours with whatever partial
+results exist. Per-survivor triage is a manual follow-up from those artifacts —
+the workflow reports, it does not block.
 
 The API contract flows one way: backend routes/schemas →
 `shared/openapi.json` → Orval-generated TanStack Query hooks
@@ -294,14 +316,22 @@ The API contract flows one way: backend routes/schemas →
 export **and** `pnpm orval`.
 
 CI (`.github/workflows/ci.yml`) runs the full gate on every push/PR: backend
-pytest against a Postgres service, `ruff format --check`, `ruff check`,
-`mypy --strict`, `pip-audit`; frontend `pnpm install --frozen-lockfile`,
-`pnpm test`, `pnpm build`, `pnpm audit`; Playwright against the real frontend,
+pytest against a Postgres service with a coverage floor (`--cov=app
+--cov-fail-under=75` — a coverage regression fails the build), `ruff format
+--check`, `ruff check`, `mypy --strict`, `pip-audit`; frontend `pnpm install
+--frozen-lockfile`, `pnpm test:coverage` (the 85/80/85/85
+statements/branches/functions/lines thresholds in `vitest.config.ts` fail the
+job), `pnpm build`, `pnpm audit`; Playwright against the real frontend,
 API, and PostgreSQL; and builds both application containers. A separate
 pinned-action security workflow runs CodeQL, full-history secret scanning,
 produces SPDX SBOMs for the backend, frontend, and deployed Compose
 infrastructure images, and fails on error/high CodeQL or fixable high/critical
-image vulnerabilities.
+image vulnerabilities. A weekly scheduled mutation campaign
+(`.github/workflows/mutation.yml`) covers the financial core (see above), and
+pushing a `v*` tag triggers `.github/workflows/release.yml`, which publishes
+both images to ghcr.io with SLSA provenance and SPDX SBOM attestations,
+re-gates them on the same Trivy policy, and cuts a GitHub release with the
+SBOMs attached.
 Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
 
 ## Production
@@ -309,6 +339,20 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
 - Unauthenticated ops endpoints: `GET /healthz` (liveness: process up) and
   `GET /readyz` (readiness: `SELECT 1` against the pool, 503 when the DB is
   unreachable). Point load balancers / orchestrators at these.
+- Observability: `GET /metrics` serves Prometheus text exposition
+  (`goatfarm_http_requests_total` and `goatfarm_http_request_duration_seconds`
+  labeled by route template/method/status; `goatfarm_auth_rate_limit_rejections_total`
+  by limiter scope; `goatfarm_idempotency_replays_total`;
+  `goatfarm_simulation_admission_rejections_total` by `cpu_budget`/
+  `capacity_busy`; `goatfarm_refresh_session_purge_batches_total` and
+  `goatfarm_refresh_sessions_purged_total`). It is unauthenticated **by
+  design and only safe on the internal network**: the compose edge proxies
+  `/api/` to the backend and everything else to the frontend, so `/metrics`
+  (deliberately not under `/api`, and kept out of the OpenAPI contract) is
+  unreachable from the public internet — scrape it on the container network.
+  `GOATFARM_METRICS_ENABLED=false` (default true) removes the route (404) and
+  stops all collection; counters are per process, consistent with the
+  single-worker requirement below.
 - Build and run the backend image from the repo root on a private container
   network behind the edge/load balancer. Do not publish port 8000 directly:
 
@@ -418,6 +462,43 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
   name alongside any public API hostname (for example,
   `["api.example.com","backend"]`). Omitting it makes the API health check pass
   while every request Next forwards is rejected with `400 Invalid host header`.
+- **Registry-based single-host deploys.** Pushing a `v*` tag runs
+  `.github/workflows/release.yml`: it builds and pushes
+  `ghcr.io/<owner>/goatfarm-backend:vX.Y.Z` and
+  `ghcr.io/<owner>/goatfarm-frontend:vX.Y.Z` with SLSA provenance and SPDX
+  SBOM attestations attached via buildx, scans both images with the same
+  fixable-HIGH/CRITICAL Trivy gate as the security workflow, and then creates
+  a GitHub release carrying the two SPDX SBOM files. On the deployment host,
+  point Compose at the published tags instead of local builds (`docker login
+  ghcr.io` first — packages are private by default):
+
+  ```yaml
+  # docker-compose.override.yml (`!reset` needs Compose v2.24+)
+  services:
+    migrate:
+      build: !reset null
+      image: ghcr.io/<owner>/goatfarm-backend:vX.Y.Z
+    backend:
+      build: !reset null
+      image: ghcr.io/<owner>/goatfarm-backend:vX.Y.Z
+    frontend:
+      build: !reset null
+      image: ghcr.io/<owner>/goatfarm-frontend:vX.Y.Z
+  ```
+
+  ```bash
+  docker compose pull && docker compose up -d   # migrate still runs first as its own job
+  curl -fsS http://127.0.0.1:3000/healthz       # edge + frontend alive ("ok")
+  curl -fsS http://127.0.0.1:3000/readyz        # backend ready (SELECT 1 through the edge)
+  ```
+
+  The smoke `curl`s traverse the full edge path: `/healthz` is the frontend's
+  own no-auth route handler, `/readyz` still proxies through to the backend's
+  DB-aware readiness probe. Pin the exact tag in the override file — floating
+  tags make rollbacks and the one-migration-job protocol above impossible to
+  reason about. Roll back by repinning the previous tag and re-running
+  `docker compose pull && docker compose up -d` (after checking the migration
+  notes above for downgrades, which are not always reversible).
 
 **Zero-downtime JWT key rotation:** every newly issued token carries a
 deterministic `kid` (the base64url SHA-256 fingerprint of its RSA public key).

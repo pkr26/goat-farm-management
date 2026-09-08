@@ -19,12 +19,14 @@ dependencies = [
     "PyJWT==2.13.0",
     "cryptography==50.0.0",
     "argon2-cffi==25.1.0",
+    "prometheus-client==0.26.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
+    "pytest-cov==7.1.0",
     "httpx==0.28.1",
     "ruff==0.16.1",
     "mypy==2.3.0",
@@ -69,8 +71,20 @@ addopts = ["--strict-markers", "--strict-config"]
 
 [tool.mutmut]
 source_paths = ["app"]
+# Scope deliberately narrowed to the math-critical financial core: the
+# projection engine, finance/NPV math, Monte Carlo, market pricing, the
+# assumption builder, and the simulation request/response schemas (~4,400 of
+# the simulation package's ~9,800 lines). The previous package-wide scope
+# (`app/simulation/*.py`) generated 10,345 mutants — far more than a campaign
+# could classify — so almost all were never tested. The rest of the package
+# (planners, explain, daily ops, snapshot) stays covered by the deterministic
+# unit suites and the PostgreSQL integration suite instead of mutation.
 only_mutate = [
-    "app/simulation/*.py",
+    "app/simulation/engine.py",
+    "app/simulation/finance.py",
+    "app/simulation/montecarlo.py",
+    "app/simulation/market.py",
+    "app/simulation/assumptions.py",
     "app/schemas/simulation.py",
 ]
 # Mutation workers run only deterministic, database-free tests. This keeps the
@@ -84,11 +98,10 @@ pytest_add_cli_args_test_selection = [
     "tests/test_simulation_explain.py",
     "tests/test_simulation_finance_mutation.py",
     "tests/test_simulation_financials.py",
-    # The planner family's bodies are covered by these (sync) suites; without
-    # them the deep-mutation file's thin default-arg calls would pull the
-    # planner bodies into mutation scope with only weak killers.
+    # The planner/daily-ops files are no longer mutation targets themselves,
+    # but their (sync, DB-free) suites drive the engine, finance and market
+    # code through real call graphs, so they stay selected as killers.
     "tests/test_simulation_planner.py",
-    "tests/test_simulation_milk_planner.py",
     "tests/test_backward_planner.py",
     "tests/test_daily_ops.py",
 ]

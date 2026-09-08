@@ -14,6 +14,9 @@ const PAGES: { label: string; href: string; heading: RegExp }[] = [
   { label: "Feeding", href: "/feeding", heading: /^Feeding — today$/ },
   { label: "Tasks", href: "/tasks", heading: /^Tasks$/ },
   { label: "Finance", href: "/finance", heading: /^Finance$/ },
+  { label: "Planner", href: "/planner", heading: /^Planner$/ },
+  { label: "Simulation", href: "/simulation", heading: /^Simulation$/ },
+  { label: "Ops Simulation", href: "/ops-simulation", heading: /^Ops Simulation$/ },
   { label: "Reports", href: "/reports", heading: /^Reports$/ },
   { label: "Team", href: "/team", heading: /^Team$/ },
 ];

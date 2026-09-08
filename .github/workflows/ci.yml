@@ -19,9 +19,10 @@ jobs:
     runs-on: ubuntu-latest
     # pytest drives a real PostgreSQL and is the only slow step here — every
     # other step in this job finishes inside a minute. With 3,200+ tests it can
-    # exceed 35 minutes on a hosted runner, so keep enough headroom for runner
-    # variance and the dependency audit after pytest.
-    timeout-minutes: 50
+    # exceed 35 minutes on a hosted runner, and coverage instrumentation
+    # (--cov=app) adds roughly 15–25% on top, so keep enough headroom for both
+    # plus runner variance and the dependency audit after pytest.
+    timeout-minutes: 60
     services:
       postgres:
         image: postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
@@ -93,11 +94,17 @@ jobs:
           alembic upgrade head
           alembic check
 
-      - name: pytest (real PostgreSQL)
+      - name: pytest (real PostgreSQL, coverage floor)
         working-directory: backend
         env:
           GOATFARM_TEST_DB: goatfarm_test
-        run: python -m pytest -q
+        # --cov-fail-under turns the run into a ratchet: a change that drops
+        # app-wide line coverage below the floor fails the build instead of
+        # silently eroding it. The floor is deliberately modest (the
+        # integration suite covers routers/services heavily; seed/lifecycle
+        # code drags the aggregate down) — raise it toward the measured
+        # value, never above it.
+        run: python -m pytest -q --cov=app --cov-report=term --cov-fail-under=75
 
       - name: Dependency vulnerability scan
         working-directory: backend
@@ -108,7 +115,9 @@ jobs:
 
   frontend:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Headroom for the coverage-instrumented Vitest run plus the production
+    # build, which are the two slow steps in this job.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -144,9 +153,15 @@ jobs:
           pnpm orval
           git diff --exit-code -- src/api/generated
 
-      - name: Vitest
+      - name: Vitest (coverage thresholds enforced)
         working-directory: frontend
-        run: pnpm test
+        # test:coverage = `vitest run --coverage`; without --coverage the
+        # thresholds configured in vitest.config.ts (85/80/85/85
+        # statements/branches/functions/lines) were never evaluated, so a
+        # coverage regression could not fail this job. Measured locally with
+        # two workers the instrumented run takes ~6 minutes (vs ~5 without
+        # coverage); still comfortably inside the job timeout below.
+        run: pnpm test:coverage
 
       - name: Production build + typecheck
         working-directory: frontend
