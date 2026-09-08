@@ -16,6 +16,8 @@ export interface OptimizationCandidate {
   sale_age_months: number;
   female_retention_fraction: number;
   loan_fraction: number;
+  festival_hold_months: number;
+  max_services_before_cull: number;
   project_cost: number;
   capacity_places: number;
   projected_peak_head: number;

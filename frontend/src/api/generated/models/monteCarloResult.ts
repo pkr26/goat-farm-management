@@ -27,6 +27,11 @@ export interface MonteCarloResult {
   minimum_cash_p50: number;
   ending_cash_p5: number;
   ending_cash_p50: number;
+  npv_p5_ci?: [number, number] | null;
+  npv_p50_ci?: [number, number] | null;
+  npv_p95_ci?: [number, number] | null;
+  prob_npv_negative_se?: number | null;
+  minimum_cash_p5_ci?: [number, number] | null;
   mean_disease_outbreaks: number;
   mean_drought_events: number;
   mean_market_crashes: number;

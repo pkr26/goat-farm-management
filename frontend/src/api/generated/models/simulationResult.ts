@@ -30,6 +30,7 @@ export interface SimulationResult {
   terminal_value_breakdown: TerminalValueBreakdown;
   model_version: string;
   assumptions_fingerprint: string;
+  warnings?: string[];
   metric_explanations?: MetricExplanation[];
   narrative_report?: ReportSection[];
   monte_carlo?: MonteCarloResult | null;

@@ -34,6 +34,7 @@ export interface MonthlyRow {
   manure_revenue: number;
   purchases_head: number;
   purchase_cost: number;
+  breeding_stock_capex: number;
   feed_green_kg: number;
   feed_homegrown_green_kg: number;
   feed_purchased_green_kg: number;

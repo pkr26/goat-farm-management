@@ -228,22 +228,22 @@ def test_metric_narratives_are_stable_across_core_financial_branches() -> None:
     )
 
     assert _explanation_digest(default) == (
-        "b041dcd034d421d5cb244f1e04bf4f5c1b8a51887fd79c4aea81ca8e0905b33d"
+        "549a1cb11acc0403c8e18bc3de702feda8ace86fb7f5e0acb7b26d1e034d3e97"
     )
     assert _explanation_digest(viable) == (
-        "6d9635604a54310afdd8f20d00fef22f7d63e16662c8f26c87484c3cdb180e77"
+        "72ca5a56f85f4c13c22fbd801ef721fdbb9672421f17e11f04a3c6bf2dbbac8b"
     )
     assert _explanation_digest(no_debt) == (
-        "0bb301d2ffe5ad4656ad8396bb5d1b97ca29e4347e49dc6810496f0485687b1a"
+        "d447d0506ba815cc5586b3b5c789ecf363605e6a9e49781b8923f25f9c8c03b4"
     )
     assert _report_digest(default) == (
-        "0c0d3ee4a7feb6d2802e0d595d37f06c5354f539f4bdecaf0fbdf31c34534c31"
+        "965c34dba534d7119e7be77d28421ff2266a67342d2be7615dfcdbe365ec61ed"
     )
     assert _report_digest(viable) == (
-        "35c1fb2a993eec0c824b93307991996c4992f9082a909c5c96a1eca7d5b9dee9"
+        "69adb9419cebfe43e66328f597943ba53ce10dbe3adc8c4a7da54da20b4c4479"
     )
     assert _report_digest(no_debt) == (
-        "a8bb3e06f6ad8daec2bb3a373b5af09e501087d4b0adbc5fc3be267f09d74039"
+        "195faaa1b6273cc28e2a4f51eb6be13524ad8451f5f1fce86c2bc521d13fec2b"
     )
     # Digests regenerated in the audit-remediation contract update: the
     # labour-rule, DSCR-window and growth-curve corrections changed the
@@ -251,9 +251,13 @@ def test_metric_narratives_are_stable_across_core_financial_branches() -> None:
     # Re-hashed again in the 2026-09-04 red-team remediation: the Monte-Carlo
     # feed-price draw no longer scales home-grown green fodder (a cultivation
     # cost — consistent with the drought channel), shifting the risk band the
-    # narratives quote. Deterministic digests above are unchanged.
+    # narratives quote. Re-hashed in the 2026-09 audit remediation (model
+    # 3.1.0): repeat-breeder culls, parity structure, the SPEC kidding cycle,
+    # breeding-stock capitalization, half-unit labour, deseasonalized
+    # insurance valuation, Telangana selling-cost defaults, and Monte Carlo
+    # confidence-interval sentences all changed quoted figures.
     assert _report_digest(risk) == (
-        "8f965c2c10996a6e67477d65712d54493d36d194535b638c3ce60e4a49a540cc"
+        "4f11e6c59912e00117cefc6264a2a4ae2270d7b6d29da6d0081d8812d7cf9e68"
     )
 
 
@@ -710,12 +714,12 @@ def test_break_even_explanation_covers_no_solution_and_margin_boundaries() -> No
 
 def test_cost_and_revenue_mix_rank_by_actual_magnitude() -> None:
     """The paragraphs used to hard-code "Feed is the largest" and "Meat sales
-    dominate". With a flat ₹10,000/month labour floor, labour outweighs feed
-    for any smallholder herd — and the old sentence contradicted the figures
-    printed in its own next clause."""
+    dominate". Even on the half-attendant labour scale (0.5 x ₹14,000/month)
+    labour outweighs feed for a smallholder herd — and the old sentence
+    contradicted the figures printed in its own next clause."""
     a = SimulationAssumptions()
-    a.herd.does = 5
-    a.herd.max_breeding_does = 5
+    a.herd.does = 2
+    a.herd.max_breeding_does = 2
     res = run_simulation(a, with_break_even=False)
     sections = {s.key: s for s in res.narrative_report}
     cost = sections["cost_mix"]
@@ -861,7 +865,9 @@ def test_fodder_deficit_narrative_matches_engine_costing() -> None:
     assert result.feed_summary.fodder_deficit_months > 0
 
     cost_mix = next(section for section in result.narrative_report if section.key == "cost_mix")
-    land_paragraph = cost_mix.paragraphs[1]
+    # The land paragraph is located by content: the breeding-capitalization
+    # note (present whenever sires are bought) also lives in this section.
+    land_paragraph = next(p for p in cost_mix.paragraphs if "acre(s) on average" in p)
 
     purchased = sum(result.feed_summary.annual_purchased_green_kg)
     assert purchased > 0.0
@@ -889,8 +895,9 @@ def test_fodder_narrative_distinguishes_zero_and_one_deficit_month() -> None:
         for section in build_narrative_report(assumptions, no_deficit)
         if section.key == "cost_mix"
     )
-    assert no_deficit_costs.paragraphs[1].endswith("acre(s) on average.")
-    assert "falls short" not in no_deficit_costs.paragraphs[1]
+    no_deficit_paragraph = next(p for p in no_deficit_costs.paragraphs if "acre(s) on average" in p)
+    assert no_deficit_paragraph.endswith("acre(s) on average.")
+    assert "falls short" not in no_deficit_paragraph
 
     one_deficit = result.model_copy(
         update={"feed_summary": result.feed_summary.model_copy(update={"fodder_deficit_months": 1})}
@@ -900,8 +907,11 @@ def test_fodder_narrative_distinguishes_zero_and_one_deficit_month() -> None:
         for section in build_narrative_report(assumptions, one_deficit)
         if section.key == "cost_mix"
     )
-    assert "falls short in 1 month(s)" in one_deficit_costs.paragraphs[1]
-    assert "bought at the configured market price" in one_deficit_costs.paragraphs[1]
+    one_deficit_paragraph = next(
+        p for p in one_deficit_costs.paragraphs if "acre(s) on average" in p
+    )
+    assert "falls short in 1 month(s)" in one_deficit_paragraph
+    assert "bought at the configured market price" in one_deficit_paragraph
 
 
 def test_overview_lists_each_single_youngstock_cohort() -> None:
@@ -982,6 +992,8 @@ def test_optimizer_report_exposes_the_complete_recommended_plan() -> None:
         sale_age_months=10,
         female_retention_fraction=0.65,
         loan_fraction=0.40,
+        festival_hold_months=2,
+        max_services_before_cull=2,
         project_cost=900_000.0,
         capacity_places=80.0,
         projected_peak_head=70.0,

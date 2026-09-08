@@ -30,6 +30,7 @@ from app.simulation import (
     run_simulation,
 )
 from app.simulation.assumptions import HerdEventAssumptions as Event
+from app.simulation.assumptions import ParityMultipliers
 from app.simulation.defaults import barbari, beetal, jamunapari
 from app.simulation.engine import (
     _pool_avg_weight,
@@ -97,7 +98,13 @@ def toy_assumptions(**herd_overrides: object) -> SimulationAssumptions:
     a.sales.annual_livestock_price_growth_rate = 0.0
     a.feed.annual_feed_price_growth_rate = 0.0
     a.sales.monthly_meat_price_multipliers = [1.0] * 12
+    # Flat reproduction policy, matching the engine-file toy: parity and the
+    # repeat-breeder cull default have dedicated tests of their own.
+    a.reproduction.parity_multipliers = ParityMultipliers(litter_size=[1.0], conception_rate=[1.0])
+    a.reproduction.max_services_before_cull = 0
     return a
+
+
 def test_beetal_and_barbari_default_system_is_stall_fed() -> None:
     """The preset factories default to stall-fed; a mutated default ("STALL_FED",
     "XXstall_fedXX", …) makes ``apply_system`` raise or drift the variant."""
@@ -500,6 +507,8 @@ def test_scale_milk_price_low_and_high_factors() -> None:
     _scale_milk_price_high(high)
     assert high.sales.milk_price_per_litre == pytest.approx(120.0)
     assert high.sales.milk_price_per_kg_fat == pytest.approx(1020.0)
+
+
 def test_histogram_bins_and_degenerate_range() -> None:
     """Equal-width bins with the last value clamped into the final bin."""
     counts, edges = _histogram([0.0, 1.0, 2.0, 3.0, 4.0], bins=4)
@@ -707,6 +716,8 @@ def test_payback_by_liquidation_wording() -> None:
     assert result.months[10].cumulative_cash_flow < 0.0
     texts = {entry.key: entry.explanation for entry in result.metric_explanations}
     assert "payback by liquidation" in texts["payback_month"]
+
+
 # --- planner / milk planner / backward planner: default-argument contracts ------
 
 
@@ -747,6 +758,8 @@ def test_build_plan_report_closes_gaps_by_default() -> None:
     assert disabled.recommended_purchases == []
     assert disabled.after is None
     assert default_report.recommended_purchases != []
+
+
 # --- engine: mass balance, pool mechanics and boundary gates ---------------------
 
 
@@ -809,7 +822,11 @@ def _dairy_mode_fixture() -> SimulationAssumptions:
     a.sales.calf_milk_litres_per_day_per_calf = 2.5
     a.sales.milk_price_per_kg_fat = 850.0
     a.sales.milk_fat_pct = 6.8
+    # Flat parity keeps the mirrored conception/litter arithmetic exact (the
+    # default parity table scales both below 1.0).
+    a.reproduction.parity_multipliers = ParityMultipliers(litter_size=[1.0], conception_rate=[1.0])
     return a
+
 
 def test_dairy_mass_balance_and_foundation_overlay_mirrors() -> None:
     """Murrah (mixed foundation, dairy mode): month-1 pools and milk follow
@@ -1227,13 +1244,15 @@ def test_calf_milk_consumption_clamps_at_zero() -> None:
 
 def test_labour_is_zero_without_breeding_does() -> None:
     """A bucks-only herd pays no labour (``all_does_now > 0`` gates the crew),
-    while the same herd plus one doe hires the first worker."""
+    while the same herd plus one doe books the half-time attendant floor."""
     bucks_only = toy_assumptions(does=0, bucks=2)
     result = run_simulation(bucks_only)
     assert all(row.labour_cost == 0.0 for row in result.months)
     one_doe = toy_assumptions(does=1, bucks=2)
     result = run_simulation(one_doe)
-    assert result.months[0].labour_cost == pytest.approx(one_doe.costs.labour_per_month)
+    # Half-attendant granularity: a one-doe flock books half a unit, not a
+    # full hire (the whole-labourer floor pre-3.1 charged ₹14,000/month).
+    assert result.months[0].labour_cost == pytest.approx(0.5 * one_doe.costs.labour_per_month)
 
 
 def test_manure_covers_the_finishing_pen_and_bucks() -> None:
@@ -1484,6 +1503,8 @@ def test_crossing_roots_on_bracket_endpoints_do_not_bisect() -> None:
     roots = _crossing_decimal_power_roots([(2.0, 1.0), (1.0, -4.0), (0.0, 3.0)], 1.0, 3.0)
     floats = [float(root) for root in roots]
     assert floats == pytest.approx([1.0, 3.0], abs=1e-25)
+
+
 def test_dairy_mode_boundary_at_one_lactation_month() -> None:
     """lactation_months == 1 is still dairy: the species litter cap (2) binds
     where meat mode would allow the configured litter of 3."""
@@ -1573,6 +1594,8 @@ def test_dairy_overlay_anchoring_kfloor_and_serving_clamp() -> None:
         * a.sales.monthly_milk_price_multipliers[7]
     )
     assert result.months[0].milk_revenue == pytest.approx(litres * price, rel=1e-9)
+
+
 def test_projected_peak_equals_max_herd_without_decay() -> None:
     """With zero mortality and no scheduled events the physical peak equals
     the maximum month-end herd exactly — in meat mode (where ``lact`` is a

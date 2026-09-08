@@ -91,10 +91,15 @@ def cultivated_green_supply_kg_dm_for_month(
 
 
 # Bakrid (Eid al-Adha) Gregorian dates as observed in India. Verified against
-# timeanddate.com and Drik Panchang through 2032; 2033-2040 are estimates
-# (the festival drifts ~10.5 days earlier per Gregorian year) and are marked
-# tentative — moon sighting moves the day, rarely the month. The simulation
-# only needs the month: month resolution makes a ±1-day estimate safe.
+# timeanddate.com and Drik Panchang through 2032; 2033-2050 are projections
+# (the festival drifts ~10.7-11 days earlier per Gregorian year) and are
+# marked tentative — moon sighting moves the day, rarely the month. The
+# simulation only needs the month: month resolution makes a ±1-day estimate
+# safe. 2041-2045 are from the Fiqh Council of North America calendar /
+# datehijri.com (India moon-sighting shifts 2044 to Nov 1 and 2045 to Oct 22
+# — same month, so the table keeps the FCNA day); 2046-2050 follow the
+# documented ~10.7-11 day annual drift and are month-resolution estimates
+# only.
 BAKRID_DATES_BY_YEAR: dict[int, tuple[int, int]] = {
     2026: (5, 28),
     2027: (5, 17),
@@ -111,15 +116,37 @@ BAKRID_DATES_BY_YEAR: dict[int, tuple[int, int]] = {
     2038: (1, 15),  # tentative
     2039: (1, 4),  # tentative
     2040: (12, 26),  # tentative
+    2041: (12, 4),  # tentative (FCNA calendar)
+    2042: (11, 23),  # tentative (FCNA calendar)
+    2043: (11, 12),  # tentative (FCNA calendar)
+    2044: (10, 31),  # tentative; India moon sighting Nov 1 — same month
+    2045: (10, 21),  # tentative; India moon sighting Oct 22 — same month
+    2046: (10, 10),  # tentative (drift projection ~10.7 d/yr)
+    2047: (9, 29),  # tentative (drift projection)
+    2048: (9, 18),  # tentative (drift projection)
+    2049: (9, 7),  # tentative (drift projection)
+    2050: (8, 28),  # tentative (drift projection)
 }
+
+
+def festival_coverage_last_year() -> int:
+    """Last calendar year the embedded Bakrid calendar covers.
+
+    Runs whose horizon extends beyond this year carry no festival uplift in
+    the uncovered months (see ``bakrid_festival_months``); the public result
+    surfaces a warning so a 2055-ending plan does not silently read as a
+    no-Bakrid world.
+    """
+    return max(BAKRID_DATES_BY_YEAR)
 
 
 def bakrid_festival_months(start_year_month: str, horizon_months: int) -> list[int]:
     """1-based simulation months whose calendar month contains Bakrid.
 
-    Returns [] for start years outside the embedded calendar rather than a
-    guessed extrapolation: a wrong festival month silently mis-times a
-    planned sale, which is worse than no festival at all.
+    Returns only months inside the embedded calendar rather than a guessed
+    extrapolation: a wrong festival month silently mis-times a planned sale,
+    which is worse than no festival at all (the public run reports a warning
+    when the horizon extends past ``festival_coverage_last_year``).
     """
     try:
         year, month = int(start_year_month[:4]), int(start_year_month[5:7])

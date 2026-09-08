@@ -130,7 +130,9 @@ def test_actions_and_chains_cover_the_full_backward_story() -> None:
     ]
     chain = report.chains[2]
     labels = [step.label for step in chain.steps]
-    assert "breedable doe(s) bred (retries until pregnant)" in labels[0]
+    # Default repeat-breeder cap is 2 services now (parity with the
+    # operational GOAT_PROFILE flag), so the qualifier names the cap.
+    assert "breedable doe(s) bred (up to 2 services)" in labels[0]
     assert chain.steps[-1].year_month == "2028-01"
     assert chain.steps[-1].quantity == 120
     # The biology only ever adds head as you walk backward within a link:
@@ -161,9 +163,11 @@ def test_requirement_chain_math_is_consistent_with_biology() -> None:
     bred, kidded, born, sold = (step.quantity for step in chain.steps)
     # kids_per_doe = litter × (1 − stillbirth) = 1.6 × 0.98
     assert kidded == -(-born // 1.568)  # ceil division against the per-doe yield
-    # Defaults allow unlimited service retries, so every bred doe eventually
-    # kids (some on a later service): bred == kidded.
-    assert bred == kidded
+    # The default 2-service repeat-breeder cap (parity with the operational
+    # GOAT_PROFILE flag) means a bred doe conceives within her two services
+    # with probability 1 − (1 − 0.85)^2 = 0.9775: bred covers kidded against
+    # that within-cap conception rate, not 1:1.
+    assert bred == -(-kidded // 0.9775)
     assert sold == 120
     # Born head ≥ sold head (mortality and the other sex's share add animals).
     assert born >= 120
@@ -203,6 +207,8 @@ def test_no_recommendation_note_when_the_plan_needs_no_purchases() -> None:
     )
     assert report.plan.recommended_purchases == []
     assert not any("Recommendation in one line" in note for note in report.notes)
+
+
 def test_notes_lead_with_the_plan_window() -> None:
     report = build_backward_plan(
         _anchored(),

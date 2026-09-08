@@ -53,4 +53,14 @@ export interface OptimizationAssumptions {
      * @maximum 1
      */
   loan_fraction_step?: number;
+  /**
+     * @minimum 0
+     * @maximum 6
+     */
+  festival_hold_radius_months?: number;
+  /**
+     * @minimum 0
+     * @maximum 6
+     */
+  service_cull_radius_months?: number;
 }

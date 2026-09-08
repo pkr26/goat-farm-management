@@ -50,7 +50,13 @@ class MonthlyRow(BaseModel):
     milk_revenue: float  # ₹
     manure_revenue: float  # ₹
     purchases_head: float  # scheduled stock plus automatic replacement bucks
-    purchase_cost: float  # ₹
+    purchase_cost: float  # ₹ (young-stock purchases; trading animals, expensed)
+    # ₹ cash spent this month buying BREEDING does/bucks (scheduled events and
+    # automatic sire restocking). Capitalized on the breeding-livestock asset
+    # account and depreciated straight-line over
+    # costs.breeding_stock_useful_life_months; the cash outlay itself still
+    # lands in this month's cash flow, and EBITDA/tax exclude it.
+    breeding_stock_capex: float
     feed_green_kg: float  # as-fed
     feed_homegrown_green_kg: float  # as-fed green requirement supplied on-farm
     feed_purchased_green_kg: float  # as-fed green requirement bought at market
@@ -100,7 +106,11 @@ class AnnualPLRow(BaseModel):
     insurance_cost: float
     misc_cost: float
     selling_cost: float
-    stock_purchases: float
+    stock_purchases: float  # young-stock purchase cash (trading animals)
+    # ₹ cash spent buying breeding does/bucks during the year; capitalized,
+    # so it is excluded from total_opex/EBITDA and recovered through the
+    # depreciation line and the terminal breeding-stock book value.
+    breeding_stock_capex: float
     total_opex: float
     ebitda: float
     depreciation: float
@@ -180,12 +190,22 @@ class ProjectCostBreakdown(BaseModel):
 
 
 class TerminalValueBreakdown(BaseModel):
-    """Recoverable closing assets included in the final project cash flow."""
+    """Recoverable closing assets included in the final project cash flow.
+
+    ``breeding_stock`` is the residual BOOK value of breeding does/bucks
+    capitalized during the run (purchases less straight-line depreciation).
+    ``livestock`` then carries the closing herd's market value ABOVE that
+    book value (young stock at market value plus the disposal gain/loss on
+    the capitalized breeding animals), so the two lines together recover
+    exactly the same closing-herd market value the pre-capitalization model
+    did — the asset account changes the accounting split, not the cash.
+    """
 
     livestock: float
     shed: float
     equipment: float
     working_capital: float
+    breeding_stock: float
     total: float
 
 
@@ -237,6 +257,17 @@ class MonteCarloResult(BaseModel):
     minimum_cash_p50: float
     ending_cash_p5: float
     ending_cash_p50: float
+    # Monte Carlo sampling-uncertainty reporting: nonparametric bootstrap
+    # 95% confidence intervals for the headline percentiles (resamples drawn
+    # from a sub-seed derived from the run seed, so a given seed always
+    # reproduces the same intervals), and the analytic binomial standard
+    # error of the loss probability. None when the run count is too small to
+    # bootstrap (a single run has no sampling distribution).
+    npv_p5_ci: tuple[float, float] | None = None
+    npv_p50_ci: tuple[float, float] | None = None
+    npv_p95_ci: tuple[float, float] | None = None
+    prob_npv_negative_se: float | None = None
+    minimum_cash_p5_ci: tuple[float, float] | None = None
     mean_disease_outbreaks: float
     mean_drought_events: float
     mean_market_crashes: float
@@ -267,6 +298,10 @@ class OptimizationCandidate(BaseModel):
     sale_age_months: int
     female_retention_fraction: float
     loan_fraction: float
+    # Marketing/breeding-discipline decisions the search also explores (see
+    # OptimizationAssumptions' axis radii).
+    festival_hold_months: int
+    max_services_before_cull: int
     project_cost: float
     capacity_places: float
     projected_peak_head: float
@@ -302,6 +337,10 @@ class SimulationResult(BaseModel):
     terminal_value_breakdown: TerminalValueBreakdown
     model_version: str
     assumptions_fingerprint: str
+    # Non-fatal model-coverage caveats for THIS run (e.g. a horizon extending
+    # past the last year of the embedded Bakrid calendar, so trailing months
+    # carry no festival uplift). Empty for fully covered runs.
+    warnings: list[str] = Field(default_factory=list)
     metric_explanations: list[MetricExplanation] = Field(default_factory=list)
     narrative_report: list[ReportSection] = Field(default_factory=list)
     monte_carlo: MonteCarloResult | None = None

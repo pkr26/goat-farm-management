@@ -635,7 +635,9 @@ async def test_scenario_events_roundtrip(client: httpx.AsyncClient) -> None:
     body = resp.json()
     month14 = body["months"][13]
     assert month14["purchases_head"] >= 10.0  # plus fractional auto-buck top-ups
-    assert month14["purchase_cost"] >= 80000.0
+    # Doe purchases capitalize on the breeding-stock account (model 3.1.0).
+    assert month14["purchase_cost"] == 0.0
+    assert month14["breeding_stock_capex"] >= 80000.0
     assert any("Purchased 10 doe(s)" in note for note in month14["events"])
     assert body["months"][12]["events"] == []
 
@@ -1107,7 +1109,7 @@ async def test_run_can_return_bounded_optimization(client: httpx.AsyncClient) ->
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["model_version"] == "3.0.0"
+    assert body["model_version"] == "3.1.0"
     assert len(body["assumptions_fingerprint"]) == 64
     assert body["optimization"]["evaluated_candidates"] <= 3
     assert body["optimization"]["feasible_candidates"] >= 0

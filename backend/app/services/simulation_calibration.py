@@ -27,6 +27,7 @@ from ..schemas.simulation import CalibrationEvidence, FarmCalibrationOut
 from ..simulation.assumptions import (
     MAX_MONEY,
     MAX_WEIGHT_KG,
+    ParityMultipliers,
     SimulationAssumptions,
     _normalized_seasonality,
 )
@@ -480,6 +481,12 @@ async def calibrate_farm_assumptions(
         conception_previous = assumptions.reproduction.conception_rate
         conception_calibrated = conceived / len(assessed)
         assumptions.reproduction.conception_rate = conception_calibrated
+        # The farm's own observed rate is a herd average that already embeds
+        # its parity mix; keeping the literature parity table on top would
+        # double-count the maiden/late-parity drag. Flatten it.
+        assumptions.reproduction.parity_multipliers = ParityMultipliers(
+            litter_size=[1.0], conception_rate=[1.0]
+        )
         record(
             "reproduction.conception_rate",
             conception_previous,
@@ -530,6 +537,12 @@ async def calibrate_farm_assumptions(
         litter_previous = assumptions.reproduction.litter_size
         litter_calibrated = _clamp(sum(litter_sizes) / len(litter_sizes), 0.5, 4.0)
         assumptions.reproduction.litter_size = litter_calibrated
+        # Same parity note as the conception calibration above: the observed
+        # mean litter is already parity-blended; a second parity layer would
+        # double-count it.
+        assumptions.reproduction.parity_multipliers = ParityMultipliers(
+            litter_size=[1.0], conception_rate=[1.0]
+        )
         record(
             "reproduction.litter_size",
             litter_previous,

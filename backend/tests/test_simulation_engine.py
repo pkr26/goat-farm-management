@@ -61,7 +61,7 @@ from app.simulation import (
     weight_at_age,
 )
 from app.simulation import engine as engine_module
-from app.simulation.assumptions import MAX_MONEY, HerdEventAssumptions
+from app.simulation.assumptions import MAX_MONEY, HerdEventAssumptions, ParityMultipliers
 from app.simulation.engine import (
     _ceil_head_ratio,
     _draw,
@@ -118,6 +118,12 @@ def toy_assumptions(**herd_overrides: object) -> SimulationAssumptions:
     a.sales.annual_livestock_price_growth_rate = 0.0
     a.feed.annual_feed_price_growth_rate = 0.0
     a.sales.monthly_meat_price_multipliers = [1.0] * 12
+    # Flat reproduction policy for the golden cohort math: the parity table
+    # and the repeat-breeder cull default (max_services_before_cull = 2, the
+    # new model default) each have dedicated tests; the toy goldens pin
+    # engine mechanics in isolation, so both policies are pinned off here.
+    a.reproduction.parity_multipliers = ParityMultipliers(litter_size=[1.0], conception_rate=[1.0])
+    a.reproduction.max_services_before_cull = 0
     return a
 
 
@@ -202,6 +208,9 @@ def test_documented_pre_weaning_rate_removes_ten_percent_of_the_crop() -> None:
             gestation_months=1,
             months_open_before_breeding=12,  # no rebreeding inside the horizon
             stillbirth_rate=0.0,
+            # Flat parity table: this test pins mortality semantics, and the
+            # default parity litter structure would scale the 16-kid crop.
+            parity_multipliers=ParityMultipliers(litter_size=[1.0], conception_rate=[1.0]),
         ),
         mortality=MortalityAssumptions(
             kid_pre_weaning=0.10,
@@ -602,10 +611,15 @@ def test_buck_rotation_skipped_when_auto_purchase_is_off() -> None:
     the sire battery at month 36 and — conception being gated on buck
     presence — permanently sterilized the herd for the rest of the horizon."""
     culling = CullingAssumptions(doe_cull_rate_annual=0.0, max_doe_age_months=180)
+    # Repeat-breeder culls off too (max_services_before_cull defaults to 2
+    # now): this test isolates the rotation policy, and service-driven culls
+    # would pollute the "culls stay 0" expectation below.
+    reproduction = ReproductionAssumptions(max_services_before_cull=0)
     manual = SimulationAssumptions(
         meta=MetaAssumptions(horizon_months=48),
         herd=HerdAssumptions(does=50, bucks=2, auto_purchase_bucks=False),
         culling=culling,
+        reproduction=reproduction,
     )
     res = run_simulation(manual, with_break_even=False)
     m36 = res.months[35]  # default buck_rotation_years=3 -> rotation month 36
@@ -626,6 +640,7 @@ def test_buck_rotation_skipped_when_auto_purchase_is_off() -> None:
         meta=MetaAssumptions(horizon_months=48),
         herd=HerdAssumptions(does=50, bucks=2, auto_purchase_bucks=True),
         culling=culling,
+        reproduction=reproduction,
     )
     m36_auto = run_simulation(auto, with_break_even=False).months[35]
     assert m36_auto.culls_head == pytest.approx(3.0 * S_ADULT, abs=1e-6)
@@ -660,7 +675,10 @@ def test_scheduled_buck_purchase_at_rotation_month_survives_the_cull() -> None:
     assert m12.culls_head == pytest.approx(2.0 * S_ADULT**12, abs=1e-6)
     assert m12.bucks == pytest.approx(5.0 * S_ADULT, abs=1e-6)
     assert m12.purchases_head == pytest.approx(5.0)
-    assert m12.purchase_cost == pytest.approx(5.0 * a.herd.buck_purchase_price)
+    # Breeding bucks capitalize: young-stock purchase_cost stays 0 and the
+    # breeding-livestock asset account carries the cash.
+    assert m12.purchase_cost == pytest.approx(0.0)
+    assert m12.breeding_stock_capex == pytest.approx(5.0 * a.herd.buck_purchase_price)
 
 
 def test_auto_purchase_fills_only_the_missing_part_of_a_sire_battery() -> None:
@@ -680,7 +698,9 @@ def test_auto_purchase_fills_only_the_missing_part_of_a_sire_battery() -> None:
     first = run_simulation(assumptions, with_break_even=False).months[0]
 
     assert first.purchases_head == pytest.approx(2.0)
-    assert first.purchase_cost == pytest.approx(2.0 * assumptions.herd.buck_purchase_price)
+    # Auto-purchased sires capitalize on the breeding-stock account.
+    assert first.purchase_cost == pytest.approx(0.0)
+    assert first.breeding_stock_capex == pytest.approx(2.0 * assumptions.herd.buck_purchase_price)
     assert first.bucks == pytest.approx(3.0)
 
 
@@ -746,10 +766,11 @@ def test_zero_open_wait_combines_ready_and_returning_lactating_does() -> None:
 
     first = run_simulation(assumptions, with_break_even=False).months[0]
 
-    # Nine foundation does are spread over one ready, five pregnant and three
-    # lactating slots. Month 1 combines the ready doe with the one leaving the
-    # last lactation slot.
-    assert first.open_does == pytest.approx(2.0)
+    # Nine foundation does are spread over one ready, five pregnant and two
+    # lactating slots (the SPEC-aligned lactation pool is 2 months). Month 1
+    # combines the ready doe with the one leaving the last lactation slot:
+    # 2 x (9 / 8).
+    assert first.open_does == pytest.approx(2.25)
 
 
 # ---------------------------------------------------------------------------
@@ -863,7 +884,7 @@ def test_breed_presets_and_systems() -> None:
             15_000,
             1.6,
             10,
-            3,
+            2,  # SPEC weaning+rebreed interval (GOAT_PROFILE.weaning_days=60)
             2.5,
             33,
             42,
@@ -873,8 +894,8 @@ def test_breed_presets_and_systems() -> None:
             370,
             0.15,
         ),
-        "sirohi": (9_000, 14_000, 1.4, 12, 3, 3.0, 40, 50, 1.18, 9, 110, 370, 0.15),
-        "barbari": (7_000, 10_000, 1.8, 10, 3, 2.0, 27, 30, 0.85, 8, 90, 370, 0.15),
+        "sirohi": (9_000, 14_000, 1.4, 12, 2, 3.0, 40, 50, 1.18, 9, 110, 370, 0.15),
+        "barbari": (7_000, 10_000, 1.8, 10, 2, 2.0, 27, 30, 0.85, 8, 90, 370, 0.15),
         "jamunapari": (
             11_000,
             16_000,
@@ -896,7 +917,7 @@ def test_breed_presets_and_systems() -> None:
             6_000,
             2.0,
             9,
-            3,
+            2,  # default lactation pool (3 before the SPEC weaning alignment)
             1.5,
             18,
             20,
@@ -906,7 +927,7 @@ def test_breed_presets_and_systems() -> None:
             370,
             0.12,
         ),
-        "boer_cross": (10_000, 18_000, 1.7, 12, 3, 3.0, 40, 50, 1.3, 8, 0, 400, 0.15),
+        "boer_cross": (10_000, 18_000, 1.7, 12, 2, 3.0, 40, 50, 1.3, 8, 0, 400, 0.15),
     }
 
     # The preset registry itself is pinned: a breed added or removed from
@@ -1078,8 +1099,9 @@ def test_milk_revenue_hand_check() -> None:
     a.sales.annual_milk_price_growth_rate = 0.0
     res = run_simulation(a, with_break_even=False)
     m6 = res.months[5]
-    # 110 L over a 3-month lactation at Rs 30/L -> Rs 1100 per milking doe-month.
-    assert m6.milk_revenue == pytest.approx(m6.lactating_does * (110.0 / 3.0) * 30.0, abs=1e-6)
+    # 110 L over the 2-month lactation pool (the SPEC weaning interval) at
+    # Rs 30/L -> Rs 1650 per milking doe-month.
+    assert m6.milk_revenue == pytest.approx(m6.lactating_does * (110.0 / 2.0) * 30.0, abs=1e-6)
     # Osmanabadi default (0 L/lactation) earns nothing from milk.
     assert run_simulation(toy_assumptions(), with_break_even=False).months[5].milk_revenue == 0.0
 
@@ -1101,14 +1123,15 @@ def test_labour_scales_with_herd_size() -> None:
     res = run_simulation(SimulationAssumptions(), with_break_even=False)
     m12 = res.months[11]
     # The staffing rule is the TNAU/NABARD norm: one labourer per ~50 does
-    # WITH progeny — charged on adult breeding females, not standing head.
-    # Rs 14,000/month escalating at the 5%/yr operating-cost growth rate
-    # (month 12 of year 1: 1.05**(11/12)).
+    # WITH progeny — charged on adult breeding females, not standing head, in
+    # HALF-attendant units (ceil(2 x does / 60) / 2). Rs 14,000/month
+    # escalating at the 5%/yr operating-cost growth rate (month 12 of year 1:
+    # 1.05**(11/12)).
     adult_does = m12.open_does + m12.pregnant_does + m12.lactating_does
-    labourers = -(-adult_does // 60) if adult_does else 0
+    labour_units = max(0.5, math.ceil(2.0 * adult_does / 60) / 2.0) if adult_does > 0 else 0.0
     growth = 1.05 ** (11.0 / 12.0)
-    assert m12.labour_cost == pytest.approx(max(1, labourers) * 14000.0 * growth, rel=1e-9)
-    assert 25.0 < adult_does <= 180.0  # -> 1-3 labourers at the per-60-doe rule
+    assert m12.labour_cost == pytest.approx(labour_units * 14000.0 * growth, rel=1e-9)
+    assert 25.0 < adult_does <= 180.0  # -> 0.5-3 attendants at the per-60-doe rule
 
 
 def test_sensitivity_tornado_sorted() -> None:
@@ -1280,6 +1303,11 @@ def test_scheduled_purchase_cost_is_excluded_from_working_capital() -> None:
         meta=MetaAssumptions(horizon_months=12),
         herd=HerdAssumptions(does=0, bucks=0, auto_purchase_bucks=False),
     )
+    # This test isolates how the PURCHASE is treated in working capital; the
+    # Telangana selling-cost defaults (3% + Rs 100/head) would legitimately
+    # enter year-1 average opex through the month-1 sale below.
+    base.sales.selling_cost_fraction = 0.0
+    base.sales.transport_cost_per_head = 0.0
     round_trip = base.model_copy(deep=True)
     round_trip.events = [
         HerdEventAssumptions(month=1, kind="purchase", animal_class="female_kid", count=100),
@@ -1448,9 +1476,11 @@ def test_purchase_event_does_jump_at_event_month() -> None:
     # Purchased does face this month's mortality like the rest of the pool.
     assert _doe_pool(m14) - _doe_pool(m14_base) == pytest.approx(10.0 * S_ADULT, abs=1e-6)
     assert m14.total_herd - m14_base.total_herd == pytest.approx(10.0 * S_ADULT, abs=1e-6)
-    # Charged as opex at the default doe purchase price; revenue untouched.
+    # Charged in the purchase month at the default doe price — as
+    # capitalized breeding-stock cash, not young-stock opex; revenue untouched.
     assert m14.purchases_head == 10.0
-    assert m14.purchase_cost == pytest.approx(
+    assert m14.purchase_cost == pytest.approx(0.0)
+    assert m14.breeding_stock_capex == pytest.approx(
         10.0 * SimulationAssumptions().herd.doe_purchase_price
     )
     assert m14.sales_revenue == pytest.approx(m14_base.sales_revenue, abs=1e-9)
@@ -1497,7 +1527,13 @@ def test_purchase_events_per_class_jump_and_price() -> None:
             animal_class
         )
         assert m6.purchases_head == 5.0, animal_class
-        assert m6.purchase_cost == pytest.approx(5.0 * price), animal_class
+        # Breeding classes (doe/buck) capitalize; young stock stays opex.
+        if animal_class in ("doe", "buck"):
+            assert m6.purchase_cost == pytest.approx(0.0), animal_class
+            assert m6.breeding_stock_capex == pytest.approx(5.0 * price), animal_class
+        else:
+            assert m6.purchase_cost == pytest.approx(5.0 * price), animal_class
+            assert m6.breeding_stock_capex == pytest.approx(0.0), animal_class
 
 
 @pytest.mark.parametrize(
@@ -1564,7 +1600,9 @@ def test_purchase_price_per_head_override_used_verbatim() -> None:
     )
     res = run_simulation(event_toy([event], horizon=12), with_break_even=False)
     m3 = res.months[2]
-    assert m3.purchase_cost == pytest.approx(2.0 * 5000.0)
+    # Doe purchases carry the override price on the capitalized account.
+    assert m3.purchase_cost == pytest.approx(0.0)
+    assert m3.breeding_stock_capex == pytest.approx(2.0 * 5000.0)
     assert any("₹5,000/head" in note for note in m3.events)
 
 
@@ -2203,7 +2241,10 @@ def test_event_on_month_one() -> None:
     base = run_simulation(event_toy([], horizon=12), with_break_even=False)
     m1 = res.months[0]
     assert m1.purchases_head == 4.0
-    assert m1.purchase_cost == pytest.approx(4.0 * SimulationAssumptions().herd.doe_purchase_price)
+    assert m1.purchase_cost == pytest.approx(0.0)
+    assert m1.breeding_stock_capex == pytest.approx(
+        4.0 * SimulationAssumptions().herd.doe_purchase_price
+    )
     assert _doe_pool(m1) - _doe_pool(base.months[0]) == pytest.approx(4.0 * S_ADULT, abs=1e-6)
 
 
@@ -2225,11 +2266,14 @@ def test_event_purchase_cost_reaches_annual_pl_and_lowers_npv() -> None:
     event = HerdEventAssumptions(month=14, kind="purchase", animal_class="doe", count=10)
     res = run_simulation(event_toy([event]), with_break_even=False)
     base = run_simulation(event_toy([]), with_break_even=False)
-    # Month 14 falls in year 2; the purchase is opex, not project cost.
-    assert res.annual_pl[1].stock_purchases - base.annual_pl[1].stock_purchases == pytest.approx(
-        10.0 * SimulationAssumptions().herd.doe_purchase_price
+    # Month 14 falls in year 2; the purchase cash is neither project cost nor
+    # young-stock opex — it lands on the capitalized breeding-stock line.
+    assert res.annual_pl[1].breeding_stock_capex - base.annual_pl[1].breeding_stock_capex == (
+        pytest.approx(10.0 * SimulationAssumptions().herd.doe_purchase_price)
     )
-    assert res.annual_pl[0].stock_purchases == pytest.approx(base.annual_pl[0].stock_purchases)
+    assert res.annual_pl[0].breeding_stock_capex == pytest.approx(
+        base.annual_pl[0].breeding_stock_capex
+    )
     assert res.metrics.npv < base.metrics.npv
 
 
@@ -2242,8 +2286,10 @@ def test_event_sale_meat_revenue_reaches_annual_pl() -> None:
     # stock started at. At the calibrated sale age 10 the chain spans ages 6-9
     # on the MALE curve (10% young-male premium); the event fires in month 10
     # (the last month before organic graduation sales start competing for the
-    # same pool) and averages 19.9106 kg. The market calendar is flattened and
-    # festivals disabled so the average is the only thing priced.
+    # same pool) and averages 19.9049 kg (the default parity table shifts the
+    # pool's age mix slightly; 19.9106 before parity structure). The market
+    # calendar is flattened and festivals disabled so the average is the only
+    # thing priced.
     event = HerdEventAssumptions(month=10, kind="sale", animal_class="male_grower", count=3)
     a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=24), events=[event])
     a = pin_legacy_growth(a)
@@ -2257,7 +2303,7 @@ def test_event_sale_meat_revenue_reaches_annual_pl() -> None:
     base = run_simulation(base_a, with_break_even=False)
     assert res.months[9].sales_head - base.months[9].sales_head == pytest.approx(3.0)
     assert res.months[9].sales_revenue - base.months[9].sales_revenue == pytest.approx(
-        3.0 * 19.9106 * 370.0, rel=1e-4
+        3.0 * 19.9049 * 370.0, rel=1e-4
     )
     # The event's revenue reaches the annual P&L two ways: the P&L row
     # aggregates the months exactly, and the year-1 delta is economically
@@ -2373,9 +2419,11 @@ def test_project_cost_breakdown_sums_and_funds_scheduled_peak_capacity() -> None
     assert b.shed_cost + b.equipment_cost + b.stock_cost + b.working_capital == pytest.approx(
         res.metrics.project_cost
     )
-    # The animals themselves remain a month-14 operating purchase, but their
-    # forecast housing/equipment requirement must be funded at project start.
-    assert res.months[13].purchase_cost > 0.0
+    # The animals themselves remain a month-14 purchase (capitalized breeding
+    # cash now, not young-stock opex), but their forecast housing/equipment
+    # requirement must be funded at project start.
+    assert res.months[13].purchase_cost == pytest.approx(0.0)
+    assert res.months[13].breeding_stock_capex > 0.0
     assert b.stock_cost == pytest.approx(base.project_cost_breakdown.stock_cost)
     assert b.working_capital == pytest.approx(base.project_cost_breakdown.working_capital)
     assert b.projected_peak_head > base.project_cost_breakdown.projected_peak_head
@@ -2467,6 +2515,9 @@ def test_project_capacity_captures_births_before_newborn_mortality() -> None:
             months_open_before_breeding=12,
             litter_size=4.0,
             stillbirth_rate=0.0,
+            # Capacity pin, not biology: the flat parity table keeps the crop
+            # at exactly 10 does x 4 kids.
+            parity_multipliers=ParityMultipliers(litter_size=[1.0], conception_rate=[1.0]),
         ),
         mortality=MortalityAssumptions(
             kid_pre_weaning=0.9,
@@ -2823,6 +2874,14 @@ def _mutation_empty_assumptions(horizon: int = 12) -> SimulationAssumptions:
     assumptions.feed.annual_feed_price_growth_rate = 0.0
     assumptions.costs.operating_cost_growth_rate_annual = 0.0
     assumptions.sales.monthly_meat_price_multipliers = [1.0] * 12
+    # Zero-noise reproduction policy: flat parity table (the default parity
+    # structure scales conception below 1.0 and sends the failures into the
+    # repeat-breeder cull) and the service cull parked. Tests that pin those
+    # policies set them explicitly.
+    assumptions.reproduction.parity_multipliers = ParityMultipliers(
+        litter_size=[1.0], conception_rate=[1.0]
+    )
+    assumptions.reproduction.max_services_before_cull = 0
     return assumptions
 
 
@@ -2893,7 +2952,9 @@ def test_year_two_adult_event_prices_apply_livestock_growth_by_multiplication() 
             + assumptions.sales.cull_buck_price_per_kg * assumptions.growth.adult_weight_buck_kg
         )
     )
-    assert month13.purchase_cost == pytest.approx(
+    # Doe/buck purchases capitalize at the same growth-adjusted prices.
+    assert month13.purchase_cost == pytest.approx(0.0)
+    assert month13.breeding_stock_capex == pytest.approx(
         growth * (assumptions.herd.doe_purchase_price + assumptions.herd.buck_purchase_price)
     )
 
@@ -2999,7 +3060,10 @@ def test_scheduled_stock_and_pre_service_sires_accumulate_purchase_totals() -> N
     first = _run_core(assumptions).months[0]
 
     assert first.purchases_head == pytest.approx(4.0)
-    assert first.purchase_cost == pytest.approx(2.0 * 3.0 + 2.0 * 7.0)
+    # Young-stock cash (2 kids x 3) stays opex; the 2 auto-purchased sires
+    # (x 7) capitalize on the breeding-stock account.
+    assert first.purchase_cost == pytest.approx(2.0 * 3.0)
+    assert first.breeding_stock_capex == pytest.approx(2.0 * 7.0)
     assert first.bucks == pytest.approx(2.0)
 
 
@@ -3037,7 +3101,8 @@ def test_same_month_sire_purchases_are_all_protected_from_rotation() -> None:
     assert month12.culls_head == pytest.approx(3.0)
     # 50 does at 1:20 need 3 sires: the event's 1 plus 2 auto-purchases.
     assert month12.purchases_head == pytest.approx(3.0)
-    assert month12.purchase_cost == pytest.approx(21.0)
+    assert month12.purchase_cost == pytest.approx(0.0)
+    assert month12.breeding_stock_capex == pytest.approx(21.0)
     assert month12.bucks == pytest.approx(3.0)
 
 
@@ -3158,11 +3223,16 @@ def test_price_and_operating_shocks_multiply_each_revenue_and_cost_base() -> Non
         month13.total_herd * assumptions.costs.vet_per_animal_per_year / 12.0 * operating_growth
     )
     # Labour is charged on adult breeding females (the TNAU/NABARD per-doe
-    # norm), not standing head; this toy run has no finishing pen.
+    # norm) in HALF-attendant units (ceil(2 x does / threshold) / 2, floor
+    # half a unit), not standing head; this toy run has no finishing pen.
     assert month13.labour_cost == pytest.approx(
-        _ceil_head_ratio(
-            month13.open_does + month13.pregnant_does,
-            assumptions.costs.labour_per_head_threshold,
+        max(
+            0.5,
+            _ceil_head_ratio(
+                2.0 * (month13.open_does + month13.pregnant_does),
+                assumptions.costs.labour_per_head_threshold,
+            )
+            / 2.0,
         )
         * assumptions.costs.labour_per_month
         * operating_growth
@@ -3224,7 +3294,9 @@ def test_labour_cost_distinguishes_zero_from_a_fractional_positive_herd() -> Non
     assert empty_first.total_herd == pytest.approx(0.0)
     assert empty_first.labour_cost == pytest.approx(0.0)
     assert 0.0 < fractional_first.total_herd < 1.0
-    assert fractional_first.labour_cost == pytest.approx(10.0)
+    # Half-attendant granularity: a fractional (< threshold/2) herd books
+    # half a unit, not a whole labourer.
+    assert fractional_first.labour_cost == pytest.approx(5.0)
 
 
 def test_working_capital_average_includes_nonzero_selling_cost() -> None:
@@ -3292,6 +3364,11 @@ def test_subunit_stock_cost_and_debt_remain_visible_in_every_metric() -> None:
     assumptions.finance.loan_term_months = 24
     assumptions.finance.moratorium_months = 0
     assumptions.finance.interest_rate_annual = 0.0
+    # Zero the Telangana selling-cost defaults: this subunit pins stock cost
+    # and debt visibility, and the Rs 100/head transport default would swamp
+    # the 0.75 revenue with a Rs 100 selling cost.
+    assumptions.sales.selling_cost_fraction = 0.0
+    assumptions.sales.transport_cost_per_head = 0.0
     assumptions.events = [
         HerdEventAssumptions(
             month=1,
@@ -3389,6 +3466,10 @@ def test_tax_loss_pool_accumulates_and_is_consumed_across_four_blocks() -> None:
     assumptions = _mutation_empty_assumptions(48)
     assumptions.finance.income_tax_rate = 0.25
     assumptions.finance.tax_loss_carryforward = True
+    # Zero the selling-cost defaults so the block P&Ls contain exactly the
+    # transaction prices below (transport Rs 100/head would swamp them).
+    assumptions.sales.selling_cost_fraction = 0.0
+    assumptions.sales.transport_cost_per_head = 0.0
     transactions = [
         (1, 100.0, 0.0),
         (13, 200.0, 0.0),
@@ -3475,6 +3556,8 @@ def test_subunit_taxable_profit_is_taxed_with_or_without_carryforward(carryforwa
     assumptions = _mutation_empty_assumptions()
     assumptions.finance.income_tax_rate = 0.5
     assumptions.finance.tax_loss_carryforward = carryforward
+    assumptions.sales.selling_cost_fraction = 0.0
+    assumptions.sales.transport_cost_per_head = 0.0
     assumptions.events = [
         HerdEventAssumptions(
             month=1,
@@ -3605,3 +3688,51 @@ def test_fractional_green_purchase_counts_as_a_fodder_deficit_month() -> None:
 
     assert all(0.0 < month.feed_purchased_green_kg < 1.0 for month in core.months)
     assert core.feed_summary.fodder_deficit_months == 12
+
+
+# ---------------------------------------------------------------------------
+# (n) Audit-remediation pins: repeat-breeder cull default parity
+# ---------------------------------------------------------------------------
+def test_repeat_cull_default_matches_species_profile() -> None:
+    """The simulation's default service-cull cap cannot drift from the
+    operational flag (models.species.GOAT_PROFILE.failed_services_before_cull
+    = 2: the daily-ops write path flags a doe as a cull candidate after two
+    failed services). app.simulation must stay DB-free (mutmut), so the two
+    are single-sourced by this test, not by an import."""
+    from app.models.species import GOAT_PROFILE
+
+    assert (
+        SimulationAssumptions().reproduction.max_services_before_cull
+        == GOAT_PROFILE.failed_services_before_cull
+    )
+
+
+def test_default_run_actually_culls_repeat_breeders() -> None:
+    """The new default is not just a number: with every other removal channel
+    closed, the engine itself must book repeat-breeder culls — and the
+    retention pipeline must replace them (the doe pool recovers)."""
+    a = SimulationAssumptions()
+    a.mortality.adult = 0.0
+    a.mortality.grower = 0.0
+    a.culling.doe_cull_rate_annual = 0.0
+    a.culling.max_doe_age_months = 180
+    a.culling.buck_rotation_years = 10  # no rotation inside the 36 months
+    a.meta.horizon_months = 36
+    # Conception 0.7 fails enough services to cull, but leaves the retention
+    # pipeline able to hold the breeding pool near its cap.
+    a.reproduction.parity_multipliers = ParityMultipliers(litter_size=[1.0], conception_rate=[0.7])
+    res = run_simulation(a, with_break_even=False)
+    total_culls = sum(row.culls_head for row in res.months)
+    assert total_culls > 0.0  # the repeat-breeder channel fired
+    # Disabling the policy on the same biology removes exactly those culls.
+    parked = a.model_copy(deep=True)
+    parked.reproduction.max_services_before_cull = 0
+    parked_res = run_simulation(parked, with_break_even=False)
+    assert sum(row.culls_head for row in parked_res.months) == pytest.approx(0.0)
+    assert sum(row.culls_head for row in parked_res.months) < total_culls
+    # Replacement: the doe pool is held near the cap by retained daughters
+    # despite the culls (the retention logic refills the breeding pool).
+    final_does = (
+        res.months[-1].open_does + res.months[-1].pregnant_does + res.months[-1].lactating_does
+    )
+    assert final_does >= a.herd.does * 0.75

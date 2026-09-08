@@ -22,6 +22,23 @@ _Mutator = Callable[[SimulationAssumptions], None]
 _Reader = Callable[[SimulationAssumptions], float]
 _Labeller = Callable[[float, float], str]
 
+# Nonparametric bootstrap resamples behind the Monte Carlo confidence
+# intervals. Bounded so a 2000-run MC stays cheap: 4 statistics x 400
+# resamples of at most 2000 values.
+_BOOTSTRAP_RESAMPLES = 400
+
+# Between/within split of the configured price-risk variance when the
+# within-run annual process is on: the persistent run-level draw carries
+# (1 - share) of the configured triangular log-spread and the annual AR(1)
+# shocks carry share, so realized annual multipliers keep the marginal
+# dispersion the low/mode/high risk definition promises.
+_WITHIN_RUN_VARIANCE_SHARE = 0.5
+
+# Sub-seed for the bootstrap RNG: derived from the run seed so a given seed
+# reproduces the same intervals while the bootstrap stream stays independent
+# of the run-draw stream that produces the NPVs being resampled.
+_BOOTSTRAP_SEED_SALT = 0xB0057EED
+
 # Fixed draw order (also the tornado-report order for the risk variables).
 _DRAW_ORDER = (
     "meat_price",
@@ -71,6 +88,99 @@ def percentile(values: list[float], p: float) -> float:
     if lo == hi:
         return xs[lo]
     return xs[lo] + (xs[hi] - xs[lo]) * (k - lo)
+
+
+def _bootstrap_percentile_ci(
+    values: list[float],
+    p: float,
+    rng: random.Random,
+    resamples: int = _BOOTSTRAP_RESAMPLES,
+) -> tuple[float, float] | None:
+    """Nonparametric bootstrap 95% CI for the p-th percentile of ``values``.
+
+    Resampling with replacement from the per-run outcomes estimates how much
+    the reported percentile itself is worth given only ``len(values)`` runs.
+    None for fewer than two runs (a single outcome has no sampling
+    distribution to resample).
+    """
+    n = len(values)
+    if n < 2:
+        return None
+    estimates: list[float] = []
+    for _ in range(resamples):
+        sample = [values[rng.randrange(n)] for _ in range(n)]
+        estimates.append(percentile(sample, p))
+    estimates.sort()
+    return percentile(estimates, 0.025), percentile(estimates, 0.975)
+
+
+def _triangular_log_sd(low: float, high: float) -> float:
+    """First-order log-space sd of Triangular(low, mode=1, high).
+
+    The delta method maps the level-space variance
+    (a^2 + b^2 + c^2 - ab - ac - bc)/18 (a=low, b=mode, c=high) through
+    1/mode = 1 — exact for the symmetric spreads the risk variables use and
+    within a few percent for the asymmetric ones.
+    """
+    variance = (low * low + 1.0 + high * high - low - high - low * high) / 18.0
+    return math.sqrt(max(0.0, variance))
+
+
+def _annual_ar1_factors(horizon_months: int, rng: random.Random, rho: float) -> list[float]:
+    """Standardized mean-reverting AR(1) factor per simulation month.
+
+    One shock per projection year (x_t = rho * x_{t-1} + sqrt(1 - rho^2) * e_t
+    with unit stationary variance); every month of that year carries its
+    year's factor. The shocks are ALWAYS drawn (even for disabled risk
+    variables — same discipline as ``_correlated_draws``) so toggling one
+    variable cannot reseed the others.
+    """
+    years = max(1, (horizon_months + 11) // 12)
+    innovation_scale = math.sqrt(max(0.0, 1.0 - rho * rho))
+    x = 0.0
+    yearly: list[float] = []
+    for _ in range(years):
+        x = rho * x + innovation_scale * rng.normalvariate(0.0, 1.0)
+        yearly.append(x)
+    return [yearly[month // 12] for month in range(horizon_months)]
+
+
+def _apply_annual_price_variation(
+    path: MonthlyShockPath,
+    draws: dict[str, float],
+    a: SimulationAssumptions,
+    rng: random.Random,
+) -> dict[str, float]:
+    """Layer within-run annual price years onto one Monte Carlo run.
+
+    Returns the EFFECTIVE run-level draws: the meat/feed price draws are
+    shrunk toward the base (their log scaled by sqrt(1 - share)) so that the
+    persistent level plus the annual AR(1) shocks — each scaled to
+    sqrt(share) of the configured triangular log-spread, with the
+    log-normal mean correction exp(-s^2/2) — preserve the marginal variance
+    the configured risk spreads define. Disabled risk variables skip the
+    annual layer entirely (their run draw is the neutral 1.0 and stays 1.0).
+    """
+    share = _WITHIN_RUN_VARIANCE_SHARE
+    effective = dict(draws)
+    horizon = a.meta.horizon_months
+    rho = a.risk.price_process_rho
+    for name in ("meat_price", "feed_price"):
+        var = getattr(a.risk, name)
+        annual = _annual_ar1_factors(horizon, rng, rho)
+        # draws.get: test drivers may inject partial draw dicts; a missing
+        # entry is the neutral 1.0 multiplier.
+        run_draw = draws.get(name, 1.0)
+        if not var.enabled:
+            continue
+        effective[name] = math.exp(math.log(run_draw) * math.sqrt(1.0 - share))
+        sigma = _triangular_log_sd(var.low, var.high)
+        scale = math.sqrt(share) * sigma
+        correction = math.exp(-0.5 * scale * scale)
+        channel = path.meat_price if name == "meat_price" else path.feed_price
+        for month in range(horizon):
+            channel[month] *= math.exp(scale * annual[month]) * correction
+    return effective
 
 
 def _apply_draws(a: SimulationAssumptions, draws: dict[str, float]) -> SimulationAssumptions:
@@ -296,7 +406,16 @@ def run_monte_carlo(a: SimulationAssumptions) -> MonteCarloResult:
     for _ in range(runs):
         draws = _correlated_draws(rng, risk_vars, a.risk.correlation_strength)
         event_path = _event_shock_path(a, rng)
-        core = _run_core(_apply_draws(a, draws), event_path)
+        # Within-run annual price years (fix: a run no longer lives under one
+        # flat price multiplier for the whole horizon). Drawn AFTER the run
+        # draws and event path so seeded runs keep their pre-existing draw
+        # values and shock episodes — common random numbers preserved.
+        effective_draws = (
+            _apply_annual_price_variation(event_path, draws, a, rng)
+            if a.risk.within_run_price_variation
+            else draws
+        )
+        core = _run_core(_apply_draws(a, effective_draws), event_path)
         herd_paths.append([m.total_herd for m in core.months])
         cash_paths.append([m.cumulative_cash_flow for m in core.months])
         liquidity_paths.append([m.cash_balance for m in core.months])
@@ -320,6 +439,17 @@ def run_monte_carlo(a: SimulationAssumptions) -> MonteCarloResult:
         )
 
     counts, edges = _histogram(npvs)
+    # Sampling-uncertainty reporting: bootstrap 95% CIs for the headline NPV
+    # percentiles and the p5 of the liquidity low point, from a sub-seeded
+    # stream derived from the run seed (deterministic per seed); the loss
+    # probability carries the analytic binomial standard error
+    # sqrt(p(1-p)/n) — exact for a proportion and seed-free by construction.
+    bootstrap_rng = random.Random(a.risk.seed ^ _BOOTSTRAP_SEED_SALT)
+    npv_p5_ci = _bootstrap_percentile_ci(npvs, 0.05, bootstrap_rng)
+    npv_p50_ci = _bootstrap_percentile_ci(npvs, 0.50, bootstrap_rng)
+    npv_p95_ci = _bootstrap_percentile_ci(npvs, 0.95, bootstrap_rng)
+    minimum_cash_p5_ci = _bootstrap_percentile_ci(minimum_cash, 0.05, bootstrap_rng)
+    prob_negative = sum(1 for v in npvs if v < 0.0) / runs
     return MonteCarloResult(
         runs=runs,
         seed=a.risk.seed,
@@ -331,11 +461,16 @@ def run_monte_carlo(a: SimulationAssumptions) -> MonteCarloResult:
         npv_p5=percentile(npvs, 0.05),
         npv_p50=percentile(npvs, 0.50),
         npv_p95=percentile(npvs, 0.95),
-        prob_npv_negative=sum(1 for v in npvs if v < 0.0) / runs,
+        prob_npv_negative=prob_negative,
         prob_liquidity_shortfall=liquidity_shortfalls / runs,
         prob_dscr_below_one=weak_dscr_runs / runs,
+        npv_p5_ci=npv_p5_ci,
+        npv_p50_ci=npv_p50_ci,
+        npv_p95_ci=npv_p95_ci,
+        prob_npv_negative_se=math.sqrt(prob_negative * (1.0 - prob_negative) / runs),
         minimum_cash_p5=percentile(minimum_cash, 0.05),
         minimum_cash_p50=percentile(minimum_cash, 0.50),
+        minimum_cash_p5_ci=minimum_cash_p5_ci,
         ending_cash_p5=percentile(ending_cash, 0.05),
         ending_cash_p50=percentile(ending_cash, 0.50),
         mean_disease_outbreaks=statistics.mean(disease_outbreaks),

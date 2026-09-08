@@ -12259,6 +12259,10 @@
             "type": "number",
             "title": "Stock Purchases"
           },
+          "breeding_stock_capex": {
+            "type": "number",
+            "title": "Breeding Stock Capex"
+          },
           "total_opex": {
             "type": "number",
             "title": "Total Opex"
@@ -12323,6 +12327,7 @@
           "misc_cost",
           "selling_cost",
           "stock_purchases",
+          "breeding_stock_capex",
           "total_opex",
           "ebitda",
           "depreciation",
@@ -13414,6 +13419,18 @@
             "maximum": 1000000000000000.0,
             "minimum": 1.0,
             "title": "Labour Per Head Threshold",
+            "default": 60
+          },
+          "family_labour": {
+            "type": "boolean",
+            "title": "Family Labour",
+            "default": false
+          },
+          "breeding_stock_useful_life_months": {
+            "type": "integer",
+            "maximum": 240.0,
+            "minimum": 1.0,
+            "title": "Breeding Stock Useful Life Months",
             "default": 60
           },
           "insurance_pct_stock_value_annual": {
@@ -17354,6 +17371,101 @@
             "type": "number",
             "title": "Ending Cash P50"
           },
+          "npv_p5_ci": {
+            "anyOf": [
+              {
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array",
+                "maxItems": 2,
+                "minItems": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Npv P5 Ci"
+          },
+          "npv_p50_ci": {
+            "anyOf": [
+              {
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array",
+                "maxItems": 2,
+                "minItems": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Npv P50 Ci"
+          },
+          "npv_p95_ci": {
+            "anyOf": [
+              {
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array",
+                "maxItems": 2,
+                "minItems": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Npv P95 Ci"
+          },
+          "prob_npv_negative_se": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prob Npv Negative Se"
+          },
+          "minimum_cash_p5_ci": {
+            "anyOf": [
+              {
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array",
+                "maxItems": 2,
+                "minItems": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minimum Cash P5 Ci"
+          },
           "mean_disease_outbreaks": {
             "type": "number",
             "title": "Mean Disease Outbreaks"
@@ -17511,6 +17623,10 @@
             "type": "number",
             "title": "Purchase Cost"
           },
+          "breeding_stock_capex": {
+            "type": "number",
+            "title": "Breeding Stock Capex"
+          },
           "feed_green_kg": {
             "type": "number",
             "title": "Feed Green Kg"
@@ -17636,6 +17752,7 @@
           "manure_revenue",
           "purchases_head",
           "purchase_cost",
+          "breeding_stock_capex",
           "feed_green_kg",
           "feed_homegrown_green_kg",
           "feed_purchased_green_kg",
@@ -18082,6 +18199,20 @@
             "minimum": 0.0,
             "title": "Loan Fraction Step",
             "default": 0.15
+          },
+          "festival_hold_radius_months": {
+            "type": "integer",
+            "maximum": 6.0,
+            "minimum": 0.0,
+            "title": "Festival Hold Radius Months",
+            "default": 1
+          },
+          "service_cull_radius_months": {
+            "type": "integer",
+            "maximum": 6.0,
+            "minimum": 0.0,
+            "title": "Service Cull Radius Months",
+            "default": 1
           }
         },
         "additionalProperties": false,
@@ -18118,6 +18249,14 @@
           "loan_fraction": {
             "type": "number",
             "title": "Loan Fraction"
+          },
+          "festival_hold_months": {
+            "type": "integer",
+            "title": "Festival Hold Months"
+          },
+          "max_services_before_cull": {
+            "type": "integer",
+            "title": "Max Services Before Cull"
           },
           "project_cost": {
             "type": "number",
@@ -18186,6 +18325,8 @@
           "sale_age_months",
           "female_retention_fraction",
           "loan_fraction",
+          "festival_hold_months",
+          "max_services_before_cull",
           "project_cost",
           "capacity_places",
           "projected_peak_head",
@@ -18285,6 +18426,32 @@
           "created_at"
         ],
         "title": "OwnedFarmExport"
+      },
+      "ParityMultipliers": {
+        "properties": {
+          "litter_size": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "maxItems": 12,
+            "minItems": 1,
+            "title": "Litter Size"
+          },
+          "conception_rate": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "maxItems": 12,
+            "minItems": 1,
+            "title": "Conception Rate"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ParityMultipliers",
+        "description": "Parity-structured (kidding-number) reproduction adjustments.\n\nThe engine weights these over its doe-age ledger, so they apply as\nexpected-value multipliers on the monthly litter size and conception\nrate. Index 0 is the first parity (maiden does), indexes 1-3 the mature\nparity-2-4 peak, and the LAST entry extends to every later parity\n(late-parity decline). Defaults are literature-anchored for Osmanabadi:\nfirst-parity litters ~1.4 kids vs ~1.65-1.7 mature (AICRP/NARI herd\nrecords) \u2192 1.4/1.65 \u2248 0.85; pubertal does conceive ~8% below mature does\nper service; parity >= 6 does decline toward ~0.9 of mature performance.\nAll-ones tables reproduce the flat (parity-free) model exactly."
       },
       "PasswordResetIn": {
         "properties": {
@@ -19728,7 +19895,7 @@
             "maximum": 12.0,
             "minimum": 1.0,
             "title": "Lactation Months",
-            "default": 3
+            "default": 2
           },
           "months_open_before_breeding": {
             "type": "integer",
@@ -19791,7 +19958,10 @@
             "maximum": 12.0,
             "minimum": 0.0,
             "title": "Max Services Before Cull",
-            "default": 0
+            "default": 2
+          },
+          "parity_multipliers": {
+            "$ref": "#/components/schemas/ParityMultipliers"
           }
         },
         "additionalProperties": false,
@@ -19916,6 +20086,18 @@
             "minimum": 0.0,
             "title": "Correlation Strength",
             "default": 0.6
+          },
+          "within_run_price_variation": {
+            "type": "boolean",
+            "title": "Within Run Price Variation",
+            "default": true
+          },
+          "price_process_rho": {
+            "type": "number",
+            "maximum": 0.95,
+            "minimum": 0.0,
+            "title": "Price Process Rho",
+            "default": 0.3
           },
           "disease_outbreak_probability_annual": {
             "type": "number",
@@ -20304,14 +20486,14 @@
             "maximum": 0.5,
             "minimum": 0.0,
             "title": "Selling Cost Fraction",
-            "default": 0.0
+            "default": 0.03
           },
           "transport_cost_per_head": {
             "type": "number",
             "maximum": 1000000000.0,
             "minimum": 0.0,
             "title": "Transport Cost Per Head",
-            "default": 0.0
+            "default": 100.0
           },
           "milk_price_per_litre": {
             "type": "number",
@@ -21136,6 +21318,13 @@
           "assumptions_fingerprint": {
             "type": "string",
             "title": "Assumptions Fingerprint"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
           },
           "metric_explanations": {
             "items": {
@@ -22032,6 +22221,10 @@
             "type": "number",
             "title": "Working Capital"
           },
+          "breeding_stock": {
+            "type": "number",
+            "title": "Breeding Stock"
+          },
           "total": {
             "type": "number",
             "title": "Total"
@@ -22043,10 +22236,11 @@
           "shed",
           "equipment",
           "working_capital",
+          "breeding_stock",
           "total"
         ],
         "title": "TerminalValueBreakdown",
-        "description": "Recoverable closing assets included in the final project cash flow."
+        "description": "Recoverable closing assets included in the final project cash flow.\n\n``breeding_stock`` is the residual BOOK value of breeding does/bucks\ncapitalized during the run (purchases less straight-line depreciation).\n``livestock`` then carries the closing herd's market value ABOVE that\nbook value (young stock at market value plus the disposal gain/loss on\nthe capitalized breeding animals), so the two lines together recover\nexactly the same closing-herd market value the pre-capitalization model\ndid \u2014 the asset account changes the accounting split, not the cash."
       },
       "TokenOut": {
         "properties": {

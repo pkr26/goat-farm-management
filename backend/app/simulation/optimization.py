@@ -16,6 +16,17 @@ def _linspace(low: float, high: float, steps: int) -> list[float]:
     return [low + (high - low) * index / (steps - 1) for index in range(steps)]
 
 
+def _int_axis(base: int, radius: int, low: int, high: int) -> list[int]:
+    """Bounded integer decision axis: base +/- radius, clamped to [low, high].
+
+    Radius 0 pins the axis at the submitted policy (the legacy four-axis
+    search), mirroring how a zero ``retention_step`` disables retention.
+    """
+    if radius <= 0:
+        return [base]
+    return sorted({min(high, max(low, base + delta)) for delta in range(-radius, radius + 1)})
+
+
 def _unique_bounded(values: list[float], low: float, high: float) -> list[float]:
     bounded = sorted(min(high, max(low, value)) for value in values)
     unique: list[float] = []
@@ -62,6 +73,8 @@ def _candidate_from_core(
         sale_age_months=assumptions.growth.sale_age_months,
         female_retention_fraction=assumptions.herd.female_retention_fraction,
         loan_fraction=assumptions.finance.loan_fraction_of_project_cost,
+        festival_hold_months=assumptions.sales.festival_hold_months,
+        max_services_before_cull=assumptions.reproduction.max_services_before_cull,
         project_cost=core.project_cost,
         capacity_places=core.capacity_places,
         projected_peak_head=core.projected_peak_head,
@@ -135,9 +148,10 @@ def run_optimization(a: SimulationAssumptions) -> OptimizationResult:
     """Search a reproducible, schema-bounded decision grid.
 
     The optimizer changes only decisions a farmer can actually act on: opening
-    doe count/target breeding pool, sale age, female retention and debt share.
-    Biology, prices and risk assumptions remain untouched, making each
-    recommendation directly comparable with the submitted baseline.
+    doe count/target breeding pool, sale age, female retention, debt share,
+    festival-hold length and the repeat-breeder cull cap. Biology, prices and
+    risk assumptions remain untouched, making each recommendation directly
+    comparable with the submitted baseline.
     """
     policy = a.optimization
     base_core = _run_core(a)
@@ -149,6 +163,8 @@ def run_optimization(a: SimulationAssumptions) -> OptimizationResult:
         a.growth.sale_age_months,
         a.herd.female_retention_fraction,
         a.finance.loan_fraction_of_project_cost,
+        a.sales.festival_hold_months,
+        a.reproduction.max_services_before_cull,
     )
 
     doe_scales = _linspace(policy.doe_scale_low, policy.doe_scale_high, policy.doe_scale_steps)
@@ -177,16 +193,33 @@ def run_optimization(a: SimulationAssumptions) -> OptimizationResult:
         0.0,
         max_loan,
     )
+    # Marketing and breeding-discipline axes: festival hold length and the
+    # repeat-breeder cull cap. Both move NPV materially on a Navipet meat
+    # unit (Bakrid pricing and how long idle does are carried), so the search
+    # explores their neighbourhoods like every other decision.
+    festival_holds = _int_axis(
+        a.sales.festival_hold_months, policy.festival_hold_radius_months, 0, 12
+    )
+    service_culls = _int_axis(
+        a.reproduction.max_services_before_cull, policy.service_cull_radius_months, 0, 12
+    )
     # The configured ceiling includes the submitted baseline. Reserving its
     # slot guarantees both a fair comparison and a hard bound on CPU work.
     grid: list[tuple[Any, ...]] = _sample_grid(
-        (doe_scales, sale_ages, retentions, loan_fractions),
+        (doe_scales, sale_ages, retentions, loan_fractions, festival_holds, service_culls),
         max(0, policy.max_candidates - 1),
     )
 
-    seen: set[tuple[int, int, int, int, float, float]] = {baseline_key}
+    seen: set[tuple[int, int, int, int, float, float, int, int]] = {baseline_key}
     evaluated: list[OptimizationCandidate] = [baseline]
-    for doe_scale, sale_age, retention, loan_fraction in grid:
+    for (
+        doe_scale,
+        sale_age,
+        retention,
+        loan_fraction,
+        festival_hold,
+        max_services,
+    ) in grid:
         variant = a.model_copy(deep=True)
         variant.herd.does = min(MAX_HEAD, max(0, round(a.herd.does * doe_scale)))
         if a.herd.max_breeding_does == 0:
@@ -225,6 +258,8 @@ def run_optimization(a: SimulationAssumptions) -> OptimizationResult:
         variant.growth.sale_age_months = sale_age
         variant.herd.female_retention_fraction = retention
         variant.finance.loan_fraction_of_project_cost = loan_fraction
+        variant.sales.festival_hold_months = festival_hold
+        variant.reproduction.max_services_before_cull = max_services
         key = (
             variant.herd.does,
             variant.herd.bucks,
@@ -232,6 +267,8 @@ def run_optimization(a: SimulationAssumptions) -> OptimizationResult:
             sale_age,
             retention,
             loan_fraction,
+            festival_hold,
+            max_services,
         )
         if key in seen:
             continue
@@ -253,6 +290,8 @@ def run_optimization(a: SimulationAssumptions) -> OptimizationResult:
                 candidate.sale_age_months,
                 candidate.female_retention_fraction,
                 candidate.loan_fraction,
+                candidate.festival_hold_months,
+                candidate.max_services_before_cull,
             )
             == baseline_key
         ),

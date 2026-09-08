@@ -30,6 +30,7 @@ from app.simulation.assumptions import (
     HerdAssumptions,
     HerdEventAssumptions,
     OptimizationAssumptions,
+    ParityMultipliers,
     SalesAssumptions,
 )
 from app.simulation.engine import _run_core
@@ -260,6 +261,9 @@ def test_per_head_transport_cost_follows_operating_cost_growth() -> None:
         costs=CostsAssumptions(operating_cost_growth_rate_annual=0.12),
     )
     a.sales.transport_cost_per_head = 100.0
+    # Isolate the transport line: the default 3% mandi commission would add a
+    # revenue-proportional term this hand-check does not carry.
+    a.sales.selling_cost_fraction = 0.0
     result = run_simulation(a, with_break_even=False)
 
     month_1 = result.months[0]
@@ -332,11 +336,12 @@ def test_feed_and_insurance_use_the_tracked_age_cohort_weight() -> None:
     assert purchased_dm == pytest.approx(
         a.growth.weight_by_age_months[2] * a.feed.dmi_kid_creep * 30.44
     )
-    # Young stock is insured at this month's MARKET value, seasonality
-    # included (August, the default start month, prices at 0.9192x the base).
+    # Young stock is insured at the DESEASONALIZED, non-festival base price
+    # (no August discount either): premiums must not move with the mandi
+    # calendar (the old market-value valuation spiked them in Bakrid months).
     assert first.insurance_cost == pytest.approx(
         a.growth.weight_by_age_months[2]
-        * first.meat_price_per_kg
+        * a.sales.meat_price_per_kg
         * a.costs.insurance_pct_stock_value_annual
         / 12.0
     )
@@ -396,7 +401,18 @@ def test_depreciation_terminal_value_and_cash_tax_reconcile() -> None:
     breakdown = result.project_cost_breakdown
     annual = result.annual_pl[0]
 
-    expected_depreciation = breakdown.shed_cost * 0.90 + breakdown.equipment_cost * 0.80
+    expected_depreciation = (
+        breakdown.shed_cost * 0.90
+        + breakdown.equipment_cost * 0.80
+        # Auto-purchased sires capitalize: each monthly vintage depreciates
+        # straight-line over the 60-month breeding-stock life for the months
+        # it owns inside this 12-month horizon (the auto-restock tops up
+        # fractional mortality losses every month, so vintages keep arriving).
+        + sum(
+            month.breeding_stock_capex * (12.0 - month.month + 1.0) / 60.0
+            for month in result.months
+        )
+    )
     assert annual.depreciation == pytest.approx(expected_depreciation)
     assert result.terminal_value_breakdown.shed == pytest.approx(breakdown.shed_cost * 0.10)
     assert result.terminal_value_breakdown.equipment == pytest.approx(
@@ -461,6 +477,9 @@ def test_buck_service_capacity_limits_conception() -> None:
         ),
     )
     a.reproduction.conception_rate = 1.0
+    # Flat parity keeps conception exactly at the configured rate (the
+    # default parity table drags the mixed-age foundation slightly below 1).
+    a.reproduction.parity_multipliers = ParityMultipliers(litter_size=[1.0], conception_rate=[1.0])
     a.mortality.adult = 0.0
     first = run_simulation(a, with_break_even=False).months[0]
     # One buck serves 20 does at the single-sourced 1:20 policy.
@@ -480,6 +499,7 @@ def test_automatic_buck_purchase_happens_before_the_months_service() -> None:
         ),
     )
     a.reproduction.conception_rate = 1.0
+    a.reproduction.parity_multipliers = ParityMultipliers(litter_size=[1.0], conception_rate=[1.0])
     a.mortality.adult = 0.0
     first = run_simulation(a, with_break_even=False).months[0]
 
@@ -736,6 +756,10 @@ def test_monte_carlo_aggregates_each_run_and_every_reported_percentile(
 ) -> None:
     assumptions = SimulationAssumptions(meta=MetaAssumptions(horizon_months=12))
     assumptions.risk.monte_carlo_runs = 4
+    # Legacy single-multiplier path: this test pins the aggregation plumbing
+    # against the exact emitted shock paths, and the within-run annual price
+    # process would rewrite those paths in place (its own tests cover it).
+    assumptions.risk.within_run_price_variation = False
     npvs = [-10.0, 0.0, 0.5, 10.0]
     minimum_cash = [-5.0, 0.0, 0.5, 2.0]
     min_dscr = [None, 0.5, 1.0, 1.5]
@@ -1072,6 +1096,8 @@ def test_optimizer_ranks_descending_and_reports_exact_result_counts(
             sale_age_radius_months=0,
             retention_step=0.0,
             loan_fraction_step=0.0,
+            festival_hold_radius_months=0,
+            service_cull_radius_months=0,
         ),
     )
 
@@ -1127,6 +1153,8 @@ def test_optimizer_hard_candidate_cap_and_rounded_decisions_are_deduplicated(
             sale_age_radius_months=0,
             retention_step=0.0,
             loan_fraction_step=0.0,
+            festival_hold_radius_months=0,
+            service_cull_radius_months=0,
         ),
     )
     rounded_result, rounded_observed = _recorded_optimization(monkeypatch, rounded)
@@ -1150,6 +1178,10 @@ def test_optimizer_includes_bounded_sale_retention_and_loan_axis_values(
             "sale_age_radius_months": 0,
             "retention_step": 0.0,
             "loan_fraction_step": 0.0,
+            # The new integer axes have their own dedicated test; the legacy
+            # one-axis goldens here pin exactly one active dimension each.
+            "festival_hold_radius_months": 0,
+            "service_cull_radius_months": 0,
         }
         values.update(overrides)
         return OptimizationAssumptions.model_validate(values)
@@ -1417,7 +1449,7 @@ def test_mirr_and_model_fingerprint_are_reproducible() -> None:
     a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=12))
     first = run_simulation(a, with_break_even=False)
     second = run_simulation(a, with_break_even=False)
-    assert first.model_version == "3.0.0"
+    assert first.model_version == "3.1.0"
     assert first.assumptions_fingerprint == second.assumptions_fingerprint
     changed = a.model_copy(deep=True)
     changed.sales.meat_price_per_kg += 1.0

@@ -34,6 +34,12 @@ export interface RiskAssumptions {
      * @maximum 0.95
      */
   correlation_strength?: number;
+  within_run_price_variation?: boolean;
+  /**
+     * @minimum 0
+     * @maximum 0.95
+     */
+  price_process_rho?: number;
   /**
      * @minimum 0
      * @maximum 1

@@ -6,6 +6,8 @@ officer reviewing the project) can see exactly how each figure was produced.
 No AI and no external calls — the same run always yields the same text.
 """
 
+import math
+
 from .assumptions import SimulationAssumptions
 from .results import MetricExplanation, ReportSection, SensitivityItem, SimulationResult
 from .vocabulary import GOAT_NOUNS, SpeciesNouns
@@ -380,8 +382,10 @@ def build_metric_explanations(
                 title="Terminal value",
                 explanation=(
                     f"The final cash flow recovers {_inr(m.terminal_value)}: livestock "
-                    f"{_inr(result.terminal_value_breakdown.livestock)}, shed "
-                    f"{_inr(result.terminal_value_breakdown.shed)}, equipment "
+                    f"(value above the depreciated book of bought breeding stock) "
+                    f"{_inr(result.terminal_value_breakdown.livestock)}, breeding-stock "
+                    f"book value {_inr(result.terminal_value_breakdown.breeding_stock)}, "
+                    f"shed {_inr(result.terminal_value_breakdown.shed)}, equipment "
                     f"{_inr(result.terminal_value_breakdown.equipment)} and working capital "
                     f"{_inr(result.terminal_value_breakdown.working_capital)}. These are "
                     "closing assets, not operating revenue."
@@ -392,6 +396,7 @@ def build_metric_explanations(
                 figures={
                     "terminal_value": m.terminal_value,
                     "livestock": result.terminal_value_breakdown.livestock,
+                    "breeding_stock": result.terminal_value_breakdown.breeding_stock,
                     "shed": result.terminal_value_breakdown.shed,
                     "equipment": result.terminal_value_breakdown.equipment,
                     "working_capital": result.terminal_value_breakdown.working_capital,
@@ -745,7 +750,26 @@ def build_narrative_report(
     misc = sum(row.misc_cost for row in result.annual_pl)
     selling = sum(row.selling_cost for row in result.annual_pl)
     stock_purchases = sum(row.stock_purchases for row in result.annual_pl)
+    breeding_capex = sum(row.breeding_stock_capex for row in result.annual_pl)
     total_opex = feed + vet + labour + insurance + misc + selling + stock_purchases
+    # Family-labour disclosure: with costs.family_labour the cash labour line
+    # is zero (IRR/NPV-style metrics stay honest to actual cash), but the
+    # market wage the family's own labour forgoes belongs in the narrative —
+    # a "profitable" plan that only works on unpaid labour should say so.
+    family_labour_paragraphs: list[str] = []
+    if a.costs.family_labour and a.herd.does > 0:
+        # The imputed cost the same flock would pay a hired half/full-time
+        # attendant, at the configured wage and the same headcount scaling
+        # the cash branch uses (ceil(2 x does / threshold) / 2, min half a
+        # unit).
+        units = max(0.5, math.ceil(2.0 * a.herd.does / a.costs.labour_per_head_threshold) / 2.0)
+        imputed = units * a.costs.labour_per_month * 12.0 * (horizon / 12.0)
+        family_labour_paragraphs.append(
+            f"No hired labour is charged: the plan assumes family labour. At the configured "
+            f"₹{a.costs.labour_per_month:,.0f}/month wage the same attendance would cost about "
+            f"{_inr(imputed)} over the projection — profit is earned on unpaid family work, "
+            f"not the market."
+        )
     sections.append(
         ReportSection(
             key="cost_mix",
@@ -766,6 +790,21 @@ def build_narrative_report(
                     total_opex,
                 )
                 + ".",
+                # Breeding animals bought during the run are capitalized: the
+                # cash left in the purchase month, but the P&L carries the
+                # straight-line depreciation (see the terminal-value recovery
+                # of the residual book value).
+                *(
+                    [
+                        f"Buying breeding stock cost {_inr(breeding_capex)} in cash; it is "
+                        f"capitalized and depreciated over "
+                        f"{a.costs.breeding_stock_useful_life_months} months rather than "
+                        f"expensed, so EBITDA above excludes it."
+                    ]
+                    if breeding_capex > 0.0
+                    else []
+                ),
+                *family_labour_paragraphs,
                 f"Growing green fodder needs about "
                 f"{result.feed_summary.land_requirement_acres:.2f} acre(s) on average"
                 + (
@@ -882,7 +921,8 @@ def build_narrative_report(
         mc = result.monte_carlo
         risk_paragraphs.append(
             f"Across {mc.runs} correlated Monte Carlo runs (varying prices, feed, fodder yield, "
-            f"operating cost, mortality and reproduction, plus monthly adverse events), the NPV "
+            f"operating cost, mortality and reproduction, plus monthly adverse events and "
+            f"year-to-year price swings within each run), the NPV "
             f"averages {_inr(mc.npv_mean)} "
             f"with a 90% range of {_inr(mc.npv_p5)} to {_inr(mc.npv_p95)}. The project "
             f"loses money in {_pct(mc.prob_npv_negative)} of runs and runs short of operating "
@@ -891,13 +931,31 @@ def build_narrative_report(
             f"(no-disaster) figures — compare runs against each other, not against the "
             f"deterministic base case."
         )
+        # Sampling uncertainty: with only N runs the percentiles themselves
+        # are estimates. The bootstrap 95% interval says where the true
+        # percentile plausibly sits given this run count.
+        if mc.npv_p5_ci is not None and mc.prob_npv_negative_se is not None:
+            risk_paragraphs.append(
+                f"These figures carry sampling noise at {mc.runs} runs: the 5th-percentile NPV "
+                f"is {_inr(mc.npv_p5)} with a bootstrap 95% interval of "
+                f"{_inr(mc.npv_p5_ci[0])} to {_inr(mc.npv_p5_ci[1])}, and the loss probability "
+                f"of {_pct(mc.prob_npv_negative)} has a standard error of "
+                f"{_pct(mc.prob_npv_negative_se)}. More runs narrow both."
+            )
         risk_figures.update(
             {
                 "mc_runs": mc.runs,
                 "npv_mean": mc.npv_mean,
                 "npv_p5": mc.npv_p5,
                 "npv_p95": mc.npv_p95,
+                "npv_p5_ci_low": mc.npv_p5_ci[0] if mc.npv_p5_ci is not None else None,
+                "npv_p5_ci_high": mc.npv_p5_ci[1] if mc.npv_p5_ci is not None else None,
+                "npv_p50_ci_low": mc.npv_p50_ci[0] if mc.npv_p50_ci is not None else None,
+                "npv_p50_ci_high": mc.npv_p50_ci[1] if mc.npv_p50_ci is not None else None,
+                "npv_p95_ci_low": mc.npv_p95_ci[0] if mc.npv_p95_ci is not None else None,
+                "npv_p95_ci_high": mc.npv_p95_ci[1] if mc.npv_p95_ci is not None else None,
                 "prob_npv_negative": mc.prob_npv_negative,
+                "prob_npv_negative_se": mc.prob_npv_negative_se,
                 "prob_liquidity_shortfall": mc.prob_liquidity_shortfall,
                 "prob_dscr_below_one": mc.prob_dscr_below_one,
             }
@@ -929,6 +987,10 @@ def build_narrative_report(
         )
         risk_paragraphs.append(f"The assumptions that move NPV the most: {movers}.")
         risk_figures["top_sensitivities"] = ", ".join(item.parameter for item in top)
+    # Model-coverage caveats from the run itself (e.g. a horizon past the
+    # embedded Bakrid calendar) belong beside the risk discussion, not only in
+    # the machine-readable warnings list.
+    risk_paragraphs.extend(result.warnings)
     if not risk_paragraphs:
         risk_paragraphs.append(
             "Run with Monte Carlo and sensitivity enabled to see how robust these results "

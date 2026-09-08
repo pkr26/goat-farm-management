@@ -2,7 +2,11 @@
 
 import pytest
 
-from app.simulation.assumptions import HerdEventAssumptions, SimulationAssumptions
+from app.simulation.assumptions import (
+    HerdEventAssumptions,
+    ParityMultipliers,
+    SimulationAssumptions,
+)
 from app.simulation.engine import _run_core
 from app.simulation.market import bakrid_festival_months
 from app.simulation.planner import (
@@ -146,6 +150,11 @@ def test_purchased_doe_settles_before_first_service() -> None:
         a.herd.bucks = 3
         a.herd.auto_purchase_bucks = False  # isolate the doe purchase's effect
         a.herd.purchased_doe_settling_months = settling_months
+        # Flat parity: the bought cohort must not shift the herd-wide parity
+        # weighting (it would move every other doe's conception rate too).
+        a.reproduction.parity_multipliers = ParityMultipliers(
+            litter_size=[1.0], conception_rate=[1.0]
+        )
         a.events = [HerdEventAssumptions(month=3, kind="purchase", animal_class="doe", count=10)]
         return a
 

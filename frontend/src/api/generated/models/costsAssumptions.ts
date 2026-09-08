@@ -25,6 +25,12 @@ export interface CostsAssumptions {
      * @maximum 1000000000000000
      */
   labour_per_head_threshold?: number;
+  family_labour?: boolean;
+  /**
+     * @minimum 1
+     * @maximum 240
+     */
+  breeding_stock_useful_life_months?: number;
   /**
      * @minimum 0
      * @maximum 0.25

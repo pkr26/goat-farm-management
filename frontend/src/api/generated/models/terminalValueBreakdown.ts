@@ -7,11 +7,20 @@
 
 /**
  * Recoverable closing assets included in the final project cash flow.
+ *
+ * ``breeding_stock`` is the residual BOOK value of breeding does/bucks
+ * capitalized during the run (purchases less straight-line depreciation).
+ * ``livestock`` then carries the closing herd's market value ABOVE that
+ * book value (young stock at market value plus the disposal gain/loss on
+ * the capitalized breeding animals), so the two lines together recover
+ * exactly the same closing-herd market value the pre-capitalization model
+ * did — the asset account changes the accounting split, not the cash.
  */
 export interface TerminalValueBreakdown {
   livestock: number;
   shed: number;
   equipment: number;
   working_capital: number;
+  breeding_stock: number;
   total: number;
 }

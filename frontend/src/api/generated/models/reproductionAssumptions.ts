@@ -4,6 +4,7 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { ParityMultipliers } from './parityMultipliers';
 
 /**
  * Breeding biology (monthly resolution).
@@ -69,4 +70,5 @@ export interface ReproductionAssumptions {
      * @maximum 12
      */
   max_services_before_cull?: number;
+  parity_multipliers?: ParityMultipliers;
 }

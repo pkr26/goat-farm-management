@@ -192,6 +192,7 @@ export * from './optimizationAssumptionsObjective';
 export * from './optimizationCandidate';
 export * from './optimizationResult';
 export * from './ownedFarmExport';
+export * from './parityMultipliers';
 export * from './passwordResetIn';
 export * from './percentileBand';
 export * from './permissionGroupOut';

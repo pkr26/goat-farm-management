@@ -34,6 +34,26 @@ Documented model approximations:
   female fraction, conception penalty), and a doe failing
   ``reproduction.max_services_before_cull`` consecutive services is culled as
   a repeat breeder (0 disables both policies).
+- Weaning: the kid CLASS spans ages 0-2 months versus the operational
+  system's day-60 wean task — a documented monthly-resolution approximation
+  (the young-stock cohort arithmetic keeps its 3-slot kid / 3-slot weaner
+  structure). The DOE's post-kidding pool, however, follows the SPEC:
+  ``lactation_months`` (default 2) is her weaning-to-rebreed interval
+  (GOAT_PROFILE.weaning_days = 60 plus the 14-day voluntary waiting period,
+  rounded to months), so the meat-mode kidding cycle is gestation 5 +
+  lactation 2 + open 1 ≈ 8 months, inside the published Osmanabadi kidding
+  interval of 232-297 days. Parity structure: litter size and conception are
+  scaled by doe-age-weighted ``reproduction.parity_multipliers`` (maiden does
+  ~0.85/0.92 of mature, late-parity decline), so kid supply reflects the
+  herd's age mix; all-ones tables reproduce the flat model.
+- Breeding-stock capitalization: does/bucks BOUGHT during the projection
+  (scheduled events and automatic sire restocking) are capitalized on a
+  breeding-livestock asset account and depreciated straight-line over
+  ``costs.breeding_stock_useful_life_months`` (cash outlay still hits the
+  purchase month; EBITDA/PBT/tax/DSCR carry the depreciation instead of the
+  lump purchase; the residual book value is an explicit terminal-value
+  component, while the livestock line carries the closing herd's value above
+  book so the total recovers exactly the closing market value).
 - Weaning is modelled at month 3 (the kid class spans ages 0-2) versus the
   operational system's day-60 wean task — a documented monthly-resolution
   approximation; the default meat sale age is 9 months (Navipet marketing).
@@ -94,6 +114,7 @@ from .market import (
     annual_growth_multiplier,
     cultivated_green_supply_kg_dm_for_month,
     feed_prices_for_month,
+    festival_coverage_last_year,
     meat_price_for_month,
     other_revenue_growth,
 )
@@ -111,7 +132,13 @@ from .results import (
 from .shocks import MonthlyShockPath
 from .vocabulary import GOAT_NOUNS, SpeciesNouns
 
-MODEL_VERSION = "3.0.0"
+# 3.1.0: repeat-breeder cull default on (parity with GOAT_PROFILE), parity-
+# structured reproduction, breeding-stock capitalization, SPEC-aligned kidding
+# cycle (lactation_months 3 -> 2), half-unit/family labour, deseasonalized
+# insurance valuation, Telangana selling-cost defaults, extended Bakrid
+# calendar with coverage warnings, Monte Carlo confidence intervals and
+# within-run annual price variation.
+MODEL_VERSION = "3.1.0"
 
 
 def monthly_mortality_rate(annual_fraction: float) -> float:
@@ -186,7 +213,14 @@ class _MonthRecord:
     milk_revenue: float
     manure_revenue: float
     purchases_head: float
+    # Young-stock purchase cash only (trading animals: kids/weaners/growers
+    # bought via scheduled events); breeding doe/buck purchases are carried
+    # separately in ``breeding_capex`` because they are capitalized.
     purchase_cost: float
+    # Cash spent buying breeding does/bucks this month (scheduled events plus
+    # automatic sire restocking). Capitalized on the breeding-livestock asset
+    # account; the CASH flow sees it in this month, EBITDA/tax do not.
+    breeding_capex: float
     feed_green_kg: float
     feed_homegrown_green_kg: float
     feed_purchased_green_kg: float
@@ -211,7 +245,9 @@ class _MonthRecord:
 
     @property
     def opex(self) -> float:
-        """Operating cost excluding debt service (includes buck purchases)."""
+        """CASH operating cost excluding debt service (includes young-stock
+        and capitalized breeding purchases — both are cash out the door this
+        month)."""
         return (
             self.feed_cost
             + self.vet_cost
@@ -220,6 +256,7 @@ class _MonthRecord:
             + self.misc_cost
             + self.selling_cost
             + self.purchase_cost
+            + self.breeding_capex
         )
 
 
@@ -476,6 +513,38 @@ def _run_core(
     # otherwise cross max_doe_age_months together.
     doe_ages = [0.0] * (cull.max_doe_age_months + 1)
 
+    # --- parity structure (reproduction.parity_multipliers) ----------------
+    # The doe pools are not parity-partitioned, but the parallel doe-age
+    # ledger is: weighting the parity table over that ledger applies the
+    # maiden/late-parity structure as the cohort-expected multiplier, exactly
+    # how every other rate in this float-cohort engine is applied. Parity of a
+    # doe aged a: 1 + (a - afb) // cycle (a maiden doe is parity 1; the last
+    # table entry extends to every later parity).
+    parity_litter_table = r.parity_multipliers.litter_size
+    parity_conception_table = r.parity_multipliers.conception_rate
+    kidding_cycle_months = max(
+        1, r.gestation_months + r.lactation_months + r.months_open_before_breeding
+    )
+
+    def _parity_weighted(table: list[float]) -> float:
+        total = sum(doe_ages)
+        if total <= 0.0:
+            return 1.0
+        last = len(table) - 1
+        weighted = 0.0
+        for age, count in enumerate(doe_ages):
+            if count <= 0.0:
+                continue
+            index = min(max(0, (age - afb) // kidding_cycle_months), last)
+            weighted += count * table[index]
+        return weighted / total
+
+    # Breeding-livestock asset account: (purchase_month, cost) vintages of
+    # does/bucks bought during the run, depreciated straight-line over
+    # costs.breeding_stock_useful_life_months. Foundation stock stays in the
+    # month-0 project cost as before; only in-run purchases capitalize.
+    breeding_vintages: list[tuple[int, float]] = []
+
     def _add_purchased_does(count: float) -> None:
         """Spread bought-in adult does over the mixed-age range, like foundation stock.
 
@@ -643,6 +712,7 @@ def _run_core(
         sales_head = sales_revenue = 0.0
         culls_head = cull_revenue = 0.0
         purchases_head = purchase_cost = 0.0
+        breeding_capex_month = 0.0
         event_log: list[str] = []
         event_fills: list[EventFill] = []
         # Settling does age forward *before* this month's purchases land, so a
@@ -749,7 +819,14 @@ def _run_core(
                         m_boundary_grower += n
                 price = event.price_per_head if event.price_per_head is not None else default_price
                 purchases_head += n
-                purchase_cost += n * price
+                # Breeding animals capitalize on the asset account (cash in
+                # the purchase month, P&L via depreciation); young stock is
+                # trading inventory and stays an operating cost.
+                if event.animal_class in _EVENT_ADULT_CLASSES:
+                    breeding_capex_month += n * price
+                    breeding_vintages.append((month, n * price))
+                else:
+                    purchase_cost += n * price
                 event_fills.append(
                     EventFill(
                         month=month,
@@ -976,7 +1053,15 @@ def _run_core(
             # always calves single (twins are rare). The projection must
             # never accept litters the farm's own recording would reject.
             max_litter = 2.0 if dairy_mode else 4.0
-            effective_litter_size = min(max_litter, r.litter_size * shocks.litter_size[shock_index])
+            effective_litter_size = min(
+                max_litter,
+                r.litter_size
+                * shocks.litter_size[shock_index]
+                # Parity structure: the kidding herd's age-weighted litter
+                # multiplier (maiden does ~0.85 of mature, late-parity decline
+                # — see ParityMultipliers). An all-ones table is a no-op.
+                * _parity_weighted(parity_litter_table),
+            )
             born = kidding_does * effective_litter_size * (1.0 - r.stillbirth_rate)
             births += born
             f_born = born * kidding_female_fraction
@@ -1008,7 +1093,8 @@ def _run_core(
         if a.herd.auto_purchase_bucks and bucks < needed_bucks:
             buy = needed_bucks - bucks
             purchases_head += buy
-            purchase_cost += buy * buck_purchase_price
+            breeding_capex_month += buy * buck_purchase_price
+            breeding_vintages.append((month, buy * buck_purchase_price))
             bucks += buy
             bucks_purchased_this_month += buy
 
@@ -1030,7 +1116,15 @@ def _run_core(
         else:
             service_capacity = bucks * cull.buck_doe_ratio
         served_total = min(ready_total, service_capacity)
-        base_conception = min(1.0, r.conception_rate * shocks.conception[shock_index])
+        base_conception = min(
+            1.0,
+            r.conception_rate
+            * shocks.conception[shock_index]
+            # Parity structure on the service side: maiden does conceive below
+            # the mature rate; the multiplier is weighted over the doe-age
+            # ledger exactly like the litter multiplier above.
+            * _parity_weighted(parity_conception_table),
+        )
         sexed_services = r.sexed_semen_services
         new_svc = [0.0] * n_service_buckets
         conceived_sexed = 0.0
@@ -1206,7 +1300,8 @@ def _run_core(
         if a.herd.auto_purchase_bucks and bucks < needed_bucks:
             buy = needed_bucks - bucks
             purchases_head += buy
-            purchase_cost += buy * buck_purchase_price
+            breeding_capex_month += buy * buck_purchase_price
+            breeding_vintages.append((month, buy * buck_purchase_price))
             bucks += buy
 
         physical_peak_head = max(physical_peak_head, _physical_head())
@@ -1494,16 +1589,25 @@ def _run_core(
         # kids and growers add fractionally to workload. Charging the full
         # threshold per standing head tripled the flagship 50+2 unit's labour
         # bill and made the default preset a guaranteed-rejection model.
-        labourers = (
-            _ceil_head_ratio(all_does_now, costs.labour_per_head_threshold)
-            if all_does_now > 0
-            else 0
-        )
-        labour_cost = (
-            max(1, labourers) * costs.labour_per_month * operating_cost_growth
-            if all_does_now > 0
-            else 0.0
-        )
+        # Labour scales with ADULT breeding females, not standing head: the
+        # cited TNAU/NABARD norm is one worker per ~50 does *with progeny* —
+        # kids and growers add fractionally to workload. Attendants come in
+        # HALF units (ceil(2 x does / threshold) / 2, floored at half a unit
+        # for any non-empty flock): a 3-doe hobby flock books a half-time
+        # attendant at ₹7,000/month, not a full ₹14,000 hire — the old
+        # whole-labourer floor made small flocks uninsurable-on-paper. With
+        # ``costs.family_labour`` the cash line is zero (the family works the
+        # flock); the narrative report discloses the market wage forgone.
+        if all_does_now <= 0:
+            labour_units = 0.0
+        elif costs.family_labour:
+            labour_units = 0.0
+        else:
+            labour_units = max(
+                0.5,
+                _ceil_head_ratio(2.0 * all_does_now, costs.labour_per_head_threshold) / 2.0,
+            )
+        labour_cost = labour_units * costs.labour_per_month * operating_cost_growth
         young_value_kg = (
             sum(f_count * weight_at_age(age, g, doe_w) for age, f_count in enumerate(f_kid))
             + sum(m_count * male_weight_at_age(age, g, buck_w) for age, m_count in enumerate(m_kid))
@@ -1524,11 +1628,18 @@ def _run_core(
             )
             + sum(count * male_weight_at_age(age, g, buck_w) for age, count in held_males.items())
         )
+        # Young stock is valued at the DESEASONALIZED, non-festival base price
+        # (base ₹/kg x nominal growth only): insurance premiums are written on
+        # the animal's steady value, so the Bakrid spike and monthly mandi
+        # seasonality must not inflate the insured value — pricing the uplift
+        # in made festival-month premiums jump ~35% for an identical herd.
+        # The same deseasonalized value carries into the terminal stock_value
+        # (a conservative closing valuation).
+        base_meat_value_price = sales.meat_price_per_kg * livestock_growth
         stock_value = (
             all_does_now * doe_purchase_price
             + bucks * buck_purchase_price
-            # Young stock insured at this month's market value (Eid uplift included).
-            + young_value_kg * meat_price
+            + young_value_kg * base_meat_value_price
         )
         insurance_cost = stock_value * costs.insurance_pct_stock_value_annual / 12.0
         selling_cost = (sales_revenue + cull_revenue) * sales.selling_cost_fraction + (
@@ -1567,6 +1678,7 @@ def _run_core(
                 manure_revenue=manure_revenue,
                 purchases_head=purchases_head,
                 purchase_cost=purchase_cost,
+                breeding_capex=breeding_capex_month,
                 feed_green_kg=feed_total.green_kg,
                 feed_homegrown_green_kg=homegrown_green_kg,
                 feed_purchased_green_kg=purchased_green_kg,
@@ -1661,6 +1773,18 @@ def _run_core(
         )
         for month in range(1, horizon + 1)
     ]
+    # Breeding-livestock asset account: straight-line depreciation per
+    # purchase vintage (full month in the purchase month), stopping at the
+    # useful life or the horizon. The residual (undepreciated book value at
+    # the horizon) is recovered as an explicit terminal-value component.
+    breeding_life = costs.breeding_stock_useful_life_months
+    breeding_book_residual = 0.0
+    for purchase_month, vintage_cost in breeding_vintages:
+        breeding_book_residual += vintage_cost
+        monthly_vintage_depreciation = vintage_cost / breeding_life
+        for dep_month in range(purchase_month, min(purchase_month + breeding_life, horizon + 1)):
+            depreciation_by_month[dep_month - 1] += monthly_vintage_depreciation
+            breeding_book_residual -= monthly_vintage_depreciation
     accumulated_shed_depreciation = min(
         shed_cost * (1.0 - costs.shed_residual_fraction),
         shed_monthly_depreciation * horizon,
@@ -1671,7 +1795,14 @@ def _run_core(
     )
     terminal_breakdown = TerminalValueBreakdown(
         livestock=(
-            records[-1].stock_value * fin.terminal_livestock_realization_fraction
+            # Closing herd value ABOVE the capitalized breeding book: young
+            # stock at the deseasonalized base price plus the disposal
+            # gain/(loss) on the capitalized breeding animals. Together with
+            # the breeding_stock line below this recovers exactly the closing
+            # herd's value — the capitalization changes the accounting split,
+            # not the terminal cash.
+            (records[-1].stock_value - breeding_book_residual)
+            * fin.terminal_livestock_realization_fraction
             if fin.include_terminal_value
             else 0.0
         ),
@@ -1691,6 +1822,11 @@ def _run_core(
             if fin.include_terminal_value
             else 0.0
         ),
+        breeding_stock=(
+            breeding_book_residual * fin.terminal_livestock_realization_fraction
+            if fin.include_terminal_value
+            else 0.0
+        ),
         total=0.0,
     )
     terminal_breakdown.total = (
@@ -1698,6 +1834,7 @@ def _run_core(
         + terminal_breakdown.shed
         + terminal_breakdown.equipment
         + terminal_breakdown.working_capital
+        + terminal_breakdown.breeding_stock
     )
 
     # Tax is assessed at the end of each 12-month block (the final block may be
@@ -1712,8 +1849,12 @@ def _run_core(
             if record.month <= len(schedule)
         )
         block_depreciation = sum(depreciation_by_month[start : start + len(raw_block)])
+        # P&L view of operating cost: cash opex minus the capitalized breeding
+        # purchases (their P&L cost arrives through ``block_depreciation``
+        # above), so taxable profit sees the straight-line expense, not the
+        # lumpy purchase month.
         taxable_profit = (
-            sum(record.revenue - record.opex for record in raw_block)
+            sum(record.revenue - record.opex + record.breeding_capex for record in raw_block)
             - block_interest
             - block_depreciation
         )
@@ -1771,6 +1912,7 @@ def _run_core(
                 manure_revenue=rec.manure_revenue,
                 purchases_head=rec.purchases_head,
                 purchase_cost=rec.purchase_cost,
+                breeding_stock_capex=rec.breeding_capex,
                 feed_green_kg=rec.feed_green_kg,
                 feed_homegrown_green_kg=rec.feed_homegrown_green_kg,
                 feed_purchased_green_kg=rec.feed_purchased_green_kg,
@@ -1816,11 +1958,16 @@ def _run_core(
         misc = sum(m.misc_cost for m in block)
         selling = sum(m.selling_cost for m in block)
         purchases = sum(m.purchase_cost for m in block)
+        breeding_capex = sum(m.breeding_stock_capex for m in block)
         debt = sum(m.debt_service for m in block)
         depreciation = sum(m.depreciation for m in block)
         tax = sum(m.tax for m in block)
         terminal_value = sum(m.terminal_value for m in block)
         total_revenue = meat + cull_rev + milk + manure
+        # total_opex carries only the OPERATING cost (young-stock trading
+        # purchases included; capitalized breeding purchases excluded — they
+        # flow through the depreciation line). Cash costs are total_opex +
+        # breeding_stock_capex, which is what net_cash_flow nets against.
         total_opex = feed_cost + vet + labour + insurance + misc + selling + purchases
         ebitda = total_revenue - total_opex
         ebit = ebitda - depreciation
@@ -1841,6 +1988,7 @@ def _run_core(
                 misc_cost=misc,
                 selling_cost=selling,
                 stock_purchases=purchases,
+                breeding_stock_capex=breeding_capex,
                 total_opex=total_opex,
                 ebitda=ebitda,
                 depreciation=depreciation,
@@ -1885,6 +2033,7 @@ def _run_core(
             + month.misc_cost
             + month.selling_cost
             + month.purchase_cost
+            + month.breeding_stock_capex
             + month.debt_service
             + month.tax
             for month in months
@@ -2108,6 +2257,27 @@ def run_simulation(
     assumptions_payload = json.dumps(
         assumptions.model_dump(mode="json"), sort_keys=True, separators=(",", ":")
     ).encode("utf-8")
+    # Festival-calendar coverage caveat: a horizon ending past the last year
+    # of the embedded Bakrid table silently drops the uplift from every
+    # trailing month (see market.bakrid_festival_months), which reads as a
+    # no-Bakrid world for those years. Surface it whenever festival pricing is
+    # active (explicit lunar months or the legacy recurring Gregorian month).
+    warnings: list[str] = []
+    festival_pricing_active = bool(assumptions.sales.festival_sale_months) or (
+        assumptions.sales.eid_month > 0
+    )
+    if festival_pricing_active:
+        start_year = int(assumptions.meta.start_year_month[:4])
+        start_month_number = int(assumptions.meta.start_year_month[5:7])
+        final_year = start_year + (
+            (start_month_number - 1 + assumptions.meta.horizon_months - 1) // 12
+        )
+        last_covered_year = festival_coverage_last_year()
+        if final_year > last_covered_year:
+            warnings.append(
+                f"Festival calendar covers through {last_covered_year}; months beyond "
+                f"that carry no Bakrid uplift."
+            )
     result = SimulationResult(
         months=core.months,
         annual_pl=core.annual_pl,
@@ -2136,6 +2306,7 @@ def run_simulation(
         terminal_value_breakdown=core.terminal_value_breakdown,
         model_version=MODEL_VERSION,
         assumptions_fingerprint=hashlib.sha256(assumptions_payload).hexdigest(),
+        warnings=warnings,
     )
     if with_monte_carlo or with_sensitivity or with_optimization:
         from .montecarlo import run_monte_carlo, run_sensitivity

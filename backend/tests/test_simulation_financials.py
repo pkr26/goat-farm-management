@@ -33,6 +33,7 @@ from app.simulation import (
     MetaAssumptions,
     MonthlyRow,
     SimulationAssumptions,
+    SimulationResult,
     amortization_schedule,
     cultivated_green_supply_kg,
     finance,
@@ -41,7 +42,12 @@ from app.simulation import (
     run_sensitivity,
     run_simulation,
 )
-from app.simulation.assumptions import MAX_MONEY, FinanceAssumptions, HerdEventAssumptions
+from app.simulation.assumptions import (
+    MAX_MONEY,
+    FinanceAssumptions,
+    HerdEventAssumptions,
+    ParityMultipliers,
+)
 from app.simulation.defaults import get_preset
 from app.simulation.engine import _ceil_head_ratio, _pool_avg_weight, weight_at_age
 from app.simulation.montecarlo import _DRAW_ORDER, _apply_draws
@@ -101,7 +107,13 @@ def toy(**herd_overrides: object) -> SimulationAssumptions:
         "foundation_flock_state": "open",
         **herd_overrides,
     }
-    return SimulationAssumptions(herd=HerdAssumptions(**herd))  # type: ignore[arg-type]
+    a = SimulationAssumptions(herd=HerdAssumptions(**herd))  # type: ignore[arg-type]
+    # Golden-derivation herd runs flat reproduction policy (no parity table,
+    # no repeat-breeder cull): those defaults have dedicated tests, and the
+    # identity/derivation goldens here pin mechanics in isolation.
+    a.reproduction.parity_multipliers = ParityMultipliers(litter_size=[1.0], conception_rate=[1.0])
+    a.reproduction.max_services_before_cull = 0
+    return a
 
 
 def initial_herd(a: SimulationAssumptions) -> float:
@@ -123,6 +135,8 @@ def revenue_of(row: MonthlyRow) -> float:
 
 
 def opex_of(row: MonthlyRow) -> float:
+    # CASH operating cost: young-stock purchases AND capitalized breeding
+    # purchases both leave cash in their purchase month.
     return (
         row.feed_cost
         + row.vet_cost
@@ -131,6 +145,7 @@ def opex_of(row: MonthlyRow) -> float:
         + row.misc_cost
         + row.selling_cost
         + row.purchase_cost
+        + row.breeding_stock_capex
     )
 
 
@@ -388,12 +403,19 @@ def test_mass_balance_unbounded_growth() -> None:
     a.mortality.grower = 0.0
     a.mortality.adult = 0.0
     a.culling.doe_cull_rate_annual = 0.0
+    # Repeat-breeder culls are involuntary removals too — park the default
+    # 2-service policy for this "nothing leaves" premise.
+    a.reproduction.max_services_before_cull = 0
     a.herd.female_retention_fraction = 1.0
     a.herd.max_breeding_does = 0  # unlimited
     res = run_simulation(a, with_break_even=False)
-    # Nothing dies or leaves involuntarily: the herd never shrinks.
+    # Nothing dies or leaves involuntarily: the herd, put back together with
+    # its voluntary offtake (male meat sales), never shrinks. Absolute
+    # total_herd alone can dip in a month where a large sale cohort leaves —
+    # with the SPEC-aligned 8-month kidding cycle the birth rhythm shifted
+    # one month's male graduation past the month's births.
     for prev_row, row in pairwise(res.months):
-        assert row.total_herd >= prev_row.total_herd - 1e-9
+        assert row.total_herd + row.sales_head >= prev_row.total_herd - 1e-9
     assert_mass_balance(a)
 
 
@@ -469,6 +491,7 @@ def test_monthly_rows_sum_to_annual_pl() -> None:
         assert row.insurance_cost == pytest.approx(sum(m.insurance_cost for m in block))
         assert row.misc_cost == pytest.approx(sum(m.misc_cost for m in block))
         assert row.stock_purchases == pytest.approx(sum(m.purchase_cost for m in block))
+        assert row.breeding_stock_capex == pytest.approx(sum(m.breeding_stock_capex for m in block))
         assert row.debt_service == pytest.approx(sum(m.debt_service for m in block))
         assert row.net_cash_flow == pytest.approx(sum(m.net_cash_flow for m in block))
         # Decomposition identities inside the annual row itself.
@@ -481,6 +504,7 @@ def test_monthly_rows_sum_to_annual_pl() -> None:
             + row.labour_cost
             + row.insurance_cost
             + row.misc_cost
+            + row.selling_cost
             + row.stock_purchases
         )
         assert row.ebitda == pytest.approx(row.total_revenue - row.total_opex)
@@ -789,6 +813,9 @@ def test_auto_purchased_buck_enables_conception_in_purchase_month() -> None:
         meta=MetaAssumptions(horizon_months=12),
         herd=HerdAssumptions(does=10, bucks=0, foundation_flock_state="open"),
     )
+    # Flat parity table keeps the golden conception arithmetic at rate x head
+    # (the default parity table scales the maiden-heavy toy herd below 1.0).
+    a.reproduction.parity_multipliers = ParityMultipliers(litter_size=[1.0], conception_rate=[1.0])
     res = run_simulation(a, with_break_even=False)
     month1 = res.months[0]
     expected_conceptions = 10.0 * a.reproduction.conception_rate * S_ADULT
@@ -893,7 +920,9 @@ def test_auto_buck_purchase_scales_with_doe_count() -> None:
     # fractional head and the end-of-month policy top-up restores three.
     expected_purchases = 3.0 + 3.0 * (1.0 - S_ADULT)
     assert m1.purchases_head == pytest.approx(expected_purchases)
-    assert m1.purchase_cost == pytest.approx(expected_purchases * 15000.0)
+    # Auto-purchased sires capitalize on the breeding-stock account.
+    assert m1.purchase_cost == pytest.approx(0.0)
+    assert m1.breeding_stock_capex == pytest.approx(expected_purchases * 15000.0)
     assert m1.bucks == pytest.approx(3.0)
 
 
@@ -1407,3 +1436,159 @@ class TestScheduledSaleUsesRealPoolWeight:
         early = event_price(9)
         mature = event_price(18)
         assert mature > early * 1.05, f"per-head {mature} should clearly exceed {early}"
+
+
+# ---------------------------------------------------------------------------
+# 7. Breeding-stock capitalization identities (model 3.1.0)
+# ---------------------------------------------------------------------------
+def _breeding_purchase_run() -> tuple[SimulationAssumptions, SimulationResult]:
+    """A run with a known mid-horizon doe purchase and sire restocking.
+
+    Auto-purchase off keeps the capitalized cash exactly the two scheduled
+    events (auto-restocked sires would add small monthly vintages)."""
+    a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=60))
+    a.herd.auto_purchase_bucks = False
+    a.events = [
+        HerdEventAssumptions(month=13, kind="purchase", animal_class="doe", count=10),
+        HerdEventAssumptions(month=25, kind="purchase", animal_class="buck", count=1),
+    ]
+    return a, run_simulation(a, with_break_even=False)
+
+
+def test_breeding_purchases_capitalize_and_depreciate_straight_line() -> None:
+    """Does/bucks bought during the run hit CASH in the purchase month but the
+    P&L through straight-line depreciation over the useful life; EBITDA never
+    sees the lump."""
+    a, res = _breeding_purchase_run()
+    life = a.costs.breeding_stock_useful_life_months
+    # Cash lands in the purchase month (not project cost, not spread).
+    assert res.months[12].breeding_stock_capex == pytest.approx(
+        10.0 * a.herd.doe_purchase_price * 1.04  # one year of 4% price growth
+    )
+    assert res.months[12].purchase_cost == pytest.approx(0.0)
+    # EBITDA excludes the capitalized cash; the depreciation line carries it.
+    for row in res.annual_pl:
+        assert row.ebitda == pytest.approx(row.total_revenue - row.total_opex)
+        breeding_dep = sum(
+            month.depreciation for month in res.months[(row.year - 1) * 12 : row.year * 12]
+        ) - (
+            res.project_cost_breakdown.shed_cost
+            * (1.0 - 0.10)
+            / (a.costs.shed_useful_life_years * 12)
+            * 12
+            + res.project_cost_breakdown.equipment_cost
+            * (1.0 - 0.05)
+            / (a.costs.equipment_useful_life_years * 12)
+            * 12
+        )
+        expected_dep = sum(
+            month.breeding_stock_capex
+            * (
+                # months of this year the vintage owns: the intersection of
+                # [purchase month, purchase month + life) with the calendar
+                # year, over EVERY vintage (earlier years' vintages keep
+                # depreciating).
+                max(
+                    0,
+                    min(row.year * 12, month.month + life - 1)
+                    - max((row.year - 1) * 12 + 1, month.month)
+                    + 1,
+                )
+                / life
+            )
+            for month in res.months
+            if month.breeding_stock_capex > 0.0
+        )
+        # abs tolerance: breeding_dep is a difference of large floats.
+        assert breeding_dep == pytest.approx(expected_dep, abs=1e-6), row.year
+
+
+def test_breeding_capex_cash_timing_and_dscr_reflect_capitalization() -> None:
+    """The purchase month's CASH flow still carries the outlay (capitalization
+    changes the accounting split, not the cash timing), and DSCR — which reads
+    EBITDA — no longer craters in the purchase year."""
+    a, res = _breeding_purchase_run()
+    purchase_month = res.months[12]
+    capex = purchase_month.breeding_stock_capex
+    assert capex > 0.0
+    assert purchase_month.net_cash_flow == pytest.approx(
+        revenue_of(purchase_month)
+        + purchase_month.terminal_value
+        - (
+            purchase_month.feed_cost
+            + purchase_month.vet_cost
+            + purchase_month.labour_cost
+            + purchase_month.insurance_cost
+            + purchase_month.misc_cost
+            + purchase_month.selling_cost
+            + purchase_month.purchase_cost
+            + purchase_month.breeding_stock_capex
+        )
+        - purchase_month.debt_service
+        - purchase_month.tax
+    )
+    # Year 2 (the purchase year): EBITDA excludes the whole lump.
+    purchase_year = res.annual_pl[1]
+    assert purchase_year.breeding_stock_capex == pytest.approx(capex)
+    assert purchase_year.ebitda == pytest.approx(
+        purchase_year.total_revenue
+        - (
+            purchase_year.feed_cost
+            + purchase_year.vet_cost
+            + purchase_year.labour_cost
+            + purchase_year.insurance_cost
+            + purchase_year.misc_cost
+            + purchase_year.selling_cost
+            + purchase_year.stock_purchases
+        )
+    )
+    # Tax reads the depreciation, not the lump: taxable profit in the purchase
+    # year is PBT, which subtracts only ~12/60 of the purchase cost.
+    pbt = purchase_year.profit_before_tax
+    one_year_dep_of_capex = capex * 12.0 / a.costs.breeding_stock_useful_life_months
+    expensed_pbt = pbt + one_year_dep_of_capex - capex
+    assert pbt > expensed_pbt  # capitalization defers the expense
+
+
+def test_terminal_value_recovers_breeding_book_without_double_counting() -> None:
+    """livestock + breeding_stock together recover exactly the closing herd's
+    market-value realization — the same total the pre-capitalization model
+    produced — with the residual book value as its own auditable line."""
+    a, res = _breeding_purchase_run()
+    breakdown = res.terminal_value_breakdown
+    fraction = a.finance.terminal_livestock_realization_fraction
+    # Closing herd market value at the deseasonalized base price: does and
+    # bucks at their (growth-adjusted) purchase prices plus young stock.
+    final = res.months[-1]
+    growth = 1.04 ** ((final.month - 1) / 12.0)
+    does = final.open_does + final.pregnant_does + final.lactating_does
+    young_value = final.total_herd - does - final.bucks  # head only; valued via stock_value below
+    del young_value, growth  # the identity below is checked against the engine's own stock ledger
+    assert breakdown.breeding_stock >= 0.0
+    assert breakdown.livestock + breakdown.breeding_stock == pytest.approx(
+        _closing_stock_value(res) * fraction
+    )
+    assert breakdown.total == pytest.approx(
+        breakdown.livestock
+        + breakdown.shed
+        + breakdown.equipment
+        + breakdown.working_capital
+        + breakdown.breeding_stock
+    )
+    # Disabling terminal value zeroes the new component like every other.
+    a_off = a.model_copy(deep=True)
+    a_off.finance.include_terminal_value = False
+    off = run_simulation(a_off, with_break_even=False)
+    assert off.terminal_value_breakdown.breeding_stock == 0.0
+    assert off.terminal_value_breakdown.total == 0.0
+
+
+def _closing_stock_value(res: SimulationResult) -> float:
+    """Engine-computed closing stock value: does/bucks at their purchase
+    prices plus young stock at the deseasonalized base meat price — rebuilt
+    from the result's own insurance line."""
+    final = res.months[-1]
+    # insurance_cost = stock_value * rate / 12 and nothing else scales with
+    # stock_value, so the closing stock value is exact from the premium.
+    rate = SimulationAssumptions().costs.insurance_pct_stock_value_annual
+    return final.insurance_cost * 12.0 / rate

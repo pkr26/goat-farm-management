@@ -28,6 +28,7 @@ user-facing simulation text.
 
 import math
 import re
+from collections.abc import Sequence
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -385,7 +386,9 @@ def _purchase_actions(
     assumptions: SimulationAssumptions,
     purchases: list[HerdEventAssumptions],
     start_year_month: str,
-    target_classes: list[str],
+    # Sequence (not list): callers pass filtered Literal-class lists, which are
+    # invariant-assignment-hostile to a plain list[str] parameter.
+    target_classes: Sequence[str],
     nouns: SpeciesNouns,
 ) -> list[PlannerAction]:
     """Why each purchase month is what it is: the lead-time chain worked

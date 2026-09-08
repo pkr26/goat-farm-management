@@ -148,6 +148,39 @@ class HerdAssumptions(_Group):
     foundation_flock_state: Literal["open", "mixed"] = "mixed"
 
 
+class ParityMultipliers(_Group):
+    """Parity-structured (kidding-number) reproduction adjustments.
+
+    The engine weights these over its doe-age ledger, so they apply as
+    expected-value multipliers on the monthly litter size and conception
+    rate. Index 0 is the first parity (maiden does), indexes 1-3 the mature
+    parity-2-4 peak, and the LAST entry extends to every later parity
+    (late-parity decline). Defaults are literature-anchored for Osmanabadi:
+    first-parity litters ~1.4 kids vs ~1.65-1.7 mature (AICRP/NARI herd
+    records) → 1.4/1.65 ≈ 0.85; pubertal does conceive ~8% below mature does
+    per service; parity >= 6 does decline toward ~0.9 of mature performance.
+    All-ones tables reproduce the flat (parity-free) model exactly.
+    """
+
+    litter_size: list[FiniteFloat] = Field(
+        default_factory=lambda: [0.85, 1.0, 1.0, 1.0, 0.97, 0.94, 0.90],
+        min_length=1,
+        max_length=12,
+    )
+    conception_rate: list[FiniteFloat] = Field(
+        default_factory=lambda: [0.92, 1.0, 1.0, 1.0, 0.98, 0.96, 0.90],
+        min_length=1,
+        max_length=12,
+    )
+
+    @field_validator("litter_size", "conception_rate")
+    @classmethod
+    def _multipliers_are_positive(cls, value: list[float]) -> list[float]:
+        if any(multiplier <= 0.0 or multiplier > 2.0 for multiplier in value):
+            raise ValueError("parity multipliers must be > 0 and <= 2.0")
+        return value
+
+
 class ReproductionAssumptions(_Group):
     """Breeding biology (monthly resolution)."""
 
@@ -158,7 +191,16 @@ class ReproductionAssumptions(_Group):
     # Murrah buffalo ~10.2 months (~310 days), with a 305-day (~10 month)
     # lactation.
     gestation_months: int = Field(default=5, ge=1, le=12)  # ~150 days goats
-    lactation_months: int = Field(default=3, ge=1, le=12)
+    # Months the meat-mode doe stays in the lactating pool after kidding
+    # before her rebreed wait begins — i.e. the WEANING-PLUS-REBREED interval,
+    # not a dairy lactation length (dairy presets set their own 5-10 below and
+    # in defaults.py). Default 2 aligns the projection with the operational
+    # SPEC (GOAT_PROFILE.weaning_days = 60 → 2 months at monthly resolution;
+    # daily_ops weans at day 60 with a 14-day VWP). The old 3 modelled a
+    # 90-day weaning the farm does not practice and stretched the kidding
+    # cycle to ~9-10 months against published Osmanabadi kidding intervals of
+    # 232-297 days (7.7-9.8 months; 5 + 2 + 1 = 8 sits inside that band).
+    lactation_months: int = Field(default=2, ge=1, le=12)
     # Months a doe waits after lactation before rebreeding (post-partum anoestrus).
     # 1 for Osmanabadi: published kidding intervals run 232-297 days (7.7-9.8
     # months; improved-management herds ~195 d), so a 5-month gestation + 1
@@ -190,7 +232,17 @@ class ReproductionAssumptions(_Group):
     # A doe whose breeding attempt fails this many consecutive services is
     # culled as a repeat breeder (standard Murrah farm discipline; the site
     # plan's "3-service rule"). 0 disables — does are re-served indefinitely.
-    max_services_before_cull: int = Field(default=0, ge=0, le=12)
+    # Default 2 single-sources the operational flag
+    # (models.species.GOAT_PROFILE.failed_services_before_cull = 2: the
+    # daily-ops write path flags a doe as a cull candidate after two failed
+    # services), so the projection and the farm's own worklist enforce one
+    # policy. Kept as a literal, not an import: app.simulation must stay
+    # importable without the DB-layer models (mutmut profile); the parity is
+    # pinned by tests/test_simulation_engine.py::test_repeat_cull_default_matches_species_profile.
+    max_services_before_cull: int = Field(default=2, ge=0, le=12)
+    # Parity (kidding-number) structure on litter size and conception rate;
+    # default-on with literature-anchored multipliers. See ParityMultipliers.
+    parity_multipliers: ParityMultipliers = Field(default_factory=ParityMultipliers)
 
     @model_validator(mode="after")
     def _sexed_policy_is_coherent(self) -> "ReproductionAssumptions":
@@ -383,8 +435,11 @@ class SalesAssumptions(_Group):
     # Direct selling/mandi commission on livestock revenue and per-head
     # transport/handling. Both are reported as selling cost, not netted out of
     # the observed market price, so the revenue bridge remains auditable.
-    selling_cost_fraction: FiniteFloat = Field(default=0.0, ge=0.0, le=0.5)
-    transport_cost_per_head: FiniteFloat = Field(default=0.0, ge=0.0, le=MAX_MONEY)
+    # Telangana 2025-26 defaults: shandy/mandi commission runs 2-4% of sale
+    # value (0.03 mid), and hauling a batch to the Navipet Saturday market
+    # (shared truck, ~5 AM loading) costs on the order of ₹100/head.
+    selling_cost_fraction: FiniteFloat = Field(default=0.03, ge=0.0, le=0.5)
+    transport_cost_per_head: FiniteFloat = Field(default=100.0, ge=0.0, le=MAX_MONEY)
     milk_price_per_litre: FiniteFloat = Field(default=30.0, ge=0.0, le=MAX_MONEY)
     # Total litres per lactation per doe; 0 for meat breeds (Osmanabadi),
     # ~110 Sirohi, ~175 Beetal, ~200 Jamunapari (NBAGR descriptors),
@@ -575,6 +630,21 @@ class CostsAssumptions(_Group):
     # persisted scenarios carry them. 10**15 stays float-exact (< 2**53) and
     # grandfathers every previously-runnable stored value.
     labour_per_head_threshold: int = Field(default=60, ge=1, le=MAX_LABOUR_PER_HEAD_THRESHOLD)
+    # Smallholder/hobby flocks are family-run: no hired attendant is paid.
+    # True zeroes the CASH labour line (IRR-style metrics keep working off
+    # the actual cash flows) while the narrative report discloses the market
+    # wage the family's own labour forgoes. Labour units also scale in
+    # half-attendant steps (ceil(2 x does / threshold) / 2, floored at 0.5
+    # for any non-empty flock): a 3-doe hobby flock books a half-time
+    # attendant, not a full ₹14,000/month hire.
+    family_labour: bool = False
+    # Breeding does/bucks bought during the projection are capitalized and
+    # depreciated straight-line over this horizon (5 years: a young proven
+    # doe bought at ~18 months is culled near the 72-month max age, so her
+    # breeding life is ~5 asset years — NABARD goat-unit costing treats the
+    # breeding herd as a 5-year productive asset). The cash outlay still hits
+    # the purchase month; only the P&L (EBITDA/tax/DSCR) spreads the cost.
+    breeding_stock_useful_life_months: int = Field(default=60, ge=1, le=240)
     insurance_pct_stock_value_annual: FiniteFloat = Field(default=0.04, ge=0.0, le=0.25)
     misc_overhead_per_month: FiniteFloat = Field(default=2000.0, ge=0.0, le=MAX_MONEY)
     # Labour, vet and misc overheads escalate with general inflation. The
@@ -702,6 +772,21 @@ class RiskAssumptions(_Group):
     # factors. A Gaussian copula maps those correlated factors into each
     # triangular marginal without changing its low/mode/high definition.
     correlation_strength: FiniteFloat = Field(default=0.60, ge=0.0, le=0.95)
+    # Within-run annual price variation: when True, each Monte Carlo run adds
+    # a mean-reverting AR(1) annual shock process on log meat and purchased
+    # feed prices AROUND that run's drawn level, so a single run lives through
+    # good and bad price years instead of one flat multiplier for the whole
+    # horizon. The persistent (between-run) and annual (within-run)
+    # components split the configured triangular variance 50/50, so the
+    # marginal spread of realized annual multipliers still matches the
+    # configured low/mode/high risk definition. False restores the legacy
+    # single whole-horizon multiplier per run.
+    within_run_price_variation: bool = True
+    # Mean-reversion strength of that annual price process: 0 = independent
+    # annual shocks, -> 1 = the first drawn year persists. 0.3 keeps a mild
+    # year-to-year hangover (a drought/feed-price year carries into the next)
+    # while reverting toward the run's own level.
+    price_process_rho: FiniteFloat = Field(default=0.30, ge=0.0, le=0.95)
     disease_outbreak_probability_annual: FiniteFloat = Field(default=0.10, ge=0.0, le=1.0)
     disease_outbreak_duration_months: int = Field(default=3, ge=1, le=24)
     disease_adult_mortality_multiplier: FiniteFloat = Field(default=2.0, ge=1.0, le=20.0)
@@ -736,6 +821,13 @@ class OptimizationAssumptions(_Group):
     sale_age_radius_months: int = Field(default=2, ge=0, le=9)
     retention_step: FiniteFloat = Field(default=0.25, ge=0.0, le=1.0)
     loan_fraction_step: FiniteFloat = Field(default=0.15, ge=0.0, le=1.0)
+    # Integer-axis radii around the submitted policy: the search also tries
+    # +/- this many festival-hold months and +/- this many services on the
+    # repeat-breeder cull cap (clamped to the schema bounds; 0 pins the axis).
+    # Both are decisions a Navipet farmer actually makes — holding bucks into
+    # Bakrid and how long to persist with a repeat-breeder doe.
+    festival_hold_radius_months: int = Field(default=1, ge=0, le=6)
+    service_cull_radius_months: int = Field(default=1, ge=0, le=6)
 
     @model_validator(mode="after")
     def _range_order(self) -> "OptimizationAssumptions":
