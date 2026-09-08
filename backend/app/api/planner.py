@@ -7,9 +7,6 @@ Three concerns live here, all built on the pure ``app.simulation`` engine:
   works the biology backward (breeding, gestation, mortality, culling, growth
   stages) and answers with feasibility, the month-by-month stage plan, dated
   actions and per-target requirement chains.
-- ``POST /milk-plan`` — the dairy mirror image: design the herd that ships a
-  daily litres target (moved here from the simulation router so Simulation
-  stays a pure forward projector).
 - ``/plans`` CRUD — saved target lists plus the assumptions they run against;
   the report itself is always recomputed on open.
 
@@ -33,8 +30,6 @@ from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFS
 from ..schemas.planner import (
     BackwardPlanIn,
     BackwardPlanReport,
-    MilkPlanIn,
-    MilkPlanReport,
     PlannerPlanCreateIn,
     PlannerPlanListOut,
     PlannerPlanOut,
@@ -48,8 +43,7 @@ from ..simulation.backward_planner import (
     build_backward_plan,
     month_offset,
 )
-from ..simulation.milk_planner import build_milk_plan
-from ..simulation.vocabulary import nouns_for_farm_type
+from ..simulation.vocabulary import GOAT_NOUNS
 from ._run_limits import (
     _charge_run_budget,
     _check_run_budget,
@@ -61,9 +55,8 @@ from ._run_limits import (
 router = APIRouter(prefix="/api/planner", tags=["planner"], responses=COMMON_ERROR_RESPONSES)
 
 # Namespace for the per-farm plan-quota mutex. Advisory lock keys are global
-# to the database, and every other namespace is taken: 4711 tasks, 4712 team
-# provisioning, 4713 simulation scenarios, 4714 the finance milk ledger — so
-# this counter must keep 4715 to itself.
+# to the database (4711 tasks, 4712 team provisioning, 4713 simulation
+# scenarios), so this counter must keep 4715 to itself.
 PLAN_QUOTA_LOCK_NAMESPACE = 4715
 
 PLAN_CAPACITY_REASON = "This farm has reached its saved-plan limit."
@@ -200,7 +193,7 @@ async def plan_sales(
     user_id = user.id
     # Snapshot before the rollback expires the ORM row (see run_adhoc in the
     # simulation router for why the auth transaction must not span CPU work).
-    nouns = nouns_for_farm_type(farm.farm_type)
+    nouns = GOAT_NOUNS
     await db.rollback()
 
     start = payload.assumptions.meta.start_year_month
@@ -266,65 +259,6 @@ async def plan_sales(
             # beyond the 20-year horizon.
             raise HTTPException(status_code=422, detail=str(exc)) from None
         # Same defense as /run: a non-finite figure would crash JSON encoding.
-        if not _finite_payload(report.model_dump()):
-            raise HTTPException(status_code=422, detail="These inputs produce non-finite results.")
-        return report
-
-    return await _with_run_limits(farm_id, user_id, run)
-
-
-@router.post("/milk-plan")
-async def plan_milk(
-    payload: MilkPlanIn,
-    db: DbSession,
-    user: CurrentUser,
-    farm: CurrentFarm,
-    perms: SimView,
-) -> MilkPlanReport:
-    """Design the dairy herd that ships a daily litres target.
-
-    Reverse-plans from the target to biology: how many animals at which
-    lactation stages, the calving/AI calendar that keeps daily yield flat, and
-    the in-milk purchases that build the herd. Only meaningful for dairy
-    assumptions (``sales.lactation_milk_litres > 0``).
-    """
-    farm_id = farm.id
-    user_id = user.id
-    nouns = nouns_for_farm_type(farm.farm_type)
-    await db.rollback()
-
-    horizon = payload.assumptions.meta.horizon_months
-    months = min(horizon, payload.projection_months)
-    # Priced like the sale planner: a handful of deterministic design passes
-    # over the projection window, no Monte Carlo.
-    cost = 10 * months
-
-    async def run() -> MilkPlanReport:
-        _check_run_budget(farm_id, user_id, cost)
-        _charge_run_budget(farm_id, user_id, cost)
-        try:
-            report = await _offload(
-                lambda: build_milk_plan(
-                    payload.assumptions,
-                    payload.daily_target_litres,
-                    ramp_months=payload.ramp_months,
-                    projection_months=payload.projection_months,
-                    hold_year_round=payload.hold_year_round,
-                    nouns=nouns,
-                )
-            )
-        except ValidationError as exc:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    "This milk plan cannot be represented within the simulation's "
-                    f"limits: {exc.errors()[:3]}"
-                ),
-            ) from exc
-        except ValueError as exc:
-            # Deliberate rejections (non-dairy scenario, ramp past the
-            # horizon, head-count ceiling).
-            raise HTTPException(status_code=422, detail=str(exc)) from None
         if not _finite_payload(report.model_dump()):
             raise HTTPException(status_code=422, detail="These inputs produce non-finite results.")
         return report

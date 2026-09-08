@@ -204,7 +204,6 @@ async def test_defaults_breeds_list(client: httpx.AsyncClient) -> None:
         "beetal",
         "black_bengal",
         "boer_cross",
-        "murrah_dairy",
     }
     assert body["systems"] == ["stall_fed", "semi_intensive"]
 

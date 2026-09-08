@@ -21,11 +21,11 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: `${APP_NAME} — Livestock farm management`,
+    default: `${APP_NAME} — Goat farm management`,
     template: `%s · ${APP_NAME}`,
   },
   description:
-    "Commercial goat and buffalo dairy farm management — herd, health, breeding, milk and finance in one place.",
+    "Goat farm management — herd, health, breeding, kidding and finance in one place.",
 };
 
 export default function RootLayout({

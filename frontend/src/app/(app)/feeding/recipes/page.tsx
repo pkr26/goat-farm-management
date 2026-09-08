@@ -25,7 +25,6 @@ import {
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
 import { FeedingNav } from "@/components/feeding-nav";
-import { useFarmType } from "@/hooks/use-farm-type";
 import { enumLabel } from "@/lib/enum-labels";
 import { usePermissions } from "@/lib/use-permissions";
 import { PermissionsError } from "@/components/permissions-error";
@@ -33,7 +32,6 @@ import { PermissionsError } from "@/components/permissions-error";
 export default function RecipesPage() {
   const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
   const allowed = can("feeding.view");
-  const farmType = useFarmType();
 
   const query = useListRecipesApiFeedingRecipesGet({ query: { enabled: allowed } });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
@@ -156,7 +154,7 @@ export default function RecipesPage() {
             {payload.allocation.map((row) => (
               <TableRow key={row.bucket}>
                 <TableCell>
-                  <Badge variant="secondary">{enumLabel("bucket", row.bucket, farmType)}</Badge>
+                  <Badge variant="secondary">{enumLabel("bucket", row.bucket)}</Badge>
                 </TableCell>
                 <TableCell>{row.allocation}</TableCell>
               </TableRow>

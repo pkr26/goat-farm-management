@@ -1,7 +1,7 @@
 /**
  * Farm-select page — mutation-hardening suite for the surviving branches:
  * the create-farm happy path (trimmed payload, form reset, navigation),
- * the empty-list hint, and the per-card farm-type labels and timezone
+ * the empty-list hint, and the per-card type labels and timezone
  * fallbacks on the picker grid.
  */
 
@@ -33,16 +33,14 @@ const GOAT_FARM = {
   name: "Test Goat Farm",
   location: "Solapur",
   role: null,
-  farm_type: "GOAT",
   timezone: "Asia/Kolkata",
 };
 
-const DAIRY_FARM = {
+const SECOND_FARM = {
   id: 2,
-  name: "Navipet Dairy",
+  name: "Navipet Herd",
   location: null,
   role: "Mover",
-  farm_type: "BUFFALO_DAIRY",
   // No timezone: the card must fall back to Asia/Kolkata.
 };
 
@@ -70,11 +68,10 @@ describe("FarmSelectPage — create farm", () => {
     navState.search = "";
     createBodies = [];
     server.use(
-      http.get("/api/auth/farms", () => HttpResponse.json([GOAT_FARM, DAIRY_FARM])),
+      http.get("/api/auth/farms", () => HttpResponse.json([GOAT_FARM, SECOND_FARM])),
       http.post("/api/auth/farms", async ({ request }) => {
         createBodies.push((await request.json()) as Record<string, unknown>);
         return HttpResponse.json(
-          { id: 9, name: "New Farm", location: null, role: null, farm_type: "GOAT", timezone: "Asia/Kolkata" },
           { status: 201 },
         );
       }),
@@ -92,7 +89,6 @@ describe("FarmSelectPage — create farm", () => {
     await waitFor(() => expect(createBodies).toHaveLength(1));
     expect(createBodies[0]).toEqual({
       name: "New Farm",
-      farm_type: "GOAT",
       location: null,
       timezone: "Asia/Kolkata",
     });
@@ -101,25 +97,8 @@ describe("FarmSelectPage — create farm", () => {
     await waitFor(() => expect(name).toHaveValue(""));
   });
 
-  it("sends an explicit location and a dairy farm type through", async () => {
-    const user = userEvent.setup();
-    await renderLoaded(2);
 
-    await user.type(screen.getByLabelText("Farm name"), "Dairy #2");
-    await user.type(screen.getByLabelText(/Location/), "Navipet");
-    await user.click(screen.getByRole("radiogroup", { name: "Farm type" }).querySelector('input[value="BUFFALO_DAIRY"]')!);
-    await user.click(screen.getByRole("button", { name: "Create farm" }));
-
-    await waitFor(() => expect(createBodies).toHaveLength(1));
-    expect(createBodies[0]).toEqual({
-      name: "Dairy #2",
-      farm_type: "BUFFALO_DAIRY",
-      location: "Navipet",
-      timezone: "Asia/Kolkata",
-    });
-  });
-
-  it("resets the whole draft — including the goat radio — when opening the fresh farm fails", async () => {
+  it("resets the whole draft when opening the fresh farm fails", async () => {
     server.use(
       http.get("/api/auth/permissions", () =>
         HttpResponse.json({ detail: "farm bootstrap failed" }, { status: 503 }),
@@ -131,7 +110,6 @@ describe("FarmSelectPage — create farm", () => {
     const name = screen.getByLabelText("Farm name");
     await user.type(name, "New Farm");
     await user.type(screen.getByLabelText(/Location/), "Somewhere");
-    await user.click(screen.getByRole("radiogroup", { name: "Farm type" }).querySelector('input[value="BUFFALO_DAIRY"]')!);
     await user.click(screen.getByRole("button", { name: "Create farm" }));
 
     expect(await screen.findByText("farm bootstrap failed")).toBeInTheDocument();
@@ -139,9 +117,6 @@ describe("FarmSelectPage — create farm", () => {
     await waitFor(() => expect(name).toHaveValue(""));
     expect(screen.getByLabelText(/Location/)).toHaveValue("");
     expect(screen.getByLabelText(/Farm timezone/)).toHaveValue("Asia/Kolkata");
-    const radios = screen.getByRole("radiogroup", { name: "Farm type" }).querySelectorAll("input");
-    expect(radios[0].checked).toBe(true); // GOAT
-    expect(radios[1].checked).toBe(false); // BUFFALO_DAIRY
   });
 });
 
@@ -151,31 +126,26 @@ describe("FarmSelectPage — picker cards", () => {
     navState.search = "";
   });
 
-  it("labels each card with its species and timezone, defaulting the latter", async () => {
-    server.use(http.get("/api/auth/farms", () => HttpResponse.json([GOAT_FARM, DAIRY_FARM])));
+  it("labels each card with its type and timezone, defaulting the latter", async () => {
+    server.use(http.get("/api/auth/farms", () => HttpResponse.json([GOAT_FARM, SECOND_FARM])));
     await renderLoaded(2);
 
     const goat = cardOf("Test Goat Farm");
     expect(within(goat).getByText("Goat farm")).toBeInTheDocument();
     expect(within(goat).getByText("Asia/Kolkata")).toBeInTheDocument();
     expect(within(goat).getByText("current")).toBeInTheDocument();
-    // Species icon: a goat herd shows the paw print, not the milk churn.
+    // Species icon: the goat herd shows the paw print.
     expect(goat.querySelector("svg.lucide-paw-print")).not.toBeNull();
-    expect(goat.querySelector("svg.lucide-milk")).toBeNull();
     // The type label and timezone are separated by a real " · ".
     const footer = goat.querySelector("p.text-xs") as HTMLElement;
     expect(footer.textContent).toBe("Goat farm · Asia/Kolkata");
 
-    const dairy = cardOf("Navipet Dairy");
-    expect(within(dairy).getByText("Buffalo dairy")).toBeInTheDocument();
-    expect(within(dairy).getByText("Asia/Kolkata")).toBeInTheDocument();
-    expect(within(dairy).queryByText("current")).not.toBeInTheDocument();
-    // A buffalo dairy shows the milk icon.
-    expect(dairy.querySelector("svg.lucide-milk")).not.toBeNull();
-    expect(dairy.querySelector("svg.lucide-paw-print")).toBeNull();
-    expect((dairy.querySelector("p.text-xs") as HTMLElement).textContent).toBe(
-      "Buffalo dairy · Asia/Kolkata",
-    );
+    // A farm without an explicit timezone still renders the label
+    // and the timezone fallback.
+    const second = cardOf("Navipet Herd");
+    expect(within(second).getByText("Goat farm")).toBeInTheDocument();
+    expect(within(second).getByText("Asia/Kolkata")).toBeInTheDocument();
+    expect(within(second).queryByText("current")).not.toBeInTheDocument();
   });
 
   it("shows the no-farms hint instead of an empty grid", async () => {

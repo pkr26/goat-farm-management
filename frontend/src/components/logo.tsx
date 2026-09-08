@@ -5,10 +5,8 @@ import { APP_NAME } from "@/lib/brand";
 export { APP_NAME };
 
 /**
- * Brand mark: a horned livestock head — the wide crescent horns read as the
- * Murrah buffalo (the flagship dairy species) while staying a generic bovid
- * for goat herds. Same line-art language as the app icon set (1.8 stroke,
- * round caps) so it sits naturally at 16–24px.
+ * Brand mark: a horned goat head. Same line-art language as the app icon
+ * set (1.8 stroke, round caps) so it sits naturally at 16–24px.
  */
 function HerdMark({ className }: { className?: string }) {
   return (

@@ -22,7 +22,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
-import { useFarmType } from "@/hooks/use-farm-type";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { withReturnTo } from "@/lib/permission-navigation";
 import { usePermissions } from "@/lib/use-permissions";
@@ -74,7 +73,7 @@ function SummaryRow({ label, value }: { label: string; value: ReactNode }) {
 }
 
 export default function ReportsPage() {
-  const vocabulary = farmVocabulary(useFarmType());
+  const vocabulary = farmVocabulary;
   const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
   const allowed = can("reports.view");
   const canViewAnimals = can("animals.view");

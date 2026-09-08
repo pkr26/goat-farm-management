@@ -108,5 +108,4 @@ def test_farm_response_contract_requires_every_emitted_key() -> None:
         "location",
         "timezone",
         "role",
-        "farm_type",
     }

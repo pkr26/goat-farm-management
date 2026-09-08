@@ -725,7 +725,6 @@ class _DailyOpsRun:
                 self._dob_date(animal),
                 self.payload.start_date + timedelta(days=day - 1),
                 animal.bucket_days(day),
-                "GOAT",
                 is_dependent_kid=animal.dependent_kid,
             )
             groups.setdefault((animal.bucket, recipe), []).append(animal)
@@ -1519,7 +1518,7 @@ class _DailyOpsRun:
         )
         result = DailyOpsResult(
             model_version=DAILY_OPS_MODEL_VERSION,
-            species=_PROFILE.farm_type,
+            species="goat",
             start_date=self.payload.start_date.isoformat(),
             horizon_days=self.payload.horizon_days,
             seed=self.payload.seed,
@@ -1668,10 +1667,7 @@ def _build_explanations(result: DailyOpsResult, run: _DailyOpsRun) -> list[Metri
 
 def _build_notes(result: DailyOpsResult, run: _DailyOpsRun) -> list[str]:
     notes = [
-        (
-            f"Goat farms only in this version (species={result.species}); "
-            "dairy milking duties arrive with the buffalo profile."
-        ),
+        f"Goat farm simulation (species={result.species}).",
         (
             "Breeding eligibility is age-gated (≥10 months); "
             "the live 22 kg weight gate is not modelled."

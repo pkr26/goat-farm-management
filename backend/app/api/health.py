@@ -109,7 +109,6 @@ async def schedule_templates(
     rows = (
         await db.execute(
             select(VaccineTemplate)
-            .where(VaccineTemplate.farm_type == farm.farm_type)
             .order_by(VaccineTemplate.name)
         )
     ).scalars()
@@ -811,7 +810,7 @@ async def _record_event_mutation(
     if payload.type in (HealthEventType.VACCINE.value, HealthEventType.DEWORMING.value):
         try:
             template = await validated_template(
-                db, requested_template, payload.type, farm_type=farm.farm_type
+                db, requested_template, payload.type
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
@@ -875,7 +874,7 @@ async def _record_event_mutation(
                 )
             try:
                 template = await validated_template(
-                    db, expected_template, payload.type, farm_type=farm.farm_type
+                    db, expected_template, payload.type
                 )
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from None
@@ -890,7 +889,6 @@ async def _record_event_mutation(
             payload.type,
             (payload.product_name or "").strip(),
             disease_target,
-            farm_type=farm.farm_type,
         )
     template_id = template.id if template is not None else None
 

@@ -51,9 +51,8 @@ class UltrasoundIn(StrictInputModel):
     # result additionally cannot predate the planned check date.
     date: PastOrTodayDate | None = None
     # SPEC §BreedingRecord: kid_count_detected is 1/2/3 nullable (SINGLE/TWIN/
-    # TRIPLET). The bound is the cross-species max (goat litters reach 4); the
-    # per-species cap (4 goat / 2 buffalo) is enforced against the farm's
-    # SpeciesProfile by record_ultrasound_result.
+    # TRIPLET). The bound is the goat maximum (litters reach 4); the cap is
+    # enforced against GOAT_PROFILE by record_ultrasound_result.
     kid_count: Annotated[StrictInt, Field(ge=1, le=4)] | None = None
 
     @model_validator(mode="after")

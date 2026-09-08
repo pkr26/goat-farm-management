@@ -5,8 +5,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import false, func, literal, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import false, func, select
 from sqlalchemy.orm import selectinload
 
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
@@ -16,10 +15,8 @@ from ..models import (
     BreedingRecord,
     Bucket,
     BucketMove,
-    FarmType,
     FeedInventory,
     HealthEvent,
-    MilkRecord,
     PurchaseBatch,
     Transaction,
     TransactionType,
@@ -52,21 +49,6 @@ FinanceView = Annotated[set[str], Depends(require_perm("finance.view"))]
 FinanceManage = Annotated[set[str], Depends(require_perm("finance.manage"))]
 
 _MAX_FEED_UNIT_PRICE = Decimal("1000000000.00")
-
-
-def _require_dairy_farm_for_milk(farm: CurrentFarm) -> None:
-    """MILK income belongs to the dairy ledger only.
-
-    On a goat (meat) farm the category would book revenue no animal of that
-    species produced; milk provenance — litres and a fat- or litre-based
-    price — exists to reconcile dairy procurement slips against the parlour
-    records, which a meat operation does not have.
-    """
-    if farm.farm_type != FarmType.BUFFALO_DAIRY.value:
-        raise HTTPException(
-            status_code=422,
-            detail="Milk income is booked on buffalo dairy farms only",
-        )
 
 
 def _transaction_out(txn: Transaction) -> TransactionOut:
@@ -591,73 +573,6 @@ async def list_transactions(
     )
 
 
-# Per-farm advisory namespace serializing the sold-vs-produced reconciliation
-# (check-then-insert must not race a concurrent milk sale on the same farm).
-# Farm advisory locks are always acquired FIRST in this codebase's lock order.
-MILK_LEDGER_LOCK_NAMESPACE = 4714
-
-
-async def _lock_milk_ledger(db: AsyncSession, farm: CurrentFarm) -> None:
-    await db.execute(
-        select(
-            func.pg_advisory_xact_lock(
-                literal(MILK_LEDGER_LOCK_NAMESPACE),
-                literal(farm.id),
-            )
-        )
-    )
-
-
-# Milk-sale overbooking allowance: a tiny rounding band (0.5% of recorded
-# production plus an absolute 10 L for very small herds). The previous flat
-# 10% never reset, authorizing a permanently renewable ~10% of fictitious
-# income (₹22 lakh/yr on a 200-Murrah dairy) that passed every provenance
-# check; this fence still absorbs sale-side rounding without becoming a
-# revenue-overbooking budget.
-MILK_SALE_ALLOWANCE_FRACTION = 0.005
-MILK_SALE_ALLOWANCE_LITRES = 10.0
-
-
-async def _guard_milk_sold_within_production(
-    db: AsyncSession, farm: CurrentFarm, new_litres: float
-) -> None:
-    """A milk sale cannot claim litres the parlour never recorded.
-
-    Cumulative non-voided MILK-income litres (including this row) are checked
-    against the farm's recorded MilkRecord production, with only the small
-    rounding allowance above. Callers hold the farm's milk-ledger advisory
-    lock so two concurrent sales cannot both observe the pre-insert totals
-    and slip past the fence.
-    """
-    sold = (
-        await db.execute(
-            select(func.coalesce(func.sum(Transaction.milk_litres), 0.0)).where(
-                Transaction.farm_id == farm.id,
-                Transaction.type == TransactionType.INCOME.value,
-                Transaction.category == "MILK",
-                Transaction.voided_at.is_(None),
-            )
-        )
-    ).scalar_one()
-    produced = (
-        await db.execute(
-            select(func.coalesce(func.sum(MilkRecord.litres), 0.0)).where(
-                MilkRecord.farm_id == farm.id
-            )
-        )
-    ).scalar_one()
-    allowed = float(produced) * (1.0 + MILK_SALE_ALLOWANCE_FRACTION) + MILK_SALE_ALLOWANCE_LITRES
-    if float(sold) + float(new_litres) > allowed:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"This sale would book {float(sold) + float(new_litres):.1f} L of milk income "
-                f"against {float(produced):.1f} L ever recorded in the parlour — record the "
-                "yield readings first or correct the sale's litres"
-            ),
-        )
-
-
 @router.post("/new", status_code=201)
 async def add_transaction(
     payload: TransactionIn,
@@ -673,11 +588,6 @@ async def add_transaction(
     """Record an income/expense with an optional verified farm-animal link."""
 
     async def mutate() -> TransactionOut:
-        if payload.category == "MILK":
-            _require_dairy_farm_for_milk(farm)
-        if payload.milk_litres is not None:
-            await _lock_milk_ledger(db, farm)
-            await _guard_milk_sold_within_production(db, farm, payload.milk_litres)
         try:
             require_farm_not_future(payload.date, farm, "transaction date")
         except ValueError as exc:
@@ -691,10 +601,6 @@ async def add_transaction(
             amount=money(payload.amount),
             related_animal_id=animal_pk,
             notes=(payload.notes or "").strip() or None,
-            milk_litres=payload.milk_litres,
-            milk_unit_price_per_litre=payload.milk_unit_price_per_litre,
-            milk_fat_pct=payload.milk_fat_pct,
-            milk_price_per_kg_fat=payload.milk_price_per_kg_fat,
             created_by_id=user.id,
         )
         db.add(txn)
@@ -732,13 +638,6 @@ async def correct_transaction(
     """Void one ledger row and create its audited replacement atomically."""
 
     async def mutate() -> TransactionOut:
-        if payload.category == "MILK":
-            _require_dairy_farm_for_milk(farm)
-        payload_is_milk_income = payload.category == "MILK" and payload.type == "INCOME"
-        if payload_is_milk_income and payload.milk_litres is not None:
-            # Advisory-first lock order: taken before the original row's
-            # FOR UPDATE so the farm mutex always precedes row locks.
-            await _lock_milk_ledger(db, farm)
         try:
             require_farm_not_future(payload.date, farm, "replacement transaction date")
         except ValueError as exc:
@@ -784,37 +683,6 @@ async def correct_transaction(
             replacement_feed_unit_price = _corrected_feed_unit_price(
                 txn, money(payload.amount), replacement_feed_quantity_kg
             )
-        # A corrected MILK row may restate its sale provenance — flat ₹/litre
-        # or fat-based procurement, kept coherent and priced against the
-        # amount by TransactionCorrectionIn; any other category carries none.
-        is_milk_income = payload.category == "MILK" and payload.type == "INCOME"
-        if is_milk_income:
-            original_had_provenance = (
-                txn.milk_litres is not None
-                or txn.milk_unit_price_per_litre is not None
-                or txn.milk_fat_pct is not None
-                or txn.milk_price_per_kg_fat is not None
-            )
-            replacement_drops_provenance = (
-                payload.milk_litres is None
-                and payload.milk_unit_price_per_litre is None
-                and payload.milk_fat_pct is None
-                and payload.milk_price_per_kg_fat is None
-            )
-            if original_had_provenance and replacement_drops_provenance:
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        "The original milk sale carries provenance — the replacement "
-                        "must restate milk_litres and its price, not drop them"
-                    ),
-                )
-            if payload.milk_litres is not None:
-                # The milk-ledger advisory lock was taken at the top of this
-                # mutation. The void above removes the original row from the
-                # active ledger, so the reconciliation sees the restated
-                # total, not both copies.
-                await _guard_milk_sold_within_production(db, farm, payload.milk_litres)
         replacement = Transaction(
             farm_id=farm.id,
             date=payload.date,
@@ -829,10 +697,6 @@ async def correct_transaction(
             feed_inventory_id=txn.feed_inventory_id,
             feed_quantity_kg=replacement_feed_quantity_kg,
             feed_unit_price_per_kg=replacement_feed_unit_price,
-            milk_litres=payload.milk_litres if is_milk_income else None,
-            milk_unit_price_per_litre=payload.milk_unit_price_per_litre if is_milk_income else None,
-            milk_fat_pct=payload.milk_fat_pct if is_milk_income else None,
-            milk_price_per_kg_fat=payload.milk_price_per_kg_fat if is_milk_income else None,
             correction_of_id=txn.id,
         )
         db.add(replacement)

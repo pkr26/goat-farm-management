@@ -21,10 +21,6 @@ export interface TransactionCorrectionIn {
   notes?: string | null;
   related_animal_id?: number | null;
   feed_quantity_kg?: number | null;
-  milk_litres?: number | null;
-  milk_unit_price_per_litre?: number | null;
-  milk_fat_pct?: number | null;
-  milk_price_per_kg_fat?: number | null;
   /**
      * @minLength 3
      * @maxLength 255

@@ -470,12 +470,10 @@ describe("AppLayout — permission-gated nav", () => {
     replaceMock.mockClear();
   });
 
-  it("shows all 15 goat-farm nav items to the farm owner (full catalog minus dairy-only Milk)", async () => {
+  it("shows all 15 goat-farm nav items to the farm owner", async () => {
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     await screen.findByText("Test Goat Farm");
-    // The default test farm is a goat (meat) farm; its owner holds every
-    // permission including milk.view, but Milk is a buffalo-dairy module.
     await waitFor(() => expect(navLinks()).toHaveLength(15));
     for (const label of ALL_NAV_LABELS) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
@@ -633,9 +631,7 @@ describe("AppLayout — permission-gated nav", () => {
 
     await waitFor(() => expect(navLinks()).toHaveLength(15));
     // The group heading is the only thing that explains why Health and
-    // Feeding sit together; without it the sidebar is one flat list. The
-    // default test farm is a goat (meat) farm, so the buffalo-dairy Milk
-    // module stays hidden even though the owner holds milk.view.
+    // Feeding sit together; without it the sidebar is one flat list.
     expect(navGroupItems("Overview")).toEqual(["Dashboard"]);
     expect(navGroupItems("Herd")).toEqual([
       "Animals",
@@ -653,31 +649,6 @@ describe("AppLayout — permission-gated nav", () => {
       "Reports",
       "Team",
     ]);
-  });
-
-  it("shows the Milk module on buffalo dairy farms", async () => {
-    server.use(
-      http.get("/api/auth/farms", () =>
-        HttpResponse.json([
-          {
-            id: 7,
-            name: "Navipet Dairy",
-            location: "Navipet",
-            timezone: "Asia/Kolkata",
-            role: null,
-            farm_type: "BUFFALO_DAIRY",
-          },
-        ]),
-      ),
-    );
-    navState.pathname = "/dashboard";
-    const { unmount } = renderWithProviders(
-      <AppLayout defaultOpen={true}>{null}</AppLayout>,
-    );
-
-    await waitFor(() => expect(navLinks()).toHaveLength(16));
-    expect(navGroupItems("Health & Feed")).toEqual(["Health", "Feeding", "Milk"]);
-    unmount();
   });
 
   it("keeps a group heading only while the worker can reach something under it", async () => {

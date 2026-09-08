@@ -92,9 +92,6 @@ interface Options {
   planResult?: unknown;
   onPlan?: (body: unknown) => void;
   onDefaults?: (query: URL) => void;
-  onMilkPlan?: (body: Record<string, unknown>) => void;
-  milkPlanStatus?: number;
-  milkPlanResult?: unknown;
   snapshotStatus?: number;
   snapshotBody?: unknown;
   snapshotNetworkError?: boolean;
@@ -109,7 +106,7 @@ async function renderLoaded(options: Options = {}) {
     http.get("/api/auth/farms", () => HttpResponse.json(options.farms ?? TEST_FARMS)),
     ...(options.permissions ? [permissionsHandler(options.permissions)] : []),
     http.get("/api/simulation/defaults/breeds", () =>
-      HttpResponse.json({ breeds: ["osmanabadi", "murrah_dairy"], systems: ["stall_fed", "semi_intensive"] }),
+      HttpResponse.json({ breeds: ["osmanabadi", "sirohi"], systems: ["stall_fed", "semi_intensive"] }),
     ),
     http.get("/api/simulation/defaults", ({ request }) => {
       options.onDefaults?.(new URL(request.url));
@@ -133,10 +130,6 @@ async function renderLoaded(options: Options = {}) {
     http.post("/api/planner/plan", async ({ request }) => {
       options.onPlan?.(await request.json());
       return HttpResponse.json(options.planResult ?? planReport(), { status: options.planStatus ?? 200 });
-    }),
-    http.post("/api/planner/milk-plan", async ({ request }) => {
-      options.onMilkPlan?.((await request.json()) as Record<string, unknown>);
-      return HttpResponse.json(options.milkPlanResult ?? {}, { status: options.milkPlanStatus ?? 200 });
     }),
   );
   renderWithProviders(<PlannerPage />, createTestQueryClient());
@@ -393,71 +386,6 @@ describe("PlannerPage mutation hardening: run gates and staleness", () => {
     expect(await screen.findByText(/stale — re-run after edits/)).toBeInTheDocument();
   });
 
-  it("flags the milk report stale only for milk inputs, not sale targets", async () => {
-    const DAIRY_FARM = { ...TEST_FARMS[0], farm_type: "BUFFALO_DAIRY" };
-    const user = userEvent.setup();
-    const bodies: Record<string, unknown>[] = [];
-    const milkReport = {
-      target_daily_litres: 1000,
-      ramp_months: 1,
-      hold_year_round: false,
-      curve: {
-        shape: "wood", lactation_litres: 2100, lactation_months: 10, peak_day: 65,
-        peak_month_of_lactation: 3, peak_daily_litres: 10.2,
-        avg_daily_litres_per_milking_doe: 6.9, monthly_litres: [220, 290],
-      },
-      herd: {
-        daily_target_litres: 1000, calving_interval_months: 13.7, expected_services_per_conception: 2.2,
-        breeding_does: 204, milking_does: 167, dry_does: 37, dry_months_per_cycle: 3.7,
-        milking_share_of_herd: 0.82, calvings_per_month: 15.4, ai_services_per_month: 34.7,
-        replacement_does_per_month: 3.9, heifer_calves_available_per_month: 7.1,
-        heifer_surplus_per_month: 3.2, starting_does_credited: 60, purchases_total: 151,
-        replacement_purchases_total: 7, seasonal_low_daily_litres: 860,
-        seasonal_high_daily_litres: 1080, herd_for_year_round_target: 233,
-      },
-      purchases: [{ month: 1, count: 144, profile: "in-milk buffalo at mixed lactation stages" }],
-      projection: [{
-        month: 1, calendar_month: 1, breeding_does: 207, milking_does: 143, dry_does: 64,
-        freshenings: 15.9, ai_services: 31.9, heifer_graduates: 0, projected_daily_litres: 1027,
-        target_daily_litres: 1000, gap_daily_litres: -27, projected_monthly_litres: 31270,
-        projected_monthly_revenue: 2019482, meets_target: true,
-      }],
-      steady_from_month: 1, steady_average_daily_litres: 1000, achievable: true,
-      explanations: [], notes: [],
-    };
-    await renderLoaded({ farms: [DAIRY_FARM], onMilkPlan: (b) => bodies.push(b), milkPlanResult: milkReport });
-    await addTarget(user);
-    await user.click(screen.getByRole("button", { name: "Plan milk" }));
 
-    expect(bodies[0]?.daily_target_litres).toBe(1000);
-    expect(bodies[0]?.ramp_months).toBe(1);
-    expect(bodies[0]?.projection_months).toBe(36);
-    expect(bodies[0]?.hold_year_round).toBe(false);
 
-    // Sale-target edits must not stale the milk report.
-    await user.clear(countInput());
-    await user.type(countInput(), "30");
-    expect(await screen.findByText(/204\.0 breeding/)).toBeInTheDocument();
-    expect(screen.queryByText(/stale — re-plan after edits/)).toBeNull();
-
-    const milkTarget = screen.getByLabelText("Daily target (L)");
-    await user.clear(milkTarget);
-    await user.type(milkTarget, "900");
-    expect(await screen.findByText(/stale — re-plan after edits/)).toBeInTheDocument();
-  });
-
-  it("caps the milk projection inputs by the assumptions horizon", async () => {
-    const DAIRY_FARM = { ...TEST_FARMS[0], farm_type: "BUFFALO_DAIRY" };
-    await renderLoaded({ farms: [DAIRY_FARM] });
-    const projection = await screen.findByLabelText("Projection (months)");
-    expect(projection).toHaveAttribute("max", "60");
-  });
-
-  it("falls back to a 120-month horizon cap when the assumptions omit it", async () => {
-    const DAIRY_FARM = { ...TEST_FARMS[0], farm_type: "BUFFALO_DAIRY" };
-    const noHorizon = { ...GOAT_DEFAULTS, meta: {} };
-    await renderLoaded({ farms: [DAIRY_FARM], defaults: noHorizon });
-    const fallback = await screen.findByLabelText("Projection (months)");
-    expect(fallback).toHaveAttribute("max", "120");
-  });
 });

@@ -8,23 +8,21 @@ from typing import TYPE_CHECKING, TypedDict
 
 from .constants import MAX_TASK_TITLE_LENGTH
 from .enums import BreedingOutcome, TaskCategory
-from .species import species_profile
+from .species import GOAT_PROFILE
 
 if TYPE_CHECKING:
     from .breeding import BreedingRecord
     from .purchases import PurchaseBatch
 
 
-def expected_kidding_date(breeding_date: date, farm_type: str = "GOAT") -> date:
-    """Expected parturition date (kidding for goats, calving for buffalo)."""
-    return breeding_date + timedelta(days=species_profile(farm_type).gestation_days)
+def expected_kidding_date(breeding_date: date) -> date:
+    """Expected kidding date."""
+    return breeding_date + timedelta(days=GOAT_PROFILE.gestation_days)
 
 
-def planned_ultrasound_date(breeding_date: date, farm_type: str = "GOAT") -> date:
+def planned_ultrasound_date(breeding_date: date) -> date:
     """Planned pregnancy-check date after a service (ultrasound / PD)."""
-    return breeding_date + timedelta(
-        days=species_profile(farm_type).pregnancy_check_after_service_days
-    )
+    return breeding_date + timedelta(days=GOAT_PROFILE.pregnancy_check_after_service_days)
 
 
 # A service counts as a conception once an ultrasound confirmed it, even if
@@ -74,27 +72,6 @@ QUARANTINE_PROTOCOL = [
     (45, TaskCategory.BUCKET_MOVE, "Day 45: 10% zinc sulfate footbath → release to FOUNDATION"),
 ]
 
-DAIRY_QUARANTINE_PROTOCOL = [
-    (
-        1,
-        TaskCategory.QUARANTINE,
-        "Days 1–3: rest, electrolytes, dry roughage only; milk but feed no concentrate",
-    ),
-    (4, TaskCategory.DEWORMING, "Day 4: deworm — Albendazole/Closantel oral + Ivermectin SC"),
-    (5, TaskCategory.QUARANTINE, "Days 5–9: mineral + vitamin supplementation in water"),
-    (10, TaskCategory.VACCINE, "Day 10: vaccinate FMD (killed, SC)"),
-    (21, TaskCategory.VACCINE, "Day 21: vaccinate HS + BQ"),
-    (30, TaskCategory.QUARANTINE, "Day 30: blood screen (brucellosis/Johne's) + vet clinical exam"),
-    (40, TaskCategory.VACCINE, "Day 40: vaccinate LSD (homologous, SC)"),
-    (45, TaskCategory.BUCKET_MOVE, "Day 45: vet clearance → release to FOUNDATION"),
-]
-
-SPECIES_QUARANTINE_PROTOCOLS = {
-    "GOAT": QUARANTINE_PROTOCOL,
-    "BUFFALO_DAIRY": DAIRY_QUARANTINE_PROTOCOL,
-}
-
-
 class QuarantineTaskSpec(TypedDict):
     """One auto-generated quarantine task."""
 
@@ -103,11 +80,11 @@ class QuarantineTaskSpec(TypedDict):
     title: str
 
 
-def quarantine_schedule(batch: PurchaseBatch, farm_type: str = "GOAT") -> list[QuarantineTaskSpec]:
+def quarantine_schedule(batch: PurchaseBatch) -> list[QuarantineTaskSpec]:
     """Due-dated quarantine task definitions for a purchase batch."""
     schedule: list[QuarantineTaskSpec] = []
     supplier = (batch.supplier or "Purchase").strip() or "Purchase"
-    protocol = SPECIES_QUARANTINE_PROTOCOLS.get(farm_type, QUARANTINE_PROTOCOL)
+    protocol = QUARANTINE_PROTOCOL
     for day_offset, category, protocol_title in protocol:
         # Supplier accepts 120 characters while Task.title is 200. Preserve
         # the operational protocol and stable batch id in full, truncating

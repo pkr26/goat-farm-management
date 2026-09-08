@@ -16,7 +16,6 @@ export const TransactionCorrectionInCategory = {
   VET: 'VET',
   LABOUR: 'LABOUR',
   EQUIPMENT: 'EQUIPMENT',
-  MILK: 'MILK',
   MANURE: 'MANURE',
   OTHER: 'OTHER',
 } as const;

@@ -58,7 +58,7 @@ const BATCH_2 = {
 const BATCH_3 = {
   id: 7,
   date: "2026-03-01",
-  supplier: "Vedham Dairy",
+  supplier: "Vedham Agro",
   count: 1,
   avg_age_months: 10,
   avg_weight_kg: 21,

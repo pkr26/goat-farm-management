@@ -306,13 +306,9 @@ async def create_farm(
     client: httpx.AsyncClient,
     headers: dict,
     name: str = "Alpha Farm",
-    farm_type: str | None = None,
 ) -> dict:
     """Create a farm → headers with X-Farm-Id added."""
-    payload: dict = {"name": name}
-    if farm_type is not None:
-        payload["farm_type"] = farm_type
-    resp = await client.post("/api/auth/farms", json=payload, headers=headers)
+    resp = await client.post("/api/auth/farms", json={"name": name}, headers=headers)
     assert resp.status_code == 201, resp.text
     return headers | {"X-Farm-Id": str(resp.json()["id"])}
 

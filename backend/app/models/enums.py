@@ -7,11 +7,6 @@
 import enum
 
 
-class FarmType(str, enum.Enum):
-    GOAT = "GOAT"
-    BUFFALO_DAIRY = "BUFFALO_DAIRY"
-
-
 class Bucket(str, enum.Enum):
     QUARANTINE = "QUARANTINE"
     FOUNDATION = "FOUNDATION"
@@ -112,7 +107,6 @@ class TransactionCategory(str, enum.Enum):
     VET = "VET"
     LABOUR = "LABOUR"
     EQUIPMENT = "EQUIPMENT"
-    MILK = "MILK"
     MANURE = "MANURE"
     OTHER = "OTHER"
 

@@ -18,8 +18,8 @@ from ..models import (
     BreedingRecord,
     KiddingRecord,
     KidEntry,
-    species_profile,
 )
+from ..models.species import GOAT_PROFILE
 from ..schemas.breeding import BreedingRecordOut
 from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET
 from ..schemas.kidding import KiddingCreateIn, KiddingListOut, KiddingRecordOut, KidEntryOut
@@ -293,7 +293,7 @@ async def create_kidding(
         # Species-banded birth weights: a kid/calf is not born at 950 kg, and
         # birth weight coalesces into "latest weight" downstream, where a
         # fabricated value would permanently satisfy the breeding weight gates.
-        profile = species_profile(farm.farm_type)
+        profile = GOAT_PROFILE
         for i, kid in enumerate(payload.kids):
             if (
                 kid.birth_weight is not None

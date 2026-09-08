@@ -1036,7 +1036,7 @@ describe("AnimalsPage extended", () => {
       // The now-illegal selection falls back to a bucket the server accepts
       // for a male animal — a sexed female pen can never survive the gate.
       const triggerText = within(dialog).getByLabelText("Bucket *").textContent ?? "";
-      expect(triggerText).not.toMatch(/female (kids|calves)/i);
+      expect(triggerText).not.toMatch(/female kids/i);
     });
 
     it("rejects notes longer than the server's 4000-character cap", async () => {

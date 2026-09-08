@@ -38,9 +38,6 @@ _HEALTH_TYPE_TO_TX_CATEGORY: dict[str, str] = {
 # phrase protocol_phrase_of/template_name_for_task recognise; the doe's tag is
 # appended as ": {tag_number}" display text and carries no programme meaning.
 PRE_KIDDING_VACCINE_TITLE = "Pre-kidding ET+TT vaccine"
-# Dairy counterpart generated for a confirmed buffalo pregnancy: the dry-off
-# health intervention (dry buffalo therapy) instead of a goat pre-kidding shot.
-PRE_CALVING_THERAPY_TITLE = "Pre-calving dry buffalo therapy"
 
 
 def _words(text: str) -> tuple[str, ...]:
@@ -84,8 +81,6 @@ def protocol_phrase_of(title: str) -> str:
     phrase = phrase.strip()
     if phrase.startswith(PRE_KIDDING_VACCINE_TITLE):
         return PRE_KIDDING_VACCINE_TITLE
-    if phrase.startswith(PRE_CALVING_THERAPY_TITLE):
-        return PRE_CALVING_THERAPY_TITLE
     return phrase
 
 
@@ -111,8 +106,6 @@ def template_name_for_task(title: str, category: str) -> str | None:
         return "ET + TT pre-kidding"
     if et_matches and tt_matches:
         return "Enterotoxaemia (ET)"
-    if _has_alias(words, "dry buffalo therapy", "pre calving dry buffalo therapy"):
-        return "Dry buffalo therapy"
     return None
 
 
@@ -232,21 +225,15 @@ async def validated_template(
     db: AsyncSession,
     template_name: str | None,
     event_type: str,
-    *,
-    farm_type: str = "GOAT",
 ) -> VaccineTemplate | None:
-    """Return an exact seeded template (for this farm's species) or reject a
-    free-form override."""
+    """Return an exact seeded template or reject a free-form override."""
     if not template_name:
         return None
     if event_type not in {HealthEventType.VACCINE.value, HealthEventType.DEWORMING.value}:
         raise ValueError("A schedule template is valid only for vaccine or deworming events")
     template = (
         await db.execute(
-            select(VaccineTemplate).where(
-                VaccineTemplate.name == template_name,
-                VaccineTemplate.farm_type == farm_type,
-            )
+            select(VaccineTemplate).where(VaccineTemplate.name == template_name)
         )
     ).scalar_one_or_none()
     if template is None:
@@ -451,18 +438,12 @@ async def inferred_schedule_template(
     event_type: str,
     product_name: str,
     disease_target: str,
-    *,
-    farm_type: str = "GOAT",
 ) -> VaccineTemplate | None:
-    """Canonicalize a new unlabelled event only when its legacy text is unique
-    within the farm's species."""
+    """Canonicalize a new unlabelled event only when its legacy text is unique."""
     if event_type == HealthEventType.DEWORMING.value:
         return (
             await db.execute(
-                select(VaccineTemplate).where(
-                    VaccineTemplate.name == "Deworming",
-                    VaccineTemplate.farm_type == farm_type,
-                )
+                select(VaccineTemplate).where(VaccineTemplate.name == "Deworming")
             )
         ).scalar_one_or_none()
     if event_type != HealthEventType.VACCINE.value:
@@ -472,7 +453,6 @@ async def inferred_schedule_template(
             await db.execute(
                 select(VaccineTemplate).where(
                     VaccineTemplate.name != "Deworming",
-                    VaccineTemplate.farm_type == farm_type,
                     (VaccineTemplate.first_dose_age_months.is_not(None))
                     | (VaccineTemplate.repeat_months.is_not(None)),
                 )
@@ -516,11 +496,7 @@ async def vaccination_schedule_for_animal(db: AsyncSession, animal: Animal) -> l
     farm = await db.get(Farm, animal.farm_id)
     reference_date = today(farm.timezone) if farm is not None else today()
     dob = animal.effective_dob
-    templates_result = await db.execute(
-        select(VaccineTemplate)
-        .where(VaccineTemplate.farm_type == (farm.farm_type if farm is not None else "GOAT"))
-        .order_by(VaccineTemplate.id)
-    )
+    templates_result = await db.execute(select(VaccineTemplate).order_by(VaccineTemplate.id))
     templates = [
         template
         for template in templates_result.scalars()

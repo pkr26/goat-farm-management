@@ -3,7 +3,7 @@
  *
  * Each test targets survivor clusters from reports/mutation/app2.json (Stryker
  * mutant ids are cited inline so the next run can verify the kills). The
- * emphasis is logic over cosmetics: URL paging state, the buffalo
+ * emphasis is logic over cosmetics: URL paging state, the
  * species-sync effect, validation copy and dialog facts, run/scenario status
  * guards, staleness chips, formatting helpers, and payload construction.
  */
@@ -38,15 +38,6 @@ vi.mock("next/navigation", () => ({
 
 const MANAGE_PERMS = ["simulation.view", "simulation.manage"];
 
-const DAIRY_FARM = {
-  id: 7,
-  name: "Navipet Dairy",
-  location: "Navipet",
-  timezone: "Asia/Kolkata",
-  role: null,
-  farm_type: "BUFFALO_DAIRY",
-};
-
 /** Sparse but valid assumptions object — the editor renders whatever keys
  * are present, so custom keys exercise the generic paths. */
 const DEFAULTS = {
@@ -79,7 +70,6 @@ function registerApiHandlers(
     permissions?: string[];
     defaults?: unknown;
     scenarios?: unknown[];
-    dairy?: boolean;
     breeds?: string[];
   } = {},
 ) {
@@ -107,11 +97,6 @@ function registerApiHandlers(
       });
     }),
   );
-  if (options.dairy) {
-    server.use(
-      http.get("/api/auth/farms", () => HttpResponse.json([DAIRY_FARM])),
-    );
-  }
 }
 
 async function renderLoaded(
@@ -185,58 +170,6 @@ describe("SimulationPage mutation hardening: URL paging state", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Plan 21")).toBeInTheDocument();
     expect(screen.queryByText("Plan 1")).not.toBeInTheDocument();
-  });
-});
-
-describe("SimulationPage mutation hardening: species sync", () => {
-  // Mutants 4939/4941/4942 (defaultBreed ternary), 5017/5025/5028/5030–5035
-  // (the `untouched` guard chain), 5037/5040 (sync condition), 5044 (setBreed),
-  // 5047 (setSubmittedParams), 5048 (effect deps): once the authenticated farm
-  // list reveals a buffalo dairy, an untouched editor must move to the
-  // murrah_dairy preset and apply ITS defaults.
-  it("reloads the murrah preset once the buffalo farm type is known", async () => {
-    const breedsSeen: string[] = [];
-    server.use(
-      permissionsHandler(MANAGE_PERMS),
-      http.get("/api/simulation/defaults/breeds", () =>
-        HttpResponse.json({
-          breeds: ["osmanabadi", "murrah_dairy"],
-          systems: ["stall_fed"],
-        }),
-      ),
-      http.get("/api/simulation/defaults", ({ request }) => {
-        const breed = new URL(request.url).searchParams.get("breed") ?? "";
-        breedsSeen.push(breed);
-        return HttpResponse.json(
-          breed === "murrah_dairy"
-            ? { ...DEFAULTS, herd: { ...DEFAULTS.herd, does: 99 } }
-            : DEFAULTS,
-        );
-      },
-      ),
-      http.get("/api/simulation/scenarios", () =>
-        HttpResponse.json({ items: [], total: 0, limit: 20, offset: 0 }),
-      ),
-      http.get("/api/auth/farms", () => HttpResponse.json([DAIRY_FARM])),
-    );
-    renderWithProviders(<SimulationPage />);
-
-    await waitFor(
-      () => expect(breedsSeen).toContain("murrah_dairy"),
-      { timeout: 4000 },
-    );
-    // The dairy preset's own head count reached the editor, under the
-    // species-aware label.
-    expect(
-      await screen.findByLabelText("Milking Buffalo", {}, { timeout: 4000 }),
-    ).toHaveValue(99);
-    // The breed dropdown itself moved to the dairy preset.
-    expect(await screen.findByLabelText("Breed")).toHaveTextContent(
-      "murrah_dairy",
-    );
-    expect(screen.queryByLabelText("Breed")).not.toHaveTextContent(
-      "osmanabadi",
-    );
   });
 });
 

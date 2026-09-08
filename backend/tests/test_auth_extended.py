@@ -32,7 +32,7 @@ from app.core.config import Settings, get_settings
 from app.db import get_engine, get_sessionmaker
 from app.deps import deactivate_deleted_user_memberships, purge_expired_refresh_sessions
 from app.models import FarmMembership, RefreshSession, User
-from app.permissions import ALL_PERMISSIONS, ROLE_PRESETS, preset_codes_for_farm_type
+from app.permissions import ALL_PERMISSIONS, ROLE_PRESETS, preset_codes
 from app.ratelimit import auth_limiter
 from app.security import (
     decode_refresh_claims,
@@ -3018,7 +3018,7 @@ async def test_farms_lists_owned_farms_with_none_role(client: httpx.AsyncClient)
     assert [f["id"] for f in farms] == created
     assert {f["name"] for f in farms} == {"Alpha", "Beta"}
     assert all(f["role"] is None for f in farms)  # None = owner
-    assert all(set(f) == {"id", "name", "location", "timezone", "role", "farm_type"} for f in farms)
+    assert all(set(f) == {"id", "name", "location", "timezone", "role"} for f in farms)
 
 
 async def test_affiliation_list_and_export_fail_before_unbounded_hydration(
@@ -3238,9 +3238,9 @@ async def test_create_farm_seeds_preset_roles(client: httpx.AsyncClient) -> None
     resp = await client.get("/api/team", headers=headers)
     assert resp.status_code == 200, resp.text
     codes = {r["code"] for r in resp.json()["roles"]}
-    # A default goat farm receives exactly the goat-scoped preset vocabulary
-    # (no dairy parlour roles), codes only — a fresh farm has no custom roles.
-    assert codes == preset_codes_for_farm_type("GOAT")
+    # A fresh farm receives exactly the preset vocabulary, codes only — a
+    # fresh farm has no custom roles.
+    assert codes == preset_codes()
 
 
 async def test_create_farm_seeds_feed_inventory(client: httpx.AsyncClient) -> None:

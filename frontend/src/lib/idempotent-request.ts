@@ -181,11 +181,6 @@ export function isIdempotencyProtectedMutation(url: string, method?: string): bo
     path === "/api/team/workers" ||
     path === "/api/health/events" ||
     path === "/api/simulation/scenarios" ||
-    // Milk records are DB-naturally-keyed (animal/day/shift), but sending the
-    // key also buys single-network-retry coalescing: a double-submit under a
-    // flaky link replays the committed response instead of surfacing a
-    // misleading correction-required 422.
-    path === "/api/milk/new" ||
     // Pregnancy/kidding creation auto-creates tasks and (for kidding) animals,
     // so an ambiguous replay duplicates durable stock. Both routes now
     // declare the Idempotency-Key server-side too, so the automatic network

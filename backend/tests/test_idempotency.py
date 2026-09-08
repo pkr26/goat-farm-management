@@ -2194,7 +2194,6 @@ def test_openapi_declares_bounded_idempotency_header_on_all_routes() -> None:
         ("/api/simulation/scenarios", "post"),
         ("/api/breeding", "post"),
         ("/api/kidding", "post"),
-        ("/api/milk/new", "post"),
     }
     for path, method in routes:
         parameters = schema["paths"][path][method]["parameters"]

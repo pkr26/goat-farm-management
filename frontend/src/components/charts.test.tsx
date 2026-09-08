@@ -76,12 +76,12 @@ describe("BarList", () => {
     render(
       <BarList
         items={[
-          { label: "Milk", value: 1200, display: "₹1,200" },
+          { label: "Fodder", value: 1200, display: "₹1,200" },
           { label: "Feed", value: 300 },
         ]}
       />,
     );
-    expect(screen.getByText("Milk")).toBeInTheDocument();
+    expect(screen.getByText("Fodder")).toBeInTheDocument();
     expect(screen.getByText("₹1,200")).toBeInTheDocument();
     expect(screen.getByText("300")).toBeInTheDocument();
   });

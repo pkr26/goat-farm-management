@@ -64,7 +64,6 @@ import { ApiError, farmScopeEpochValue } from "@/lib/api-client";
 import { enumLabel } from "@/lib/enum-labels";
 import { farmToday, formatDate } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
-import { useFarmType } from "@/hooks/use-farm-type";
 import { farmVocabulary, type FarmVocabulary } from "@/lib/farm-vocabulary";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
@@ -167,7 +166,7 @@ function NewBreedingDialog({
 }) {
   const createMutation = useCreateBreedingApiBreedingPost();
   const createFlight = useSingleFlight();
-  const vocabulary = farmVocabulary(useFarmType());
+  const vocabulary = farmVocabulary;
   const femaleLabel = cap(vocabulary.femaleAdult);
   const maleLabel = cap(vocabulary.maleAdult);
   const [formError, setFormError] = useState<string | null>(null);
@@ -254,9 +253,8 @@ function NewBreedingDialog({
         <DialogHeader>
           <DialogTitle>Add breeding</DialogTitle>
           <DialogDescription>
-            A pregnancy-check task is auto-created ({vocabulary.facts.pregnancyCheckDays} days
-            after the service{vocabulary.dairy ? "; buffaloes are bred back during lactation" : ""}
-            ).
+            A pregnancy-check task is auto-created (
+            {vocabulary.facts.pregnancyCheckDays} days after the service).
           </DialogDescription>
         </DialogHeader>
         {candidateAvailability === null ? (
@@ -377,14 +375,12 @@ function NewBreedingDialog({
                 <Input
                   id="breeding-semen-sire"
                   maxLength={120}
-                  placeholder={`${cap(vocabulary.maleAdult)} name / straw code${vocabulary.dairy ? ", e.g. Karanvir 999" : ""}`}
+                  placeholder={`${cap(vocabulary.maleAdult)} name / straw code`}
                   aria-describedby="breeding-semen-sire-hint"
                   {...register("semen_sire_name")}
                 />
                 <p id="breeding-semen-sire-hint" className="text-xs text-muted-foreground">
-                  {vocabulary.dairy
-                    ? "The sire on the straw — verifiable daughters' yield >3,000 kg/lactation."
-                    : `The sire named on the straw used for this ${vocabulary.femaleAdult}.`}
+                  {`The sire named on the straw used for this ${vocabulary.femaleAdult}.`}
                 </p>
               </div>
             )}
@@ -438,7 +434,7 @@ function UltrasoundDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const vocabulary = farmVocabulary(useFarmType());
+  const vocabulary = farmVocabulary;
   // A diagnostic outcome is never pre-filled: pre-checking "pregnant" lets an
   // operator who trusts the form save a negative scan as a confirmed pregnancy,
   // which moves the doe to PREGNANCY_EARLY and spawns pre-kidding follow-up
@@ -477,7 +473,7 @@ function UltrasoundDialog({
             negativeResultGapDays < EARLIEST_RETURN_TO_HEAT_DAYS
           ? `A not-pregnant result ${negativeResultGapDays} days after service is not observable — record it on the service day or the day after, or from day ${EARLIEST_RETURN_TO_HEAT_DAYS} (return to heat).`
           : null;
-  // Species litter cap (goat scans reach 4; buffalo cap at 2) mirrors
+  // Species litter cap (goat scans reach 4) mirrors
   // backend SpeciesProfile.max_litter_size — the server 422s past the cap.
   const detectedOptions = Array.from(
     { length: vocabulary.facts.maxLitterSize },
@@ -579,9 +575,7 @@ function UltrasoundDialog({
               onCheckedChange={(checked) => {
                 const selected = checked === true;
                 setPregnant(selected);
-                // Goat parity norms to twins; a buffalo pregnancy is a single
-                // calf unless twins are detected.
-                setKidCount(selected ? (vocabulary.dairy ? "1" : "2") : "");
+                setKidCount(selected ? "2" : "");
               }}
             />
             <Label htmlFor="pregnant">Pregnant — confirmed</Label>
@@ -642,7 +636,7 @@ function PregnancyLossDialog({
 }) {
   const mutation = useAbortPregnancyApiBreedingRecordIdAbortPost();
   const saveFlight = useSingleFlight();
-  const vocabulary = farmVocabulary(useFarmType());
+  const vocabulary = farmVocabulary;
   const earliestLossDate =
     record.ultrasound_result_date && record.ultrasound_result_date > record.breeding_date
       ? record.ultrasound_result_date
@@ -788,7 +782,7 @@ function PregnancyLossDialog({
 
 function BreedingPageContent() {
   const queryClient = useQueryClient();
-  const vocabulary = farmVocabulary(useFarmType());
+  const vocabulary = farmVocabulary;
   const femaleLabel = cap(vocabulary.femaleAdult);
   const maleLabel = cap(vocabulary.maleAdult);
   const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();

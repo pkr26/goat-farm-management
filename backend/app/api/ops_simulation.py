@@ -7,9 +7,8 @@ Feed mixed and delivered per building in the 40/20/40 shift split, pens
 cleaned morning and night with verification, the vet's due-duties round, and
 every animal's legal lifecycle move with the workflow context that caused it.
 
-Goat farms only in this version: the engine's tasks and buildings are the
-seeded goat lifecycle, so a buffalo dairy gets a deliberate 422 rather than a
-mislabelled simulation. Runs are priced, admitted and offloaded exactly like
+The engine's tasks and buildings are the seeded goat lifecycle. Runs are
+priced, admitted and offloaded exactly like
 simulation runs (``_run_limits``): one in-flight run per farm/user, a sliding
 CPU budget, and a hard 422 on non-finite results.
 """
@@ -20,7 +19,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
 
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
-from ..models.species import GOAT
 from ..schemas.common import COMMON_ERROR_RESPONSES
 from ..schemas.ops_simulation import (
     MAX_LEDGER_HEAD_DAYS,
@@ -44,12 +42,6 @@ router = APIRouter(prefix="/api/ops-sim", tags=["ops-simulation"], responses=COM
 
 SimView = Annotated[set[str], Depends(require_perm("simulation.view"))]
 
-GOAT_ONLY_DETAIL = (
-    "The daily operations simulation currently models goat farms only; "
-    "dairy milking duties arrive with the buffalo version."
-)
-
-
 @router.post("/run", response_model=DailyOpsRunOut)
 async def run_daily_ops_simulation(
     payload: DailyOpsRunIn,
@@ -60,8 +52,6 @@ async def run_daily_ops_simulation(
 ) -> DailyOpsRunOut:
     """Simulate the farm day by day: the full duty schedule per building,
     every bucket move with its cause, feed manifests, births and exits."""
-    if farm.farm_type != GOAT:
-        raise HTTPException(status_code=422, detail=GOAT_ONLY_DETAIL)
     farm_id = farm.id
     user_id = user.id
     # Snapshot/rollback before any CPU work: the auth transaction must not

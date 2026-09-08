@@ -14,8 +14,4 @@ export interface TransactionIn {
   amount: number;
   notes?: string | null;
   related_animal_id?: number | null;
-  milk_litres?: number | null;
-  milk_unit_price_per_litre?: number | null;
-  milk_fat_pct?: number | null;
-  milk_price_per_kg_fat?: number | null;
 }

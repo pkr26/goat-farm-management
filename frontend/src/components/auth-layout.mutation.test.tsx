@@ -53,7 +53,7 @@ describe("AuthLayout", () => {
       expect(screen.getByText(feature)).toBeInTheDocument();
     }
     expect(
-      screen.getByText(/Osmanabadi goat herds and Murrah dairies/),
+      screen.getByText(/Osmanabadi goat herds across Telangana/),
     ).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Create account" })).toBeInTheDocument();
     expect(screen.getByText("Start tracking")).toBeInTheDocument();

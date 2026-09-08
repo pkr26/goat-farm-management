@@ -978,13 +978,13 @@ describe("FinancePage new-transaction dialog", () => {
     await user.click(typeSelect);
     await user.click(await screen.findByRole("option", { name: "Income" }));
     await user.click(categorySelect);
-    await user.click(await screen.findByRole("option", { name: "Milk" }));
+    await user.click(await screen.findByRole("option", { name: "Animal sale" }));
 
     await user.type(within(dialog).getByLabelText(/Amount/), "1200");
     await user.click(within(dialog).getByRole("button", { name: "Add transaction" }));
 
     await waitFor(() => expect(postCalls).toBe(1));
-    expect(postBody).toMatchObject({ type: "INCOME", category: "MILK", amount: 1200 });
+    expect(postBody).toMatchObject({ type: "INCOME", category: "ANIMAL_SALE", amount: 1200 });
   });
 
   it("shows the server detail inline on a 400", async () => {

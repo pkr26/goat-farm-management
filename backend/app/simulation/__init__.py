@@ -91,7 +91,6 @@ from .lactation import (
     wood_daily_yield,
     wood_monthly_weights,
 )
-from .milk_planner import MilkPlanReport, build_milk_plan
 from .montecarlo import percentile, run_monte_carlo, run_sensitivity
 from .results import (
     AmortizationRowModel,
@@ -132,7 +131,6 @@ __all__ = [
     "GrowthAssumptions",
     "HerdAssumptions",
     "MetaAssumptions",
-    "MilkPlanReport",
     "MonteCarloResult",
     "MonthlyRow",
     "MortalityAssumptions",
@@ -160,7 +158,6 @@ __all__ = [
     "break_even_meat_price",
     "build_backward_plan",
     "build_daily_ledger",
-    "build_milk_plan",
     "class_feed",
     "combine_feed",
     "cultivated_green_supply_kg",

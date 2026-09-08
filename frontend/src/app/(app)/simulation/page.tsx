@@ -77,7 +77,6 @@ import { PageHeader } from "@/components/page-header";
 import { PageSkeleton, TableSkeleton, InlineLoading } from "@/components/skeletons";
 import { farmVocabulary, type FarmVocabulary } from "@/lib/farm-vocabulary";
 import { Histogram } from "@/components/charts";
-import { useFarmType } from "@/hooks/use-farm-type";
 import { MAX_PAGE_OFFSET, useUrlState } from "@/lib/use-url-state";
 import { StatCard } from "@/components/stat-card";
 import { Badge } from "@/components/ui/badge";
@@ -127,7 +126,6 @@ import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 import { PermissionsError } from "@/components/permissions-error";
 
-const DEFAULT_BREED = "osmanabadi";
 const DEFAULT_SYSTEM = BreedDefaultsApiSimulationDefaultsGetSystem.stall_fed;
 const MAX_COMPARE_SCENARIOS = 5;
 const SCENARIO_PAGE_SIZE = 20;
@@ -213,14 +211,14 @@ const FIELD_BOUNDS: Record<
   Pick<NumericRule, "min" | "max" | "exclusiveMin">
 > = {
   "meta.horizon_months": { min: 12, max: 240 },
-  // Buffalo gestation ~10.2 months and a 305-day (~10 month) lactation.
+  // Wide enough for slow-maturing herds; goats sit at ~5 months.
   "reproduction.gestation_months": { min: 1, max: 12 },
   "reproduction.lactation_months": { min: 1, max: 12 },
   "reproduction.months_open_before_breeding": { min: 0, max: 12 },
   "reproduction.litter_size": { min: 0.5, max: 4 },
   "reproduction.age_at_first_breeding_months": { min: 6, max: 30 },
   "reproduction.stillbirth_rate": { min: 0, max: 0.5 },
-  // Sexed-semen dairy levers. They arrive with the next contract regen; the
+  // Sexed-semen AI levers. They arrive with the next contract regen; the
   // record is plain, so listing them now costs nothing and the bounds are
   // ready the moment the defaults payload starts carrying the keys.
   "reproduction.sexed_semen_services": { min: 0, max: 6 },
@@ -326,7 +324,7 @@ const FIELD_UNITS: Record<string, string> = {
   // An integer head-count ratio (1 buck per N does), not a 0-1 fraction: the
   // heuristic chain's trailing `ratio` test would otherwise caption it one.
   "culling.buck_doe_ratio": "females per male",
-  // Sexed-semen dairy levers (next contract regen — see FIELD_BOUNDS).
+  // Sexed-semen AI levers (next contract regen — see FIELD_BOUNDS).
   "reproduction.sexed_semen_services": "services",
   "reproduction.sexed_female_fraction": "%",
   "reproduction.sexed_conception_multiplier": "×",
@@ -340,7 +338,7 @@ const FIELD_UNITS: Record<string, string> = {
   // rate "₹" invites farmers to type 30 for 30%; the entry must stay explicit
   // because the money/duration tests cannot simply be moved (see numericRule).
   "sales.selling_cost_fraction": "fraction",
-  // Dairy pricing/ration fields the heuristics would caption as a 0-1
+  // Milk pricing/ration fields the heuristics would caption as a 0-1
   // fraction (milk fat is percent points) or as a plain multiplier.
   "sales.milk_fat_pct": "% fat",
   "sales.milk_price_per_kg_fat": "₹/kg fat",
@@ -1134,11 +1132,7 @@ export default function SimulationPage() {
   ].every((permission) => can(permission));
   const queryClient = useQueryClient();
 
-  // The farm's own species preset is the editor's starting economics — a
-  // buffalo dairy must not open on Osmanabadi goat numbers. While the auth
-  // farm list is still hydrating this resolves to the GOAT fallback; the
-  // species-sync effect below corrects the editor once the type is known.
-  const defaultBreed = useFarmType() === "BUFFALO_DAIRY" ? "murrah_dairy" : "osmanabadi";
+  const defaultBreed = "osmanabadi";
   const [breed, setBreed] = useState(defaultBreed);
   const [system, setSystem] = useState<BreedDefaultsApiSimulationDefaultsGetSystem>(
     DEFAULT_SYSTEM,
@@ -1269,29 +1263,6 @@ export default function SimulationPage() {
       setEditorVersion((version) => version + 1);
     }
   }, [defaultsQuery.data]);
-
-  // Species-sync: useFarmType() resolves to GOAT while the farm list is still
-  // hydrating, so a dairy's first defaults load may have fired for the goat
-  // preset. Once the real farm type is known, move an UNTOUCHED editor (no
-  // scenario loaded, no calibration, breed never changed by hand) onto the
-  // farm species' own preset — mirroring the "Load defaults" button's
-  // intent-claim so a racing loader cannot overwrite the correction.
-  useEffect(() => {
-    const untouched =
-      (submittedParams.breed === DEFAULT_BREED || submittedParams.breed === "murrah_dairy") &&
-      breed === submittedParams.breed &&
-      loadedScenario === null &&
-      calibration === null;
-    if (untouched && submittedParams.breed !== defaultBreed) {
-      editorEpochRef.current += 1;
-      acceptDefaultsRef.current = true;
-      // External-resource → state sync (auth farm list → editor preset), the
-      // same pattern the URL/teardown effects in this app disable the rule for.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setBreed(defaultBreed);
-      setSubmittedParams((params) => ({ ...params, breed: defaultBreed }));
-    }
-  }, [breed, defaultBreed, submittedParams.breed, loadedScenario, calibration]);
 
   const snapshotQuery = useHerdSnapshotApiSimulationHerdSnapshotGet(
     // The snapshot buckets females by the breed's age-at-first-breeding, so
@@ -1456,7 +1427,7 @@ export default function SimulationPage() {
 
   /** Horizon from the meta section; gates event-month validation. */
   const horizonMonths = assumptions?.meta?.horizon_months ?? 240;
-  const simVocabulary = farmVocabulary(useFarmType());
+  const simVocabulary = farmVocabulary;
   const eventErrors = validateEvents(events, horizonMonths);
   const assumptionErrors: string[] = [];
   if (assumptions) {
@@ -2001,7 +1972,7 @@ export default function SimulationPage() {
 
   /** Species-aware display label for one assumption field. */
   function fieldLabelFor(key: string): string {
-    return speciesAwareLabel(humanize(key), simVocabulary);
+    return speciesAwareLabel(humanize(key));
   }
 
   /** Opens the "?" dialog for one field: explanation plus unit/range/value. */

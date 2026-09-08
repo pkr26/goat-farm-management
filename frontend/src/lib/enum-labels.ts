@@ -1,11 +1,8 @@
 /**
  * Human labels for every enum the API surfaces. Raw codes
  * ("MALE_KIDS", "ANIMAL_PURCHASE", "AI_SEXED") must never reach a
- * screen — resolve them through here so wording stays consistent and
- * species-aware in one place.
+ * screen — resolve them through here so wording stays consistent in one place.
  */
-
-import type { FarmType } from "@/lib/farm-vocabulary";
 
 function titleCase(value: string): string {
   return value
@@ -48,7 +45,6 @@ const SIMPLE_LABELS: Record<string, Record<string, string>> = {
     VET: "Vet",
     LABOUR: "Labour",
     EQUIPMENT: "Equipment",
-    MILK: "Milk",
     MANURE: "Manure",
     OTHER: "Other",
   },
@@ -83,32 +79,18 @@ const SIMPLE_LABELS: Record<string, Record<string, string>> = {
   },
 };
 
-/** Bucket short labels are species-specific (dairy pens vs goat wards). */
-const BUCKET_LABELS: Record<FarmType, Record<string, string>> = {
-  GOAT: {
-    QUARANTINE: "Quarantine",
-    FOUNDATION: "Foundation",
-    BREEDING: "Breeding",
-    PREGNANCY_EARLY: "Pregnancy A",
-    PREGNANCY_LATE: "Pregnancy B",
-    DELIVERY: "Delivery",
-    RECOVERY: "Recovery",
-    RESTING: "Resting",
-    MALE_KIDS: "Male kids",
-    FEMALE_KIDS: "Female kids",
-  },
-  BUFFALO_DAIRY: {
-    QUARANTINE: "Quarantine",
-    FOUNDATION: "Heifers",
-    BREEDING: "Awaiting AI",
-    PREGNANCY_EARLY: "Milking · Pregnant 1–5 mo",
-    PREGNANCY_LATE: "Milking · Pregnant 5–8 mo",
-    DELIVERY: "Dry / Calving",
-    RECOVERY: "Fresh pen",
-    RESTING: "Post-fresh",
-    MALE_KIDS: "Male calves",
-    FEMALE_KIDS: "Heifer calves",
-  },
+/** Bucket short labels for the goat herd-flow wards. */
+const BUCKET_LABELS: Record<string, string> = {
+  QUARANTINE: "Quarantine",
+  FOUNDATION: "Foundation",
+  BREEDING: "Breeding",
+  PREGNANCY_EARLY: "Pregnancy A",
+  PREGNANCY_LATE: "Pregnancy B",
+  DELIVERY: "Delivery",
+  RECOVERY: "Recovery",
+  RESTING: "Resting",
+  MALE_KIDS: "Male kids",
+  FEMALE_KIDS: "Female kids",
 };
 
 export type EnumKind =
@@ -135,12 +117,10 @@ export type EnumKind =
 export function enumLabel(
   kind: EnumKind,
   value: string | null | undefined,
-  farmType?: FarmType | string | null,
 ): string {
   if (value === null || value === undefined || value === "") return "—";
   if (kind === "bucket") {
-    const labels = BUCKET_LABELS[(farmType as FarmType) ?? "GOAT"] ?? BUCKET_LABELS.GOAT;
-    return labels[value] ?? titleCase(value);
+    return BUCKET_LABELS[value] ?? titleCase(value);
   }
   return SIMPLE_LABELS[kind]?.[value] ?? titleCase(value);
 }

@@ -28,17 +28,16 @@ from ..models import (
     Transaction,
     TransactionCategory,
     TransactionType,
-    species_profile,
 )
 from ..models.feed_rules import (
     CREEP_KG_PER_HEAD,
     DRY_ROUGHAGE,
     DRY_ROUGHAGE_INGREDIENT,
-    DRY_ROUGHAGE_INGREDIENTS,
     RECIPE_DISPLAY,
     SHIFT_TIMES,
     recipe_for_context,
 )
+from ..models.species import GOAT_PROFILE
 from ..utils import DEFAULT_BUSINESS_TIMEZONE, MONEY_QUANTUM, money, today
 
 KG_QUANTUM = Decimal("0.001")
@@ -143,7 +142,6 @@ def recipe_for_animal(
     timezone_name: str = DEFAULT_BUSINESS_TIMEZONE,
     *,
     bucket_days: int | None = None,
-    farm_type: str = "GOAT",
     is_dependent_kid: bool = False,
 ) -> str:
     """Which TMR recipe applies to this animal today (SPEC allocation rules).
@@ -166,7 +164,6 @@ def recipe_for_animal(
         animal.effective_dob,
         ref,
         bucket_days or 0,
-        farm_type,
         is_dependent_kid=is_dependent_kid,
     )
 
@@ -239,7 +236,7 @@ async def feeding_plan(
     # yearling who kidded while her own dam is concurrently in RECOVERY —
     # is billed as an adult: a lactating dam must never get the kid's creep
     # line. Unknown DOB (age 999) reads as an adult.
-    weaning_days = species_profile(farm.farm_type).weaning_days
+    weaning_days = GOAT_PROFILE.weaning_days
     dam_animal = aliased(Animal)
     is_dependent_kid = and_(
         Animal.dam_id.is_not(None),
@@ -253,65 +250,44 @@ async def feeding_plan(
             )
         ),
     )
-    if farm.farm_type != "GOAT":
-        recipe_code = case(
-            (
-                (bucket == Bucket.QUARANTINE.value) & (bucket_days < 3),
-                DRY_ROUGHAGE,
+    recipe_code = case(
+        (
+            (bucket == Bucket.QUARANTINE.value) & (bucket_days < 3),
+            DRY_ROUGHAGE,
+        ),
+        (bucket == Bucket.QUARANTINE.value, "MAINTENANCE_75_25"),
+        (
+            (bucket == Bucket.RECOVERY.value) & is_dependent_kid,
+            "CREEP",
+        ),
+        (
+            bucket.in_(
+                (
+                    Bucket.FOUNDATION.value,
+                    Bucket.FEMALE_KIDS.value,
+                    Bucket.PREGNANCY_LATE.value,
+                    Bucket.RECOVERY.value,
+                    Bucket.DELIVERY.value,
+                )
             ),
-            (bucket == Bucket.QUARANTINE.value, "D_LACTATION_MED"),
-            (bucket == Bucket.DELIVERY.value, "D_DRY_CLOSEUP"),
-            (bucket == Bucket.RECOVERY.value, "D_LACTATION_HIGH"),
-            (
-                bucket.in_((Bucket.MALE_KIDS.value, Bucket.FEMALE_KIDS.value)) & (age_days <= 90),
-                "D_CALF_STARTER",
-            ),
-            (
-                bucket.in_((Bucket.MALE_KIDS.value, Bucket.FEMALE_KIDS.value)),
-                "D_HEIFER_GROWING",
-            ),
-            (bucket == Bucket.FOUNDATION.value, "D_HEIFER_GROWING"),
-            else_="D_LACTATION_MED",
-        )
-    else:
-        recipe_code = case(
-            (
-                (bucket == Bucket.QUARANTINE.value) & (bucket_days < 3),
-                DRY_ROUGHAGE,
-            ),
-            (bucket == Bucket.QUARANTINE.value, "MAINTENANCE_75_25"),
-            (
-                (bucket == Bucket.RECOVERY.value) & is_dependent_kid,
-                "CREEP",
-            ),
-            (
-                bucket.in_(
-                    (
-                        Bucket.FOUNDATION.value,
-                        Bucket.FEMALE_KIDS.value,
-                        Bucket.PREGNANCY_LATE.value,
-                        Bucket.RECOVERY.value,
-                        Bucket.DELIVERY.value,
-                    )
-                ),
-                "LACTATING_60_40",
-            ),
-            (
-                bucket.in_((Bucket.BREEDING.value, Bucket.PREGNANCY_EARLY.value)),
-                "MAINTENANCE_75_25",
-            ),
-            (
-                (bucket == Bucket.RESTING.value) & (bucket_days >= 10),
-                "FLUSH_70_30",
-            ),
-            (bucket == Bucket.RESTING.value, "MAINTENANCE_75_25"),
-            (
-                (bucket == Bucket.MALE_KIDS.value) & (age_days <= 90),
-                "LACTATING_60_40",
-            ),
-            (bucket == Bucket.MALE_KIDS.value, "FATTENING_50_50"),
-            else_="MAINTENANCE_75_25",
-        )
+            "LACTATING_60_40",
+        ),
+        (
+            bucket.in_((Bucket.BREEDING.value, Bucket.PREGNANCY_EARLY.value)),
+            "MAINTENANCE_75_25",
+        ),
+        (
+            (bucket == Bucket.RESTING.value) & (bucket_days >= 10),
+            "FLUSH_70_30",
+        ),
+        (bucket == Bucket.RESTING.value, "MAINTENANCE_75_25"),
+        (
+            (bucket == Bucket.MALE_KIDS.value) & (age_days <= 90),
+            "LACTATING_60_40",
+        ),
+        (bucket == Bucket.MALE_KIDS.value, "FATTENING_50_50"),
+        else_="MAINTENANCE_75_25",
+    )
     contexts = (
         select(
             bucket.label("bucket"),
@@ -333,16 +309,8 @@ async def feeding_plan(
         )
     ).all()
 
-    # Two bulk queries, then join in Python — no per-bucket awaits. The
-    # reference rows are species-scoped: both farm types define the same ten
-    # bucket codes with different per-head feed rates.
-    definitions = list(
-        (
-            await db.execute(
-                select(BucketDefinition).where(BucketDefinition.farm_type == farm.farm_type)
-            )
-        ).scalars()
-    )
+    # Two bulk queries, then join in Python — no per-bucket awaits.
+    definitions = list((await db.execute(select(BucketDefinition))).scalars())
     order = {d.code: d.sort_order for d in definitions}
     kg_per_head_by_bucket = {d.code: d.daily_kg_per_head for d in definitions}
     settings_result = await db.execute(
@@ -562,7 +530,7 @@ async def record_dispensing(
     # but it is still real stock. Lock and debit the canonical seeded dry
     # stover row in the same transaction as the dispensing record.
     if recipe_code == DRY_ROUGHAGE:
-        dry_ingredient = DRY_ROUGHAGE_INGREDIENTS.get(farm.farm_type, DRY_ROUGHAGE_INGREDIENT)
+        dry_ingredient = DRY_ROUGHAGE_INGREDIENT
         inventory_result = await db.execute(
             select(FeedInventory)
             .where(

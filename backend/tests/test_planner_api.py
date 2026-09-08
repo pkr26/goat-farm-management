@@ -1,4 +1,4 @@
-"""API tests for the planner module: backward plan, milk plan, saved-plan CRUD.
+"""API tests for the planner module: backward plan, saved-plan CRUD.
 
 The backward-plan payloads anchor ``meta.start_year_month`` explicitly so the
 calendar math is deterministic regardless of when the suite runs.
@@ -58,13 +58,10 @@ def test_planner_api_contract_exists() -> None:
 
     paths = {route.path for route in router.routes}
     assert "/api/planner/plan" in paths
-    assert "/api/planner/milk-plan" in paths
     assert "/api/planner/plans" in paths
 
 
-# The moved milk-planner behaviour keeps its own coverage in
-# test_simulation_milk_planner.py; here only the new backward-plan surface and
-# saved-plan CRUD live.
+# Only the backward-plan surface and saved-plan CRUD live here.
 async def test_backward_plan_end_to_end(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     assumptions = await default_assumptions(client, headers)
@@ -286,8 +283,7 @@ async def test_planner_plan_crud(client: httpx.AsyncClient) -> None:
 async def test_planner_plan_lock_namespace_is_unique(client: httpx.AsyncClient) -> None:
     """The plan-quota advisory lock must not share a namespace with any other
     feature's farm lock — a collision serializes unrelated writes across
-    features (regression: it once shared 4714 with the finance milk ledger)."""
-    from app.api.finance import MILK_LEDGER_LOCK_NAMESPACE
+    features."""
     from app.api.simulation import SCENARIO_QUOTA_LOCK_NAMESPACE
     from app.api.team import TEAM_PROVISIONING_LOCK_NAMESPACE
     from app.services.tasks import MANUAL_TASK_QUEUE_LOCK_NAMESPACE
@@ -296,7 +292,6 @@ async def test_planner_plan_lock_namespace_is_unique(client: httpx.AsyncClient) 
         MANUAL_TASK_QUEUE_LOCK_NAMESPACE,
         TEAM_PROVISIONING_LOCK_NAMESPACE,
         SCENARIO_QUOTA_LOCK_NAMESPACE,
-        MILK_LEDGER_LOCK_NAMESPACE,
     }
     assert planner_api.PLAN_QUOTA_LOCK_NAMESPACE not in taken
 

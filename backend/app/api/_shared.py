@@ -30,8 +30,8 @@ from ..models import (
     TaskStatus,
     User,
     WeightRecord,
-    species_profile,
 )
+from ..models.species import GOAT_PROFILE
 from ..schemas.animals import AnimalOut
 from ..schemas.breeding import BreedingRecordOut
 from ..schemas.tasks import TaskOut
@@ -144,7 +144,6 @@ def animal_out(
     *,
     permissions: Set[str],
     computed: AnimalComputedFacts | None = None,
-    farm_type: str = "GOAT",
 ) -> AnimalOut:
     """Serialize an animal using the caller's effective farm permissions.
 
@@ -170,12 +169,12 @@ def animal_out(
         if field_name not in computed_field_names
     }
     age_months = animal.age_months_on(reference_date)
-    profile = species_profile(farm_type)
+    profile = GOAT_PROFILE
     if computed is None:
         latest_weight_kg = animal.latest_weight_kg_on(reference_date)
         days_in_current_bucket = animal.days_in_current_bucket_on(reference_date, timezone_name)
         is_currently_pregnant = animal.is_currently_pregnant
-        is_breeding_ready = animal.is_breeding_ready_on(reference_date, farm_type=farm_type)
+        is_breeding_ready = animal.is_breeding_ready_on(reference_date)
     else:
         latest_weight_kg = computed.latest_weight_kg
         days_in_current_bucket = computed.days_in_current_bucket

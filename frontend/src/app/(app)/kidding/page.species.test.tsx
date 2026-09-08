@@ -1,16 +1,16 @@
 /**
  * Species-aware gestation windows on the record-{parturition} dialog. The
- * backend enforces per-species bands (goats 100–200 days, buffalo 270–350 —
+ * backend enforces per-species bands (goats 100–200 days —
  * backend/app/models/species.py); the client gate must mirror them or the
  * intersection goes empty and one species can never record a birth at all.
  */
 
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { server, TEST_FARMS, ALL_PERMISSIONS, permissionsHandler } from "@/test/msw-server";
+import { server, ALL_PERMISSIONS, permissionsHandler } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 import { addDays, farmToday } from "@/lib/format";
 
@@ -118,70 +118,8 @@ describe("KiddingPage — species gestation windows", () => {
     expect(dateInput).toHaveAttribute("max", TODAY);
   });
 
-  it("bounds a buffalo calving to the buffalo band (270–350 days)", async () => {
-    const DAIRY_FARM = { ...TEST_FARMS[0], farm_type: "BUFFALO_DAIRY" };
-    server.use(http.get("/api/auth/farms", () => HttpResponse.json([DAIRY_FARM])));
-    // Bred 300 days ago — inside the buffalo band, outside the goat band.
-    stubKiddingEndpoints(listPayload([makeBreeding({ breeding_date: addDays(TODAY, -300) })]), posts);
-    renderWithProviders(<KiddingPage />);
 
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /Record calving/i }));
-
-    const dateInput = await screen.findByLabelText(/Calving date/i);
-    // Floor is breeding+270 = today−30; ceiling is min(breeding+350, today).
-    expect(dateInput).toHaveAttribute("min", addDays(TODAY, -30));
-    expect(dateInput).toHaveAttribute("max", TODAY);
-
-    // The species facts in the helper copy must match the dairy protocol.
-    expect(screen.getByText(/sexed young-stock pens/)).toBeInTheDocument();
-    expect(screen.getByText(/\+ 90 days/i)).toBeInTheDocument();
-
-    // A day-295 calving (within the buffalo band) is submittable — under the
-    // old goat-only gate this was impossible for a buffalo dairy.
-    fireEvent.change(dateInput, { target: { value: addDays(TODAY, -5) } });
-    await user.click(screen.getByRole("button", { name: /Save calving/i }));
-    await waitFor(() => expect(posts).toHaveLength(1));
-    expect(posts[0]).toMatchObject({ date: addDays(TODAY, -5) });
-  });
-
-  it("caps a buffalo calving at one calf by default and two rows maximum", async () => {
-    const DAIRY_FARM = { ...TEST_FARMS[0], farm_type: "BUFFALO_DAIRY" };
-    server.use(http.get("/api/auth/farms", () => HttpResponse.json([DAIRY_FARM])));
-    stubKiddingEndpoints(listPayload([makeBreeding({ breeding_date: addDays(TODAY, -300) })]), posts);
-    renderWithProviders(<KiddingPage />);
-
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /Record calving/i }));
-
-    // Single-calf norm: one row on open, not the goat twins default.
-    expect(await screen.findAllByPlaceholderText("auto")).toHaveLength(1);
-
-    // Species litter cap of 2: one add is possible, the second is not.
-    const add = screen.getByRole("button", { name: /Add calf/i });
-    await user.click(add);
-    expect(screen.getAllByPlaceholderText("auto")).toHaveLength(2);
-    expect(add).toBeDisabled();
-  });
 
   // REGRESSION — birth weights were validated against a generic 1000 kg cap;
-  // the backend's species newborn band (buffalo 15–80 kg) decides instead, so
   // a 20 kg calf must pass inline where a 20 kg kid correctly fails.
-  it("accepts a dairy calf birth weight inside the buffalo newborn band", async () => {
-    const DAIRY_FARM = { ...TEST_FARMS[0], farm_type: "BUFFALO_DAIRY" };
-    server.use(http.get("/api/auth/farms", () => HttpResponse.json([DAIRY_FARM])));
-    stubKiddingEndpoints(listPayload([makeBreeding({ breeding_date: addDays(TODAY, -300) })]), posts);
-    renderWithProviders(<KiddingPage />);
-
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /Record calving/i }));
-
-    fireEvent.change((await screen.findAllByRole("spinbutton"))[0], {
-      target: { value: "20" },
-    });
-    await user.click(await screen.findByRole("button", { name: "Save calving" }));
-
-    await waitFor(() => expect(posts).toHaveLength(1));
-    expect(posts[0]).toMatchObject({ kids: [expect.objectContaining({ birth_weight: 20 })] });
-  });
 });

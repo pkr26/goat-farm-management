@@ -32,7 +32,6 @@ import {
   ALL_PERMISSIONS,
   permissionsHandler,
   server,
-  TEST_FARMS,
 } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 import { farmToday } from "@/lib/format";
@@ -447,27 +446,6 @@ describe("FeedingPage mutation hardening 2", () => {
   });
 
   describe("species vocabulary surfaces", () => {
-    it("labels the dairy bucket in the ration confirmation toast", async () => {
-      const user = userEvent.setup();
-      server.use(
-        http.get("/api/auth/farms", () =>
-          HttpResponse.json([{ ...TEST_FARMS[0], farm_type: "BUFFALO_DAIRY" }]),
-        ),
-        http.post("/api/feeding/settings", () => new HttpResponse(null, { status: 204 })),
-      );
-      await renderLoaded();
-
-      await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
-      const dialog = await screen.findByRole("dialog");
-      const input = within(dialog).getByLabelText(/kg per head per day/);
-      await user.clear(input);
-      await user.type(input, "2.5");
-      await user.click(within(dialog).getByRole("button", { name: "Save" }));
-
-      await waitFor(() =>
-        expect(toast.success).toHaveBeenCalledWith("Saved 2.5 kg/head for Awaiting AI."),
-      );
-    });
 
     it("labels the closed bucket trigger from the items map, not the raw code", async () => {
       const user = userEvent.setup();

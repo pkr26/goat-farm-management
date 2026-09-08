@@ -37,7 +37,6 @@ async def buckets_board(
     """
     defs_result = await db.execute(
         select(BucketDefinition)
-        .where(BucketDefinition.farm_type == farm.farm_type)
         .order_by(BucketDefinition.sort_order)
     )
     defs = list(defs_result.scalars())

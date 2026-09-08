@@ -1,9 +1,9 @@
 """Pydantic schemas for the planner module (Business → Planner).
 
 The engine models live in the pure ``app.simulation`` package
-(``backward_planner`` for target plans, ``milk_planner`` for dairy milk
-targets) and are re-exported here so the OpenAPI schema picks them up next to
-the transport schemas — the same arrangement as ``schemas/simulation.py``.
+(``backward_planner`` for target plans) and are re-exported here so the
+OpenAPI schema picks them up next to the transport schemas — the same
+arrangement as ``schemas/simulation.py``.
 """
 
 from datetime import datetime
@@ -13,14 +13,11 @@ from pydantic import BaseModel, Field
 
 from ..simulation.assumptions import SimulationAssumptions
 from ..simulation.backward_planner import BackwardPlanReport, PlannerTarget
-from ..simulation.milk_planner import MilkPlanReport
 from .common import FiniteFloat, PostgresText, StrictBool, StrictInputModel, StrictInt
 
 __all__ = [
     "BackwardPlanIn",
     "BackwardPlanReport",
-    "MilkPlanIn",
-    "MilkPlanReport",
     "PlannerPlanCreateIn",
     "PlannerPlanListOut",
     "PlannerPlanOut",
@@ -59,22 +56,6 @@ class BackwardPlanIn(StrictInputModel):
     close_gaps: StrictBool = True
     # 0 skips the risk pass; the cap keeps one request priced like a run.
     risk_runs: StrictInt = Field(default=0, ge=0, le=500)
-
-
-class MilkPlanIn(StrictInputModel):
-    """A milk plan: a daily litres target the dairy herd must deliver."""
-
-    assumptions: SimulationAssumptions
-    # Litres per day the farm must ship (e.g. a procurement contract).
-    daily_target_litres: FiniteFloat = Field(gt=0.0, le=1_000_000)
-    # Months over which in-milk purchases are staged while building to the
-    # target herd; 1 = buy the full tranche in month 1.
-    ramp_months: StrictInt = Field(default=1, ge=1, le=60)
-    # Months of projection rows to return (clamped to the horizon).
-    projection_months: StrictInt = Field(default=36, ge=12, le=240)
-    # Size the herd for the worst seasonal (heat-stress) month instead of the
-    # 12-month average.
-    hold_year_round: StrictBool = False
 
 
 class PlannerPlanCreateIn(StrictInputModel):

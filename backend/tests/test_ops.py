@@ -60,7 +60,7 @@ from app.models import (
     User,
     VaccineTemplate,
 )
-from app.permissions import ROLE_PRESETS, preset_codes_for_farm_type
+from app.permissions import ROLE_PRESETS, preset_codes
 from app.security import validate_jwt_keypair
 from app.seed import (
     BUCKET_DEFINITIONS,
@@ -79,7 +79,7 @@ from app.seed import (
 from app.services._common import _default_role_id_for_category
 from app.utils import utcnow
 
-from .conftest import create_farm, owner_with_farm, register
+from .conftest import owner_with_farm
 
 VALID_IDEMPOTENCY_HMAC_SECRET = "production-idempotency-hmac-secret-0000000001"
 VALID_PREVIOUS_IDEMPOTENCY_HMAC_SECRET = "previous-production-idempotency-hmac-secret-0001"
@@ -125,22 +125,13 @@ async def test_generated_task_role_lookup_ignores_tombstoned_preset(
         await db.commit()
 
     async with get_sessionmaker()() as db:
-        assert await _default_role_id_for_category(db, farm_id, "GOAT", "VACCINE") is None
+        assert await _default_role_id_for_category(db, farm_id, "VACCINE") is None
 
 
-async def test_weaning_duty_routes_by_farm_type(client: httpx.AsyncClient) -> None:
-    """Goat weaning (a day-60 pen move) is mover work; dairy weaning (the
-    calf shed's day-~90 job) routes to the calf attendant, and falls back to
-    the mover when the calf role has no live seeded row."""
+async def test_weaning_duty_routes_to_the_mover(client: httpx.AsyncClient) -> None:
+    """Weaning (a day-60 pen move) is mover work."""
     goat_owner = await owner_with_farm(client, email="weaning-route-goat@example.test")
     goat_id = int(goat_owner["X-Farm-Id"])
-    dairy_owner = await create_farm(
-        client,
-        await register(client, "weaning-route-dairy@example.test"),
-        "Routing Dairy",
-        farm_type="BUFFALO_DAIRY",
-    )
-    dairy_id = int(dairy_owner["X-Farm-Id"])
 
     async def role_id(db: AsyncSession, farm_id: int, code: str) -> int:
         return (
@@ -148,24 +139,9 @@ async def test_weaning_duty_routes_by_farm_type(client: httpx.AsyncClient) -> No
         ).scalar_one()
 
     async with get_sessionmaker()() as db:
-        assert await _default_role_id_for_category(db, goat_id, "GOAT", "WEANING") == await role_id(
+        assert await _default_role_id_for_category(db, goat_id, "WEANING") == await role_id(
             db, goat_id, "MOVER"
         )
-        assert await _default_role_id_for_category(
-            db, dairy_id, "BUFFALO_DAIRY", "WEANING"
-        ) == await role_id(db, dairy_id, "CALF_ATTENDANT")
-        # Unmapped categories and non-dairy overrides are unaffected.
-        assert await _default_role_id_for_category(
-            db, dairy_id, "BUFFALO_DAIRY", "VACCINE"
-        ) == await role_id(db, dairy_id, "VET")
-
-        calf = await db.get(Role, await role_id(db, dairy_id, "CALF_ATTENDANT"))
-        assert calf is not None
-        calf.deleted_at = utcnow()
-        await db.commit()
-        assert await _default_role_id_for_category(
-            db, dairy_id, "BUFFALO_DAIRY", "WEANING"
-        ) == await role_id(db, dairy_id, "MOVER")
 
 
 async def test_readyz_returns_documented_unavailable_body_when_pool_fails(
@@ -999,7 +975,7 @@ async def test_reference_seed_repairs_missing_release_rows_without_rewriting_exi
         recipe_id = (
             await db.execute(
                 select(FeedRecipe.id).where(
-                    FeedRecipe.code == missing_recipe, FeedRecipe.farm_type == "GOAT"
+                    FeedRecipe.code == missing_recipe
                 )
             )
         ).scalar_one()
@@ -1008,17 +984,16 @@ async def test_reference_seed_repairs_missing_release_rows_without_rewriting_exi
         await db.execute(
             delete(BucketDefinition).where(
                 BucketDefinition.code == missing_bucket,
-                BucketDefinition.farm_type == "GOAT",
             )
         )
         await db.execute(
             delete(VaccineTemplate).where(
-                VaccineTemplate.name == missing_vaccine, VaccineTemplate.farm_type == "GOAT"
+                VaccineTemplate.name == missing_vaccine
             )
         )
         await db.execute(
             update(BucketDefinition)
-            .where(BucketDefinition.code == preserved_bucket, BucketDefinition.farm_type == "GOAT")
+            .where(BucketDefinition.code == preserved_bucket)
             .values(name="Operator-preserved label")
         )
         await db.commit()
@@ -1031,14 +1006,13 @@ async def test_reference_seed_repairs_missing_release_rows_without_rewriting_exi
             await db.execute(
                 select(BucketDefinition.id).where(
                     BucketDefinition.code == missing_bucket,
-                    BucketDefinition.farm_type == "GOAT",
-                )
+                    )
             )
         ).scalar_one()
         recipe = (
             await db.execute(
                 select(FeedRecipe).where(
-                    FeedRecipe.code == missing_recipe, FeedRecipe.farm_type == "GOAT"
+                    FeedRecipe.code == missing_recipe
                 )
             )
         ).scalar_one()
@@ -1058,7 +1032,7 @@ async def test_reference_seed_repairs_missing_release_rows_without_rewriting_exi
         assert (
             await db.execute(
                 select(VaccineTemplate.id).where(
-                    VaccineTemplate.name == missing_vaccine, VaccineTemplate.farm_type == "GOAT"
+                    VaccineTemplate.name == missing_vaccine
                 )
             )
         ).scalar_one()
@@ -1066,8 +1040,7 @@ async def test_reference_seed_repairs_missing_release_rows_without_rewriting_exi
             await db.execute(
                 select(BucketDefinition.name).where(
                     BucketDefinition.code == preserved_bucket,
-                    BucketDefinition.farm_type == "GOAT",
-                )
+                    )
             )
         ).scalar_one()
         assert preserved_name == "Operator-preserved label"
@@ -1417,9 +1390,8 @@ async def test_task_backfill_converges_and_never_restamps_an_assigned_duty() -> 
 
 
 # Every farm these repair tests builds is a default (GOAT) farm, so the
-# expected preset vocabulary is the goat-scoped one — dairy parlour presets
-# (MILKER, CALF_ATTENDANT, MILK_QC) never seed on a goat farm.
-PRESET_ROLE_CODES = preset_codes_for_farm_type("GOAT")
+# expected preset vocabulary is the goat one.
+PRESET_ROLE_CODES = preset_codes()
 CANONICAL_INGREDIENTS = {ingredient for ingredient, _category in FARM_INGREDIENTS}
 
 
@@ -1560,78 +1532,6 @@ async def test_partially_seeded_role_set_is_completed() -> None:
         # Exactly one row per preset: the two pre-existing ones were not
         # duplicated and no preset was skipped by a rolled-back savepoint.
         assert len(rows) == len(PRESET_ROLE_CODES)
-
-
-async def test_repair_seeds_dairy_presets_only_on_dairy_farms() -> None:
-    """The repair's claim predicate is farm-type aware end to end: a legacy
-    dairy farm missing every preset is claimed and receives the full dairy
-    vocabulary (milker, milk QC, calf attendant included)."""
-    from app.permissions import preset_codes_for_farm_type as _codes_for
-
-    async with get_sessionmaker()() as db:
-        owner = User(email="dairy-repair-owner@farm.in", password_hash="argon2-placeholder")
-        db.add(owner)
-        await db.flush()
-        dairy = Farm(name="Legacy Dairy", owner_id=owner.id, farm_type="BUFFALO_DAIRY")
-        db.add(dairy)
-        await db.flush()
-        await seed_farm_inventory(db, dairy.id)
-        await db.commit()
-        dairy_id = dairy.id
-
-    async with get_sessionmaker()() as db:
-        claimed = await repair_legacy_farms_batch(db, batch_size=10)
-        await db.commit()
-    assert claimed == 1
-
-    async with get_sessionmaker()() as db:
-        assert await _farm_role_codes(db, dairy_id) == _codes_for("BUFFALO_DAIRY")
-        assert {"MILKER", "MILK_QC", "CALF_ATTENDANT"} <= await _farm_role_codes(db, dairy_id)
-
-
-async def test_backfill_routes_dairy_weaning_to_calf_attendant() -> None:
-    """The legacy duty backfill resolves a dairy farm's orphan WEANING duty to
-    the calf attendant (the dairy override), not the mover fallback."""
-    async with get_sessionmaker()() as db:
-        owner = User(email="dairy-backfill-owner@farm.in", password_hash="argon2-placeholder")
-        db.add(owner)
-        await db.flush()
-        dairy = Farm(name="Backfill Dairy", owner_id=owner.id, farm_type="BUFFALO_DAIRY")
-        db.add(dairy)
-        await db.flush()
-        await seed_default_roles(db, dairy.id)
-        calf_role = (
-            await db.execute(
-                select(Role).where(Role.farm_id == dairy.id, Role.code == "CALF_ATTENDANT")
-            )
-        ).scalar_one()
-        db.add(
-            Task(
-                farm_id=dairy.id,
-                title="Wean calves of BUF-001 off milk; → FOUNDATION",
-                due_date=date(2026, 1, 10),
-                category=TaskCategory.WEANING.value,
-                status=TaskStatus.PENDING.value,
-                auto_generated=True,
-            )
-        )
-        await db.commit()
-        dairy_id = dairy.id
-
-    async with get_sessionmaker()() as db:
-        claimed = await backfill_task_assignments_batch(db, batch_size=10)
-        await db.commit()
-    assert claimed == 1
-
-    async with get_sessionmaker()() as db:
-        task = (await db.execute(select(Task).where(Task.farm_id == dairy_id))).scalar_one()
-        calf_role = (
-            await db.execute(
-                select(Role).where(Role.farm_id == dairy_id, Role.code == "CALF_ATTENDANT")
-            )
-        ).scalar_one()
-        assert task.assigned_role_id == calf_role.id
-
 
 async def test_tombstoned_preset_name_is_reused() -> None:
     """`uq_roles_farm_active_name` is partial on `deleted_at IS NULL`, so a

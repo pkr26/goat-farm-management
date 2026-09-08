@@ -4,7 +4,6 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
-import type { FarmCreateInFarmType } from './farmCreateInFarmType';
 
 export interface FarmCreateIn {
   /**
@@ -18,5 +17,4 @@ export interface FarmCreateIn {
      * @maxLength 64
      */
   timezone?: string;
-  farm_type?: FarmCreateInFarmType;
 }

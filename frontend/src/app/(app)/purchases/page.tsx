@@ -55,7 +55,6 @@ import {
 import { ApiError } from "@/lib/api-client";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { MAX_AGE_MONTHS, MAX_BATCH_COUNT } from "@/lib/backend-caps";
-import { useFarmType } from "@/hooks/use-farm-type";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { enumLabel } from "@/lib/enum-labels";
 import { farmToday, formatDate, formatMoney } from "@/lib/format";
@@ -145,9 +144,8 @@ function BatchDetailDialog({
   canViewAnimals: boolean;
   onClose: () => void;
 }) {
-  // Bucket short labels are species-specific (goat wards vs dairy pens), so
+  // Bucket short labels are shared, so
   // the chip resolves through the active farm's vocabulary.
-  const farmType = useFarmType();
   // A batch may hold up to MAX_BATCH_COUNT head, so its animals arrive as a
   // bounded page. The parent keys this component by batch id, so opening a
   // different batch remounts it and the offset starts at zero again.
@@ -230,7 +228,7 @@ function BatchDetailDialog({
                             )}
                           </TableCell>
                           <TableCell>{enumLabel("sex", a.sex)}</TableCell>
-                          <TableCell>{enumLabel("bucket", a.current_bucket, farmType)}</TableCell>
+                          <TableCell>{enumLabel("bucket", a.current_bucket)}</TableCell>
                           <TableCell>
                             <StatusBadge status={a.status}>{a.status}</StatusBadge>
                           </TableCell>
@@ -290,7 +288,7 @@ function BatchDetailDialog({
 }
 
 function PurchasesPageContent() {
-  const vocabulary = farmVocabulary(useFarmType());
+  const vocabulary = farmVocabulary;
   const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
   const allowed = can("purchases.view");
   const canManage = can("purchases.manage");

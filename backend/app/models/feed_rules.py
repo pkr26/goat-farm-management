@@ -20,22 +20,13 @@ CREEP_KG_PER_HEAD = 0.3
 # The virtual quarantine recipe is direct-fed from a seeded raw-inventory row.
 # Keeping the ingredient explicit prevents a successful dispensing log from
 # creating feed ex nihilo merely because no finished-mix recipe exists.
-DRY_ROUGHAGE_INGREDIENTS = {
-    "GOAT": "Dry jowar stover",
-    "BUFFALO_DAIRY": "Paddy straw",
-}
-DRY_ROUGHAGE_INGREDIENT = DRY_ROUGHAGE_INGREDIENTS["GOAT"]
+DRY_ROUGHAGE_INGREDIENT = "Dry jowar stover"
 RECIPE_DISPLAY = {
     "FATTENING_50_50": "Fattening 50:50",
     "LACTATING_60_40": "Lactating 60:40",
     "MAINTENANCE_75_25": "Maintenance 75:25",
     "FLUSH_70_30": "Flush 70:30",
     "CREEP": "Creep feed",
-    "D_LACTATION_HIGH": "Lactating TMR — High yielders (10+ L/day)",
-    "D_LACTATION_MED": "Lactating TMR — Medium yielders (6–10 L/day)",
-    "D_DRY_CLOSEUP": "Dry & Close-up TMR (Building B)",
-    "D_HEIFER_GROWING": "Growing Heifer TMR (Building C)",
-    "D_CALF_STARTER": "Calf Starter (Building D)",
     DRY_ROUGHAGE: "Dry roughage only (days 1–3, zero grain)",
 }
 
@@ -52,26 +43,10 @@ BUCKET_ALLOCATION_REFERENCE = [
     ("MALE_KIDS", "Day ≤90 LACTATING_60_40 (frame-builder), day 91+ FATTENING_50_50"),
     ("FEMALE_KIDS", "LACTATING_60_40"),
 ]
-DAIRY_BUCKET_ALLOCATION_REFERENCE = [
-    ("QUARANTINE", "Dry roughage only (days 1–3) → transition to D_LACTATION_MED"),
-    ("FOUNDATION", "D_HEIFER_GROWING"),
-    ("BREEDING", "D_LACTATION_MED (milking, open)"),
-    ("PREGNANCY_EARLY", "D_LACTATION_MED (milking, pregnant 1–5 mo)"),
-    ("PREGNANCY_LATE", "D_LACTATION_MED (milking, pregnant 5–8 mo)"),
-    ("DELIVERY", "D_DRY_CLOSEUP (dry period; concentrate in last 3 weeks)"),
-    ("RECOVERY", "D_LACTATION_HIGH (fresh, peak-yield push)"),
-    ("RESTING", "D_LACTATION_MED (post-fresh transition)"),
-    ("MALE_KIDS", "Day ≤90 D_CALF_STARTER, day 91+ D_HEIFER_GROWING"),
-    ("FEMALE_KIDS", "Day ≤90 D_CALF_STARTER, day 91+ D_HEIFER_GROWING"),
-]
-SPECIES_BUCKET_ALLOCATION_REFERENCE = {
-    "GOAT": BUCKET_ALLOCATION_REFERENCE,
-    "BUFFALO_DAIRY": DAIRY_BUCKET_ALLOCATION_REFERENCE,
-}
 
 
-def bucket_allocation_reference(farm_type: str) -> list[tuple[str, str]]:
-    return SPECIES_BUCKET_ALLOCATION_REFERENCE.get(farm_type, BUCKET_ALLOCATION_REFERENCE)
+def bucket_allocation_reference() -> list[tuple[str, str]]:
+    return BUCKET_ALLOCATION_REFERENCE
 
 
 SHIFT_TIMES = {
@@ -85,43 +60,15 @@ def recipe_age_days(effective_dob: date | None, ref: date) -> int:
     return (ref - effective_dob).days if effective_dob else 999  # unknown → grown
 
 
-def dairy_recipe_for_context(
-    bucket: str,
-    effective_dob: date | None,
-    ref: date,
-    bucket_days: int,
-) -> str:
-    """Murrah dairy TMR allocation across the shared bucket codes."""
-    if bucket == Bucket.QUARANTINE.value:
-        return DRY_ROUGHAGE if bucket_days < 3 else "D_LACTATION_MED"
-    if bucket in (Bucket.BREEDING.value, Bucket.PREGNANCY_EARLY.value, Bucket.RESTING.value):
-        return "D_LACTATION_MED"
-    if bucket == Bucket.PREGNANCY_LATE.value:
-        return "D_LACTATION_MED"
-    if bucket == Bucket.DELIVERY.value:
-        return "D_DRY_CLOSEUP"
-    if bucket == Bucket.RECOVERY.value:
-        return "D_LACTATION_HIGH"
-    if bucket in (Bucket.MALE_KIDS.value, Bucket.FEMALE_KIDS.value):
-        age_days = recipe_age_days(effective_dob, ref)
-        return "D_CALF_STARTER" if age_days <= 90 else "D_HEIFER_GROWING"
-    if bucket == Bucket.FOUNDATION.value:
-        return "D_HEIFER_GROWING"
-    return "D_LACTATION_MED"
-
-
 def recipe_for_context(
     bucket: str,
     effective_dob: date | None,
     ref: date,
     bucket_days: int,
-    farm_type: str = "GOAT",
     *,
     is_dependent_kid: bool = False,
 ) -> str:
     """Recipe rules over only the four fields today's plan actually needs."""
-    if farm_type != "GOAT":
-        return dairy_recipe_for_context(bucket, effective_dob, ref, bucket_days)
     if bucket == Bucket.QUARANTINE.value:
         return DRY_ROUGHAGE if bucket_days < 3 else "MAINTENANCE_75_25"
     if bucket == Bucket.RECOVERY.value and is_dependent_kid:
@@ -147,9 +94,9 @@ def recipe_for_context(
 
 
 # Default per-head daily rations (kg) per bucket, mirrored from the seeded
-# BucketDefinition rows (seed.BUCKET_DEFINITIONS / DAIRY_BUCKET_DEFINITIONS).
-# A farm's BucketFeedSetting rows override these operationally; the daily
-# simulation uses the species defaults so a run is reproducible everywhere.
+# BucketDefinition rows (seed.BUCKET_DEFINITIONS). A farm's BucketFeedSetting
+# rows override these operationally; the daily simulation uses the defaults so
+# a run is reproducible everywhere.
 GOAT_BUCKET_KG_PER_HEAD: dict[str, float] = {
     Bucket.QUARANTINE.value: 1.1,
     Bucket.FOUNDATION.value: 1.2,
@@ -161,18 +108,6 @@ GOAT_BUCKET_KG_PER_HEAD: dict[str, float] = {
     Bucket.RESTING.value: 1.2,
     Bucket.MALE_KIDS.value: 1.0,
     Bucket.FEMALE_KIDS.value: 1.0,
-}
-DAIRY_BUCKET_KG_PER_HEAD: dict[str, float] = {
-    Bucket.QUARANTINE.value: 25.0,
-    Bucket.FOUNDATION.value: 20.0,
-    Bucket.BREEDING.value: 28.0,
-    Bucket.PREGNANCY_EARLY.value: 28.0,
-    Bucket.PREGNANCY_LATE.value: 26.0,
-    Bucket.DELIVERY.value: 24.0,
-    Bucket.RECOVERY.value: 30.0,
-    Bucket.RESTING.value: 28.0,
-    Bucket.MALE_KIDS.value: 6.0,
-    Bucket.FEMALE_KIDS.value: 6.0,
 }
 
 # One building per bucket (the daily simulation's physical layout): the
@@ -188,16 +123,4 @@ GOAT_BUILDING_NAMES: dict[str, str] = {
     Bucket.RESTING.value: "Resting / Dry-off + Flush",
     Bucket.MALE_KIDS.value: "Male Kids Growing",
     Bucket.FEMALE_KIDS.value: "Female Kids Growing",
-}
-DAIRY_BUILDING_NAMES: dict[str, str] = {
-    Bucket.QUARANTINE.value: "Quarantine Ward (Building E)",
-    Bucket.FOUNDATION.value: "Growing Heifers (Building C)",
-    Bucket.BREEDING.value: "Milking — Open / Awaiting AI (Building A)",
-    Bucket.PREGNANCY_EARLY.value: "Milking — Pregnant 1–5 mo (Building A)",
-    Bucket.PREGNANCY_LATE.value: "Milking — Pregnant 5–8 mo (Building A)",
-    Bucket.DELIVERY.value: "Dry / Close-up + Calving Pens (Building B)",
-    Bucket.RECOVERY.value: "Fresh Buffalo Pen (Building A sub-pen)",
-    Bucket.RESTING.value: "Milking — Post-fresh Transition (Building A)",
-    Bucket.MALE_KIDS.value: "Male Calves (Building D)",
-    Bucket.FEMALE_KIDS.value: "Heifer Calves (Building D)",
 }

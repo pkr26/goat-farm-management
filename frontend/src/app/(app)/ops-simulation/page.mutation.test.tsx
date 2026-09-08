@@ -10,7 +10,7 @@ import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
 
-import { server, TEST_FARMS, permissionsHandler } from "@/test/msw-server";
+import { server, permissionsHandler } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
 import OpsSimulationPage from "./page";
@@ -384,16 +384,6 @@ describe("OpsSimulationPage — journeys and gating", () => {
     await screen.findByText("Day timeline");
   });
 
-  it("shows the dairy gate with no run controls", async () => {
-    server.use(
-      http.get("/api/auth/farms", () =>
-        HttpResponse.json([{ ...TEST_FARMS[0], farm_type: "BUFFALO_DAIRY" }]),
-      ),
-    );
-    renderWithProviders(<OpsSimulationPage />);
-    expect(await screen.findByText("Goat farms only — for now")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Add animal" })).not.toBeInTheDocument();
-  });
 
   it("denies access without simulation.view", async () => {
     server.use(permissionsHandler(["dashboard.view"]));

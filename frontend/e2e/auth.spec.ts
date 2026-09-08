@@ -10,7 +10,6 @@ const OWNER_NAV = [
   "Kidding",
   "Health",
   "Feeding",
-  "Milk",
   "Purchases",
   "Tasks",
   "Finance",

@@ -96,21 +96,21 @@ describe("RootLayout", () => {
     // Stryker's per-test runner for these statically-covered mutants.
     const { metadata: freshMetadata } = await import("./layout");
     expect(freshMetadata.title).toEqual({
-      default: "Herdly — Livestock farm management",
+      default: "Herdly — Goat farm management",
       template: "%s · Herdly",
     });
     expect(freshMetadata.description).toBe(
-      "Commercial goat and buffalo dairy farm management — herd, health, breeding, milk and finance in one place.",
+      "Goat farm management — herd, health, breeding, kidding and finance in one place.",
     );
   });
 
   it("exports the document metadata Next renders into <head>", () => {
     expect(metadata.title).toEqual({
-      default: "Herdly — Livestock farm management",
+      default: "Herdly — Goat farm management",
       template: "%s · Herdly",
     });
     expect(metadata.description).toBe(
-      "Commercial goat and buffalo dairy farm management — herd, health, breeding, milk and finance in one place.",
+      "Goat farm management — herd, health, breeding, kidding and finance in one place.",
     );
   });
 

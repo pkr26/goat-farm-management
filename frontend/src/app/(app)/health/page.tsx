@@ -35,7 +35,6 @@ import {
   HealthAnimalPicker,
   HealthPurchaseBatchPicker,
 } from "@/components/health-target-pickers";
-import { useFarmType } from "@/hooks/use-farm-type";
 import { enumLabel } from "@/lib/enum-labels";
 import { PageHeader } from "@/components/page-header";
 import { StaleDataNotice } from "@/components/stale-data-notice";
@@ -410,11 +409,10 @@ function HealthPageContent() {
   const canManage = can("health.manage");
   const canViewAnimals = can("animals.view");
   const canViewTasks = can("tasks.view");
-  const farmType = useFarmType();
   /** value → label map for the root `items` prop: without it, Base UI's
    * Select.Value renders the raw value in the closed trigger. */
   const bucketItems: Record<string, string> = Object.fromEntries(
-    BUCKETS.map((b) => [b, enumLabel("bucket", b, farmType)]),
+    BUCKETS.map((b) => [b, enumLabel("bucket", b)]),
   );
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -1406,7 +1404,7 @@ function HealthPageContent() {
                     <SelectContent>
                       {BUCKETS.map((b) => (
                         <SelectItem key={b} value={b}>
-                          {enumLabel("bucket", b, farmType)}
+                          {enumLabel("bucket", b)}
                         </SelectItem>
                       ))}
                     </SelectContent>

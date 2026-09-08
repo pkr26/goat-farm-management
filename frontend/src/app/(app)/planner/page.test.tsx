@@ -2,7 +2,7 @@
  * Planner page: target-based backward planning. The targets editor posts
  * calendar-dated targets plus the anchored assumptions to /api/planner/plan
  * and renders the feasibility table, dated action timeline, requirement
- * chains and the stage plan. Dairy farms additionally get the milk-target
+ * chains and the stage plan.
  * section. Plans save to /api/planner/plans. Request failures surface as an
  * alert.
  */
@@ -219,8 +219,6 @@ function registerApiHandlers(options: {
   planStatus?: number;
   savedPlans?: unknown[];
   onSave?: (body: Record<string, unknown>) => void;
-  onMilkPlan?: () => void;
-  milkPlanResult?: unknown;
   onUpdate?: (query: Record<string, string>, body: Record<string, unknown>) => void;
   savedPlan?: unknown;
 } = {}) {
@@ -229,7 +227,7 @@ function registerApiHandlers(options: {
       HttpResponse.json(options.farms ?? TEST_FARMS),
     ),
     http.get("/api/simulation/defaults/breeds", () =>
-      HttpResponse.json({ breeds: ["osmanabadi", "murrah_dairy"], systems: ["stall_fed", "semi_intensive"] }),
+      HttpResponse.json({ breeds: ["osmanabadi", "sirohi"], systems: ["stall_fed", "semi_intensive"] }),
     ),
     http.get("/api/simulation/defaults", () =>
       HttpResponse.json(options.defaults ?? GOAT_DEFAULTS),
@@ -260,10 +258,6 @@ function registerApiHandlers(options: {
       return HttpResponse.json(options.planResult ?? PLAN_REPORT, {
         status: options.planStatus ?? 200,
       });
-    }),
-    http.post("/api/planner/milk-plan", async () => {
-      options.onMilkPlan?.();
-      return HttpResponse.json(options.milkPlanResult ?? {}, { status: 200 });
     }),
     http.patch("/api/planner/plans/:id", async ({ request }) => {
       options.onUpdate?.(
@@ -435,126 +429,5 @@ describe("PlannerPage backward plan", () => {
 
     expect(screen.getByRole("button", { name: "Plan" })).toBeDisabled();
     expect(screen.getByText(/count must be greater than 0/i)).toBeInTheDocument();
-  });
-});
-
-describe("PlannerPage milk target section", () => {
-  const DAIRY_FARM = { ...TEST_FARMS[0], name: "Test Dairy", farm_type: "BUFFALO_DAIRY" };
-  const DAIRY_DEFAULTS = {
-    ...GOAT_DEFAULTS,
-    herd: { does: 60, bucks: 0 },
-    reproduction: { ...GOAT_DEFAULTS.reproduction, lactation_months: 10, gestation_months: 10 },
-    sales: { ...GOAT_DEFAULTS.sales, lactation_milk_litres: 2400 },
-  };
-
-  it("appears for a buffalo dairy farm and not for a goat farm", async () => {
-    await renderLoaded({ farms: [DAIRY_FARM], defaults: DAIRY_DEFAULTS });
-    expect(
-      await screen.findByText("Milk target", { selector: "[data-slot='card-title'], h2, h3" }),
-    ).toBeInTheDocument();
-  });
-
-  it("stays hidden for a goat farm", async () => {
-    await renderLoaded();
-    await screen.findByText("Plan basis");
-    expect(
-      screen.queryByText("Milk target", { selector: "[data-slot='card-title'], h2, h3" }),
-    ).not.toBeInTheDocument();
-  });
-
-  it("plans backward from a litres target and explains the curve math", async () => {
-    const milkReport = {
-      target_daily_litres: 1000,
-      ramp_months: 1,
-      hold_year_round: false,
-      curve: {
-        shape: "wood",
-        lactation_litres: 2100,
-        lactation_months: 10,
-        peak_day: 65,
-        peak_month_of_lactation: 3,
-        peak_daily_litres: 10.2,
-        avg_daily_litres_per_milking_doe: 6.9,
-        monthly_litres: [220, 290, 311, 292, 258, 224, 192, 161, 133, 119],
-      },
-      herd: {
-        daily_target_litres: 1000,
-        calving_interval_months: 13.7,
-        expected_services_per_conception: 2.2,
-        breeding_does: 204,
-        milking_does: 167,
-        dry_does: 37,
-        dry_months_per_cycle: 3.7,
-        milking_share_of_herd: 0.82,
-        calvings_per_month: 15.4,
-        ai_services_per_month: 34.7,
-        replacement_does_per_month: 3.9,
-        heifer_calves_available_per_month: 7.1,
-        heifer_surplus_per_month: 3.2,
-        starting_does_credited: 60,
-        purchases_total: 151,
-        replacement_purchases_total: 7,
-        seasonal_low_daily_litres: 860,
-        seasonal_high_daily_litres: 1080,
-        herd_for_year_round_target: 233,
-      },
-      purchases: [
-        { month: 1, count: 144, profile: "in-milk buffalo at mixed lactation stages" },
-      ],
-      projection: [
-        {
-          month: 1,
-          calendar_month: 1,
-          breeding_does: 207,
-          milking_does: 143,
-          dry_does: 64,
-          freshenings: 15.9,
-          ai_services: 31.9,
-          heifer_graduates: 0,
-          projected_daily_litres: 1027,
-          target_daily_litres: 1000,
-          gap_daily_litres: -27,
-          projected_monthly_litres: 31270,
-          projected_monthly_revenue: 2019482,
-          meets_target: true,
-        },
-      ],
-      steady_from_month: 1,
-      steady_average_daily_litres: 1000,
-      achievable: true,
-      explanations: [
-        "1. What one animal gives: one milking buffalo produces 2,100 L over her 10-month lactation, following the lactation curve: rising after calving to a peak of ~10.2 L/day in month 3 of lactation, then declining to ~3.9 L/day in the final month.",
-        "2. Why she stops: milk does not fade to zero — it STOPS. For the last ~4 months of every 13.7-month calving cycle she is dry (heavily pregnant, preparing the next calving): eating, not milking.",
-        "3. Target → calvings: 1,000 L/day × 30 days = 30,440 L/month; at 2,100 L per lactation that needs ~15.4 fresh calvings EVERY month, all year.",
-        "4. Why every month: each month-of-lactation stage of the curve yields a different amount, so the tank stays flat only if the herd holds animals in every stage and new calvings arrive continuously.",
-        "5. Calvings → herd: one cycle lasts ~13.7 months, so ~15.4 calvings/month needs a breeding herd of ~204. On an average day ~167 (82%) are milking and ~37 (18%) are dry.",
-        "6. How purchases fill the gap: the plan buys ~144 in-milk animals at MIXED lactation stages, staged over 1 month.",
-      ],
-      notes: ["To land calvings in month T, start AI about 12 months earlier."],
-    };
-    const user = userEvent.setup();
-    await renderLoaded({
-      farms: [DAIRY_FARM],
-      defaults: DAIRY_DEFAULTS,
-      onMilkPlan: () => {},
-      milkPlanResult: milkReport,
-    });
-
-    await user.click(screen.getByRole("button", { name: "Plan milk" }));
-
-    // The backward-math story renders with its own numbers.
-    expect(await screen.findByText(/Why this herd — the math behind/)).toBeInTheDocument();
-    expect(screen.getByText(/it STOPS/)).toBeInTheDocument();
-    expect(screen.getByText(/~15\.4 fresh calvings EVERY month/)).toBeInTheDocument();
-    expect(screen.getByText(/MIXED lactation stages/)).toBeInTheDocument();
-    // Dry-period arithmetic in the herd-design headline.
-    expect(screen.getByText(/3\.7 dry months per 13\.7-month cycle/)).toBeInTheDocument();
-    expect(screen.getByText(/\(82% in milk\)/)).toBeInTheDocument();
-    // The curve table shows the peak month and the dry rows after dry-off.
-    // It starts collapsed: open it first.
-    await user.click(screen.getByText(/The lactation curve the plan runs on/));
-    expect(screen.getByText("3 (peak)")).toBeInTheDocument();
-    expect(screen.getAllByText("0 (dry)").length).toBeGreaterThan(0);
-    expect(screen.getByText(/late pregnancy — eating, not milking/)).toBeInTheDocument();
   });
 });

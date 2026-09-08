@@ -26,7 +26,6 @@ import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { StaleDataNotice } from "@/components/stale-data-notice";
-import { useFarmType } from "@/hooks/use-farm-type";
 import { enumLabel } from "@/lib/enum-labels";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { StatCard } from "@/components/stat-card";
@@ -110,10 +109,9 @@ function TaskLink({
 }
 
 export default function DashboardPage() {
-  const farmType = useFarmType();
-  const vocabulary = farmVocabulary(farmType);
+  const vocabulary = farmVocabulary;
   // Table headers and tag fallbacks start the sentence, so the female-parent
-  // noun needs its display-case form ("Doe" / "Milking buffalo").
+  // noun needs its display-case form ("Doe").
   const femaleParentLabel =
     vocabulary.femaleAdult.charAt(0).toUpperCase() + vocabulary.femaleAdult.slice(1);
   const { farms, farmId } = useAuth();
@@ -244,7 +242,7 @@ export default function DashboardPage() {
                 step: 1,
                 title: "Add your first animals",
                 description:
-                  "Tag every goat or buffalo you own — tags are how the whole farm connects.",
+                  "Tag every goat you own — tags are how the whole farm connects.",
                 href: "/animals/new",
                 cta: "Add animal",
                 show: can("animals.create"),
@@ -611,7 +609,7 @@ export default function DashboardPage() {
                     <TableCell className="text-right">
                       <Badge variant="secondary">
                         <MoveRight className="size-3" aria-hidden="true" />
-                        {enumLabel("bucket", s.to, farmType)}
+                        {enumLabel("bucket", s.to)}
                       </Badge>
                     </TableCell>
                   </TableRow>

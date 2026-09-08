@@ -12,7 +12,6 @@ import {
   type RemotePickerPage,
 } from "@/components/remote-picker";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
-import { useFarmType } from "@/hooks/use-farm-type";
 
 interface BreedingCandidatePickerProps {
   id: string;
@@ -60,8 +59,8 @@ export function BreedingCandidatePicker({
   "aria-invalid": ariaInvalid,
   "aria-describedby": ariaDescribedBy,
 }: BreedingCandidatePickerProps) {
-  // Species nouns — a dairy operator must not read "does"/"bucks".
-  const vocabulary = farmVocabulary(useFarmType());
+  // Species nouns keep the goat vocabulary in one place.
+  const vocabulary = farmVocabulary;
   const kindNoun =
     kind === "doe" ? vocabulary.femaleAdultPlural : `${vocabulary.maleAdult}s`;
   async function loadPage({

@@ -17,16 +17,9 @@ class FeedRecipe(Base):
     __table_args__ = (
         CheckConstraint("btrim(code) <> ''", name="ck_feed_recipes_code_nonblank"),
         CheckConstraint("btrim(name) <> ''", name="ck_feed_recipes_name_nonblank"),
-        CheckConstraint(
-            "farm_type IN ('GOAT', 'BUFFALO_DAIRY')",
-            name="ck_feed_recipes_farm_type",
-        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    # Species namespace: goat and dairy recipe codes are distinct strings, so
-    # the global code uniqueness is retained (feed_finished_stock references it).
-    farm_type: Mapped[str] = mapped_column(String(20), default="GOAT", server_default="GOAT")
     code: Mapped[str] = mapped_column(String(30), unique=True)
     name: Mapped[str] = mapped_column(String(120))
     description: Mapped[str | None] = mapped_column(String(255))

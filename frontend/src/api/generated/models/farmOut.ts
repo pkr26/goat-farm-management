@@ -4,7 +4,6 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
-import type { FarmOutFarmType } from './farmOutFarmType';
 
 export interface FarmOut {
   id: number;
@@ -12,5 +11,4 @@ export interface FarmOut {
   location: string | null;
   timezone: string;
   role: string | null;
-  farm_type: FarmOutFarmType;
 }

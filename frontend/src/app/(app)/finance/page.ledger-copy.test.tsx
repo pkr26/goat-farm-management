@@ -387,7 +387,6 @@ describe("FinancePage correction dialog copy", () => {
       "Vet",
       "Labour",
       "Equipment",
-      "Milk",
       "Manure",
       "Other",
     ]);

@@ -38,7 +38,7 @@ from app.models import (
     TaskStatus,
     User,
 )
-from app.permissions import preset_codes_for_farm_type
+from app.permissions import preset_codes
 from app.seed import (
     CONC,
     DRY_STOVER,
@@ -214,7 +214,7 @@ async def test_concurrent_role_seed_serializes_on_farm_row(
         seeded = list((await db.execute(select(Role).where(Role.farm_id == farm_id))).scalars())
     # The farm under repair is a default GOAT farm; dairy parlour presets
     # are not part of its seeded vocabulary.
-    expected_codes = preset_codes_for_farm_type("GOAT")
+    expected_codes = preset_codes()
     assert len(seeded) == len(expected_codes)
     assert {role.code for role in seeded} == expected_codes
 

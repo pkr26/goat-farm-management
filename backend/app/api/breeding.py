@@ -284,7 +284,6 @@ async def create_breeding(
                 buck,
                 latest_weight_kg=weights.get(buck.id),
                 reference_date=payload.breeding_date,
-                farm_type=farm.farm_type,
             )
             if buck is not None
             else payload.method in ("AI", "AI_SEXED")
@@ -295,7 +294,6 @@ async def create_breeding(
                 latest_weight_kg=weights.get(doe.id),
                 has_open_breeding=has_open_breeding,
                 reference_date=payload.breeding_date,
-                farm_type=farm.farm_type,
             )
             or not sire_eligible
         ):

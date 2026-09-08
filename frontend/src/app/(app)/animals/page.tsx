@@ -59,7 +59,6 @@ import {
   SortableTableHead,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { useFarmType } from "@/hooks/use-farm-type";
 import { ApiError } from "@/lib/api-client";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { MAX_ANIMAL_TAG_LENGTH, MAX_FREE_TEXT_LENGTH } from "@/lib/backend-caps";
@@ -114,12 +113,11 @@ const BUCKET_REQUIRED_SEX: Record<string, string> = {
 const bucketAllowsSex = (bucket: string, sex: string) =>
   (BUCKET_REQUIRED_SEX[bucket] ?? sex) === sex;
 
-const bucketLabel = (b: string, farmType?: string | null) => enumLabel("bucket", b, farmType);
+const bucketLabel = (b: string) => enumLabel("bucket", b);
 /** value → label map for the root `items` prop: without it, Base UI's
- * Select.Value renders the raw value in the closed trigger. Built per dialog
- * from the farm type — dairy pens vs goat wards. */
-const bucketItems = (farmType?: string | null): Record<string, string> =>
-  Object.fromEntries(BUCKETS.map((b) => [b, bucketLabel(b, farmType)]));
+ * Select.Value renders the raw value in the closed trigger. */
+const bucketItems = (): Record<string, string> =>
+  Object.fromEntries(BUCKETS.map((b) => [b, bucketLabel(b)]));
 const SEX_ITEMS: Record<string, string> = {
   [AnimalCreateInSex.F]: "Female",
   [AnimalCreateInSex.M]: "Male",
@@ -163,7 +161,7 @@ function completedMonths(dateOfBirth: string, referenceDate: string): number | n
 }
 
 /** Species-aware create schema: breeding-entry gates and nouns come from the
- * farm's vocabulary so a buffalo dairy never sees goat thresholds. */
+ * goat thresholds. */
 const createAnimalSchema = (vocabulary: FarmVocabulary) =>
   z
   .object({
@@ -263,7 +261,7 @@ const createAnimalSchema = (vocabulary: FarmVocabulary) =>
     if (values.current_bucket !== AnimalCreateInCurrentBucket.BREEDING) return;
 
     // Species gates mirror backend/app/models/species.py — a 23-month-old
-    // Murrah heifer must not be judged by goat thresholds (and vice versa).
+    // Purchased adults must not be judged by kid thresholds (and vice versa).
     const rules =
       values.sex === AnimalCreateInSex.M ? vocabulary.breedingEntry.male : vocabulary.breedingEntry.female;
     const minimumAge = rules.minMonths;
@@ -379,8 +377,7 @@ function CreateAnimalDialog({
   const [open, setOpen] = useState(startOpen);
   const createMut = useCreateAnimalApiAnimalsPost();
   const createFlight = useSingleFlight();
-  const farmType = useFarmType();
-  const vocabulary = farmVocabulary(farmType);
+  const vocabulary = farmVocabulary;
   const schema = useMemo(() => createAnimalSchema(vocabulary), [vocabulary]);
   const {
     register,
@@ -557,7 +554,7 @@ function CreateAnimalDialog({
                 <>
                   <Input
                     id="animal-bucket"
-                    value={bucketLabel(AnimalCreateInCurrentBucket.QUARANTINE, farmType)}
+                    value={bucketLabel(AnimalCreateInCurrentBucket.QUARANTINE)}
                     readOnly
                     aria-describedby="purchased-quarantine-note"
                   />
@@ -571,7 +568,7 @@ function CreateAnimalDialog({
                   control={control}
                   name="current_bucket"
                   render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange} items={bucketItems(farmType)}>
+                    <Select value={field.value} onValueChange={field.onChange} items={bucketItems()}>
                       <SelectTrigger id="animal-bucket" className="w-full">
                         <SelectValue />
                       </SelectTrigger>
@@ -579,7 +576,7 @@ function CreateAnimalDialog({
                         {HISTORICAL_IMPORT_BUCKETS.filter((b) => bucketAllowsSex(b, sex)).map(
                           (b) => (
                             <SelectItem key={b} value={b}>
-                              {bucketLabel(b, farmType)}
+                              {bucketLabel(b)}
                             </SelectItem>
                           ),
                         )}
@@ -828,16 +825,15 @@ function AnimalsPageContent() {
   const queryClient = useQueryClient();
   const { can, isOwner, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
   const allowed = can("animals.view");
-  const farmType = useFarmType();
-  /** value → label map for the bucket filter Select root: farm-type aware
-   * labels (dairy pens vs goat wards) with the raw code as the value. */
+  /** value → label map for the bucket filter Select root, with the raw
+   * code as the value. */
   const bucketFilterItems = useMemo(() => {
     const entries = Object.values(ListAnimalsApiAnimalsGetBucket).map((b) => [
       b,
-      enumLabel("bucket", b, farmType),
+      enumLabel("bucket", b),
     ]);
     return { [ALL]: "All buckets", ...Object.fromEntries(entries) };
-  }, [farmType]);
+  }, []);
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -1251,7 +1247,7 @@ function AnimalsPageContent() {
             <SelectItem value={ALL}>All buckets</SelectItem>
             {Object.values(ListAnimalsApiAnimalsGetBucket).map((b) => (
               <SelectItem key={b} value={b}>
-                {enumLabel("bucket", b, farmType)}
+                {enumLabel("bucket", b)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -1372,7 +1368,7 @@ function AnimalsPageContent() {
                 </div>
                 {a.name && <p className="text-sm text-muted-foreground">{a.name}</p>}
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {enumLabel("sex", a.sex)} · {enumLabel("bucket", a.current_bucket, farmType)} ·{" "}
+                  {enumLabel("sex", a.sex)} · {enumLabel("bucket", a.current_bucket)} ·{" "}
                   {a.breed}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -1427,7 +1423,7 @@ function AnimalsPageContent() {
                     <TableCell>{a.name ?? "—"}</TableCell>
                     <TableCell>{enumLabel("sex", a.sex)}</TableCell>
                     <TableCell>{a.breed}</TableCell>
-                    <TableCell>{enumLabel("bucket", a.current_bucket, farmType)}</TableCell>
+                    <TableCell>{enumLabel("bucket", a.current_bucket)}</TableCell>
                     <TableCell>
                       <StatusBadge status={a.status} />
                     </TableCell>

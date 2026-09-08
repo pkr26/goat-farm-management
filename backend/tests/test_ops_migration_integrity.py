@@ -27,7 +27,7 @@ KIDDING_LOCK_ORDER_PARENT = PRESET_ROLE_INTEGRITY
 KIDDING_LOCK_ORDER = "e7f9a1b3c5d8"
 # Autogenerate-drift checks must run at the CURRENT head (planner_plans
 # added for the Business → Planner target plans).
-HEAD = "a1b2c3d4e5f6"
+HEAD = "bd201c1cdc1b"
 LEGACY_LOSS_NOTE = "Legacy pregnancy-loss row; original date and cause were not captured."
 ADMIN_URL = "postgresql://localhost:5432/postgres"
 
@@ -698,7 +698,7 @@ async def test_preset_role_code_migration_repairs_duplicates_and_preserves_refer
             post_f8_role_id = await connection.fetchval(
                 """
                 INSERT INTO roles (farm_id, code, name, permissions, created_at)
-                VALUES ($1, 'MILKER', 'Milking Attendant', '[]', timezone('UTC', now()))
+                VALUES ($1, 'ACCOUNTANT', 'Post-f8 preset', '[]', timezone('UTC', now()))
                 RETURNING id
                 """,
                 farm_id,

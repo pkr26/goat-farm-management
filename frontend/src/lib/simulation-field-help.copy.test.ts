@@ -7,11 +7,10 @@ import {
   speciesAwareLabel,
 } from "@/lib/simulation-field-help";
 
-const goat = farmVocabulary("GOAT");
-const buffalo = farmVocabulary("BUFFALO_DAIRY");
+const goat = farmVocabulary;
 
-describe("speciesAwareLabel — goat farms are the identity", () => {
-  it("returns goat labels byte-identical, including the ones a dairy overrides", () => {
+describe("speciesAwareLabel", () => {
+  it("returns humanized labels byte-identical", () => {
     for (const base of [
       "Buck Doe Ratio",
       "Adult Weight Doe Kg",
@@ -24,35 +23,8 @@ describe("speciesAwareLabel — goat farms are the identity", () => {
       "Female Kids",
       "Kidding Interval",
     ]) {
-      expect(speciesAwareLabel(base, goat)).toBe(base);
+      expect(speciesAwareLabel(base)).toBe(base);
     }
-  });
-});
-
-describe("speciesAwareLabel — buffalo dairy overrides", () => {
-  it("maps every explicit override to its dairy wording", () => {
-    expect(speciesAwareLabel("Buck Doe Ratio", buffalo)).toBe("Milking buffalo per bull");
-    expect(speciesAwareLabel("Adult Weight Doe Kg", buffalo)).toBe("Adult female weight (kg)");
-    expect(speciesAwareLabel("Adult Weight Buck Kg", buffalo)).toBe("Adult male weight (kg)");
-    expect(speciesAwareLabel("Doe Scale Low", buffalo)).toBe("Herd scale low");
-    expect(speciesAwareLabel("Doe Scale High", buffalo)).toBe("Herd scale high");
-    expect(speciesAwareLabel("Doe Scale Steps", buffalo)).toBe("Herd scale steps");
-  });
-
-  it("falls back to word-level substitution when no override applies", () => {
-    expect(speciesAwareLabel("Does", buffalo)).toBe("Milking Buffalo");
-    expect(speciesAwareLabel("Doe", buffalo)).toBe("Milking Buffalo");
-    expect(speciesAwareLabel("Bucks", buffalo)).toBe("Bulls");
-    expect(speciesAwareLabel("Buck", buffalo)).toBe("Bull");
-    expect(speciesAwareLabel("Kids", buffalo)).toBe("Calves");
-    expect(speciesAwareLabel("Kid", buffalo)).toBe("Calf");
-    expect(speciesAwareLabel("Kidding Interval", buffalo)).toBe("Calving Interval");
-    // Several substitutions in one label.
-    expect(speciesAwareLabel("Buck Doe Ratio Report", buffalo)).toBe(
-      "Bull Milking Buffalo Ratio Report",
-    );
-    // Partial words must not be touched (\b guards).
-    expect(speciesAwareLabel("Bucky Feedstock", buffalo)).toBe("Bucky Feedstock");
   });
 });
 
@@ -79,8 +51,8 @@ describe("simulationFieldHelp — every documented field key resolves", () => {
     }
   });
 
-  it.each(SIMULATION_HELP_PATHS)("explains %s for both species", (path) => {
-    for (const v of [goat, buffalo]) {
+  it.each(SIMULATION_HELP_PATHS)("explains %s", (path) => {
+    for (const v of [goat]) {
       const result = simulationFieldHelp(path, v);
       expect(result, `${path} (${v.typeLabel})`).not.toBeNull();
       expect(result!.label.trim()).not.toBe("");
@@ -92,7 +64,6 @@ describe("simulationFieldHelp — every documented field key resolves", () => {
   it("returns null for unknown fields and sections", () => {
     expect(simulationFieldHelp("meta.warp_drive", goat)).toBeNull();
     expect(simulationFieldHelp("herd.does_typo", goat)).toBeNull();
-    expect(simulationFieldHelp("unknown.thing", buffalo)).toBeNull();
     expect(simulationFieldHelp("totally.unknown.path", goat)).toBeNull();
     expect(simulationFieldHelp("risk", goat)).toBeNull();
   });
@@ -102,7 +73,6 @@ describe("simulationFieldHelp — every documented field key resolves", () => {
     // shape anywhere else is an unknown path, not an enabled/low/high subfield.
     expect(simulationFieldHelp("herd.does.enabled", goat)).toBeNull();
     expect(simulationFieldHelp("meta.horizon_months.low", goat)).toBeNull();
-    expect(simulationFieldHelp("feed.dmi_doe_maintenance.high", buffalo)).toBeNull();
     expect(simulationFieldHelp("culling.buck_doe_ratio.enabled", goat)).toBeNull();
   });
 });
@@ -118,34 +88,6 @@ describe("simulationFieldHelp — species-aware labels through the editor path",
     expect(simulationFieldHelp("culling.buck_doe_ratio", goat)!.label).toBe("Buck Doe Ratio");
   });
 
-  it("relabells buffalo fields with the dairy vocabulary", () => {
-    expect(simulationFieldHelp("herd.does", buffalo)!.label).toBe("Milking Buffalo");
-    expect(simulationFieldHelp("herd.bucks", buffalo)!.label).toBe("Bulls");
-    expect(simulationFieldHelp("herd.female_kids", buffalo)!.label).toBe("Female Calves");
-    expect(simulationFieldHelp("herd.male_kids", buffalo)!.label).toBe("Male Calves");
-    expect(simulationFieldHelp("culling.buck_rotation_years", buffalo)!.label).toBe(
-      "Bull Rotation Years",
-    );
-    // The six explicit overrides, reached through humanized field keys.
-    expect(simulationFieldHelp("culling.buck_doe_ratio", buffalo)!.label).toBe(
-      "Milking buffalo per bull",
-    );
-    expect(simulationFieldHelp("growth.adult_weight_doe_kg", buffalo)!.label).toBe(
-      "Adult female weight (kg)",
-    );
-    expect(simulationFieldHelp("growth.adult_weight_buck_kg", buffalo)!.label).toBe(
-      "Adult male weight (kg)",
-    );
-    expect(simulationFieldHelp("optimization.doe_scale_low", buffalo)!.label).toBe(
-      "Herd scale low",
-    );
-    expect(simulationFieldHelp("optimization.doe_scale_high", buffalo)!.label).toBe(
-      "Herd scale high",
-    );
-    expect(simulationFieldHelp("optimization.doe_scale_steps", buffalo)!.label).toBe(
-      "Herd scale steps",
-    );
-  });
 });
 
 describe("simulationFieldHelp — species-aware body copy", () => {
@@ -164,37 +106,16 @@ describe("simulationFieldHelp — species-aware body copy", () => {
     );
   });
 
-  it("writes buffalo nouns for a dairy", () => {
-    expect(simulationFieldHelp("herd.bucks", buffalo)!.help.body).toContain(
-      "Adult bulls in the starting herd",
-    );
-    expect(simulationFieldHelp("herd.does", buffalo)!.help.body).toContain(
-      "Adult breeding milking buffalo in the starting herd",
-    );
-    expect(simulationFieldHelp("culling.buck_doe_ratio", buffalo)!.help.body).toContain(
-      "Milking buffalo per bull: one bull can serve this many females",
-    );
-    expect(simulationFieldHelp("feed.dmi_grower", buffalo)!.help.body).toContain(
-      "heifer/male grower",
-    );
-  });
 });
 
 describe("simulationFieldHelp — risk variables", () => {
-  it("labels the risk variable parent row per species", () => {
+  it("labels the risk variable parent row", () => {
     expect(simulationFieldHelp("risk.meat_price", goat)!.label).toBe("Meat price");
     expect(simulationFieldHelp("risk.conception_rate", goat)!.label).toBe("Conception rate");
     expect(simulationFieldHelp("risk.adult_mortality", goat)!.label).toBe("Adult doe mortality");
-    expect(simulationFieldHelp("risk.adult_mortality", buffalo)!.label).toBe(
-      "Adult milking buffalo mortality",
-    );
     expect(simulationFieldHelp("risk.kid_mortality", goat)!.label).toBe("Kid mortality");
-    expect(simulationFieldHelp("risk.kid_mortality", buffalo)!.label).toBe("Calf mortality");
     expect(simulationFieldHelp("risk.litter_size", goat)!.label).toBe(
       "Litter size (kids per birth)",
-    );
-    expect(simulationFieldHelp("risk.litter_size", buffalo)!.label).toBe(
-      "Litter size (calves per birth)",
     );
   });
 
@@ -202,8 +123,9 @@ describe("simulationFieldHelp — risk variables", () => {
     const goatBody = simulationFieldHelp("risk.adult_mortality", goat)!.help.body;
     expect(goatBody).toContain("uncertainty on the adult doe mortality:");
     expect(goatBody).toContain("between the low and high values below");
-    const buffaloBody = simulationFieldHelp("risk.fodder_yield", buffalo)!.help.body;
-    expect(buffaloBody).toContain("uncertainty on the fodder yield:");
+    expect(simulationFieldHelp("risk.fodder_yield", goat)!.help.body).toContain(
+      "uncertainty on the fodder yield:",
+    );
   });
 
   it("humanizes risk variables the table does not know", () => {

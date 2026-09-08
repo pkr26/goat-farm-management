@@ -18,14 +18,10 @@ describe("enumLabel", () => {
     expect(enumLabel("taskCategory", "KIDDING_DUE")).toBe("Birth due");
   });
 
-  it("labels buckets per farm species", () => {
-    expect(enumLabel("bucket", "PREGNANCY_EARLY", "GOAT")).toBe("Pregnancy A");
-    expect(enumLabel("bucket", "PREGNANCY_EARLY", "BUFFALO_DAIRY")).toBe(
-      "Milking · Pregnant 1–5 mo",
-    );
-    expect(enumLabel("bucket", "MALE_KIDS", "BUFFALO_DAIRY")).toBe("Male calves");
-    // Unknown farm type falls back to the goat vocabulary.
-    expect(enumLabel("bucket", "RECOVERY", null)).toBe("Recovery");
+  it("labels the goat buckets", () => {
+    expect(enumLabel("bucket", "PREGNANCY_EARLY")).toBe("Pregnancy A");
+    expect(enumLabel("bucket", "MALE_KIDS")).toBe("Male kids");
+    expect(enumLabel("bucket", "RECOVERY")).toBe("Recovery");
   });
 
   it("Title-Cases unknown codes instead of screaming enums", () => {

@@ -907,27 +907,7 @@ def test_breed_presets_and_systems() -> None:
             0.12,
         ),
         "boer_cross": (10_000, 18_000, 1.7, 12, 3, 3.0, 40, 50, 1.3, 8, 0, 400, 0.15),
-        # Murrah dairy buffalo: AI (no sire battery), single calf, 10-month
-        # gestation and lactation, 2,100 L/lactation, ₹1.1L in-milk purchase,
-        # buffalo meat ₹160/kg live, curve = 31 kg + 15.3 kg/month (factor
-        # 7.65) maturing to the adult weight at 40 months.
-        "murrah_dairy": (
-            110_000,
-            0,
-            1.0,
-            24,
-            10,
-            31.0,
-            520.0,
-            600.0,
-            7.65,
-            14,
-            2_100,
-            160,
-            0.10,
-        ),
     }
-    # murrah_dairy pins its own kid_pre_weaning (0.10, organized-farm level)
 
     # The preset registry itself is pinned: a breed added or removed from
     # PRESET_FACTORIES must be a deliberate act, not silent drift.

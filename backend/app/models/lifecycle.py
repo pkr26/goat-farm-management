@@ -40,9 +40,7 @@ LEGAL_BUCKET_TRANSITIONS: dict[tuple[str, str], frozenset[str]] = {
     # would otherwise be stuck in the bucket for good.
     (Bucket.QUARANTINE.value, Bucket.FOUNDATION.value): frozenset({"manual", "quarantine_release"}),
     (Bucket.FOUNDATION.value, Bucket.BREEDING.value): frozenset({"manual", "breeding"}),
-    # "weaning" is the dairy milk-weaning graduation (day-90 heifers leave the
-    # calf shed); goat weaning never targets FOUNDATION from FEMALE_KIDS.
-    (Bucket.FEMALE_KIDS.value, Bucket.FOUNDATION.value): frozenset({"manual", "weaning"}),
+    (Bucket.FEMALE_KIDS.value, Bucket.FOUNDATION.value): frozenset({"manual"}),
     (Bucket.FEMALE_KIDS.value, Bucket.BREEDING.value): frozenset({"manual", "breeding"}),
     (Bucket.MALE_KIDS.value, Bucket.BREEDING.value): frozenset({"manual"}),
     (Bucket.RESTING.value, Bucket.BREEDING.value): frozenset({"manual", "breeding"}),

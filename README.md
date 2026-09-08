@@ -1,23 +1,10 @@
-# Herdly — Goat & Buffalo Dairy Farm Management
+# Herdly — Goat Farm Management
 
-Multi-farm, multi-species web app for commercial livestock in Telangana,
-India: **Osmanabadi** goat (meat) herds and **Murrah buffalo** dairy (milk)
-operations. Every farm picks its type at creation; buckets, feed rations,
-vaccination calendars, breeding biology, vocabulary and the financial model
-all follow the farm's species. Monorepo: async **FastAPI + PostgreSQL**
-JSON API (`backend/`), a **Next.js + React + strict TypeScript** SPA
-(`frontend/`), and a shared OpenAPI contract (`shared/openapi.json`).
-
-**Goat farms** manage the Osmanabadi meat cycle (kidding, 60-day weaning,
-buck rotation, festival-season live-weight sales). **Buffalo dairy farms**
-manage the Murrah milk cycle: AI breeding (conventional and sexed semen,
-60-day voluntary waiting period, 3-service cull rule), 310-day gestation,
-calving with 24-hour calf separation into the calf shed, 90-day milk weaning,
-a 10-day fresh pen, dry-off 60 days before calving, per-shift milk yields
-with fat testing, fat-based procurement pricing (₹/kg fat), male-calf
-sales at birth, and a dairy lactation-curve simulation (peak yield,
-persistency, summer heat-stress trough, lean-season price premium) with
-Monte-Carlo milk-price risk.
+Multi-farm web app for commercial **Osmanabadi** goat (meat) herds in
+Telangana, India: kidding, 60-day weaning, buck rotation, festival-season
+live-weight sales. Monorepo: async **FastAPI + PostgreSQL** JSON API
+(`backend/`), a **Next.js + React + strict TypeScript** SPA (`frontend/`),
+and a shared OpenAPI contract (`shared/openapi.json`).
 
 ```
 backend/    FastAPI app (async SQLAlchemy 2.0 + asyncpg, Alembic, Argon2id, JWT)
@@ -194,18 +181,8 @@ passes. Resume API replicas only after that succeeds.
   assumptions and need authentication alone (no farm context, no permission).
 - RBAC: owners hold every permission; workers get a role's permission bundle
   (presets: Farm Manager, Animal Mover, Veterinarian, Procurement Officer,
-  Feeder, Cleaner, Cleaner Manager, Accountant, Auditor — plus the dairy-only
-  Milking Attendant, Milk Quality Supervisor and Calf-shed Attendant seeded on
-  buffalo farms; all editable, plus custom roles). `milk.quality` splits fat
-  testing from yield recording — the ₹/kg-fat pricing input is keyed by the
-  quality/manager roles, never the parlour recorder. **Fat-pricing unit
-  convention:** milk quantities are recorded in *litres* everywhere (parlour
-  ledger and sales), and the ₹/kg-fat price multiplies that litre figure
-  directly — i.e. a litre is treated as a kilogram (density ~1.03 kg/L for
-  Murrah milk is deliberately not applied). Ledger and simulation share this
-  convention, so internal reconciliations are consistent; reconciliation
-  against plant statements paid on weighed kg will show a systematic ~3%
-  volume-vs-mass gap. `GET
+  Feeder, Cleaner, Cleaner Manager, Accountant, Auditor — all editable, plus
+  custom roles). `GET
   /api/auth/permissions` returns the caller's effective set for the active
   farm; the nav and buttons mirror it.
 - Legacy `pbkdf2_sha256$iterations$salt_hex$digest_hex` password hashes
@@ -721,7 +698,7 @@ backend/
                      request IDs, /healthz + /readyz, prod-safety validation)
     core/config.py   Pydantic settings (GOATFARM_* env vars)
     db.py            Async engine/session (autoflush=False, pre-ping), Base
-    models/          28 tables, domain enums, computed properties — split per
+    models/          27 tables, domain enums, computed properties — split per
                      domain (enums, constants, core, animals, breeding, …)
     services/        All domain flows + state guards — split per domain
                      (animals, breeding, kidding, health, tasks, feeding,

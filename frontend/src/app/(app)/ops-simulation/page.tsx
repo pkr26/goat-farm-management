@@ -19,7 +19,6 @@ import {
   Baby,
   Banknote,
   Beef,
-  CalendarClock,
   CalendarDays,
   ClipboardList,
   Download,
@@ -62,7 +61,6 @@ import {
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
-import { useFarmType } from "@/hooks/use-farm-type";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 import { cn } from "@/lib/utils";
@@ -355,9 +353,7 @@ export default function OpsSimulationPage() {
     usePermissions();
   const allowed = can("simulation.view");
 
-  const farmType = useFarmType();
-  const vocabulary = farmVocabulary(farmType);
-  const isDairyFarm = farmType === "BUFFALO_DAIRY";
+  const vocabulary = farmVocabulary;
 
   const runAction = useSingleFlight();
   const runMutation = useRunDailyOpsSimulationApiOpsSimRunPost();
@@ -480,21 +476,6 @@ export default function OpsSimulationPage() {
   }
   if (!allowed) {
     return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
-  }
-  if (isDairyFarm) {
-    return (
-      <div className="space-y-6">
-        <PageHeader
-          title="Ops Simulation"
-          description="The farm day by day: buildings, duties, feed and every bucket move."
-        />
-        <EmptyState
-          icon={CalendarClock}
-          title="Goat farms only — for now"
-          description="The daily operations simulation models the goat lifecycle: quarantine protocol, breeding to weaning, and the meat-kid sale window. Dairy milking duties arrive with the buffalo version."
-        />
-      </div>
-    );
   }
 
   const selectedRecord = result ? (result.days[selectedDay - 1] ?? null) : null;

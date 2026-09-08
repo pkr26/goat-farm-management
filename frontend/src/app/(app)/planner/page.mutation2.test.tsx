@@ -15,7 +15,6 @@
  *  - save/update/delete/open flows incl. name trimming, revision toasts,
  *    list invalidation and the breed-preset reset on open
  *  - saved-plans table: valid filter, targets/notes cells, pagination note
- *  - milk planner: full report copy, edge fixtures, input payload, run gates
  *
  * Mutants provably equivalent (documented, not tested):
  *  - page.tsx L153 `value === null`/`value === undefined` → false and both
@@ -29,9 +28,9 @@
  *    always yields data when !isError.
  *  - L350/L611 counter++ → counter--: keys stay unique.
  *  - L391/L449 `report !== null` → true: the render is already gated on
- *    `{report && evaluation && …}` / `{!milkReport ? …}`.
+ *    `{report && evaluation && …}`.
  *  - L395/L405/L454/L501/L505/L535/L537 guard operands: the Plan/Plan
- *    milk/Save/Update buttons are disabled by the same conditions
+ *    Save/Update buttons are disabled by the same conditions
  *    (!assumptions, no targets, target errors, empty trimmed name, no open
  *    plan), so the in-handler re-checks are unreachable defensive depth.
  *  - L586 catch {} in client_get_plan: swallowing the error and returning
@@ -81,8 +80,6 @@ const GOAT_DEFAULTS = {
   mortality: { kid_pre_weaning: 0.15, kid_post_weaning: 0.05 },
   sales: { meat_price_per_kg: 400 },
 };
-
-const DAIRY_FARM = { ...TEST_FARMS[0], farm_type: "BUFFALO_DAIRY" };
 
 function currentYearMonth(): string {
   const now = new Date();
@@ -139,59 +136,6 @@ function planReport(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function milkReport(overrides: Record<string, unknown> = {}) {
-  return {
-    target_daily_litres: 1000,
-    ramp_months: 1,
-    hold_year_round: false,
-    curve: {
-      shape: "wood",
-      lactation_litres: 2100,
-      lactation_months: 10,
-      peak_day: 65,
-      peak_month_of_lactation: 2,
-      peak_daily_litres: 10.2,
-      avg_daily_litres_per_milking_doe: 6.9,
-      monthly_litres: [220, 290, 311],
-    },
-    herd: {
-      daily_target_litres: 1000,
-      calving_interval_months: 13.7,
-      expected_services_per_conception: 2.2,
-      breeding_does: 204,
-      milking_does: 167,
-      dry_does: 37,
-      dry_months_per_cycle: 3.7,
-      milking_share_of_herd: 0.82,
-      calvings_per_month: 15.4,
-      ai_services_per_month: 34.7,
-      replacement_does_per_month: 3.9,
-      heifer_calves_available_per_month: 7.1,
-      heifer_surplus_per_month: 3.2,
-      starting_does_credited: 60,
-      purchases_total: 151,
-      replacement_purchases_total: 7,
-      seasonal_low_daily_litres: 860,
-      seasonal_high_daily_litres: 1080,
-      herd_for_year_round_target: 233,
-    },
-    purchases: [
-      { month: 1, count: 144, profile: "in-milk buffalo at mixed lactation stages" },
-      { month: 3, count: 6, profile: "in-milk buffalo at mixed lactation stages" },
-    ],
-    projection: [
-      { month: 1, calendar_month: 1, breeding_does: 207, milking_does: 143, dry_does: 64, freshenings: 15.9, ai_services: 31.9, heifer_graduates: 0, projected_daily_litres: 1027, target_daily_litres: 1000, gap_daily_litres: -27, projected_monthly_litres: 31270, projected_monthly_revenue: 2019482, meets_target: true },
-      { month: 2, calendar_month: 2, breeding_does: 207, milking_does: 143, dry_does: 64, freshenings: 15.9, ai_services: 31.9, heifer_graduates: 0, projected_daily_litres: 900, target_daily_litres: 1000, gap_daily_litres: 100, projected_monthly_litres: 27432, projected_monthly_revenue: 1771732, meets_target: false },
-    ],
-    steady_from_month: 4,
-    steady_average_daily_litres: 1000,
-    achievable: false,
-    explanations: ["Milk math line one"],
-    notes: ["Note one"],
-    ...overrides,
-  };
-}
-
 function savedPlanRow(overrides: Record<string, unknown> = {}) {
   const start = "2027-01";
   return {
@@ -233,7 +177,6 @@ interface Options {
   onSnapshot?: (query: URL) => void;
   onCalibration?: (query: URL) => void;
   onPlan?: (body: unknown) => void;
-  onMilkPlan?: (body: Record<string, unknown>) => void;
   onSave?: (body: Record<string, unknown>) => void;
   onUpdate?: (query: Record<string, string>, body: Record<string, unknown>) => void;
   onDelete?: (id: string) => void;
@@ -248,11 +191,6 @@ interface Options {
   planNetworkError?: boolean;
   planResponses?: PlanResponse[];
   deferPlan?: boolean;
-  milkPlanResult?: unknown;
-  milkPlanStatus?: number;
-  milkNetworkError?: boolean;
-  milkPlanResponses?: PlanResponse[];
-  deferMilkPlan?: boolean;
   savedPlans?: unknown[];
   savedPlansTotal?: number;
   saveStatus?: number;
@@ -277,14 +215,12 @@ interface HarnessState {
   savedBodies: Record<string, unknown>[];
   updatedBodies: Record<string, unknown>[];
   planBodies: unknown[];
-  milkBodies: Record<string, unknown>[];
   plansItems: unknown[];
   plansTotal: number;
   permissionsErrorCalls: number;
   getPlanCalls: number;
   resolveDefaults?: () => void;
   resolvePlan?: () => void;
-  resolveMilkPlan?: () => void;
   resolveSnapshot?: () => void;
   resolveCalibration?: () => void;
 }
@@ -300,14 +236,12 @@ async function renderLoaded2(options: Options = {}): Promise<HarnessState> {
     savedBodies: [],
     updatedBodies: [],
     planBodies: [],
-    milkBodies: [],
     plansItems: options.savedPlans ? [...options.savedPlans] : [],
     plansTotal: options.savedPlansTotal ?? (options.savedPlans?.length ?? 0),
     permissionsErrorCalls: 0,
     getPlanCalls: 0,
   };
   let planCallCount = 0;
-  let milkCallCount = 0;
   let patchCallCount = 0;
 
   server.use(
@@ -324,7 +258,7 @@ async function renderLoaded2(options: Options = {}): Promise<HarnessState> {
     http.get("/api/simulation/defaults/breeds", ({ request }) => {
       state.breedsUrls.push(new URL(request.url));
       return HttpResponse.json(
-        { breeds: ["osmanabadi", "murrah_dairy"], systems: ["stall_fed", "semi_intensive"] },
+        { breeds: ["osmanabadi", "sirohi"], systems: ["stall_fed", "semi_intensive"] },
         { status: options.breedsStatus ?? 200 },
       );
     }),
@@ -422,30 +356,6 @@ async function renderLoaded2(options: Options = {}): Promise<HarnessState> {
         status: options.planStatus ?? 200,
       });
     }),
-    http.post("/api/planner/milk-plan", async ({ request }) => {
-      const body = (await request.json()) as Record<string, unknown>;
-      options.onMilkPlan?.(body);
-      state.milkBodies.push(body);
-      if (options.milkPlanResponses) {
-        const response = options.milkPlanResponses[Math.min(milkCallCount, options.milkPlanResponses.length - 1)];
-        milkCallCount += 1;
-        return HttpResponse.json(response.body, { status: response.status });
-      }
-      if (options.deferMilkPlan) {
-        return new Promise<Response>((resolve) => {
-          state.resolveMilkPlan = () =>
-            resolve(
-              HttpResponse.json(options.milkPlanResult ?? milkReport(), {
-                status: options.milkPlanStatus ?? 200,
-              }),
-            );
-        });
-      }
-      if (options.milkNetworkError) return HttpResponse.error();
-      return HttpResponse.json(options.milkPlanResult ?? milkReport(), {
-        status: options.milkPlanStatus ?? 200,
-      });
-    }),
     http.post("/api/planner/plans", async ({ request }) => {
       const body = (await request.json()) as Record<string, unknown>;
       options.onSave?.(body);
@@ -526,8 +436,6 @@ const countInput = () => screen.getByLabelText("Count") as HTMLInputElement;
 const noteStartingWith = (prefix: string) => (_: string, el: Element | null) =>
   el?.tagName === "P" && el.getAttribute("role") === "note" && !!el.textContent?.startsWith(prefix);
 
-const spanWithExactText = (text: string) => (_: string, el: Element | null) =>
-  el?.tagName === "SPAN" && el.textContent === text;
 
 const paragraphWithExactText = (text: string) => (_: string, el: Element | null) =>
   el?.tagName === "P" && el.textContent === text;
@@ -690,15 +598,6 @@ describe("PlannerPage mutation round 2: permission surface", () => {
     );
   });
 
-  it("re-anchors a dairy farm's presets to the murrah breed when a plan opens", async () => {
-    const user = userEvent.setup();
-    const state = await renderLoaded2({ farms: [DAIRY_FARM], savedPlans: [savedPlanRow()] });
-    await user.click(await screen.findByRole("button", { name: "Open" }));
-    await waitFor(() =>
-      expect(state.defaultsBreedCalls.some((c) => c.breed === "murrah_dairy")).toBe(true),
-    );
-    expect(screen.getByLabelText("Breed preset")).toHaveTextContent("murrah dairy");
-  });
 });
 
 describe("PlannerPage mutation round 2: plan basis", () => {
@@ -807,7 +706,6 @@ describe("PlannerPage mutation round 2: plan basis", () => {
   it("holds every run gated while the breed preset has not loaded, and refuses herd adoption", async () => {
     const user = userEvent.setup();
     const state = await renderLoaded2({
-      farms: [DAIRY_FARM],
       defaultsNeverResolve: true,
     });
     expect(await screen.findByText("Sale targets")).toBeInTheDocument();
@@ -815,9 +713,6 @@ describe("PlannerPage mutation round 2: plan basis", () => {
     expect(screen.getByText(noteStartingWith("Starting from breed-preset defaults."))).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add target" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Plan" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Plan milk" })).toBeDisabled();
-    // Fallback horizon cap while assumptions are absent.
-    expect(screen.getByLabelText("Ramp (months)")).toHaveAttribute("max", "60");
 
     await user.click(screen.getByRole("button", { name: "Use my herd" }));
     await waitFor(() =>
@@ -1477,9 +1372,9 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
 
     // Re-anchor away from the species defaults, then open the plan.
     await user.click(screen.getByLabelText("Breed preset"));
-    await user.click(await screen.findByRole("option", { name: "murrah dairy" }));
+    await user.click(await screen.findByRole("option", { name: "sirohi" }));
     await waitFor(() =>
-      expect(state.defaultsBreedCalls.some((c) => c.breed === "murrah_dairy")).toBe(true),
+      expect(state.defaultsBreedCalls.some((c) => c.breed === "sirohi")).toBe(true),
     );
     await user.click(screen.getByLabelText("Production system"));
     await user.click(await screen.findByRole("option", { name: "Semi-intensive" }));
@@ -1528,18 +1423,6 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
     ).toBe(77);
   });
 
-  it("clears a milk report when a plan is opened", async () => {
-    const user = userEvent.setup();
-    await renderLoaded2({
-      farms: [DAIRY_FARM],
-      savedPlans: [savedPlanRow()],
-      milkPlanResult: milkReport(),
-    });
-    await user.click(screen.getByRole("button", { name: "Plan milk" }));
-    expect(await screen.findByText(/steady 1,000 L\/day/)).toBeInTheDocument();
-    await user.click(await screen.findByRole("button", { name: "Open" }));
-    expect(await screen.findByText("No milk plan yet")).toBeInTheDocument();
-  });
 });
 
 describe("PlannerPage mutation round 2: saved plans table", () => {
@@ -1601,11 +1484,11 @@ describe("PlannerPage mutation round 2: breed and system presets", () => {
     await waitFor(() => expect(state.defaultsBreedCalls.length).toBeGreaterThan(0));
     await user.click(screen.getByLabelText("Breed preset"));
     expect(await screen.findByRole("option", { name: "osmanabadi" })).toBeInTheDocument();
-    await user.click(screen.getByRole("option", { name: "murrah dairy" }));
+    await user.click(screen.getByRole("option", { name: "sirohi" }));
     await waitFor(() =>
-      expect(state.defaultsBreedCalls.some((c) => c.breed === "murrah_dairy")).toBe(true),
+      expect(state.defaultsBreedCalls.some((c) => c.breed === "sirohi")).toBe(true),
     );
-    expect(screen.getByLabelText("Breed preset")).toHaveTextContent("murrah dairy");
+    expect(screen.getByLabelText("Breed preset")).toHaveTextContent("sirohi");
   });
 
   it("labels the production system trigger from the items map and reloads on change", async () => {
@@ -1631,181 +1514,7 @@ describe("PlannerPage mutation round 2: breed and system presets", () => {
   });
 });
 
-describe("PlannerPage mutation round 2: milk planner", () => {
-  it("renders the full milk report story with its arithmetic", async () => {
-    const user = userEvent.setup();
-    await renderLoaded2({ farms: [DAIRY_FARM], milkPlanResult: milkReport() });
-    await user.click(screen.getByRole("button", { name: "Plan milk" }));
-
-    expect(
-      await screen.findByText(
-        spanWithExactText("Target falls short · steady 1,000 L/day from month 4"),
-      ),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        spanWithExactText(
-          "204.0 breeding (167.0 milking) · 15.4 calvings and 34.7 AI/month · 3.7 dry months per 13.7-month cycle (82% in milk)",
-        ),
-      ),
-    ).toBeInTheDocument();
-    expect(screen.queryByText(/stale — re-plan after edits/)).toBeNull();
-    expect(screen.queryByText(/Stryker was here/)).toBeNull();
-
-    expect(
-      screen.getByText(
-        paragraphWithExactText(
-          "Buy 144.0 in-milk animal(s) in month 1, 6.0 in-milk animal(s) in month 3. Plus a replacement bridge of 7.0 head over the plan — culling and mortality the heifer pipeline cannot cover yet.",
-        ),
-      ),
-    ).toBeInTheDocument();
-
-    expect(await screen.findByText("Why this herd — the math behind 1,000/day")).toBeInTheDocument();
-    expect(screen.getByText("Milk math line one")).toBeInTheDocument();
-    expect(screen.getByText("Note one")).toBeInTheDocument();
-
-    await user.click(screen.getByText(/The lactation curve the plan runs on/));
-    const curveTable = screen.getByText("Month of lactation").closest("table")!;
-    expect(within(curveTable).getByText("2 (peak)")).toBeInTheDocument();
-    expect(within(curveTable).getByText("1").textContent).toBe("1");
-    expect(within(curveTable).getByText("7")).toBeInTheDocument();
-    expect(within(curveTable).getByText("10%")).toBeInTheDocument();
-    expect(within(curveTable).getByText("11–14")).toBeInTheDocument();
-    expect(screen.queryAllByText("1 (peak)")).toHaveLength(0);
-
-    const below = screen.getByText("below target").closest("td")!;
-    expect(below.className).toContain("text-warning-tint-foreground");
-    expect(screen.getAllByText("below target")).toHaveLength(1);
-    const projectionTable = screen.getByText("Calvings").closest("table")!;
-    const firstLDay = within(projectionTable).getAllByText("1,027")[0]!.closest("td")!;
-    expect(firstLDay.className).not.toContain("text-warning-tint-foreground");
-    expect(firstLDay.className).not.toContain("Stryker");
-    expect(screen.getByText("900")).toBeInTheDocument();
-    expect(screen.getByText("100")).toBeInTheDocument();
-    expect(within(projectionTable).getByText(monthLabel(currentYearMonth()))).toBeInTheDocument();
-  });
-
-  it("renders the empty edge fixtures without optional sections", async () => {
-    const user = userEvent.setup();
-    await renderLoaded2({
-      farms: [DAIRY_FARM],
-      milkPlanResult: milkReport({
-        achievable: true,
-        steady_from_month: null,
-        purchases: [{ month: 1, count: 2, profile: "in-milk buffalo" }],
-        explanations: null,
-        notes: undefined,
-        herd: { ...milkReport().herd, calving_interval_months: 10.4, replacement_purchases_total: 0 },
-      }),
-    });
-    await user.click(screen.getByRole("button", { name: "Plan milk" }));
-    expect(
-      await screen.findByText(spanWithExactText("Target is achievable · steady 1,000 L/day")),
-    ).toBeInTheDocument();
-    expect(screen.queryByText(/from month/)).toBeNull();
-    // Purchases are listed, but no replacement bridge is needed.
-    expect(screen.getByText(/2\.0 in-milk animal\(s\) in month 1/)).toBeInTheDocument();
-    expect(screen.queryByText(/replacement bridge/)).toBeNull();
-    expect(screen.queryByText(/Why this herd/)).toBeNull();
-    expect(screen.queryByText("Stryker was here")).toBeNull();
-    // Dry-row arithmetic when the calving interval is inside the lactation.
-    await user.click(screen.getByText(/The lactation curve the plan runs on/));
-    expect(screen.getByText("11–11")).toBeInTheDocument();
-  });
-
-  it("sends the edited milk inputs and sizing choice", async () => {
-    const user = userEvent.setup();
-    const state = await renderLoaded2({ farms: [DAIRY_FARM], milkPlanResult: milkReport() });
-    await waitFor(() =>
-      expect(screen.getByLabelText("Ramp (months)")).toHaveAttribute("max", "59"),
-    );
-    expect(screen.getByLabelText("Sizing")).toHaveTextContent("12-month average");
-
-    const daily = screen.getByLabelText("Daily target (L)");
-    await user.clear(daily);
-    await user.type(daily, "900");
-    const ramp = screen.getByLabelText("Ramp (months)");
-    await user.clear(ramp);
-    await user.type(ramp, "3");
-    const projection = screen.getByLabelText("Projection (months)");
-    await user.clear(projection);
-    await user.type(projection, "24");
-    await user.click(screen.getByLabelText("Sizing"));
-    await user.click(await screen.findByRole("option", { name: "Hold year-round" }));
-    expect(screen.getByLabelText("Sizing")).toHaveTextContent("Hold year-round");
-
-    await user.click(screen.getByRole("button", { name: "Plan milk" }));
-    await waitFor(() => expect(state.milkBodies.length).toBe(1));
-    expect(state.milkBodies[0]).toMatchObject({
-      daily_target_litres: 900,
-      ramp_months: 3,
-      projection_months: 24,
-      hold_year_round: true,
-    });
-
-    // Switching the sizing back must flow false into the next run.
-    await user.click(screen.getByLabelText("Sizing"));
-    await user.click(await screen.findByRole("option", { name: "12-month average" }));
-    await user.click(screen.getByRole("button", { name: "Plan milk" }));
-    await waitFor(() => expect(state.milkBodies.length).toBe(2));
-    expect(state.milkBodies[1]!.hold_year_round).toBe(false);
-  });
-
-  it("disables Plan milk at a zero target and shows Planning… in flight", async () => {
-    const user = userEvent.setup();
-    const state = await renderLoaded2({ farms: [DAIRY_FARM], deferMilkPlan: true });
-    const daily = screen.getByLabelText("Daily target (L)");
-    await user.clear(daily);
-    await user.type(daily, "0");
-    expect(screen.getByRole("button", { name: "Plan milk" })).toBeDisabled();
-
-    await user.clear(daily);
-    await user.type(daily, "800");
-    await user.click(screen.getByRole("button", { name: "Plan milk" }));
-    expect(screen.getByRole("button", { name: "Planning…" })).toBeDisabled();
-    state.resolveMilkPlan!();
-    expect(await screen.findByText(/steady 1,000 L\/day/)).toBeInTheDocument();
-  });
-
-  it("clears a milk error after a successful re-run", async () => {
-    const user = userEvent.setup();
-    await renderLoaded2({
-      farms: [DAIRY_FARM],
-      milkPlanResponses: [
-        { status: 422, body: { detail: "milk too high" } },
-        { status: 200, body: milkReport() },
-      ],
-    });
-    await user.click(screen.getByRole("button", { name: "Plan milk" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("milk too high");
-    await user.click(screen.getByRole("button", { name: "Plan milk" }));
-    expect(await screen.findByText(/steady 1,000 L\/day/)).toBeInTheDocument();
-    expect(screen.queryByRole("alert")).toBeNull();
-  });
-
-  it("surfaces the fallback message on a network-level milk-plan failure", async () => {
-    const user = userEvent.setup();
-    await renderLoaded2({ farms: [DAIRY_FARM], milkNetworkError: true });
-    await user.click(screen.getByRole("button", { name: "Plan milk" }));
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("Milk plan failed");
-    await waitFor(() => expect(toastMocks.error).toHaveBeenCalledWith("Milk plan failed"));
-  });
-
-  it("ignores a 2xx-but-not-200 milk-plan response", async () => {
-    const user = userEvent.setup();
-    await renderLoaded2({
-      farms: [DAIRY_FARM],
-      milkPlanStatus: 201,
-      milkPlanResult: milkReport(),
-    });
-    await user.click(screen.getByRole("button", { name: "Plan milk" }));
-    await waitFor(() =>
-      expect(screen.queryByText(/steady 1,000 L\/day/)).toBeNull(),
-    );
-    expect(screen.getByText("No milk plan yet")).toBeInTheDocument();
-  });
-
+describe("PlannerPage mutation round 2: basis buttons", () => {
   it("labels the basis buttons Loading…/Calibrating… while their requests run", async () => {
     const user = userEvent.setup();
     const state = await renderLoaded2({ deferSnapshot: true, deferCalibration: true });
@@ -1825,70 +1534,18 @@ describe("PlannerPage mutation round 2: milk planner", () => {
 
   it("names the breed inside the herd basis note after switching presets", async () => {
     const user = userEvent.setup();
-    const state = await renderLoaded2({ farms: [DAIRY_FARM] });
+    const state = await renderLoaded2();
     await waitFor(() => expect(state.defaultsBreedCalls.length).toBeGreaterThan(0));
     await user.click(screen.getByLabelText("Breed preset"));
-    await user.click(await screen.findByRole("option", { name: "murrah dairy" }));
+    await user.click(await screen.findByRole("option", { name: "sirohi" }));
     await waitFor(() =>
-      expect(state.defaultsBreedCalls.some((c) => c.breed === "murrah_dairy")).toBe(true),
+      expect(state.defaultsBreedCalls.some((c) => c.breed === "sirohi")).toBe(true),
     );
     await user.click(screen.getByRole("button", { name: "Use my herd" }));
     expect(
       (await screen.findByText(noteStartingWith("Starting from your live herd's"))).textContent,
     ).toBe(
-      "Starting from your live herd's head counts on top of the murrah dairy preset. For full control of every assumption (feed, prices, finance), build them in Simulation and calibrate there first.",
+      "Starting from your live herd's head counts on top of the sirohi preset. For full control of every assumption (feed, prices, finance), build them in Simulation and calibrate there first.",
     );
-  });
-
-  it("omits the purchases note entirely when there is nothing to buy", async () => {
-    const user = userEvent.setup();
-    await renderLoaded2({
-      farms: [DAIRY_FARM],
-      milkPlanResult: milkReport({ purchases: [] }),
-    });
-    await user.click(screen.getByRole("button", { name: "Plan milk" }));
-    expect(await screen.findByText(/steady 1,000 L\/day/)).toBeInTheDocument();
-    expect(screen.queryByText(/in-milk animal/)).toBeNull();
-    expect(screen.queryByText(/replacement bridge/)).toBeNull();
-  });
-
-  it("falls back to a 120-month horizon cap when the assumptions omit it", async () => {
-    const DAIRY = { ...TEST_FARMS[0], farm_type: "BUFFALO_DAIRY" };
-    const noMeta = { ...GOAT_DEFAULTS, meta: null };
-    const state = await renderLoaded2({ farms: [DAIRY], defaults: noMeta });
-    await waitFor(() => expect(state.defaultsBreedCalls.length).toBeGreaterThan(0));
-    expect(screen.getByLabelText("Projection (months)")).toHaveAttribute("max", "120");
-  });
-
-  it("re-applies breed defaults when the preset changes", async () => {
-    const user = userEvent.setup();
-    await renderLoaded2({
-      farms: [DAIRY_FARM],
-      defaultsByBreed: {
-        osmanabadi: GOAT_DEFAULTS,
-        murrah_dairy: { ...GOAT_DEFAULTS, meta: { ...GOAT_DEFAULTS.meta, horizon_months: 36 } },
-      },
-    });
-    await waitFor(() =>
-      expect(screen.getByLabelText("Ramp (months)")).toHaveAttribute("max", "59"),
-    );
-    await user.click(screen.getByLabelText("Breed preset"));
-    await user.click(await screen.findByRole("option", { name: "murrah dairy" }));
-    // The murrah preset carries a 36-month horizon: ramp caps at 35.
-    await waitFor(() =>
-      expect(screen.getByLabelText("Ramp (months)")).toHaveAttribute("max", "35"),
-    );
-  });
-
-  it("anchors the milk projection months to the start month used at run time", async () => {
-    const user = userEvent.setup();
-    await renderLoaded2({ farms: [DAIRY_FARM], milkPlanResult: milkReport() });
-    fireEvent.change(screen.getByLabelText("Plan start"), { target: { value: "2026-01" } });
-    await user.click(screen.getByRole("button", { name: "Plan milk" }));
-    expect(await screen.findByText(/steady 1,000 L\/day/)).toBeInTheDocument();
-    const projectionTable = screen.getByText("Calvings").closest("table")!;
-    const rows = within(projectionTable).getAllByRole("row");
-    expect(within(rows[1]!).getAllByRole("cell")[0]!.textContent).toBe("Jan 2026");
-    expect(within(rows[2]!).getAllByRole("cell")[0]!.textContent).toBe("Feb 2026");
   });
 });

@@ -1,14 +1,11 @@
 /**
- * Simulation assumptions editor: the "?" explanation affordance and the
- * species-aware vocabulary.
+ * Simulation assumptions editor: the "?" explanation affordance.
  *
  * - every field label carries a "?" that opens a dialog explaining the term
  *   plus the unit, allowed values and current value the editor derives;
- * - a buffalo dairy reads its own nouns (milking buffalo / bull / calf) in
- *   labels and help text, while a goat farm keeps the goat labels;
  * - section headings explain what each assumptions group covers;
  * - the results tables surface cull disposals and the milk/meat/cull revenue
- *   split — on a dairy these are material lines that used to be invisible.
+ *   split — material lines that used to be invisible.
  */
 
 import { screen, within } from "@testing-library/react";
@@ -188,12 +185,12 @@ const RUN_RESULT = {
   optimization: null,
 };
 
-function registerApiHandlers(options?: { dairy?: boolean; run?: boolean }) {
+function registerApiHandlers(options?: { run?: boolean }) {
   server.use(
     permissionsHandler(MANAGE_PERMS),
     http.get("/api/simulation/defaults/breeds", () =>
       HttpResponse.json({
-        breeds: options?.dairy ? ["murrah_dairy"] : ["osmanabadi"],
+        breeds: ["osmanabadi"],
         systems: ["stall_fed"],
       }),
     ),
@@ -202,24 +199,6 @@ function registerApiHandlers(options?: { dairy?: boolean; run?: boolean }) {
       HttpResponse.json({ items: [], total: 0, limit: 20, offset: 0 }),
     ),
   );
-  if (options?.dairy) {
-    // useFarmType() reads the authenticated farm list; a buffalo farm makes
-    // the editor speak the dairy vocabulary.
-    server.use(
-      http.get("/api/auth/farms", () =>
-        HttpResponse.json([
-          {
-            id: 7,
-            name: "Navipet Dairy",
-            location: "Navipet",
-            timezone: "Asia/Kolkata",
-            role: null,
-            farm_type: "BUFFALO_DAIRY",
-          },
-        ]),
-      ),
-    );
-  }
   if (options?.run) {
     server.use(
       http.post("/api/simulation/run", () => HttpResponse.json(RUN_RESULT)),
@@ -227,7 +206,7 @@ function registerApiHandlers(options?: { dairy?: boolean; run?: boolean }) {
   }
 }
 
-async function renderLoaded(options?: { dairy?: boolean; run?: boolean }) {
+async function renderLoaded(options?: { run?: boolean }) {
   registerApiHandlers(options);
   renderWithProviders(<SimulationPage />);
   expect(await screen.findByText("Horizon Months")).toBeInTheDocument();
@@ -340,38 +319,6 @@ describe("SimulationPage species-aware vocabulary", () => {
     expect(screen.getByText("Kid Mortality")).toBeInTheDocument();
   });
 
-  it("speaks dairy nouns on a buffalo farm — labels and help text", async () => {
-    const user = await renderLoaded({ dairy: true });
-
-    // The same fields, dairy words: no "doe"/"buck"/"kid" anywhere in labels.
-    // The dairy vocabulary lands once the authenticated farm list resolves
-    // and the species-sync effect reloads the editor on the dairy preset.
-    expect(await screen.findByLabelText("Milking Buffalo", {}, { timeout: 4000 })).toHaveValue(50);
-    expect(await screen.findByLabelText("Bulls", {}, { timeout: 4000 })).toHaveValue(2);
-    expect(
-      await screen.findByLabelText(
-        "Foundation Milking Buffalo Age Min Months",
-        {},
-        { timeout: 4000 },
-      ),
-    ).toHaveValue(18);
-    expect(screen.getByText("Calf Mortality")).toBeInTheDocument();
-    expect(screen.queryByText("Kid Mortality")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Does")).not.toBeInTheDocument();
-
-    // The help dialog explains the term with the farm's own species.
-    await user.click(
-      await screen.findByRole(
-        "button",
-        { name: /Explain Milking Buffalo\?/ },
-        { timeout: 4000 },
-      ),
-    );
-    const dialog = screen.getByRole("dialog");
-    expect(
-      within(dialog).getByText(/Adult breeding milking buffalo/i),
-    ).toBeInTheDocument();
-  });
 });
 
 describe("SimulationPage disposal and revenue columns", () => {

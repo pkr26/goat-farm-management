@@ -13,7 +13,6 @@ const ROUTE_PERMISSIONS: ReadonlyArray<readonly [string, string]> = [
   ["/kidding", "kidding.view"],
   ["/health", "health.view"],
   ["/feeding", "feeding.view"],
-  ["/milk", "milk.view"],
   ["/purchases", "purchases.view"],
   ["/tasks", "tasks.view"],
   ["/finance", "finance.view"],
@@ -46,12 +45,10 @@ describe("permittedAppPath — route → permission mapping", () => {
   });
 
   it("covers sub-routes with the module-root permission", () => {
-    expect(permittedAppPath("/milk/entries/7", canOnly("milk.view"))).toBe("/milk/entries/7");
     expect(permittedAppPath("/planner/edit/3", canOnly("simulation.view"))).toBe(
       "/planner/edit/3",
     );
     expect(permittedAppPath("/team/members", canOnly("team.manage"))).toBe("/team/members");
-    expect(permittedAppPath("/milk/entries/7", canOnly("tasks.view"))).toBeNull();
   });
 
   it("lets simulation.view open both planner and simulation", () => {
@@ -101,10 +98,9 @@ describe("permittedAppPathFromList — route → permission mapping", () => {
   });
 
   it("drops record-id sub-routes to their module root", () => {
-    expect(permittedAppPathFromList("/milk/entries/7", ["milk.view"])).toBe("/milk");
     expect(permittedAppPathFromList("/team/members/3", ["team.manage"])).toBe("/team");
     expect(
-      permittedAppPathFromList("/dashboard?q=1", ["dashboard.view", "milk.view"]),
+      permittedAppPathFromList("/dashboard?q=1", ["dashboard.view"]),
     ).toBe("/dashboard?q=1");
   });
 

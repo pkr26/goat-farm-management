@@ -40,15 +40,14 @@ async def _pending_tasks_for(
 
 
 async def _default_role_id_for_category(
-    db: AsyncSession, farm_id: int, farm_type: str, category: str
+    db: AsyncSession, farm_id: int, category: str
 ) -> int | None:
     """Map a task category to the farm's preset role (MOVER/VET/...), if seeded.
 
-    task_role_codes returns the candidates for the farm's type in priority
-    order (dairy WEANING -> CALF_ATTENDANT before the MOVER fallback); the
-    first candidate with a live seeded role wins.
+    task_role_codes returns the candidates in priority order; the first
+    candidate with a live seeded role wins.
     """
-    codes = task_role_codes(farm_type, category)
+    codes = task_role_codes(category)
     if not codes:
         return None
     result = await db.execute(
@@ -72,7 +71,6 @@ async def _default_role_id_for_category(
 async def _add_task(
     db: AsyncSession,
     farm_id: int,
-    farm_type: str,
     title: str,
     due_date: date,
     category: TaskCategory,
@@ -89,9 +87,7 @@ async def _add_task(
         purchase_batch_id=purchase_batch_id,
         breeding_record_id=breeding_record_id,
         auto_generated=True,
-        assigned_role_id=await _default_role_id_for_category(
-            db, farm_id, farm_type, category.value
-        ),
+        assigned_role_id=await _default_role_id_for_category(db, farm_id, category.value),
     )
     db.add(task)
     return task

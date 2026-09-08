@@ -233,14 +233,13 @@ async def list_recipes(db: DbSession, farm: CurrentFarm, perms: FeedingView) -> 
     result = await db.execute(
         select(FeedRecipe)
         .options(selectinload(FeedRecipe.lines))
-        .where(FeedRecipe.farm_type == farm.farm_type)
         .order_by(FeedRecipe.id)
     )
     return RecipeListOut(
         recipes=[FeedRecipeOut.model_validate(recipe) for recipe in result.scalars().all()],
         allocation=[
             BucketAllocationOut(bucket=bucket, allocation=allocation)
-            for bucket, allocation in bucket_allocation_reference(farm.farm_type)
+            for bucket, allocation in bucket_allocation_reference()
         ],
     )
 

@@ -10,9 +10,9 @@ mirrored here fails these tests instead of silently rejecting API input.
 from typing import get_args
 
 from app import models
-from app.models.species import BUFFALO_DAIRY_PROFILE, GOAT_PROFILE
+from app.models.species import GOAT_PROFILE
 from app.permissions import ROLE_PRESET_CODES, ROLE_PRESETS
-from app.schemas import animals, auth, breeding, finance, health, kidding, milk, purchases, tasks
+from app.schemas import animals, breeding, finance, health, kidding, purchases, tasks
 from app.schemas.feeding import IngredientCategoryStr, ShiftStr
 
 
@@ -65,16 +65,9 @@ def test_breeding_vocabularies_match_enums() -> None:
     )
 
 
-def test_milk_and_feeding_vocabularies_match_enums() -> None:
-    assert _literal_values(milk.MilkShift) == {s.value for s in models.FeedingShift}
+def test_feeding_vocabularies_match_enums() -> None:
     assert _literal_values(ShiftStr) == {s.value for s in models.FeedingShift}
     assert _literal_values(IngredientCategoryStr) == {c.value for c in models.IngredientCategory}
-
-
-def test_farm_type_literal_matches_enum() -> None:
-    assert _literal_values(auth.FarmCreateIn.model_fields["farm_type"].annotation) == {
-        f.value for f in models.FarmType
-    }
 
 
 def test_sanity_caps_are_shared_from_models() -> None:
@@ -119,8 +112,8 @@ def test_goat_profile_aliases_cannot_drift() -> None:
 
 
 def test_species_policy_profiles_are_coherent() -> None:
-    """The per-species policy knobs the services enforce."""
-    goat, buffalo = GOAT_PROFILE, BUFFALO_DAIRY_PROFILE
+    """The policy knobs the services enforce."""
+    goat = GOAT_PROFILE
     assert goat.voluntary_waiting_days == 14
     assert goat.failed_services_before_cull == 2
     assert goat.max_litter_size == 4
@@ -128,15 +121,6 @@ def test_species_policy_profiles_are_coherent() -> None:
     # SPEC: goat "day 100" EARLY→LATE exit, kidding pen ~2 weeks pre-due.
     assert goat.pregnancy_late_day == 100
     assert goat.prepartum_move_lead_days == 15
-    assert buffalo.voluntary_waiting_days == 60
-    assert buffalo.failed_services_before_cull == 3
-    assert buffalo.max_litter_size == 2
-    assert buffalo.max_daily_milk_litres == 40.0
-    assert buffalo.max_gestation_days == 350  # the widened CHECK ceiling
-    # Dairy: EARLY→LATE at month 5 (5 × 30.44 d); dry-off + dry-group move
-    # ~60 days before calving — both mirroring the seeded bucket definitions.
-    assert buffalo.pregnancy_late_day == 152
-    assert buffalo.prepartum_move_lead_days == 60
 
 
 def test_preset_role_code_catalog_matches_seed_definitions() -> None:

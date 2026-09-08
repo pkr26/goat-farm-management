@@ -15,7 +15,6 @@ from app.simulation.backward_planner import (
     month_offset,
     parse_year_month,
 )
-from app.simulation.vocabulary import BUFFALO_NOUNS
 
 
 def _anchored(**overrides: object) -> SimulationAssumptions:
@@ -204,18 +203,6 @@ def test_no_recommendation_note_when_the_plan_needs_no_purchases() -> None:
     )
     assert report.plan.recommended_purchases == []
     assert not any("Recommendation in one line" in note for note in report.notes)
-
-
-def test_buffalo_nouns_reach_chains_and_actions() -> None:
-    report = build_backward_plan(
-        _anchored(),
-        [PlannerTarget(year_month="2028-01", animal_class="male_grower", count=20.0)],
-        nouns=BUFFALO_NOUNS,
-    )
-    assert "milking buffalo" in report.chains[0].explanation
-    assert any("milking buffalo" in action.headline for action in report.actions)
-
-
 def test_notes_lead_with_the_plan_window() -> None:
     report = build_backward_plan(
         _anchored(),

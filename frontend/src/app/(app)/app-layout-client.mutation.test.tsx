@@ -2,7 +2,7 @@
  * App shell (client) — mutation-hardening suite for the surviving branches:
  * the route → document.title mapping (specific routes and the fallback),
  * the farm switcher's accessible name, the sidebar permissions-error retry,
- * species-aware nav labels on buffalo dairy farms, and the signed-out
+ * nav labels, and the signed-out
  * loading gate that must not render the shell with a missing user.
  */
 
@@ -156,36 +156,10 @@ describe("AppLayout — species-aware nav labels", () => {
     navState.search = "";
   });
 
-  it("speaks dairy vocabulary on a buffalo farm", async () => {
-    server.use(
-      http.get("/api/auth/farms", () =>
-        HttpResponse.json([
-          {
-            id: 7,
-            name: "Navipet Dairy",
-            location: "Navipet",
-            timezone: "Asia/Kolkata",
-            role: null,
-            farm_type: "BUFFALO_DAIRY",
-          },
-        ]),
-      ),
-    );
-    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
-
-    await waitFor(() => expect(navLinks()).toHaveLength(16));
-    expect(navGroupItems("Herd")).toEqual(["Animals", "Buckets", "Breeding / AI", "Calving"]);
-    expect(navGroupItems("Health & Feed")).toEqual(["Health", "Feeding", "Milk"]);
-    expect(screen.getByRole("link", { name: "Switch farm — current: Navipet Dairy" })).toHaveTextContent(
-      "Buffalo dairy",
-    );
-  });
-
-  it("keeps goat vocabulary and hides Milk on a goat farm", async () => {
+  it("speaks goat vocabulary throughout the nav", async () => {
     await renderShell();
     expect(navGroupItems("Herd")).toEqual(["Animals", "Buckets", "Breeding", "Kidding"]);
     expect(navGroupItems("Health & Feed")).toEqual(["Health", "Feeding"]);
-    expect(screen.queryByRole("link", { name: "Milk" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Switch farm — current: Test Goat Farm" })).toHaveTextContent(
       "Goat farm",
     );

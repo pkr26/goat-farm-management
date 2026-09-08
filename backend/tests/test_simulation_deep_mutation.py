@@ -9,7 +9,6 @@ profile. Golden values are derived independently of the implementation
 (hand-computed or from the published calibration notes in the presets).
 """
 
-import json
 import math
 import random
 from decimal import Decimal
@@ -23,8 +22,6 @@ from app.simulation import (
     SalesAssumptions,
     SimulationAssumptions,
     amortization_schedule,
-    build_backward_plan,
-    build_milk_plan,
     curve_from_assumptions,
     mirr,
     monthly_emi,
@@ -33,7 +30,7 @@ from app.simulation import (
     run_simulation,
 )
 from app.simulation.assumptions import HerdEventAssumptions as Event
-from app.simulation.defaults import barbari, beetal, murrah_dairy
+from app.simulation.defaults import barbari, beetal, jamunapari
 from app.simulation.engine import (
     _pool_avg_weight,
     break_even_meat_price,
@@ -70,7 +67,6 @@ from app.simulation.montecarlo import (
     _scale_milk_price,
     _scale_milk_price_high,
     _triangular_from_uniform,
-    run_sensitivity,
 )
 from app.simulation.optimization import (
     _sample_evenly,
@@ -79,7 +75,9 @@ from app.simulation.optimization import (
     run_optimization,
 )
 from app.simulation.planner import build_plan_report, close_gaps, plan_probabilities
-from app.simulation.vocabulary import BUFFALO_NOUNS
+
+# Dairy-mode mechanics run against a dairy-goat milk breed (Jamunapari).
+murrah_dairy = jamunapari
 
 
 def toy_assumptions(**herd_overrides: object) -> SimulationAssumptions:
@@ -100,23 +98,6 @@ def toy_assumptions(**herd_overrides: object) -> SimulationAssumptions:
     a.feed.annual_feed_price_growth_rate = 0.0
     a.sales.monthly_meat_price_multipliers = [1.0] * 12
     return a
-
-
-# --- defaults: presets are calibrated data, pinned field-by-field ---------------
-
-
-def test_murrah_preset_full_snapshot() -> None:
-    """The whole Murrah preset as one golden document.
-
-    Every literal in ``murrah_dairy()`` is calibration data (CIRB/NDRI/Telangana
-    procurement figures — see the preset docstring): changing any one of them
-    is a deliberate recalibration that must update this snapshot. Calling with
-    no arguments also pins the ``system="stall_fed"`` default.
-    """
-    snapshot = json.loads(_MURRAH_SNAPSHOT_JSON)
-    assert murrah_dairy().model_dump(mode="json") == snapshot
-
-
 def test_beetal_and_barbari_default_system_is_stall_fed() -> None:
     """The preset factories default to stall-fed; a mutated default ("STALL_FED",
     "XXstall_fedXX", …) makes ``apply_system`` raise or drift the variant."""
@@ -413,350 +394,6 @@ def test_irr_roots_and_irr_on_multi_sign_flows() -> None:
     assert irr([-100.0, -50.0], [0.0, 1.0]) is None
 
 
-_MURRAH_SNAPSHOT_JSON = """
-{
- "meta": {
-  "horizon_months": 120,
-  "start_year_month": "2026-08"
- },
- "herd": {
-  "does": 60,
-  "bucks": 0,
-  "female_growers": 0,
-  "male_growers": 0,
-  "female_weaners": 0,
-  "male_weaners": 0,
-  "female_kids": 0,
-  "male_kids": 0,
-  "female_retention_fraction": 0.75,
-  "max_breeding_does": 0,
-  "doe_purchase_price": 110000.0,
-  "buck_purchase_price": 0.0,
-  "auto_purchase_bucks": false,
-  "foundation_doe_age_min_months": 42,
-  "foundation_doe_age_max_months": 60,
-  "purchased_doe_settling_months": 1,
-  "foundation_flock_state": "mixed"
- },
- "reproduction": {
-  "conception_rate": 0.45,
-  "gestation_months": 10,
-  "lactation_months": 10,
-  "months_open_before_breeding": 2,
-  "litter_size": 1.0,
-  "sex_ratio_female": 0.5,
-  "age_at_first_breeding_months": 24,
-  "stillbirth_rate": 0.03,
-  "sexed_semen_services": 2,
-  "sexed_female_fraction": 0.9,
-  "sexed_conception_multiplier": 0.85,
-  "max_services_before_cull": 3
- },
- "mortality": {
-  "kid_pre_weaning": 0.1,
-  "kid_post_weaning": 0.04,
-  "grower": 0.03,
-  "adult": 0.025
- },
- "culling": {
-  "doe_cull_rate_annual": 0.05,
-  "max_doe_age_months": 132,
-  "buck_rotation_years": 3,
-  "buck_doe_ratio": 100
- },
- "growth": {
-  "birth_weight_kg": 31.0,
-  "adult_weight_doe_kg": 520.0,
-  "adult_weight_buck_kg": 600.0,
-  "weight_by_age_months": [
-   31.0,
-   46.3,
-   61.6,
-   76.9,
-   92.2,
-   107.5,
-   122.80000000000001,
-   138.10000000000002,
-   153.4,
-   168.70000000000002,
-   184.0,
-   199.3,
-   214.60000000000002
-  ],
-  "adult_weight_age_months": 40,
-  "young_male_weight_premium": 0.05,
-  "sale_age_months": 14
- },
- "sales": {
-  "meat_price_per_kg": 160.0,
-  "cull_doe_price_per_kg": 160.0,
-  "cull_buck_price_per_kg": 170.0,
-  "monthly_meat_price_multipliers": [
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0
-  ],
-  "annual_livestock_price_growth_rate": 0.05,
-  "eid_month": 0,
-  "eid_price_uplift": 0.35,
-  "festival_sale_months": [],
-  "festival_hold_months": 2,
-  "selling_cost_fraction": 0.0,
-  "transport_cost_per_head": 0.0,
-  "milk_price_per_litre": 58.0,
-  "lactation_milk_litres": 2100.0,
-  "calf_milk_litres_per_day_per_calf": 2.5,
-  "milk_price_per_kg_fat": 850.0,
-  "milk_fat_pct": 6.8,
-  "milk_persistency_monthly": 0.93,
-  "milk_curve_shape": "wood",
-  "milk_peak_day": 65.0,
-  "monthly_milk_yield_multipliers": [
-   1.05,
-   1.06,
-   1.03,
-   0.97,
-   0.9,
-   0.86,
-   0.87,
-   0.93,
-   0.99,
-   1.05,
-   1.08,
-   1.08
-  ],
-  "monthly_milk_price_multipliers": [
-   1.0,
-   1.0,
-   1.02,
-   1.04,
-   1.06,
-   1.07,
-   1.06,
-   1.03,
-   0.99,
-   0.97,
-   0.98,
-   0.98
-  ],
-  "annual_milk_price_growth_rate": 0.06,
-  "male_calf_sell_at_birth_fraction": 0.9,
-  "male_calf_price_per_head": 1600.0,
-  "manure_income_per_adult_per_year": 3500.0
- },
- "feed": {
-  "dmi_kid_creep": 0.01,
-  "dmi_weaner": 0.02,
-  "dmi_grower": 0.022,
-  "dmi_doe_maintenance": 0.022,
-  "dmi_doe_pregnant": 0.024,
-  "dmi_doe_lactating": 0.03,
-  "dmi_buck": 0.022,
-  "concentrate_share_kid_creep": 0.85,
-  "concentrate_share_weaner": 0.4,
-  "concentrate_share_grower": 0.3,
-  "concentrate_share_doe_maintenance": 0.12,
-  "concentrate_share_doe_pregnant": 0.25,
-  "concentrate_share_doe_lactating": 0.38,
-  "concentrate_share_buck": 0.15,
-  "green_dm_pct": 0.2,
-  "dry_dm_pct": 0.88,
-  "concentrate_dm_pct": 0.9,
-  "green_price_per_kg": 0.8,
-  "purchased_green_price_per_kg": 2.5,
-  "dry_price_per_kg": 5.0,
-  "concentrate_price_per_kg": 26.0,
-  "annual_feed_price_growth_rate": 0.06,
-  "monthly_green_price_multipliers": [
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0
-  ],
-  "monthly_dry_price_multipliers": [
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0
-  ],
-  "monthly_concentrate_price_multipliers": [
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0
-  ],
-  "grazing_dm_fraction": 0.0,
-  "cultivated_fodder_acres": 25.0,
-  "fodder_yield_t_dm_per_acre_year": 10.0,
-  "monthly_fodder_yield_multipliers": [
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0,
-   1.0
-  ],
-  "initial_fodder_stock_kg_dm": 0.0,
-  "fodder_storage_capacity_kg_dm": 0.0,
-  "fodder_storage_loss_fraction_monthly": 0.02
- },
- "costs": {
-  "vet_per_animal_per_year": 2000.0,
-  "labour_per_month": 16000.0,
-  "labour_per_head_threshold": 20,
-  "insurance_pct_stock_value_annual": 0.04,
-  "misc_overhead_per_month": 15000.0,
-  "operating_cost_growth_rate_annual": 0.06,
-  "shed_cost_per_animal_place": 40000.0,
-  "equipment_cost_per_animal": 20000.0,
-  "capacity_basis": "projected_peak",
-  "planned_capacity_head": 0,
-  "capacity_buffer_fraction": 0.1,
-  "shed_useful_life_years": 20,
-  "equipment_useful_life_years": 10,
-  "shed_residual_fraction": 0.1,
-  "equipment_residual_fraction": 0.05
- },
- "finance": {
-  "initial_stock_cost": 0.0,
-  "loan_fraction_of_project_cost": 0.6,
-  "interest_rate_annual": 0.09,
-  "loan_term_months": 120,
-  "moratorium_months": 12,
-  "subsidy_fraction": 0.02,
-  "discount_rate_annual": 0.12,
-  "working_capital_months": 6,
-  "income_tax_rate": 0.0,
-  "tax_loss_carryforward": true,
-  "include_terminal_value": true,
-  "terminal_livestock_realization_fraction": 0.9,
-  "terminal_asset_realization_fraction": 1.0,
-  "terminal_working_capital_recovery_fraction": 1.0,
-  "reinvestment_rate_annual": 0.08
- },
- "risk": {
-  "monte_carlo_runs": 500,
-  "seed": 42,
-  "meat_price": {
-   "enabled": true,
-   "low": 0.8,
-   "high": 1.2
-  },
-  "milk_price": {
-   "enabled": true,
-   "low": 0.85,
-   "high": 1.15
-  },
-  "feed_price": {
-   "enabled": true,
-   "low": 0.9,
-   "high": 1.25
-  },
-  "adult_mortality": {
-   "enabled": true,
-   "low": 0.6,
-   "high": 1.8
-  },
-  "kid_mortality": {
-   "enabled": true,
-   "low": 0.6,
-   "high": 1.8
-  },
-  "litter_size": {
-   "enabled": true,
-   "low": 0.95,
-   "high": 1.02
-  },
-  "conception_rate": {
-   "enabled": true,
-   "low": 0.8,
-   "high": 1.05
-  },
-  "fodder_yield": {
-   "enabled": true,
-   "low": 0.65,
-   "high": 1.1
-  },
-  "operating_cost": {
-   "enabled": true,
-   "low": 0.9,
-   "high": 1.2
-  },
-  "correlation_strength": 0.6,
-  "disease_outbreak_probability_annual": 0.1,
-  "disease_outbreak_duration_months": 3,
-  "disease_adult_mortality_multiplier": 2.0,
-  "disease_kid_mortality_multiplier": 2.5,
-  "disease_conception_multiplier": 0.7,
-  "disease_milk_yield_multiplier": 0.85,
-  "drought_probability_annual": 0.15,
-  "drought_duration_months": 4,
-  "drought_fodder_yield_multiplier": 0.5,
-  "drought_feed_price_multiplier": 1.3,
-  "market_crash_probability_annual": 0.1,
-  "market_crash_duration_months": 3,
-  "market_crash_price_multiplier": 0.75
- },
- "optimization": {
-  "objective": "balanced",
-  "max_candidates": 120,
-  "minimum_dscr": 1.2,
-  "maximum_project_cost": null,
-  "maximum_funding_gap": null,
-  "doe_scale_low": 0.75,
-  "doe_scale_high": 1.25,
-  "doe_scale_steps": 3,
-  "sale_age_radius_months": 2,
-  "retention_step": 0.25,
-  "loan_fraction_step": 0.15
- },
- "events": []
-}
-"""
-
-
-# --- montecarlo: draw application, shock episodes, scaling -----------------------
-
-
 def _neutral_draws() -> dict[str, float]:
     return {
         "meat_price": 1.0,
@@ -863,21 +500,6 @@ def test_scale_milk_price_low_and_high_factors() -> None:
     _scale_milk_price_high(high)
     assert high.sales.milk_price_per_litre == pytest.approx(120.0)
     assert high.sales.milk_price_per_kg_fat == pytest.approx(1020.0)
-
-
-def test_run_sensitivity_milk_price_base_selects_per_litre_basis() -> None:
-    """A per-litre dairy (kg-fat price exactly 0) must report its −20% label
-    from the per-litre base — reading the zero kg-fat field instead yields
-    the degenerate "+0%" label."""
-    a = murrah_dairy()
-    a.meta.horizon_months = 24  # keep the OAT runs quick
-    a.sales.milk_price_per_kg_fat = 0.0
-    a.sales.milk_price_per_litre = 58.0
-    items = {item.parameter: item for item in run_sensitivity(a)}
-    assert items["milk_price"].label_low == "-20.0%"
-    assert items["milk_price"].label_high == "+20.0%"
-
-
 def test_histogram_bins_and_degenerate_range() -> None:
     """Equal-width bins with the last value clamped into the final bin."""
     counts, edges = _histogram([0.0, 1.0, 2.0, 3.0, 4.0], bins=4)
@@ -975,7 +597,6 @@ def test_female_and_male_counted_nouns() -> None:
     assert _female_counted(1, GOAT_NOUNS) == GOAT_NOUNS.female
     assert _female_counted(1.0, GOAT_NOUNS) == GOAT_NOUNS.female
     assert _female_counted(2, GOAT_NOUNS) == GOAT_NOUNS.female_plural
-    assert _female_counted(10, BUFFALO_NOUNS) == BUFFALO_NOUNS.female_plural
 
 
 def test_outstanding_at_horizon_boundary() -> None:
@@ -1086,20 +707,6 @@ def test_payback_by_liquidation_wording() -> None:
     assert result.months[10].cumulative_cash_flow < 0.0
     texts = {entry.key: entry.explanation for entry in result.metric_explanations}
     assert "payback by liquidation" in texts["payback_month"]
-
-
-def test_narrative_report_speaks_the_farm_species() -> None:
-    """The overview sentence counts the foundation herd with the farm's own
-    nouns — a buffalo report never reads "doe"."""
-    a = murrah_dairy()
-    a.meta.horizon_months = 12
-    result = run_simulation(a, nouns=BUFFALO_NOUNS)
-    overview = next(section for section in result.narrative_report if section.key == "overview")
-    text = " ".join(overview.paragraphs)
-    assert BUFFALO_NOUNS.female_plural in text
-    assert "doe" not in text.split()
-
-
 # --- planner / milk planner / backward planner: default-argument contracts ------
 
 
@@ -1140,38 +747,6 @@ def test_build_plan_report_closes_gaps_by_default() -> None:
     assert disabled.recommended_purchases == []
     assert disabled.after is None
     assert default_report.recommended_purchases != []
-
-
-def test_build_milk_plan_default_ramp_is_one_month() -> None:
-    a = murrah_dairy()
-    a.meta.horizon_months = 24
-    default_plan = build_milk_plan(a, 800.0)
-    pinned_plan = build_milk_plan(a, 800.0, ramp_months=1)
-    assert default_plan == pinned_plan
-
-
-def test_milk_planner_internal_defaults() -> None:
-    from app.simulation.milk_planner import _measure, _simulate
-
-    a = murrah_dairy()
-    a.meta.horizon_months = 24
-    records = _simulate(a, 1000.0, 1, 24)
-    pinned = _simulate(a, 1000.0, 1, 24, replacement_bridge=True)
-    assert records == pinned
-    assert _measure(records, 6, False) == _measure(records, 6, False, ramp_months=1)
-
-
-def test_build_backward_plan_closes_gaps_by_default() -> None:
-    from app.simulation.backward_planner import PlannerTarget
-
-    a = murrah_dairy()
-    a.meta.horizon_months = 24
-    targets = [PlannerTarget(animal_class="male_weaner", count=5, year_month="2027-08")]
-    default_report = build_backward_plan(a, targets)
-    pinned_report = build_backward_plan(a, targets, close_gaps_enabled=True)
-    assert default_report == pinned_report
-
-
 # --- engine: mass balance, pool mechanics and boundary gates ---------------------
 
 
@@ -1212,6 +787,30 @@ def test_toy_goat_mass_balance_and_month_one_head() -> None:
     assert all(m.culls_head == 0.0 for m in result.months)
 
 
+# Dairy-mode mechanics fixture: the historical Murrah anchoring knobs on a
+# dairy-goat base (mixed foundation, 60 does, AI service, 2/10/10
+# waiting/gestation/lactation) so the hand-derived arithmetic in the
+# dairy-mode mirror tests stays exact.
+def _dairy_mode_fixture() -> SimulationAssumptions:
+    a = jamunapari()
+    a.herd.does = 60
+    a.herd.bucks = 0
+    a.herd.max_breeding_does = 0
+    a.herd.auto_purchase_bucks = False
+    a.herd.foundation_flock_state = "mixed"
+    a.reproduction.conception_rate = 0.45
+    a.reproduction.gestation_months = 10
+    a.reproduction.lactation_months = 10
+    a.reproduction.months_open_before_breeding = 2
+    a.reproduction.litter_size = 1.0
+    a.mortality.kid_pre_weaning = 0.10
+    # Fat-based procurement pricing (the fat-pair path the mirrors price on).
+    a.sales.milk_price_per_litre = 58.0
+    a.sales.calf_milk_litres_per_day_per_calf = 2.5
+    a.sales.milk_price_per_kg_fat = 850.0
+    a.sales.milk_fat_pct = 6.8
+    return a
+
 def test_dairy_mass_balance_and_foundation_overlay_mirrors() -> None:
     """Murrah (mixed foundation, dairy mode): month-1 pools and milk follow
     the documented overlay anchoring, hand-derived here.
@@ -1223,7 +822,7 @@ def test_dairy_mass_balance_and_foundation_overlay_mirrors() -> None:
     lactation. After the month-1 progression shift plus the fresh p from the
     gestation slot graduating, the milking overlay holds p at stages
     {0,1,2,3,5,6,7,8,9} — 10p of the 60 does."""
-    a = murrah_dairy()
+    a = _dairy_mode_fixture()
     a.meta.horizon_months = 13
     result = run_simulation(a, with_break_even=False)
     _assert_mass_balance(a, result)
@@ -1497,7 +1096,7 @@ def test_buck_service_capacity_policies() -> None:
     technician-limited (unconstrained) — conceptions happen with zero bucks.
     Meat mode with auto-purchase buys sires BEFORE service (conceptions land
     in month 1)."""
-    dairy = murrah_dairy()
+    dairy = _dairy_mode_fixture()
     dairy.meta.horizon_months = 12
     assert dairy.herd.bucks == 0
     assert not dairy.herd.auto_purchase_bucks
@@ -1640,7 +1239,7 @@ def test_labour_is_zero_without_breeding_does() -> None:
 def test_manure_covers_the_finishing_pen_and_bucks() -> None:
     """Manure income = (breeding does + finishing pen + bucks) × rate / 12 —
     the finishing does still eat and produce."""
-    a = murrah_dairy()
+    a = _dairy_mode_fixture()
     a.meta.horizon_months = 13
     a.sales.annual_livestock_price_growth_rate = 0.0
     result = run_simulation(a, with_break_even=False)
@@ -1885,22 +1484,6 @@ def test_crossing_roots_on_bracket_endpoints_do_not_bisect() -> None:
     roots = _crossing_decimal_power_roots([(2.0, 1.0), (1.0, -4.0), (0.0, 3.0)], 1.0, 3.0)
     floats = [float(root) for root in roots]
     assert floats == pytest.approx([1.0, 3.0], abs=1e-25)
-
-
-def test_event_labels_speak_the_farm_species() -> None:
-    """``nouns`` reaches _run_core: a scheduled purchase logs with the farm's
-    own vocabulary (a buffalo plan never writes "doe")."""
-    a = murrah_dairy()
-    a.meta.horizon_months = 12
-    a.events = [
-        Event(month=1, kind="purchase", animal_class="doe", count=2, price_per_head=100000.0)
-    ]
-    result = run_simulation(a, nouns=BUFFALO_NOUNS)
-    log = " ".join(result.months[0].events)
-    assert BUFFALO_NOUNS.female_plural in log
-    assert "doe" not in log.split()
-
-
 def test_dairy_mode_boundary_at_one_lactation_month() -> None:
     """lactation_months == 1 is still dairy: the species litter cap (2) binds
     where meat mode would allow the configured litter of 3."""
@@ -1956,7 +1539,7 @@ def test_dairy_overlay_anchoring_kfloor_and_serving_clamp() -> None:
     """conception 0.9 → K = 1 (the max(1, …) floor is not binding) and a
     waiting period longer than the lactation clamps the serving anchor to the
     last in-milk stage. Month-1 milk follows the mirrored stage set."""
-    a = murrah_dairy()
+    a = _dairy_mode_fixture()
     a.reproduction.conception_rate = 0.9
     a.reproduction.months_open_before_breeding = 6
     a.reproduction.lactation_months = 5
@@ -1990,31 +1573,6 @@ def test_dairy_overlay_anchoring_kfloor_and_serving_clamp() -> None:
         * a.sales.monthly_milk_price_multipliers[7]
     )
     assert result.months[0].milk_revenue == pytest.approx(litres * price, rel=1e-9)
-
-
-def test_murrah_month_one_state_pool_mirrors() -> None:
-    """Month-1 open/pregnant pools for the mixed foundation: after the
-    waiting-pool progression and the first kidding, svc[0] holds the serving
-    p plus the graduated waiting p, and pregnancy holds the shifted
-    foundation cohorts minus the one that kidded."""
-    a = murrah_dairy()
-    a.meta.horizon_months = 13
-    result = run_simulation(a, with_break_even=False)
-    p = 60.0 / 13.0
-    s_adult = 1.0 - monthly_mortality_rate(a.mortality.adult)
-    # Open (svc + waiting + settling): the serving p plus the graduated last
-    # waiting slot p stand in svc; the month's conceptions LEAVE svc for the
-    # gestation pool; the fresh calving p parks in waiting[0] (waiting[0]
-    # already held p from the shift).
-    conception = 0.45 * 0.85  # sexed first service
-    open_m1 = (2 * p * (1.0 - conception) + 2 * p) * s_adult
-    # Pregnant: 9 of the 10 foundation gestation cohorts shifted down, plus
-    # the month's conceptions from the serving does.
-    preg_m1 = (9 * p + 2 * p * conception) * s_adult
-    assert result.months[0].open_does == pytest.approx(open_m1, rel=1e-6)
-    assert result.months[0].pregnant_does == pytest.approx(preg_m1, rel=1e-6)
-
-
 def test_projected_peak_equals_max_herd_without_decay() -> None:
     """With zero mortality and no scheduled events the physical peak equals
     the maximum month-end herd exactly — in meat mode (where ``lact`` is a
@@ -2036,7 +1594,7 @@ def test_projected_peak_equals_max_herd_without_decay() -> None:
         max(row.total_herd for row in result.months) - 1e-6
     )
 
-    dairy = murrah_dairy()
+    dairy = _dairy_mode_fixture()
     dairy.mortality.kid_pre_weaning = 0.0
     dairy.mortality.kid_post_weaning = 0.0
     dairy.mortality.grower = 0.0
@@ -2066,7 +1624,7 @@ def test_mixed_foundation_anchor_shapes_parametric() -> None:
         (9, 4, 10, 0.45),
     ]
     for waiting, gestation, lactation, conception in shapes:
-        a = murrah_dairy()
+        a = _dairy_mode_fixture()
         a.reproduction.months_open_before_breeding = waiting
         a.reproduction.gestation_months = gestation
         a.reproduction.lactation_months = lactation

@@ -77,7 +77,6 @@ from ..models import (
 from ..models.feed_rules import (
     BUCKET_ALLOCATION_REFERENCE,
     DRY_ROUGHAGE,
-    DRY_ROUGHAGE_INGREDIENTS,
     RECIPE_DISPLAY,
     SHIFT_TIMES,
     bucket_allocation_reference,
@@ -133,7 +132,6 @@ from .health import (
 )
 from .idempotency import IdempotencyKey, RequiredIdempotencyKey, execute_idempotent
 from .kidding import KidSpec, LitterSizeError, record_kidding, replan_dam_after_last_kid_death
-from .milk import list_milk_records, milk_summary, record_milk
 from .purchases import create_purchase_batch, schedule_quarantine_tasks
 from .tasks import (
     ManualTaskCapacityError,
@@ -154,7 +152,6 @@ from .tasks import (
 __all__ = [
     "BUCKET_ALLOCATION_REFERENCE",
     "DRY_ROUGHAGE",
-    "DRY_ROUGHAGE_INGREDIENTS",
     "GESTATION_DAYS",
     "MAX_AGE_MONTHS",
     "MAX_BATCH_COUNT",
@@ -228,10 +225,8 @@ __all__ = [
     "inferred_schedule_template",
     "is_breeding_candidate",
     "is_buck_breeding_candidate",
-    "list_milk_records",
     "lock_manual_task_queue",
     "mark_aborted",
-    "milk_summary",
     "mix_feed_batch",
     "monthly_pnl",
     "move_animal",
@@ -243,7 +238,6 @@ __all__ = [
     "record_dispensing",
     "record_health_event",
     "record_kidding",
-    "record_milk",
     "record_ultrasound_result",
     "reject_task",
     "replan_dam_after_last_kid_death",

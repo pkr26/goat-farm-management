@@ -4,7 +4,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, LogOut, Milk, PawPrint } from "lucide-react";
+import { Loader2, LogOut, PawPrint } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -40,7 +40,6 @@ const farmSchema = z.object({
     .trim()
     .min(1, "Name is required")
     .max(120, "Farm name must be at most 120 characters"),
-  farm_type: z.enum(["GOAT", "BUFFALO_DAIRY"]),
   location: z
     .string()
     .trim()
@@ -77,7 +76,7 @@ function FarmSelectPageContent() {
     formState: { errors, isSubmitting },
   } = useForm<FarmValues>({
     resolver: zodResolver(farmSchema),
-    defaultValues: { name: "", location: "", timezone: "Asia/Kolkata", farm_type: "GOAT" },
+    defaultValues: { name: "", location: "", timezone: "Asia/Kolkata" },
   });
 
   useEffect(() => {
@@ -164,7 +163,7 @@ function FarmSelectPageContent() {
       // The farm is durably created from here on. Never report a follow-up
       // failure as a creation failure: the retry would mint a fresh
       // Idempotency-Key and create a second, identical farm.
-      reset({ name: "", location: "", timezone: "Asia/Kolkata", farm_type: "GOAT" });
+      reset({ name: "", location: "", timezone: "Asia/Kolkata" });
       try {
         await refreshFarms();
       } catch {
@@ -220,9 +219,6 @@ function FarmSelectPageContent() {
         {farms.length > 0 && (
           <div className="grid gap-3 sm:grid-cols-2">
             {farms.map((farm) => {
-              const isDairy =
-                (farm as FarmEntry & { farm_type?: string }).farm_type ===
-                "BUFFALO_DAIRY";
               return (
                 <button
                   key={farm.id}
@@ -233,11 +229,7 @@ function FarmSelectPageContent() {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-success-tint text-success-tint-foreground">
-                      {isDairy ? (
-                        <Milk className="size-[18px]" aria-hidden="true" />
-                      ) : (
-                        <PawPrint className="size-[18px]" aria-hidden="true" />
-                      )}
+                      <PawPrint className="size-[18px]" aria-hidden="true" />
                     </span>
                     {farm.id === farmId && <Badge variant="success">current</Badge>}
                   </div>
@@ -249,7 +241,7 @@ function FarmSelectPageContent() {
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground/80">
                     <span>
-                      {farmTypeLabel((farm as FarmEntry & { farm_type?: string }).farm_type)}
+                      {farmTypeLabel}
                     </span>
                     {" · "}
                     <span>
@@ -277,46 +269,11 @@ function FarmSelectPageContent() {
                 className="min-w-0 space-y-4"
               >
               <div className="space-y-1.5">
-                <Label>Farm type</Label>
-                <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Farm type">
-                  {(
-                    [
-                      ["GOAT", "Goat farm", "Osmanabadi meat herd — kidding, weaning and live-weight sales.", PawPrint],
-                      [
-                        "BUFFALO_DAIRY",
-                        "Buffalo dairy",
-                        "Murrah milking herd — AI breeding, calving, milk yields and lactation finance.",
-                        Milk,
-                      ],
-                    ] as const
-                  ).map(([value, title, description, Icon]) => (
-                    <label
-                      key={value}
-                      className="flex cursor-pointer items-start gap-3 rounded-xl border bg-card p-3.5 text-left transition hover:border-primary/40 has-[input:focus-visible]:ring-2 has-[input:focus-visible]:ring-ring has-[input:checked]:border-primary has-[input:checked]:bg-accent/40 has-[input:checked]:ring-1 has-[input:checked]:ring-primary/30"
-                    >
-                      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground has-[input:checked]:bg-primary/10 has-[input:checked]:text-primary">
-                        <input
-                          type="radio"
-                          value={value}
-                          {...register("farm_type")}
-                          className="sr-only"
-                        />
-                        <Icon className="size-4 pointer-events-none" aria-hidden="true" />
-                      </span>
-                      <span className="space-y-0.5">
-                        <span className="block text-sm font-medium">{title}</span>
-                        <span className="block text-xs text-muted-foreground">{description}</span>
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-              <div className="space-y-1.5">
                 <Label htmlFor="name">Farm name</Label>
                 <Input
                   id="name"
                   maxLength={120}
-                  placeholder="e.g. Your farm or dairy name"
+                  placeholder="e.g. Your farm name"
                   aria-invalid={Boolean(errors.name) || undefined}
                   aria-describedby={errors.name ? "farm-name-error" : undefined}
                   {...register("name")}

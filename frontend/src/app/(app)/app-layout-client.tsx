@@ -17,7 +17,6 @@ import {
   IndianRupee,
   LayoutDashboard,
   LogOut,
-  Milk,
   PawPrint,
   ShoppingCart,
   Stethoscope,
@@ -90,7 +89,6 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
     items: [
       { href: "/health", label: "Health", perm: "health.view", icon: Stethoscope },
       { href: "/feeding", label: "Feeding", perm: "feeding.view", icon: Wheat },
-      { href: "/milk", label: "Milk", perm: "milk.view", icon: Milk },
     ],
   },
   {
@@ -150,7 +148,6 @@ const ROUTE_TITLES: [RegExp, string][] = [
   [/^\/feeding\/inventory/, "Feed inventory"],
   [/^\/feeding\/recipes/, "Feed recipes"],
   [/^\/feeding/, "Feeding"],
-  [/^\/milk/, "Milk"],
   [/^\/purchases/, "Purchases"],
   [/^\/tasks/, "Tasks"],
   [/^\/finance/, "Finance"],
@@ -247,7 +244,7 @@ function AppSidebar({
       </SidebarContent>
       <SidebarFooter className="px-4 pb-4">
         <p className="text-[0.68rem] leading-relaxed text-muted-foreground/70">
-          Goat & buffalo dairy farm management
+          Goat farm management
         </p>
       </SidebarFooter>
     </Sidebar>
@@ -335,29 +332,12 @@ function AppLayoutContent({
   }
 
   const farm = farms.find((f) => f.id === farmId);
-  const vocabulary = farmVocabulary(farm?.farm_type);
+  const vocabulary = farmVocabulary;
   const visibleGroups = permsLoading
     ? []
     : NAV_GROUPS.map((group) => ({
         ...group,
-        items: group.items
-          // Milk is a buffalo-dairy module: farm owners hold every
-          // permission, so the permission filter alone showed it on goat
-          // (meat) farms whose API rejects every milk call.
-          .filter((item) => can(item.perm) && (item.href !== "/milk" || vocabulary.dairy))
-          .map((item) => ({
-            ...item,
-            // Species vocabulary: a dairy farm calving-records, a goat farm
-            // kidding-records; both live at the same route.
-            label:
-              item.href === "/kidding"
-                ? vocabulary.parturitionCap
-                : item.href === "/breeding"
-                  ? vocabulary.dairy
-                    ? "Breeding / AI"
-                    : item.label
-                  : item.label,
-          })),
+        items: group.items.filter((item) => can(item.perm)),
       })).filter((group) => group.items.length > 0);
   const landingItem = visibleGroups[0]?.items[0];
   const landingHref = !permsLoading && !permsError ? firstPermittedPath(can) : null;

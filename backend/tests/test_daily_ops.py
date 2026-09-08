@@ -648,7 +648,7 @@ def test_explanations_echo_the_run_numbers() -> None:
     assert by_key["reproduction"].figures["services"] == result.totals.services
     assert by_key["reproduction"].figures["kids_born_alive"] == result.totals.kids_born_alive
     # Notes carry the v1 caveats.
-    assert any("Goat farms only" in note for note in result.notes)
+    assert any("Goat farm simulation" in note for note in result.notes)
 
 
 # ---------------------------------------------------------------------------

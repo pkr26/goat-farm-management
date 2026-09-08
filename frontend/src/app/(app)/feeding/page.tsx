@@ -66,7 +66,6 @@ import {
   MIN_PERSISTED_KG_MESSAGE,
 } from "@/lib/persisted-numbers";
 import { FeedingNav } from "@/components/feeding-nav";
-import { useFarmType } from "@/hooks/use-farm-type";
 import { enumLabel } from "@/lib/enum-labels";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
@@ -150,8 +149,7 @@ function KgPerHeadDialog({ line }: { line: PlanLineOut }) {
   const queryClient = useQueryClient();
   const mut = useSaveSettingApiFeedingSettingsPost();
   const settingFlight = useSingleFlight();
-  const farmType = useFarmType();
-  const bucketLabel = enumLabel("bucket", line.bucket, farmType);
+  const bucketLabel = enumLabel("bucket", line.bucket);
   const {
     register,
     handleSubmit,
@@ -298,12 +296,11 @@ function FeedingPageContent() {
   const allowed = can("feeding.view");
   const canManage = can("feeding.manage");
   const canCreateAnimals = can("animals.create");
-  const farmType = useFarmType();
   const queryClient = useQueryClient();
   /** value → label maps for the root `items` prop: without them, Base UI's
    * Select.Value renders the raw value in the closed trigger. */
   const bucketItems: Record<string, string> = Object.fromEntries(
-    Object.values(DispenseInBucket).map((b) => [b, enumLabel("bucket", b, farmType)]),
+    Object.values(DispenseInBucket).map((b) => [b, enumLabel("bucket", b)]),
   );
   const shiftItems: Record<string, string> = Object.fromEntries(
     Object.values(DispenseInShift).map((s) => [s, enumLabel("shift", s)]),
@@ -664,7 +661,7 @@ function FeedingPageContent() {
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-medium">
-                          {enumLabel("bucket", bucketName, farmType)}
+                          {enumLabel("bucket", bucketName)}
                         </span>
                         <Badge variant={complete ? "default" : "secondary"}>
                           {complete
@@ -702,7 +699,7 @@ function FeedingPageContent() {
                     className="rounded-xl border bg-card p-3 shadow-xs"
                   >
                     <p className="font-medium">
-                      {enumLabel("bucket", line.bucket, farmType)} — {line.recipe_name}
+                      {enumLabel("bucket", line.bucket)} — {line.recipe_name}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground tabular-nums">
                       {line.heads} heads · {line.kg_per_head} kg/head ·{" "}
@@ -759,7 +756,7 @@ function FeedingPageContent() {
                   // One bucket can appear on several lines (split by recipe).
                   <TableRow key={`${line.bucket}:${line.recipe_code}`}>
                     <TableCell className="font-medium">
-                      {enumLabel("bucket", line.bucket, farmType)}
+                      {enumLabel("bucket", line.bucket)}
                     </TableCell>
                     <TableCell>{line.recipe_name}</TableCell>
                     <TableCell className="text-right tabular-nums">{line.heads}</TableCell>
@@ -797,9 +794,7 @@ function FeedingPageContent() {
         <p className="mt-3 text-sm text-muted-foreground">
           Shifts: {enumLabel("shift", "MORNING")} 6:30 AM (sweep bunks first) ·{" "}
           {enumLabel("shift", "AFTERNOON")} 1:30 PM · {enumLabel("shift", "NIGHT")} 7:30 PM.{" "}
-          {farmType === "BUFFALO_DAIRY"
-            ? `${enumLabel("bucket", "RESTING", farmType)} stays on the post-fresh medium-yield TMR (D_LACTATION_MED) until first AI; calves move calf starter → growing-heifer TMR (D_HEIFER_GROWING) at day 91.`
-            : `${enumLabel("bucket", "RESTING", farmType)} switches ${enumLabel("bucket", "MAINTENANCE", farmType)} → ${enumLabel("bucket", "FLUSH", farmType)} at day 10; ${enumLabel("bucket", "MALE_KIDS", farmType)} frame-builder → fattening at day 91.`}
+          {`${enumLabel("bucket", "RESTING")} switches ${enumLabel("bucket", "MAINTENANCE")} → ${enumLabel("bucket", "FLUSH")} at day 10; ${enumLabel("bucket", "MALE_KIDS")} frame-builder → fattening at day 91.`}
         </p>
       </DataTableCard>
 
@@ -824,7 +819,7 @@ function FeedingPageContent() {
               {payload.records.map((r) => (
                 <TableRow key={r.id}>
                   <TableCell>{enumLabel("shift", r.shift)}</TableCell>
-                  <TableCell>{enumLabel("bucket", r.bucket, farmType)}</TableCell>
+                  <TableCell>{enumLabel("bucket", r.bucket)}</TableCell>
                   <TableCell>{r.recipe_code ?? "—"}</TableCell>
                   <TableCell className="text-right tabular-nums">
                     {formatPersistedKg(r.qty_kg)}
@@ -929,7 +924,7 @@ function FeedingPageContent() {
                   <TableRow key={record.id}>
                     <TableCell>{formatDate(record.date)}</TableCell>
                     <TableCell>{enumLabel("shift", record.shift)}</TableCell>
-                    <TableCell>{enumLabel("bucket", record.bucket, farmType)}</TableCell>
+                    <TableCell>{enumLabel("bucket", record.bucket)}</TableCell>
                     <TableCell>{record.recipe_code ?? "—"}</TableCell>
                     <TableCell className="text-right tabular-nums">
                       {formatPersistedKg(record.qty_kg)}
@@ -985,7 +980,7 @@ function FeedingPageContent() {
                   <SelectContent>
                     {Object.values(DispenseInBucket).map((b) => (
                       <SelectItem key={b} value={b}>
-                        {enumLabel("bucket", b, farmType)}
+                        {enumLabel("bucket", b)}
                       </SelectItem>
                     ))}
                   </SelectContent>

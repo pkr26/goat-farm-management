@@ -82,15 +82,12 @@ from app.models import (
 )
 from app.permissions import (
     ALL_PERMISSIONS,
-    DAIRY_TASK_CATEGORY_ROLE_MAP,
-    FARM_TYPES,
     PERMISSION_GROUPS,
     PERMISSIONS,
     ROLE_PRESET_CODES,
     ROLE_PRESETS,
     TASK_CATEGORY_ROLE_MAP,
     TASK_ROLE_CODES,
-    preset_codes_for_farm_type,
 )
 from app.schemas.animals import (
     AnimalCreateIn,
@@ -253,31 +250,8 @@ def test_role_preset_codes_unique() -> None:
         "CLEANER_MANAGER",
         "ACCOUNTANT",
         "VIEWER",
-        # dairy parlour presets (seeded on BUFFALO_DAIRY farms only)
-        "MILKER",
-        "MILK_QC",
-        "CALF_ATTENDANT",
     }
     assert set(codes) == ROLE_PRESET_CODES
-
-
-def test_preset_farm_type_scoping_partitions_the_catalog() -> None:
-    """Every preset seeds on at least one farm type, the dairy parlour presets
-    seed on dairy farms only, and the two scoped vocabularies cover the
-    catalog between them."""
-    dairy_only = {"MILKER", "MILK_QC", "CALF_ATTENDANT"}
-    assert (
-        preset_codes_for_farm_type("BUFFALO_DAIRY")
-        == preset_codes_for_farm_type("GOAT") | dairy_only
-    )
-    for preset in ROLE_PRESETS:
-        scoped = preset.get("farm_types")
-        if scoped is not None:
-            assert set(scoped) <= set(FARM_TYPES)
-            assert preset["code"] in preset_codes_for_farm_type(scoped[0])
-        else:
-            for farm_type in FARM_TYPES:
-                assert preset["code"] in preset_codes_for_farm_type(farm_type)
 
 
 @pytest.mark.parametrize("preset", ROLE_PRESETS, ids=lambda p: p["code"])
@@ -317,14 +291,6 @@ def test_task_category_role_map_targets_valid_categories_and_presets() -> None:
 def test_task_category_role_map_matches_spec(category: str, role_code: str) -> None:
     # SPEC: ultrasound/vaccine → VET, bucket moves/weaning → MOVER, feed → FEEDER
     assert TASK_CATEGORY_ROLE_MAP[category] == role_code
-
-
-def test_dairy_weaning_override_targets_the_calf_attendant() -> None:
-    # Dairy weaning (day ~90) is calf-shed work; the base MOVER mapping stays
-    # the goat/universal default and the fallback.
-    assert set(DAIRY_TASK_CATEGORY_ROLE_MAP) <= set(TASK_CATEGORY_ROLE_MAP)
-    assert set(DAIRY_TASK_CATEGORY_ROLE_MAP.values()) <= set(p["code"] for p in ROLE_PRESETS)
-    assert DAIRY_TASK_CATEGORY_ROLE_MAP == {"WEANING": "CALF_ATTENDANT"}
 
 
 # ---------------------------------------------------------------------------
@@ -370,7 +336,6 @@ ENUM_CASES = [
             "VET",
             "LABOUR",
             "EQUIPMENT",
-            "MILK",
             "MANURE",
             "OTHER",
         },
@@ -1415,8 +1380,8 @@ def test_animal_create_tag_optional_defaults_none() -> None:
 
 
 def test_animal_create_defaults_breed_to_species_default() -> None:
-    # Empty means "the farm's species default" (Osmanabadi / Murrah), resolved
-    # by the create endpoint from the farm's type.
+    # Empty means the species default (Osmanabadi), resolved by the create
+    # endpoint.
     assert AnimalCreateIn(**VALID_ANIMAL).breed == ""
 
 
@@ -1926,7 +1891,6 @@ TXN_CATEGORIES = [
     "VET",
     "LABOUR",
     "EQUIPMENT",
-    "MILK",
     "MANURE",
     "OTHER",
 ]
@@ -1941,9 +1905,6 @@ def test_transaction_accepts_every_type(txn_type: str) -> None:
 @pytest.mark.parametrize("category", TXN_CATEGORIES)
 def test_transaction_accepts_every_user_bookable_category(category: str) -> None:
     overrides = dict(VALID_TXN | {"category": category})
-    if category == "MILK":
-        # Milk income carries mandatory litres + price provenance.
-        overrides |= {"milk_litres": 10.0, "milk_unit_price_per_litre": 50.0, "amount": 500.0}
     if category in ("ANIMAL_SALE", "ANIMAL_PURCHASE"):
         # System-generated categories reject manual rows.
         with pytest.raises(ValidationError):

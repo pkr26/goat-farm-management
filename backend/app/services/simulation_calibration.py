@@ -539,20 +539,11 @@ async def calibrate_farm_assumptions(
             "kidding_records/kid_entries",
         )
         gestation_days = [(kidding - breeding).days for kidding, breeding in kidding_meta.values()]
-        # Species-aware plausibility window: the old 90-220-day filter with a
-        # 7-month cap could never calibrate a buffalo (~310-day gestation) and
-        # silently kept the preset value instead.
-        dairy_species = assumptions.sales.lactation_milk_litres > 0.0
-        gestation_lo_days, gestation_hi_days = (280, 345) if dairy_species else (90, 220)
-        gestation_cap_months = 12 if dairy_species else 7
-        valid_gestations = [
-            days for days in gestation_days if gestation_lo_days <= days <= gestation_hi_days
-        ]
+        # Goat plausibility window (planned ~150 days, recorded band 100-200).
+        valid_gestations = [days for days in gestation_days if 90 <= days <= 220]
         if valid_gestations:
             previous_gestation = assumptions.reproduction.gestation_months
-            calibrated_gestation = min(
-                gestation_cap_months, max(1, round(median(valid_gestations) / 30.44))
-            )
+            calibrated_gestation = min(7, max(1, round(median(valid_gestations) / 30.44)))
             assumptions.reproduction.gestation_months = calibrated_gestation
             record(
                 "reproduction.gestation_months",
@@ -833,10 +824,10 @@ async def calibrate_farm_assumptions(
         # engine will re-apply through festival_sale_months — deflate those
         # observations back to the plain market level before deriving the
         # base price and the seasonal curve, or the premium counts twice.
-        # Only when the run will actually apply festival pricing (a dairy
-        # preset carries an explicit empty festival list and would never
-        # re-add the premium — deflating it there just biased the base price
-        # down ~26% on Bakrid-month observations for nothing).
+        # Only when the run will actually apply festival pricing (a preset
+        # carrying an explicit empty festival list would never re-add the
+        # premium — deflating it there just biased the base price down ~26%
+        # on Bakrid-month observations for nothing).
         festival_active = bool(assumptions.sales.festival_sale_months) or (
             assumptions.sales.eid_month > 0
         )

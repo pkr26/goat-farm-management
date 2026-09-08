@@ -44,8 +44,8 @@ class AnimalCreateIn(StrictInputModel):
     sex: Sex
     source: AnimalSourceStr
     current_bucket: BucketStr
-    # Empty means "the farm's species default breed" (Osmanabadi / Murrah),
-    # resolved server-side from the farm's type.
+    # Empty means the species default breed (Osmanabadi), resolved
+    # server-side.
     breed: PostgresText = Field(default="", max_length=60)
     date_of_birth: PastOrTodayDate | None = None
     estimated_dob: PastOrTodayDate | None = None

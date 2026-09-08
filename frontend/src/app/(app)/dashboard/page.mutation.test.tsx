@@ -211,7 +211,7 @@ describe("DashboardPage — first-run welcome card", () => {
 
     expect(screen.getByText("Welcome to your new farm")).toBeInTheDocument();
     expect(
-      screen.getByText("Tag every goat or buffalo you own — tags are how the whole farm connects."),
+      screen.getByText("Tag every goat you own — tags are how the whole farm connects."),
     ).toBeInTheDocument();
     expect(
       screen.getByText("Buying animals? A batch auto-creates their 45-day quarantine plan."),

@@ -6,7 +6,7 @@ opt-in Markdown ledger — mirroring the planner API suite's shape.
 
 import httpx
 
-from .conftest import create_farm, login, owner_with_farm, register
+from .conftest import login, owner_with_farm
 
 WORKER_PW = "workerpass123"
 
@@ -75,16 +75,6 @@ async def test_run_include_ledger_opt_in(client: httpx.AsyncClient) -> None:
     assert ledger.startswith("# Buckets & Tasks — daily operations ledger")
     assert "## Day 1 — 2026-09-03" in ledger
     assert "## Transition matrix" in ledger
-
-
-async def test_run_rejects_dairy_farm(client: httpx.AsyncClient) -> None:
-    owner = await register(client, "dairyowner@ops-sim.in")
-    headers = await create_farm(client, owner, "Dairy Ops Farm", farm_type="BUFFALO_DAIRY")
-    resp = await client.post("/api/ops-sim/run", json=_run_document(), headers=headers)
-    assert resp.status_code == 422
-    assert "goat farms only" in resp.json()["detail"].lower()
-
-
 async def test_run_rejects_incoherent_herd(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client, email="incoherent@ops-sim.in")
     document = _run_document(

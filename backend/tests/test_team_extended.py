@@ -32,8 +32,7 @@ COOKIE = get_settings().refresh_cookie_name
 
 # Exact permission bundles per preset role (mirror of ROLE_PRESETS in
 # app/permissions.py, frozen here as the contract under test). The test farm
-# is a default GOAT farm, so this is its goat-scoped preset vocabulary: the
-# dairy parlour presets (MILKER, MILK_QC, CALF_ATTENDANT) never seed there.
+# is a default farm, so this is its full preset vocabulary.
 PRESET_PERMS: dict[str, set[str]] = {
     "MOVER": {
         "dashboard.view",
@@ -56,7 +55,6 @@ PRESET_PERMS: dict[str, set[str]] = {
         "kidding.manage",
         "health.view",
         "health.manage",
-        "milk.view",
         "tasks.view",
         "tasks.complete",
     },
@@ -80,9 +78,6 @@ PRESET_PERMS: dict[str, set[str]] = {
         "purchases.manage",
         "feeding.view",
         "feeding.manage",
-        "milk.view",
-        "milk.manage",
-        "milk.quality",
         "tasks.view",
         "tasks.create",
         "tasks.complete",
@@ -102,13 +97,10 @@ PRESET_PERMS: dict[str, set[str]] = {
         "tasks.view",
         "tasks.complete",
     },
-    # Sees yields (ration context) but never records milk or fat: a feed error
-    # must not be correctable by editing the milk ledger.
     "FEEDER": {
         "dashboard.view",
         "feeding.view",
         "feeding.manage",
-        "milk.view",
         "buckets.view",
         "tasks.view",
         "tasks.complete",
@@ -131,7 +123,6 @@ PRESET_PERMS: dict[str, set[str]] = {
         "health.view",
         "purchases.view",
         "feeding.view",
-        "milk.view",
         "tasks.view",
         "finance.view",
         "simulation.view",
@@ -170,9 +161,6 @@ ALL_PERMS = {
     "purchases.manage",
     "feeding.view",
     "feeding.manage",
-    "milk.view",
-    "milk.manage",
-    "milk.quality",
     "tasks.view",
     "tasks.create",
     "tasks.complete",
@@ -713,7 +701,7 @@ async def test_permissions_owner_has_everything(client: httpx.AsyncClient) -> No
     assert body["is_owner"] is True
     assert set(body["permissions"]) == ALL_PERMS
     assert body["permissions"] == sorted(body["permissions"])
-    assert len(body["permissions"]) == 30  # full catalog size
+    assert len(body["permissions"]) == 27  # full catalog size
 
 
 @pytest.mark.parametrize("role_code", sorted(PRESET_PERMS))

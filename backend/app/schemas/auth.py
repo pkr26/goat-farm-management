@@ -2,12 +2,10 @@
 
 import re
 from datetime import datetime
-from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from ..models import FarmType
 from .common import PostgresText, StrictInputModel
 
 MAX_EMAIL_LENGTH = 254
@@ -96,7 +94,6 @@ class OwnedFarmExport(BaseModel):
     name: str
     location: str | None
     timezone: str
-    farm_type: str
     created_at: datetime
 
 
@@ -125,7 +122,6 @@ class FarmOut(BaseModel):
     # would make the tenant selector ambiguous to generated clients.
     timezone: str
     role: str | None  # None = owner, else the membership's role name
-    farm_type: Literal[tuple(member.value for member in FarmType)]  # type: ignore[valid-type]
 
 
 class FarmCreateIn(StrictInputModel):
@@ -134,9 +130,6 @@ class FarmCreateIn(StrictInputModel):
         default=None, max_length=120
     )  # farms.location is String(120)
     timezone: str = Field(default="Asia/Kolkata", min_length=1, max_length=64)
-    # Derived from models.FarmType so the wire vocabulary has one source
-    # (the parity test asserts the identity).
-    farm_type: Literal[tuple(member.value for member in FarmType)] = "GOAT"  # type: ignore[valid-type]
 
     @field_validator("timezone")
     @classmethod

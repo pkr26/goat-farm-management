@@ -2,7 +2,7 @@
  * Mutation-hardening for the breeding page: the method switch in the
  * add-breeding form (NATURAL requires a buck; AI methods take an optional
  * semen sire and post a method-specific payload), the eligible doe/buck
- * count gates, species vocabulary (goat vs buffalo dairy) in dialog copy
+ * count gates, species vocabulary in dialog copy
  * and the ultrasound kid-count defaults, the deep-link prefill/dismissal
  * logic (including the stale not-PENDING notice), and the paginated list's
  * settling note.
@@ -16,7 +16,7 @@ import { useEffect } from "react";
 
 import type { AnimalOut, BreedingRecordOut } from "@/api/generated/models";
 import { useAuth } from "@/lib/auth-context";
-import { permissionsHandler, server, TEST_FARMS } from "@/test/msw-server";
+import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 import { farmToday } from "@/lib/format";
 
@@ -153,7 +153,6 @@ async function pickOption(user: User, trigger: HTMLElement, name: string | RegEx
 
 describe("BreedingPage mutation hardening", () => {
   let breedingPostBody: Record<string, unknown> | null;
-  let ultrasoundBody: Record<string, unknown> | null;
   let abortBody: Record<string, unknown> | null;
   let detailCalls: number;
   let listPayload: {
@@ -170,7 +169,6 @@ describe("BreedingPage mutation hardening", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     breedingPostBody = null;
-    ultrasoundBody = null;
     abortBody = null;
     detailCalls = 0;
     listPayload = {
@@ -205,8 +203,7 @@ describe("BreedingPage mutation hardening", () => {
         breedingPostBody = (await request.json()) as Record<string, unknown>;
         return HttpResponse.json(makeRecord({ id: 99 }), { status: 201 });
       }),
-      http.post("/api/breeding/:recordId/ultrasound", async ({ request }) => {
-        ultrasoundBody = (await request.json()) as Record<string, unknown>;
+      http.post("/api/breeding/:recordId/ultrasound", async () => {
         return HttpResponse.json(makeRecord({ id: 1, ultrasound_done: true }));
       }),
       http.post("/api/breeding/:recordId/abort", async ({ request }) => {
@@ -373,107 +370,18 @@ describe("BreedingPage mutation hardening", () => {
     expect("semen_sire_name" in breedingPostBody!).toBe(false);
   });
 
-  // ---------- species vocabulary (buffalo dairy) ----------
+  // ---------- species vocabulary ----------
 
-  function useDairyFarm() {
-    const DAIRY_FARM = { ...TEST_FARMS[0], farm_type: "BUFFALO_DAIRY" as const };
-    server.use(http.get("/api/auth/farms", () => HttpResponse.json([DAIRY_FARM])));
-  }
-
-  it("uses buffalo dairy nouns throughout the add-breeding dialog", async () => {
-    useDairyFarm();
-    listPayload.candidate_availability = { eligible_doe_count: 1, eligible_buck_count: 0 };
-    const { dialog } = await openNewDialog();
-
-    expect(
-      within(dialog).getByText(
-        /A pregnancy-check task is auto-created \(60 days after the service; buffaloes are bred back during lactation\)\./,
-      ),
-    ).toBeInTheDocument();
-    expect(within(dialog).getByLabelText("Milking buffalo *")).toBeInTheDocument();
-    expect(within(dialog).getByLabelText("Bull *")).toBeInTheDocument();
-    expect(within(dialog).getByText("Herd bull")).toBeInTheDocument();
-    expect(within(dialog).getByText("~90% female calves")).toBeInTheDocument();
-    expect(
-      await within(dialog).findByText(/No eligible bulls are available/),
-    ).toBeInTheDocument();
-  });
-
-  it("uses the dairy semen-sire hint and straw-code example", async () => {
-    useDairyFarm();
-    const { user, dialog } = await openNewDialog();
-    await pickDoe(user, dialog);
-    await user.click(within(dialog).getByRole("radio", { name: /Conventional semen/ }));
-
-    const sireInput = within(dialog).getByLabelText(/Semen bull \(optional\)/);
-    expect(sireInput).toHaveAttribute(
-      "placeholder",
-      "Bull name / straw code, e.g. Karanvir 999",
-    );
-    expect(
-      within(dialog).getByText(
-        "The sire on the straw — verifiable daughters' yield >3,000 kg/lactation.",
-      ),
-    ).toBeInTheDocument();
-  });
-
-  it("states the goat pregnancy-check offset without the dairy lactation note", async () => {
+  it("states the goat pregnancy-check offset", async () => {
     const { dialog } = await openNewDialog();
     expect(
       within(dialog).getByText(
-        "A pregnancy-check task is auto-created (32 days after the service).",
+        /A pregnancy-check task is auto-created \(32 days after the service\)\./,
       ),
     ).toBeInTheDocument();
     expect(within(dialog).queryByText(/bred back during lactation/)).not.toBeInTheDocument();
   });
 
-  it("uses the heifer gate copy for a dairy farm with no breeding-ready females", async () => {
-    useDairyFarm();
-    listPayload.candidate_availability = { eligible_doe_count: 0, eligible_buck_count: 0 };
-    const user = userEvent.setup();
-    await renderLoaded();
-    await user.click(screen.getByRole("button", { name: "Add breeding" }));
-    const dialog = await screen.findByRole("dialog", { name: "Add breeding" });
-
-    expect(
-      await within(dialog).findByText(/No breeding-ready females right now\./),
-    ).toBeInTheDocument();
-    expect(
-      await within(dialog).findByText(/No breeding-ready females right now\./),
-    ).toHaveTextContent(
-      "Heifers are bred at 24 months and ≥340 kg (AI at 60 days post-calving; max 3 services before cull review).",
-    );
-  });
-
-  it("labels the dairy table with buffalo nouns and the calving expectation", async () => {
-    useDairyFarm();
-    await renderLoaded();
-    expect(screen.getByRole("columnheader", { name: "Milking buffalo" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Bull" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Expected calving" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Calves" })).toBeInTheDocument();
-  });
-
-  it("defaults a dairy pregnancy to a single calf and caps the count at two", async () => {
-    useDairyFarm();
-    const user = userEvent.setup();
-    await renderLoaded();
-    await user.click(
-      within(rowOf("Pending")).getByRole("button", { name: "Ultrasound result" }),
-    );
-    const dialog = await screen.findByRole("dialog", { name: "Ultrasound result" });
-
-    await user.click(within(dialog).getByRole("checkbox"));
-    expect(within(dialog).getByText("Calf count detected")).toBeInTheDocument();
-    expect(within(dialog).getByRole("combobox")).toHaveTextContent("1");
-
-    await user.click(within(dialog).getByRole("combobox"));
-    expect((await screen.findAllByRole("option")).map((o) => o.textContent)).toEqual(["1", "2"]);
-
-    await user.click(within(dialog).getByRole("button", { name: "Save result" }));
-    await waitFor(() => expect(ultrasoundBody).not.toBeNull());
-    expect(ultrasoundBody).toEqual({ pregnant: true, date: TODAY, kid_count: 1 });
-  });
 
   // ---------- deep-link prefill / dismissal ----------
 

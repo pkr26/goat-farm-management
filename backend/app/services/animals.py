@@ -15,13 +15,13 @@ from ..models import (
     PurchaseBatch,
     Task,
     TaskStatus,
-    species_profile,
 )
 from ..models.lifecycle import (
     LEGAL_BUCKET_TRANSITIONS,
     TransitionContext,
     TransitionFacts,
 )
+from ..models.species import GOAT_PROFILE
 from ..utils import today, utcnow
 
 
@@ -33,7 +33,6 @@ def bucket_transition_error(
     reference_date: date | None = None,
     facts: TransitionFacts | None = None,
     allow_restricted_reclassification: bool = False,
-    farm_type: str = "GOAT",
 ) -> str | None:
     """Return the model-level reason a lifecycle move must be blocked.
 
@@ -76,10 +75,10 @@ def bucket_transition_error(
         )
     when = reference_date or today()
     if to_bucket == Bucket.BREEDING.value:
-        profile = species_profile(farm_type)
+        profile = GOAT_PROFILE
         if animal.sex == "F":
             if facts is None:
-                eligible = animal.is_breeding_eligible_on(when, farm_type=farm_type)
+                eligible = animal.is_breeding_eligible_on(when)
             else:
                 latest_weight_kg, is_currently_pregnant = facts
                 age = animal.age_months_on(when)
@@ -101,7 +100,7 @@ def bucket_transition_error(
         # current_bucket FOUNDATION/BREEDING via is_buck_eligible_on().
         if animal.sex == "M":
             if facts is None:
-                ready = animal.is_buck_ready_on(when, farm_type=farm_type)
+                ready = animal.is_buck_ready_on(when)
             else:
                 latest_weight_kg, _is_currently_pregnant = facts
                 age = animal.age_months_on(when)
@@ -127,7 +126,6 @@ def require_bucket_transition(
     reference_date: date | None = None,
     facts: TransitionFacts | None = None,
     allow_restricted_reclassification: bool = False,
-    farm_type: str = "GOAT",
 ) -> None:
     if error := bucket_transition_error(
         animal,
@@ -136,7 +134,6 @@ def require_bucket_transition(
         reference_date=reference_date,
         facts=facts,
         allow_restricted_reclassification=allow_restricted_reclassification,
-        farm_type=farm_type,
     ):
         raise ValueError(error)
 
@@ -152,7 +149,6 @@ def move_animal(
     reference_date: date | None = None,
     facts: TransitionFacts | None = None,
     allow_restricted_reclassification: bool = False,
-    farm_type: str = "GOAT",
 ) -> None:
     """Record a BucketMove and update the animal's current bucket.
     Non-ACTIVE (sold/dead/culled) animals never move — they are out of the
@@ -173,7 +169,6 @@ def move_animal(
         reference_date=reference_date,
         facts=facts,
         allow_restricted_reclassification=allow_restricted_reclassification,
-        farm_type=farm_type,
     )
     db.add(
         BucketMove(

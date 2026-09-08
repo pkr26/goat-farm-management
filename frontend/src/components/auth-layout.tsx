@@ -9,8 +9,7 @@ import { Logo } from "@/components/logo";
 /**
  * Shared split-screen shell for /login and /register. The brand panel's
  * gradient derives from the --primary token (no hard-coded emerald), so
- * it follows the theme and any future rebrand. Copy is species-neutral:
- * the product serves goat and buffalo dairy farms.
+ * it follows the theme and any future rebrand. Copy speaks to goat farms.
  */
 
 const BRAND_GRADIENT =
@@ -94,7 +93,7 @@ export function AuthLayout({
           </ul>
         </div>
         <p className="relative text-sm text-primary-foreground/65">
-          For Osmanabadi goat herds and Murrah dairies across Telangana.
+          For Osmanabadi goat herds across Telangana.
         </p>
       </div>
 

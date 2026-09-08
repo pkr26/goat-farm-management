@@ -25,8 +25,8 @@ from ..models import (
     WeightRecord,
     expected_kidding_date,
     planned_ultrasound_date,
-    species_profile,
 )
+from ..models.species import GOAT_PROFILE
 from ..utils import add_months, today, utcnow
 from ._common import (
     _add_task,
@@ -36,7 +36,7 @@ from ._common import (
     _pending_tasks_for,
 )
 from .animals import move_animal
-from .health import PRE_CALVING_THERAPY_TITLE, PRE_KIDDING_VACCINE_TITLE
+from .health import PRE_KIDDING_VACCINE_TITLE
 from .kidding import LitterSizeError
 
 logger = logging.getLogger(__name__)
@@ -81,10 +81,9 @@ def _candidate_filters(
     farm_id: int,
     kind: BreedingCandidateKind,
     reference_date: date,
-    farm_type: str = "GOAT",
 ) -> tuple[ColumnElement[bool], ...]:
     """SQL equivalent of the canonical doe/buck eligibility predicates."""
-    profile = species_profile(farm_type)
+    profile = GOAT_PROFILE
     effective_dob = func.coalesce(Animal.date_of_birth, Animal.estimated_dob)
     common: tuple[ColumnElement[bool], ...] = (
         Animal.farm_id == farm_id,
@@ -151,9 +150,8 @@ def _candidate_ids_stmt(
     kind: BreedingCandidateKind,
     reference_date: date,
     q: str | None = None,
-    farm_type: str = "GOAT",
 ) -> Select[tuple[int]]:
-    filters = list(_candidate_filters(farm_id, kind, reference_date, farm_type))
+    filters = list(_candidate_filters(farm_id, kind, reference_date))
     search = _literal_candidate_search(q)
     if search is not None:
         filters.append(search)
@@ -177,9 +175,9 @@ async def breeding_candidate_page(
     pregnancy and all eligibility filtering remain in SQL.
     """
     when = reference_date or today(farm.timezone)
-    id_stmt = _candidate_ids_stmt(farm.id, kind, when, q, farm.farm_type)
+    id_stmt = _candidate_ids_stmt(farm.id, kind, when, q)
     total = (await db.execute(select(func.count()).select_from(id_stmt.subquery()))).scalar_one()
-    filters = list(_candidate_filters(farm.id, kind, when, farm.farm_type))
+    filters = list(_candidate_filters(farm.id, kind, when))
     search = _literal_candidate_search(q)
     if search is not None:
         filters.append(search)
@@ -203,14 +201,12 @@ async def breeding_candidate_counts(
     when = reference_date or today(farm.timezone)
     doe_count = (
         select(func.count())
-        .select_from(_candidate_ids_stmt(farm.id, "doe", when, farm_type=farm.farm_type).subquery())
+        .select_from(_candidate_ids_stmt(farm.id, "doe", when).subquery())
         .scalar_subquery()
     )
     buck_count = (
         select(func.count())
-        .select_from(
-            _candidate_ids_stmt(farm.id, "buck", when, farm_type=farm.farm_type).subquery()
-        )
+        .select_from(_candidate_ids_stmt(farm.id, "buck", when).subquery())
         .scalar_subquery()
     )
     row = (await db.execute(select(doe_count, buck_count))).one()
@@ -223,14 +219,13 @@ def is_breeding_candidate(
     latest_weight_kg: float | None,
     has_open_breeding: bool,
     reference_date: date,
-    farm_type: str = "GOAT",
 ) -> bool:
     """Canonical picker and write-path predicate for a doe.
 
     Re-service after a failed cycle is allowed from BREEDING, but it retains
     the exact same age/weight/pregnancy requirements as first service.
     """
-    profile = species_profile(farm_type)
+    profile = GOAT_PROFILE
     age = doe.age_months_on(reference_date)
     return bool(
         not has_open_breeding
@@ -247,10 +242,10 @@ def is_breeding_candidate(
 
 
 def is_buck_breeding_candidate(
-    buck: Animal, *, latest_weight_kg: float | None, reference_date: date, farm_type: str = "GOAT"
+    buck: Animal, *, latest_weight_kg: float | None, reference_date: date
 ) -> bool:
     """Canonical sire predicate using a bounded latest-weight scalar."""
-    profile = species_profile(farm_type)
+    profile = GOAT_PROFILE
     age = buck.age_months_on(reference_date)
     return bool(
         buck.sex == "M"
@@ -435,12 +430,12 @@ async def create_breeding_record(
     actor_is_owner: bool = False,
 ) -> BreedingRecord:
     participants: list[tuple[Animal, str]] = [(doe, "Doe")]
-    profile = species_profile(farm.farm_type)
-    if farm.farm_type == "GOAT" and method != BreedingMethod.NATURAL.value:
+    profile = GOAT_PROFILE
+    if method != BreedingMethod.NATURAL.value:
         # The goat (meat) protocol is natural cover with buck rotation; an
-        # AI/AI_SEXED claim on a goat farm both bypasses the buck:doe ratio
-        # cap (the genetic-concentration control) and erases sire lineage —
-        # kids from such a pregnancy record sire_id=None.
+        # AI/AI_SEXED claim both bypasses the buck:doe ratio cap (the
+        # genetic-concentration control) and erases sire lineage — kids from
+        # such a pregnancy record sire_id=None.
         raise ValueError(
             "AI and sexed-semen services are not part of the goat protocol — "
             "record a NATURAL service with a herd buck"
@@ -495,9 +490,8 @@ async def create_breeding_record(
             f"Breeding date must be after {doe.tag_number}'s latest reproductive "
             f"event on {latest_boundary.isoformat()}"
         )
-    # Voluntary waiting period: a service dated before the last calving plus
-    # the species' VWP is biologically invalid (uterine involution). Buffalo
-    # protocol is 60 days; for goats the floor mirrors the postpartum
+    # Voluntary waiting period: a service dated before the last kidding plus
+    # the VWP is biologically invalid. The floor mirrors the postpartum
     # recovery window and the bucket graph already keeps surviving-litter
     # does in RECOVERY (not breeding-ready) until weaning.
     latest_calving = await _latest_kidding_date(db, farm.id, doe.id)
@@ -523,7 +517,7 @@ async def create_breeding_record(
     # breeding that physically happened before a same-day move legitimately
     # predates it. Rejecting that ordering made every backdated breeding —
     # which the schema explicitly supports — unrecordable after any move.
-    ultrasound_date = planned_ultrasound_date(breeding_date, farm.farm_type)
+    ultrasound_date = planned_ultrasound_date(breeding_date)
     br = BreedingRecord(
         farm_id=farm.id,
         doe_id=doe.id,
@@ -556,7 +550,6 @@ async def create_breeding_record(
     await _add_task(
         db,
         farm.id,
-        farm.farm_type,
         f"Pregnancy check: {doe.tag_number} (bred {breeding_date.strftime('%d-%m')})",
         ultrasound_date,
         TaskCategory.ULTRASOUND,
@@ -572,7 +565,6 @@ async def create_breeding_record(
         context="breeding",
         reference_date=breeding_date,
         facts=(doe_latest_weight_kg, False),
-        farm_type=farm.farm_type,
     )
     await db.flush()
     return br
@@ -606,8 +598,7 @@ async def record_ultrasound_result(
         raise ValueError(
             f"{doe.tag_number} is {doe.status.lower()} — cannot record an ultrasound result"
         )
-    farm = await db.get(Farm, br.farm_id)
-    profile = species_profile(farm.farm_type if farm is not None else "GOAT")
+    profile = GOAT_PROFILE
     max_gestation = profile.max_gestation_days
     if result_date < br.breeding_date:
         raise ValueError("Pregnancy check result cannot predate the breeding date")
@@ -630,11 +621,10 @@ async def record_ultrasound_result(
         )
     if pregnant and kid_count is not None and kid_count > profile.max_litter_size:
         # Species cap on detected fetuses, mirroring record_kidding's cap on
-        # the delivered litter: a goat scan may report up to 4, a buffalo
-        # scan up to 2. The schema bound only carries the cross-species max.
+        # the delivered litter: a goat scan may report up to 4.
         raise LitterSizeError(
-            f"A {profile.farm_type.lower()} pregnancy cannot carry more than "
-            f"{profile.max_litter_size} {profile.young_plural} (detected {kid_count})"
+            f"A goat pregnancy cannot carry more than "
+            f"{profile.max_litter_size} kids (detected {kid_count})"
         )
     if not pregnant:
         # The negative path deliberately accepts results well before the
@@ -690,8 +680,7 @@ async def record_ultrasound_result(
     if pregnant:
         br.outcome = BreedingOutcome.CONFIRMED_PREGNANT.value
         doe.cull_candidate = False  # she conceived — previous failures forgiven
-        farm_type = farm.farm_type if farm is not None else "GOAT"
-        ekd = expected_kidding_date(br.breeding_date, farm_type)
+        ekd = expected_kidding_date(br.breeding_date)
         br.expected_kidding_date = ekd
         move_animal(
             db,
@@ -706,70 +695,39 @@ async def record_ultrasound_result(
             # be committed atomically in the same transaction.
             allow_restricted_reclassification=True,
         )
-        if farm_type != "GOAT":
-            # Buffalo: dry-off and the dry-group/calving-pen move share the
-            # species' prepartum lead (~60 days before calving), so the dam
-            # reaches the dry TMR when the therapy starts instead of three
-            # weeks later (README: "dry-off 60 days before calving").
-            dry_off_date = ekd - timedelta(days=profile.prepartum_move_lead_days)
-            await _add_task(
-                db,
-                br.farm_id,
-                farm_type,
-                f"{PRE_CALVING_THERAPY_TITLE}: {doe.tag_number}",
-                dry_off_date,
-                TaskCategory.VACCINE,
-                animal_id=doe.id,
-                breeding_record_id=br.id,
-            )
-            await _add_task(
-                db,
-                br.farm_id,
-                farm_type,
-                f"Move {doe.tag_number} to DELIVERY (dry off, calving in ~2 months)",
-                dry_off_date,
-                TaskCategory.BUCKET_MOVE,
-                animal_id=doe.id,
-                breeding_record_id=br.id,
-            )
-        else:
-            await _add_task(
-                db,
-                br.farm_id,
-                farm_type,
-                f"{PRE_KIDDING_VACCINE_TITLE}: {doe.tag_number}",
-                ekd - timedelta(days=40),
-                TaskCategory.VACCINE,
-                animal_id=doe.id,
-                breeding_record_id=br.id,
-            )
-            # The seeded ET+TT template promises two doses 15 days apart;
-            # the booster closes that gap (primary + booster pre-kidding).
-            await _add_task(
-                db,
-                br.farm_id,
-                farm_type,
-                f"{PRE_KIDDING_VACCINE_TITLE} booster: {doe.tag_number}",
-                ekd - timedelta(days=25),
-                TaskCategory.VACCINE,
-                animal_id=doe.id,
-                breeding_record_id=br.id,
-            )
-            await _add_task(
-                db,
-                br.farm_id,
-                farm_type,
-                f"Move {doe.tag_number} to DELIVERY (kidding in ~2 weeks)",
-                ekd - timedelta(days=15),
-                TaskCategory.BUCKET_MOVE,
-                animal_id=doe.id,
-                breeding_record_id=br.id,
-            )
         await _add_task(
             db,
             br.farm_id,
-            farm_type,
-            f"{profile.parturition.capitalize()} due: {doe.tag_number}",
+            f"{PRE_KIDDING_VACCINE_TITLE}: {doe.tag_number}",
+            ekd - timedelta(days=40),
+            TaskCategory.VACCINE,
+            animal_id=doe.id,
+            breeding_record_id=br.id,
+        )
+        # The seeded ET+TT template promises two doses 15 days apart;
+        # the booster closes that gap (primary + booster pre-kidding).
+        await _add_task(
+            db,
+            br.farm_id,
+            f"{PRE_KIDDING_VACCINE_TITLE} booster: {doe.tag_number}",
+            ekd - timedelta(days=25),
+            TaskCategory.VACCINE,
+            animal_id=doe.id,
+            breeding_record_id=br.id,
+        )
+        await _add_task(
+            db,
+            br.farm_id,
+            f"Move {doe.tag_number} to DELIVERY (kidding in ~2 weeks)",
+            ekd - timedelta(days=15),
+            TaskCategory.BUCKET_MOVE,
+            animal_id=doe.id,
+            breeding_record_id=br.id,
+        )
+        await _add_task(
+            db,
+            br.farm_id,
+            f"Kidding due: {doe.tag_number}",
             ekd,
             TaskCategory.KIDDING_DUE,
             animal_id=doe.id,
@@ -832,8 +790,7 @@ async def mark_unassessed(
 async def _update_cull_candidate(db: AsyncSession, doe: Animal, *, failed_limit: int) -> None:
     """`failed_limit` consecutive FAILED cycles → cull candidate flag.
 
-    The limit is species-aware (goat SPEC: 2; dairy protocol: 3 services
-    before cull review) and comes from the farm's SpeciesProfile.
+    The limit (goat SPEC: 2) comes from GOAT_PROFILE.
     """
     result = await db.execute(
         select(BreedingRecord.outcome)
@@ -879,10 +836,7 @@ async def mark_aborted(
         raise ValueError("Pregnancy loss date cannot be before the breeding date")
     if br.ultrasound_result_date is not None and loss_date < br.ultrasound_result_date:
         raise ValueError("Pregnancy loss date cannot be before pregnancy confirmation")
-    farm = await db.get(Farm, br.farm_id)
-    max_gestation = species_profile(
-        farm.farm_type if farm is not None else "GOAT"
-    ).max_gestation_days
+    max_gestation = GOAT_PROFILE.max_gestation_days
     if loss_date > br.breeding_date + timedelta(days=max_gestation) and not (
         allow_late_administrative_close
     ):

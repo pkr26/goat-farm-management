@@ -3,7 +3,7 @@
  * edits the starting herd (one row per animal in a bucket) and posts to
  * /api/ops-sim/run; the results render the day timeline, the selected day's
  * duty schedule, feeding manifest, occupancy, the transition matrix, animal
- * journeys, the explanations and the opt-in Markdown ledger. Dairy farms see
+ * journeys, the explanations and the opt-in Markdown ledger.
  * the goat-only gate; permission failures keep the page out of reach.
  */
 
@@ -12,7 +12,7 @@ import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
 
-import { server, TEST_FARMS, permissionsHandler } from "@/test/msw-server";
+import { server, permissionsHandler } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
 import OpsSimulationPage from "./page";
@@ -443,16 +443,6 @@ describe("OpsSimulationPage — setup and run", () => {
 });
 
 describe("OpsSimulationPage — gating", () => {
-  it("shows the goat-only gate on a buffalo dairy farm", async () => {
-    server.use(
-      http.get("/api/auth/farms", () =>
-        HttpResponse.json([{ ...TEST_FARMS[0], farm_type: "BUFFALO_DAIRY" }]),
-      ),
-    );
-    renderWithProviders(<OpsSimulationPage />);
-    expect(await screen.findByText("Goat farms only — for now")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Run 90 days/ })).not.toBeInTheDocument();
-  });
 
   it("denies the page without simulation.view", async () => {
     server.use(permissionsHandler(["dashboard.view"]));

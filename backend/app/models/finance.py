@@ -38,7 +38,7 @@ class Transaction(Base):
         ),
         CheckConstraint(
             "category IN ('ANIMAL_SALE', 'ANIMAL_PURCHASE', 'FEED', 'MEDICINE', "
-            "'VET', 'LABOUR', 'EQUIPMENT', 'MILK', 'MANURE', 'OTHER')",
+            "'VET', 'LABOUR', 'EQUIPMENT', 'MANURE', 'OTHER')",
             name="ck_transactions_category",
         ),
         CheckConstraint(
@@ -56,18 +56,6 @@ class Transaction(Base):
             "AND feed_quantity_kg BETWEEN 0.001 AND 1000000 "
             "AND feed_unit_price_per_kg BETWEEN 0 AND 1000000000)",
             name="ck_transactions_feed_purchase_provenance",
-        ),
-        CheckConstraint(
-            "(milk_litres IS NULL AND milk_unit_price_per_litre IS NULL "
-            "AND milk_fat_pct IS NULL AND milk_price_per_kg_fat IS NULL) OR "
-            "(category = 'MILK' AND type = 'INCOME' "
-            "AND milk_litres BETWEEN 0.001 AND 1000000 "
-            "AND (milk_unit_price_per_litre IS NULL "
-            "OR milk_unit_price_per_litre BETWEEN 0 AND 1000000000) "
-            "AND ((milk_fat_pct IS NULL AND milk_price_per_kg_fat IS NULL) OR "
-            "(milk_fat_pct BETWEEN 0 AND 12 "
-            "AND milk_price_per_kg_fat BETWEEN 0 AND 1000000000)))",
-            name="ck_transactions_milk_provenance",
         ),
         CheckConstraint(
             "correction_of_id IS NULL OR correction_of_id <> id",
@@ -130,15 +118,6 @@ class Transaction(Base):
     feed_inventory_id: Mapped[int | None]
     feed_quantity_kg: Mapped[Decimal | None] = mapped_column(Numeric(15, 3))
     feed_unit_price_per_kg: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
-    # Optional provenance on MILK income rows: litres sold plus the realized
-    # price — either a flat ₹/litre or the fat-based procurement pair the
-    # dairy plant pays on (fat % of the shipment and ₹ per kg of fat). Kept
-    # beside the amount so the ledger can price milk without a separate
-    # sales document; at most one pricing basis needs to be present.
-    milk_litres: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
-    milk_unit_price_per_litre: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
-    milk_fat_pct: Mapped[Decimal | None] = mapped_column(Numeric(4, 2))
-    milk_price_per_kg_fat: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     correction_of_id: Mapped[int | None] = mapped_column(
         ForeignKey("transactions.id", ondelete="RESTRICT")
     )

@@ -63,7 +63,6 @@ import { ApiError } from "@/lib/api-client";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { enumLabel } from "@/lib/enum-labels";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
-import { useFarmType } from "@/hooks/use-farm-type";
 import { farmToday, formatDate, formatFarmDateTime, formatMoney } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import { permittedAppPath, withReturnTo } from "@/lib/permission-navigation";
@@ -149,7 +148,7 @@ function AddWeightDialog({
 }) {
   const [open, setOpen] = useState(false);
   const mut = useRecordWeightApiAnimalsAnimalIdWeightPost();
-  const vocabulary = farmVocabulary(useFarmType());
+  const vocabulary = farmVocabulary;
   const schema = useMemo(() => weightSchema(vocabulary.facts.maxWeightKg), [vocabulary]);
   const {
     register,
@@ -303,7 +302,6 @@ function MoveBucketDialog({
   actionFlight: ProfileActionFlight;
   profileSettling: boolean;
 }) {
-  const farmType = useFarmType();
   const [open, setOpen] = useState(false);
   const mut = useMoveBucketApiAnimalsAnimalIdMovePost();
   const {
@@ -373,7 +371,7 @@ function MoveBucketDialog({
                   value={field.value ?? ""}
                   onValueChange={field.onChange}
                   items={Object.fromEntries(
-                    BUCKETS.map((b) => [b, enumLabel("bucket", b, farmType)]),
+                    BUCKETS.map((b) => [b, enumLabel("bucket", b)]),
                   )}
                 >
                   <SelectTrigger
@@ -389,7 +387,7 @@ function MoveBucketDialog({
                       (b) => b !== currentBucket && bucketAllowsSex(b, sex),
                     ).map((b) => (
                       <SelectItem key={b} value={b}>
-                        {enumLabel("bucket", b, farmType)}
+                        {enumLabel("bucket", b)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1008,8 +1006,7 @@ function ProfileBody({
 }) {
   const { can } = usePermissions();
   const a = profile.animal;
-  const farmType = useFarmType();
-  const vocabulary = farmVocabulary(farmType);
+  const vocabulary = farmVocabulary;
   const active = a.status === "ACTIVE";
   const canViewHealth = can("health.view");
   const canManageHealth = can("health.manage");
@@ -1052,7 +1049,7 @@ function ProfileBody({
               <StatusBadge status={a.status} />
             </span>
           }
-          description={`${a.breed} · ${a.sex === "F" ? "Female" : "Male"} · ${enumLabel("bucket", a.current_bucket, farmType)}`}
+          description={`${a.breed} · ${a.sex === "F" ? "Female" : "Male"} · ${enumLabel("bucket", a.current_bucket)}`}
           actions={
             active && (
               <>
@@ -1199,7 +1196,7 @@ function ProfileBody({
           <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             <Detail label="Sex">{a.sex === "F" ? "Female" : "Male"}</Detail>
             <Detail label="Breed">{a.breed}</Detail>
-            <Detail label="Bucket">{enumLabel("bucket", a.current_bucket, farmType)}</Detail>
+            <Detail label="Bucket">{enumLabel("bucket", a.current_bucket)}</Detail>
             <Detail label="Days in bucket">{a.days_in_current_bucket ?? "—"}</Detail>
             <Detail label="Date of birth">
               {a.date_of_birth
@@ -1353,8 +1350,8 @@ function ProfileBody({
                   <TableRow key={m.id}>
                     <TableCell>{formatDate(m.effective_date)}</TableCell>
                     <TableCell>{formatFarmDateTime(m.moved_at)}</TableCell>
-                    <TableCell>{m.from_bucket ? enumLabel("bucket", m.from_bucket, farmType) : "—"}</TableCell>
-                    <TableCell>{enumLabel("bucket", m.to_bucket, farmType)}</TableCell>
+                    <TableCell>{m.from_bucket ? enumLabel("bucket", m.from_bucket) : "—"}</TableCell>
+                    <TableCell>{enumLabel("bucket", m.to_bucket)}</TableCell>
                     <TableCell>{m.reason ?? ""}</TableCell>
                   </TableRow>
                 ))}

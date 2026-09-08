@@ -9,7 +9,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..deps import CurrentFarm, CurrentMembership, CurrentUser, DbSession, require_perm
-from ..models import Animal, PurchaseBatch, Task, TaskStatus, species_profile
+from ..models import Animal, PurchaseBatch, Task, TaskStatus
+from ..models.species import GOAT_PROFILE
 from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET, PostgresText
 from ..schemas.purchases import (
     PurchaseBatchDetailOut,
@@ -123,7 +124,7 @@ async def create_batch(
             raise HTTPException(status_code=422, detail=str(exc)) from None
         # Species-scaled cap: the generic 0-1000 kg band would let a goat
         # purchase average 950 kg/head and fabricate "latest weight" facts.
-        adult_cap = species_profile(farm.farm_type).max_adult_weight_kg
+        adult_cap = GOAT_PROFILE.max_adult_weight_kg
         if payload.avg_weight_kg is not None and payload.avg_weight_kg > adult_cap:
             raise HTTPException(
                 status_code=422,
@@ -235,9 +236,6 @@ async def batch_detail(
                     farm.timezone,
                     permissions=perms,
                     computed=computed[animal.id],
-                    # is_breeding_ready inside is species-aware; without the
-                    # farm type a dairy's listing is judged by goat thresholds.
-                    farm_type=farm.farm_type,
                 )
                 if "animals.view" in perms
                 else PurchaseQuarantineAnimalOut.model_validate(animal)

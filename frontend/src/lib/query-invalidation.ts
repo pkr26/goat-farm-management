@@ -19,7 +19,6 @@ const FARM_DATA_PATHS = [
   "/api/health",
   "/api/tasks",
   "/api/feeding",
-  "/api/milk",
   "/api/finance",
   "/api/purchases",
   "/api/dashboard",

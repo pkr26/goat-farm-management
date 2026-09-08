@@ -23,7 +23,6 @@ import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { StaleDataNotice } from "@/components/stale-data-notice";
 import { PageSkeleton } from "@/components/skeletons";
-import { useFarmType } from "@/hooks/use-farm-type";
 import { farmVocabulary, type FarmVocabulary } from "@/lib/farm-vocabulary";
 import { PaginationControls } from "@/components/pagination-controls";
 import { StatusBadge } from "@/components/status-badge";
@@ -106,7 +105,7 @@ const DUE_LIST_LIMIT = 25;
 
 /** Per-kid schema, built per farm: the backend rejects a recorded birth
  * weight outside the species' credible newborn band (birth_weight_kg_range —
- * goat 0.5–8 kg, buffalo 15–80 kg), so mirror both bounds inline instead of
+ * goat 0.5–8 kg), so mirror the bounds inline instead of
  * bouncing the whole kidding with an opaque server 422. */
 const kidSchema = (vocabulary: FarmVocabulary) =>
   z.object({
@@ -144,7 +143,7 @@ function kiddingSchema(vocabulary: FarmVocabulary) {
       kids: z
         .array(kidSchema(vocabulary))
         .min(1, `At least one ${vocabulary.young}`)
-        // Species litter cap (goat ≤4, buffalo ≤2) mirrors
+        // Species litter cap (goat ≤4) mirrors
         // SpeciesProfile.max_litter_size — LitterSizeError on the server.
         // The wire schema's own ceiling (10) is looser on purpose.
         .max(
@@ -178,7 +177,7 @@ type KiddingValues = z.infer<ReturnType<typeof kiddingSchema>>;
 /** The kidding date's floor depends on the pregnancy being closed, so it is
  * layered on per record: record_kidding() rejects both a gestation below the
  * species minimum and a delivery predating its own confirmation scan. The
- * band is species-specific (goats 100–200 days, buffalo 270–350) and comes
+ * band is species-specific (goats 100–200 days) and comes
  * from the farm vocabulary, mirroring backend/app/models/species.py.
  * Catching violations here saves the operator from entering every kid row
  * first. */
@@ -217,7 +216,7 @@ function RecordKiddingDialog({
 }) {
   const mutation = useCreateKiddingApiKiddingPost();
   const createFlight = useSingleFlight();
-  const vocabulary = farmVocabulary(useFarmType());
+  const vocabulary = farmVocabulary;
   const femaleLabel = cap(vocabulary.femaleAdult);
   const youngLabel = cap(vocabulary.young);
   const [formError, setFormError] = useState<string | null>(null);
@@ -252,9 +251,8 @@ function RecordKiddingDialog({
       date: localToday(),
       ease: "NORMAL",
       notes: "",
-      // Goat kiddings norm to twins (v1 parity); a buffalo calving is a
-      // single calf unless twins are recorded.
-      kids: vocabulary.dairy ? [emptyKid()] : [emptyKid(), emptyKid()],
+      // Goat kiddings norm to twins (v1 parity).
+      kids: [emptyKid(), emptyKid()],
     },
   });
   const { fields, append, remove } = useFieldArray({ control, name: "kids" });
@@ -619,7 +617,7 @@ function KidsCell({
   kidding: KiddingRecordOut;
   canViewAnimals: boolean;
 }) {
-  const vocabulary = farmVocabulary(useFarmType());
+  const vocabulary = farmVocabulary;
   const kids = kidding.kids ?? [];
   if (kids.length === 0) return <span>—</span>;
   return (
@@ -643,7 +641,7 @@ function KidsCell({
 
 function KiddingPageContent() {
   const queryClient = useQueryClient();
-  const vocabulary = farmVocabulary(useFarmType());
+  const vocabulary = farmVocabulary;
   const femaleLabel = cap(vocabulary.femaleAdult);
   const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
   const allowed = can("kidding.view");

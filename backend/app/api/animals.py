@@ -32,8 +32,8 @@ from ..models import (
     TransactionType,
     WeightRecord,
     quarantine_schedule,
-    species_profile,
 )
+from ..models.species import GOAT_PROFILE
 from ..schemas.animals import (
     AnimalCreateIn,
     AnimalListOut,
@@ -151,10 +151,7 @@ async def _animal_out(
     animal: Animal,
     reference_date: date,
     timezone_name: str,
-    permissions: set[str],
-    *,
-    farm_type: str = "GOAT",
-) -> AnimalOut:
+    permissions: set[str]) -> AnimalOut:
     """Serialize current facts without loading the animal's lifetime history."""
     animal_id = animal.id  # read before expire: expired attrs can't be touched
     db.expire(animal)
@@ -167,17 +164,13 @@ async def _animal_out(
         timezone_name,
         permissions=permissions,
         computed=computed,
-        farm_type=farm_type,
     )
 
 
 async def _lock_pristine_batch_protocol_for_quarantine_reentry(
     db: AsyncSession,
     farm_id: int,
-    purchase_batch_id: int,
-    *,
-    farm_type: str = "GOAT",
-) -> None:
+    purchase_batch_id: int) -> None:
     """Allow a batch animal to re-enter quarantine only before work starts.
 
     The caller already holds the Animal row.  Locking Batch and then its Tasks
@@ -209,7 +202,7 @@ async def _lock_pristine_batch_protocol_for_quarantine_reentry(
             detail="This animal's purchase-batch quarantine protocol is unavailable.",
         )
 
-    expected = quarantine_schedule(batch, farm_type)
+    expected = quarantine_schedule(batch)
     tasks = list(
         (
             await db.execute(
@@ -309,8 +302,7 @@ async def list_animals(
             farm.timezone,
             permissions=perms,
             computed=computed[animal.id],
-            farm_type=farm.farm_type,
-        )
+            )
         for animal in page_animals
     ]
     return AnimalListOut(animals=animals, total=total)
@@ -418,7 +410,7 @@ async def create_animal(
                 age_months = (farm_date.year - dob.year) * 12 + (farm_date.month - dob.month)
                 if farm_date.day < dob.day:
                     age_months -= 1
-            profile = species_profile(farm.farm_type)
+            profile = GOAT_PROFILE
             min_age = (
                 profile.min_sire_breeding_age_months
                 if payload.sex == "M"
@@ -441,7 +433,7 @@ async def create_animal(
     # 950-kg entry weight or birth weight here coalesces into "latest
     # weight" downstream and would permanently satisfy the breeding gates —
     # the same hole the /weight, /kidding and /purchases endpoints fence.
-    weight_profile = species_profile(farm.farm_type)
+    weight_profile = GOAT_PROFILE
     if payload.birth_weight is not None and not (
         weight_profile.birth_weight_kg_range[0]
         <= payload.birth_weight
@@ -514,7 +506,7 @@ async def create_animal(
                         estimated_dob=payload.estimated_dob,
                         birth_type=payload.birth_type,
                         breed=payload.breed.strip()
-                        or species_profile(farm.farm_type).default_breed,
+                        or GOAT_PROFILE.default_breed,
                         birth_weight=payload.birth_weight,
                         purchase_date=(payload.purchase_date or farm_date)
                         if managed_purchase
@@ -732,8 +724,7 @@ async def animal_profile(
             farm.timezone,
             permissions=perms,
             computed=computed,
-            farm_type=farm.farm_type,
-        ),
+            ),
         kids=[AnimalOffspringOut.model_validate(kid) for kid in kids_result.scalars()],
         kids_total=kids_total,
         kids_offset=kids_offset,
@@ -862,11 +853,10 @@ async def move_bucket(
             context=context,
             reference_date=reference_date,
             facts=transition_facts,
-            # The BREEDING-entry gate inside is species-aware (goat 10 mo/
-            # 22 kg, buffalo 24 mo/340 kg); the GOAT default here would let a
-            # juvenile buffalo heifer into the breeding pool.
-            farm_type=farm.farm_type,
-        )
+            # The BREEDING-entry gate inside enforces the goat thresholds
+            # (10 months / 22 kg), keeping juveniles out of the breeding
+            # pool.
+            )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
     if (
@@ -900,8 +890,7 @@ async def move_bucket(
             db,
             farm.id,
             animal.purchase_batch_id,
-            farm_type=farm.farm_type,
-        )
+            )
     move_animal(
         db,
         animal,
@@ -911,11 +900,10 @@ async def move_bucket(
         context=context,
         reference_date=reference_date,
         facts=transition_facts,
-        farm_type=farm.farm_type,
     )
     await db.commit()
     return await _animal_out(
-        db, animal, today(farm.timezone), farm.timezone, perms, farm_type=farm.farm_type
+        db, animal, today(farm.timezone), farm.timezone, perms
     )
 
 
@@ -941,7 +929,7 @@ async def record_weight(
         # WeightIn's validators; the species-scaled adult cap lives here —
         # a 999 kg reading on a 30-kg doe is not data, and it would poison
         # every eligibility gate and dashboard that reads "latest weight".
-        adult_cap = species_profile(farm.farm_type).max_adult_weight_kg
+        adult_cap = GOAT_PROFILE.max_adult_weight_kg
         if payload.weight_kg > adult_cap:
             raise HTTPException(
                 status_code=422,
@@ -1055,15 +1043,13 @@ async def change_status(
                     "complete or skip the protocol before selling"
                 ),
             )
-        # Meat-sale window (goat farms): a male kid below the SPEC's minimum
-        # sale age cannot be liquidated as meat stock. Culling remains open
+        # Meat-sale window: a male kid below the SPEC's minimum sale age
+        # cannot be liquidated as meat stock. Culling remains open
         # (injury/illness), and the owner can still record the exit through a
         # cull with notes. Unknown birth dates fall through — age is provable
         # only when an effective DOB exists.
-        profile = species_profile(farm.farm_type)
         if (
-            profile.farm_type == "GOAT"
-            and animal.sex == "M"
+            animal.sex == "M"
             and animal.current_bucket == Bucket.MALE_KIDS.value
             and animal.effective_dob is not None
         ):
@@ -1268,5 +1254,5 @@ async def change_status(
         )
     await db.commit()
     return await _animal_out(
-        db, animal, today(farm.timezone), farm.timezone, perms, farm_type=farm.farm_type
+        db, animal, today(farm.timezone), farm.timezone, perms
     )

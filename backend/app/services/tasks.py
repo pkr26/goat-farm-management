@@ -13,6 +13,7 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from ..core.config import get_settings
 from ..models import (
+    GOAT_PROFILE,
     HISTORY_OVERRIDE_REASON_PREFIX,
     MAX_RECUR_DAYS,
     Animal,
@@ -32,7 +33,6 @@ from ..models import (
     TaskStatus,
     User,
     quarantine_schedule,
-    species_profile,
 )
 from ..utils import today, utcnow
 from ._common import _clear_task_rejection
@@ -133,13 +133,10 @@ async def _guard_quarantine_release(
     ).scalar_one_or_none()
     if batch is None:
         raise ValueError("The quarantine release duty has no matching purchase batch")
-    protocol_farm = await db.get(Farm, task.farm_id)
     release_spec = next(
         (
             item
-            for item in quarantine_schedule(
-                batch, protocol_farm.farm_type if protocol_farm is not None else "GOAT"
-            )
+            for item in quarantine_schedule(batch)
             if item["category"] == TaskCategory.BUCKET_MOVE.value
         ),
         None,
@@ -227,10 +224,7 @@ async def _guard_generated_movement_task(
     """Verify that an animal-movement duty came from its recorded workflow."""
     if not task.auto_generated or task.breeding_record_id is None:
         raise ValueError("Movement side effects require an authoritative generated duty")
-    movement_farm = await db.get(Farm, task.farm_id)
-    movement_profile = species_profile(
-        movement_farm.farm_type if movement_farm is not None else "GOAT"
-    )
+    movement_profile = GOAT_PROFILE
     breeding = (
         await db.execute(
             select(BreedingRecord).where(
@@ -267,14 +261,10 @@ async def _guard_generated_movement_task(
         )
 
     if linked_animal.current_bucket == Bucket.RECOVERY.value:
-        # Goat: the dam's RECOVERY exit only exists once no kid still depends
-        # on her. Dairy: calves are separated at birth, so the fresh-pen exit
-        # duty is valid regardless of calf survival.
+        # The dam's RECOVERY exit only exists once no kid still depends on her.
         if kidding is None:
             raise ValueError("The postpartum movement duty has no eligible kidding record")
-        if movement_profile.young_stay_with_dam and await _litter_has_surviving_kid(
-            db, task.farm_id, kids
-        ):
+        if await _litter_has_surviving_kid(db, task.farm_id, kids):
             raise ValueError("The postpartum movement duty has no eligible kidding record")
         mortality_dates = [
             kid.mortality_reported_at for kid in kids if kid.mortality_reported_at is not None
@@ -290,9 +280,7 @@ async def _guard_generated_movement_task(
         or breeding.expected_kidding_date is None
         or task.due_date
         != breeding.expected_kidding_date
-        # Goat: pre-kidding pen move ~2 weeks out. Dairy: the dry-group /
-        # calving-pen move rides the dry-off point ~60 days before calving.
-        # Both leads live on the species profile.
+        # Pre-kidding pen move ~2 weeks out.
         - timedelta(days=movement_profile.prepartum_move_lead_days)
     ):
         raise ValueError("The delivery movement duty does not match the recorded pregnancy")
@@ -310,10 +298,7 @@ async def _guard_generated_weaning_task(db: AsyncSession, task: Task) -> set[int
     """
     if not task.auto_generated or task.animal_id is None:
         raise ValueError("Weaning side effects require an authoritative generated duty")
-    weaning_farm = await db.get(Farm, task.farm_id)
-    weaning_profile = species_profile(
-        weaning_farm.farm_type if weaning_farm is not None else "GOAT"
-    )
+    weaning_profile = GOAT_PROFILE
     kidding_filters = [
         KiddingRecord.farm_id == task.farm_id,
         KiddingRecord.doe_id == task.animal_id,
@@ -397,17 +382,9 @@ async def complete_task(
         movement_animal = linked_animal
         kidding, kids = await _guard_generated_movement_task(db, task, linked_animal)
         if linked_animal.current_bucket == Bucket.RECOVERY.value:
-            recovery_farm = await db.get(Farm, task.farm_id)
-            recovery_profile = species_profile(
-                recovery_farm.farm_type if recovery_farm is not None else "GOAT"
-            )
-            # Goat: the dam's RECOVERY exit only exists once no kid still
-            # depends on her. Dairy: calves are separated at birth, so the
-            # fresh-pen exit is valid regardless of calf survival — mirror
-            # the species gate _guard_generated_movement_task applies.
-            if recovery_profile.young_stay_with_dam and (
-                kidding is None or await _litter_has_surviving_kid(db, task.farm_id, kids)
-            ):
+            # The dam's RECOVERY exit only exists once no kid still depends on
+            # her — mirror the gate _guard_generated_movement_task applies.
+            if kidding is None or await _litter_has_surviving_kid(db, task.farm_id, kids):
                 raise ValueError("Postpartum recovery duty is invalid while a kid survives")
             if error := bucket_transition_error(
                 linked_animal,
@@ -437,32 +414,14 @@ async def complete_task(
         weaning_doe = animals_by_id.get(task.animal_id) if task.animal_id is not None else None
         if weaning_doe is None or weaning_doe.farm_id != task.farm_id:
             raise ValueError("The animal linked to this weaning duty is unavailable")
-        weaning_farm = await db.get(Farm, task.farm_id)
-        weaning_profile = species_profile(
-            weaning_farm.farm_type if weaning_farm is not None else "GOAT"
-        )
-        if weaning_profile.young_stay_with_dam:
-            weaning_kids = [
-                animal
-                for animal in affected_animals
-                if animal.id in litter_animal_ids
-                and animal.dam_id == weaning_doe.id
-                and animal.status == AnimalStatus.ACTIVE.value
-                and animal.current_bucket == Bucket.RECOVERY.value
-            ]
-        else:
-            # Dairy: calves were separated into the calf shed at birth, so the
-            # day-90 milk-weaning moves each surviving heifer FEMALE_KIDS →
-            # FOUNDATION (the duty title's promise); males stay in MALE_KIDS
-            # until their own sale path.
-            weaning_kids = [
-                animal
-                for animal in affected_animals
-                if animal.id in litter_animal_ids
-                and animal.dam_id == weaning_doe.id
-                and animal.status == AnimalStatus.ACTIVE.value
-                and animal.current_bucket in (Bucket.FEMALE_KIDS.value, Bucket.MALE_KIDS.value)
-            ]
+        weaning_kids = [
+            animal
+            for animal in affected_animals
+            if animal.id in litter_animal_ids
+            and animal.dam_id == weaning_doe.id
+            and animal.status == AnimalStatus.ACTIVE.value
+            and animal.current_bucket == Bucket.RECOVERY.value
+        ]
         # A retained older duty may be completed after the doe has another live
         # litter (supported by historical correction). Wean only the linked
         # litter and leave the dam in RECOVERY until every other *dependent*
@@ -504,21 +463,13 @@ async def complete_task(
 
         def _weaning_target(animal: Animal) -> str | None:
             """Post-weaning bucket for one young animal (None → no move)."""
-            if weaning_profile.young_stay_with_dam:
-                return Bucket.MALE_KIDS.value if animal.sex == "M" else Bucket.FEMALE_KIDS.value
-            # Dairy: heifers graduate to FOUNDATION at milk-weaning; bull
-            # calves have no graduation bucket and simply stay in MALE_KIDS.
-            return Bucket.FOUNDATION.value if animal.sex == "F" else None
+            return Bucket.MALE_KIDS.value if animal.sex == "M" else Bucket.FEMALE_KIDS.value
 
         moving_kids = [kid for kid in weaning_kids if _weaning_target(kid) is not None]
         candidates = [*moving_kids]
         # The dam is pre-flight-checked exactly when the completion can move
-        # her (DELIVERY/RECOVERY → RESTING below). Goat dams wean out of
-        # RECOVERY with their kids. A dairy dam already left the fresh pen at
-        # +10 days and — following her own 60-day VWP — is typically re-bred
-        # (BREEDING/PREGNANCY_*) by the day-90 milk-weaning; this duty then
-        # graduates only her calves, so demanding a "weaning" RESTING
-        # transition for her would 409 the standard protocol flow.
+        # her (DELIVERY/RECOVERY → RESTING below). Dams wean out of RECOVERY
+        # with their kids.
         if weaning_doe_can_rest and weaning_doe.current_bucket in (
             Bucket.DELIVERY.value,
             Bucket.RECOVERY.value,
@@ -596,19 +547,12 @@ async def complete_task(
         doe = weaning_doe
         if doe and doe.farm_id == task.farm_id:  # farm guard
             for kid in weaning_kids or []:
-                if weaning_profile.young_stay_with_dam:
-                    target = Bucket.MALE_KIDS.value if kid.sex == "M" else Bucket.FEMALE_KIDS.value
-                else:
-                    # Dairy: heifers graduate FEMALE_KIDS → FOUNDATION; bull
-                    # calves stay in MALE_KIDS until their own sale path.
-                    if kid.sex != "F":
-                        continue
-                    target = Bucket.FOUNDATION.value
+                target = Bucket.MALE_KIDS.value if kid.sex == "M" else Bucket.FEMALE_KIDS.value
                 move_animal(
                     db,
                     kid,
                     target,
-                    f"Weaned (day {weaning_profile.weaning_days})",
+                    f"Weaned (day {GOAT_PROFILE.weaning_days})",
                     created_by_id=user.id if user else None,
                     context="weaning",
                     reference_date=movement_date,

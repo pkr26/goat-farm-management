@@ -233,7 +233,6 @@ async def dashboard(
         (
             await db.execute(
                 select(BucketDefinition)
-                .where(BucketDefinition.farm_type == farm.farm_type)
                 .order_by(BucketDefinition.sort_order)
             )
         ).scalars()
@@ -402,7 +401,6 @@ async def reports(db: DbSession, farm: CurrentFarm, perms: REPORTS_PERM) -> Repo
         (
             await db.execute(
                 select(BucketDefinition)
-                .where(BucketDefinition.farm_type == farm.farm_type)
                 .order_by(BucketDefinition.sort_order)
             )
         ).scalars()

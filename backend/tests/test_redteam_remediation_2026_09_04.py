@@ -17,11 +17,10 @@ import pytest
 from app.core.config import get_settings
 
 from . import conftest
-from .conftest import create_farm, owner_with_farm, register
+from .conftest import owner_with_farm
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 GOAT_GESTATION = 150
-DAIRY_GESTATION = 310
 
 
 def iso(d: date) -> str:
@@ -220,56 +219,6 @@ async def _goat_doe_buck_and_kids(
     return buck, daughter, son, kidded.json()
 
 
-async def _dairy_calved_buffalo(
-    client: httpx.AsyncClient,
-    headers: dict,
-    tag: str,
-    *,
-    days_since_calving: int,
-) -> dict:
-    """A Murrah dam that calved `days_since_calving` days ago via AI."""
-    animal = await _make_animal(
-        client,
-        headers,
-        tag,
-        sex="F",
-        bucket="BREEDING",
-        breed="Murrah",
-        date_of_birth=iso(today() - timedelta(days=1_800)),
-        weight_kg=520.0,
-        weight_date=iso(today() - timedelta(days=1_000)),
-    )
-    breeding_date = today() - timedelta(days=days_since_calving + DAIRY_GESTATION)
-    bred = (await _breed(client, headers, animal["id"], breeding_date, method="AI")).json()
-    confirmed = await _confirm_pregnant(client, headers, bred, 65)
-    calving_date = date.fromisoformat(confirmed["breeding_date"]) + timedelta(days=DAIRY_GESTATION)
-    kidded = await _kidding(
-        client,
-        headers,
-        confirmed,
-        calving_date,
-        [{"sex": "F", "status": "ALIVE", "birth_weight": 34.0}],
-    )
-    assert kidded.status_code == 201, kidded.text
-    return animal
-
-
-async def _record_milk(
-    client: httpx.AsyncClient, headers: dict, animal_id: int, on: date, litres: float
-) -> httpx.Response:
-    return await client.post(
-        "/api/milk/new",
-        json={
-            "animal_id": animal_id,
-            "date": iso(on),
-            "shift": "MORNING",
-            "litres": litres,
-            "fat_pct": 6.9,
-        },
-        headers=headers,
-    )
-
-
 async def _finance_rows(client: httpx.AsyncClient, headers: dict) -> list[dict]:
     resp = await client.get("/api/finance?limit=200", headers=headers)
     assert resp.status_code == 200, resp.text
@@ -329,166 +278,6 @@ async def test_red_m2_goat_farm_rejects_ai_service(client: httpx.AsyncClient) ->
     assert resp.status_code == 409, resp.text
     assert "goat protocol" in resp.json()["detail"]
 
-    # Negative control: dairy farms keep their AI protocol untouched.
-    dairy = await register(client, "red-m2-dairy@farm.in")
-    dairy_headers = await create_farm(client, dairy, "Dairy Protocol", farm_type="BUFFALO_DAIRY")
-    buffalo = await _make_animal(
-        client,
-        dairy_headers,
-        "M2-BUF",
-        sex="F",
-        bucket="BREEDING",
-        breed="Murrah",
-        date_of_birth=iso(today() - timedelta(days=1_800)),
-        weight_kg=520.0,
-        weight_date=iso(today() - timedelta(days=1_000)),
-    )
-    ok = await _breed(
-        client, dairy_headers, buffalo["id"], today() - timedelta(days=5), method="AI"
-    )
-    assert ok.status_code == 201, ok.text
-
-
-# ---------------------------------------------------------------------------
-# RED-H2a — milk dates tied to the lactation interval
-# ---------------------------------------------------------------------------
-
-
-async def test_red_h2a_milk_predating_calving_rejected(client: httpx.AsyncClient) -> None:
-    dairy = await register(client, "red-h2a@farm.in")
-    headers = await create_farm(client, dairy, "Lactation Farm", farm_type="BUFFALO_DAIRY")
-    animal = await _dairy_calved_buffalo(client, headers, "H2A-BUF", days_since_calving=360)
-
-    fabricated = await _record_milk(
-        client, headers, animal["id"], today() - timedelta(days=400), 15.0
-    )
-    assert fabricated.status_code == 422, fabricated.text
-    assert "cannot predate" in fabricated.json()["detail"]
-
-    legitimate = await _record_milk(
-        client, headers, animal["id"], today() - timedelta(days=5), 12.0
-    )
-    assert legitimate.status_code == 201, legitimate.text
-
-
-async def test_red_h2a_milk_inside_dry_window_rejected(client: httpx.AsyncClient) -> None:
-    dairy = await register(client, "red-h2a-dry@farm.in")
-    headers = await create_farm(client, dairy, "Dry Window Farm", farm_type="BUFFALO_DAIRY")
-    animal = await _dairy_calved_buffalo(client, headers, "H2A-DRY", days_since_calving=360)
-
-    # Graduate the dam out of RECOVERY via her weaning duty, then re-breed:
-    # EKD lands 30 days out, so the dry window is [today-30, today+30].
-    board = (await client.get("/api/tasks", headers=headers)).json()
-    tabs = [t for tab in ("today", "overdue", "upcoming") for t in board.get(tab, [])]
-    weaning = next(t for t in tabs if t["category"] == "WEANING")
-    done = await client.post(f"/api/tasks/{weaning['id']}/complete", headers=headers)
-    assert done.status_code == 200, done.text
-
-    bred2 = (
-        await _breed(client, headers, animal["id"], today() - timedelta(days=280), method="AI")
-    ).json()
-    confirmed2 = await _confirm_pregnant(client, headers, bred2, 65)
-    ekd = date.fromisoformat(confirmed2["expected_kidding_date"])
-    assert ekd == today() + timedelta(days=30)
-
-    inside_dry = await _record_milk(
-        client, headers, animal["id"], today() - timedelta(days=10), 10.0
-    )
-    assert inside_dry.status_code == 422, inside_dry.text
-    assert "dry period" in inside_dry.json()["detail"]
-
-    before_dry = await _record_milk(
-        client, headers, animal["id"], today() - timedelta(days=45), 10.0
-    )
-    assert before_dry.status_code == 201, before_dry.text
-
-
-# ---------------------------------------------------------------------------
-# RED-H2b — milk sale overbooking fence
-# ---------------------------------------------------------------------------
-
-
-async def test_red_h2a_early_calving_reopens_milk_before_stale_ekd(
-    client: httpx.AsyncClient,
-) -> None:
-    """Independent-verifier regression: the dry-window fence must ignore a
-    pregnancy already resolved by a recorded calving. A dam that calves at
-    day 282 of a 310-day EKD is genuinely lactating between her actual
-    calving and the stale EKD — that milk is real and recordable."""
-    dairy = await register(client, "red-h2a-early@farm.in")
-    headers = await create_farm(client, dairy, "Early Calving Farm", farm_type="BUFFALO_DAIRY")
-    animal = await _make_animal(
-        client,
-        headers,
-        "H2A-EARLY",
-        sex="F",
-        bucket="BREEDING",
-        breed="Murrah",
-        date_of_birth=iso(today() - timedelta(days=1_800)),
-        weight_kg=520.0,
-        weight_date=iso(today() - timedelta(days=1_000)),
-    )
-    actual_gestation = 282
-    breeding_date = today() - timedelta(days=actual_gestation + 15)
-    bred = (await _breed(client, headers, animal["id"], breeding_date, method="AI")).json()
-    confirmed = await _confirm_pregnant(client, headers, bred, 65)
-    ekd = date.fromisoformat(confirmed["expected_kidding_date"])
-    calving_date = date.fromisoformat(confirmed["breeding_date"]) + timedelta(days=actual_gestation)
-    assert calving_date == today() - timedelta(days=15)
-    assert calving_date < ekd  # she calved inside what would look like the dry window
-
-    kidded = await _kidding(
-        client,
-        headers,
-        confirmed,
-        calving_date,
-        [{"sex": "F", "status": "ALIVE", "birth_weight": 34.0}],
-    )
-    assert kidded.status_code == 201, kidded.text
-
-    fresh_milk = await _record_milk(
-        client, headers, animal["id"], today() - timedelta(days=10), 12.0
-    )
-    assert fresh_milk.status_code == 201, fresh_milk.text
-
-
-async def test_red_h2b_fence_rejects_seven_percent_overbooking(client: httpx.AsyncClient) -> None:
-    dairy = await register(client, "red-h2b@farm.in")
-    headers = await create_farm(client, dairy, "Fence Farm", farm_type="BUFFALO_DAIRY")
-    animal = await _dairy_calved_buffalo(client, headers, "H2B-BUF", days_since_calving=300)
-
-    # 400 L of recorded production: ten distinct days at the daily cap.
-    for offset in range(11, 21):
-        resp = await _record_milk(
-            client, headers, animal["id"], today() - timedelta(days=offset), 40.0
-        )
-        assert resp.status_code == 201, resp.text
-
-    async def milk_sale(litres: float) -> httpx.Response:
-        return await client.post(
-            "/api/finance/new",
-            json={
-                "type": "INCOME",
-                "category": "MILK",
-                "date": iso(today()),
-                "amount": round(litres * 55.0, 2),
-                "milk_litres": litres,
-                "milk_unit_price_per_litre": 55.0,
-            },
-            headers={**headers, "Idempotency-Key": f"red-h2b-{litres}"},
-        )
-
-    # 7.5% overbooking: legal under the old flat 10%, refused now.
-    overbooked = await milk_sale(430.0)
-    assert overbooked.status_code == 422, overbooked.text
-    assert "ever recorded in the parlour" in overbooked.json()["detail"]
-
-    # Within the tight allowance (0.5% + 10 L): still books.
-    honest = await milk_sale(410.0)
-    assert honest.status_code == 201, honest.text
-
-
-# ---------------------------------------------------------------------------
 # RED-H3 — off-ledger sales/purchases
 # ---------------------------------------------------------------------------
 
@@ -723,45 +512,6 @@ async def test_red_m5_goat_birth_weight_band(client: httpx.AsyncClient) -> None:
         [{"sex": "F", "status": "ALIVE", "birth_weight": 3.0}],
     )
     assert plausible.status_code == 201, plausible.text
-
-
-async def test_red_m5_buffalo_birth_weight_band(client: httpx.AsyncClient) -> None:
-    dairy = await register(client, "red-m5-dairy@farm.in")
-    headers = await create_farm(client, dairy, "Band Dairy", farm_type="BUFFALO_DAIRY")
-    animal = await _make_animal(
-        client,
-        headers,
-        "M5-BUF",
-        sex="F",
-        bucket="BREEDING",
-        breed="Murrah",
-        date_of_birth=iso(today() - timedelta(days=1_800)),
-        weight_kg=520.0,
-        weight_date=iso(today() - timedelta(days=1_000)),
-    )
-    breeding_date = today() - timedelta(days=DAIRY_GESTATION + 5)
-    bred = (await _breed(client, headers, animal["id"], breeding_date, method="AI")).json()
-    confirmed = await _confirm_pregnant(client, headers, bred, 65)
-    kidding_date = date.fromisoformat(confirmed["breeding_date"]) + timedelta(days=DAIRY_GESTATION)
-
-    too_small = await _kidding(
-        client,
-        headers,
-        confirmed,
-        kidding_date,
-        [{"sex": "F", "status": "ALIVE", "birth_weight": 5.0}],
-    )
-    assert too_small.status_code == 422, too_small.text
-    assert "not a credible newborn weight" in too_small.json()["detail"]
-
-    healthy = await _kidding(
-        client,
-        headers,
-        confirmed,
-        kidding_date,
-        [{"sex": "F", "status": "ALIVE", "birth_weight": 34.0}],
-    )
-    assert healthy.status_code == 201, healthy.text
 
 
 async def test_red_m5_adult_weight_cap_is_species_scaled(client: httpx.AsyncClient) -> None:

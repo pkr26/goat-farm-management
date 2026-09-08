@@ -8,14 +8,12 @@ from collections.abc import Iterable
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import String, and_, column, func, literal, or_, select, text, tuple_, values
+from sqlalchemy import String, and_, column, func, literal, or_, select, text, true, tuple_, values
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import (
-    BUFFALO_DAIRY,
-    GOAT,
     Bucket,
     BucketDefinition,
     Farm,
@@ -29,12 +27,11 @@ from .models import (
     TaskStatus,
     VaccineTemplate,
 )
-from .models.species import FARM_TYPES
 from .permissions import (
     ROLE_PRESETS,
     TASK_CATEGORY_ROLE_MAP,
     TASK_ROLE_CODES,
-    preset_codes_for_farm_type,
+    preset_codes,
     task_role_codes,
 )
 
@@ -47,13 +44,8 @@ CONC = IngredientCategory.CONCENTRATE.value
 GREEN = "Super Napier green fodder"
 DRY_STOVER = "Dry jowar stover"
 
-DAIRY_GREEN = "Maize fodder (green)"
-DAIRY_DRY = "Paddy straw"
-
 # ---------------------------------------------------------------------------
-# Bucket definitions — one row per (farm type, lifecycle stage code).
-# The ten stage codes are shared; each species labels, explains and feeds
-# them its own way. Goat rows preserve their original text verbatim.
+# Bucket definitions — one row per lifecycle stage code.
 # ---------------------------------------------------------------------------
 BUCKET_DEFINITIONS: list[tuple[Bucket, str, str, str, float]] = [
     (
@@ -131,86 +123,6 @@ BUCKET_DEFINITIONS: list[tuple[Bucket, str, str, str, float]] = [
     ),
 ]
 
-# Murrah dairy lifecycle mapped onto the same ten stage codes (the five
-# building plan: A milking, B maternity/dry, C heifer, D calf, E quarantine).
-DAIRY_BUCKET_DEFINITIONS: list[tuple[Bucket, str, str, str, float]] = [
-    (
-        Bucket.QUARANTINE,
-        "Quarantine Ward (Building E)",
-        "Newly purchased buffaloes; downwind perimeter, dedicated tools and staff",
-        "45-day protocol + vet clearance → FOUNDATION",
-        25.0,
-    ),
-    (
-        Bucket.FOUNDATION,
-        "Growing Heifers (Building C)",
-        "Heifer calves from weaning (~3 mo) until first AI (24 mo, ≥340 kg)",
-        "Breeding-ready (≥24 mo, ≥340 kg) → BREEDING (first AI)",
-        20.0,
-    ),
-    (
-        Bucket.BREEDING,
-        "Milking — Open / Awaiting AI (Building A)",
-        "Milking buffaloes not pregnant; first AI at 60 days post-calving, max 3 services",
-        "Pregnancy diagnosis confirmed (day ~60 post-AI) → PREGNANCY_EARLY",
-        28.0,
-    ),
-    (
-        Bucket.PREGNANCY_EARLY,
-        "Milking — Pregnant 1–5 mo (Building A)",
-        "Confirmed pregnant and still milking; feed-rotation group",
-        "Month 5 of gestation → PREGNANCY_LATE",
-        28.0,
-    ),
-    (
-        Bucket.PREGNANCY_LATE,
-        "Milking — Pregnant 5–8 mo (Building A)",
-        "Late gestation while milking; yield declining",
-        "Dry-off (~60 days before due) → DELIVERY",
-        26.0,
-    ),
-    (
-        Bucket.DELIVERY,
-        "Dry / Close-up + Calving Pens (Building B)",
-        "Dry buffaloes (final ~60 days); individual calving pens for the last 2–3 weeks; 24/7 monitoring",
-        "Calving recorded → RECOVERY",
-        24.0,
-    ),
-    (
-        Bucket.RECOVERY,
-        "Fresh Buffalo Pen (Building A sub-pen)",
-        "Freshly calved, ~10 days; colostrum managed, calf separated within 24 h",
-        "~10 days post-calving → RESTING",
-        30.0,
-    ),
-    (
-        Bucket.RESTING,
-        "Milking — Post-fresh Transition (Building A)",
-        "Back in the milking string after the fresh pen; awaiting first AI (day ~60 postpartum)",
-        "First AI recorded → BREEDING",
-        28.0,
-    ),
-    (
-        Bucket.MALE_KIDS,
-        "Male Calves (Building D)",
-        "Male calves in the separate calf shed; sell within a week or grow for meat",
-        "Sold, or at maturity (≥24 mo, ≥350 kg) → BREEDING (natural sire)",
-        6.0,
-    ),
-    (
-        Bucket.FEMALE_KIDS,
-        "Heifer Calves (Building D)",
-        "Female calves 0–3 mo, own airspace upwind; whole-milk fed, wean off milk by day ~90",
-        "Weaned (~3 mo) → FOUNDATION",
-        6.0,
-    ),
-]
-
-SPECIES_BUCKET_DEFINITIONS: dict[str, list[tuple[Bucket, str, str, str, float]]] = {
-    GOAT: BUCKET_DEFINITIONS,
-    BUFFALO_DAIRY: DAIRY_BUCKET_DEFINITIONS,
-}
-
 # (code, name, description, lines=[(ingredient, kg_per_100kg, category)])
 FEED_RECIPES: list[tuple[str, str, str, list[tuple[str, float, str]]]] = [
     (
@@ -286,90 +198,6 @@ FEED_RECIPES: list[tuple[str, str, str, list[tuple[str, float, str]]]] = [
     ),
 ]
 
-# Murrah dairy TMRs per production group (as-fed, per 100 kg of mix).
-# Roughage base is maize fodder + paddy straw (Telangana); the concentrate
-# share scales with production. Lines sum to ~100 kg per recipe.
-DAIRY_FEED_RECIPES: list[tuple[str, str, str, list[tuple[str, float, str]]]] = [
-    (
-        "D_LACTATION_HIGH",
-        "Lactating TMR — High yielders (10+ L/day)",
-        "Milking buffaloes yielding 10 L/day and above; 3x milking group",
-        [
-            (DAIRY_GREEN, 40, WET),
-            (DAIRY_DRY, 10, DRY),
-            ("Crushed maize", 18, CONC),
-            ("Cottonseed cake", 10, CONC),
-            ("Soya DOC", 5, CONC),
-            ("Wheat bran", 6, CONC),
-            ("Maize DDGS", 5, CONC),
-            ("Bypass fat", 4, CONC),
-            ("Mineral mix", 1.5, CONC),
-            ("Salt", 0.5, CONC),
-        ],
-    ),
-    (
-        "D_LACTATION_MED",
-        "Lactating TMR — Medium yielders (6–10 L/day)",
-        "Milking buffaloes yielding 6–10 L/day",
-        [
-            (DAIRY_GREEN, 45, WET),
-            (DAIRY_DRY, 15, DRY),
-            ("Crushed maize", 14, CONC),
-            ("Cottonseed cake", 8, CONC),
-            ("Soya DOC", 3, CONC),
-            ("Wheat bran", 6, CONC),
-            ("Maize DDGS", 4, CONC),
-            ("Bypass fat", 3, CONC),
-            ("Mineral mix", 1.5, CONC),
-            ("Salt", 0.5, CONC),
-        ],
-    ),
-    (
-        "D_DRY_CLOSEUP",
-        "Dry & Close-up TMR (Building B)",
-        "Dry buffaloes; raise concentrate in the last 3 weeks (transition feeding)",
-        [
-            (DAIRY_GREEN, 50, WET),
-            (DAIRY_DRY, 25, DRY),
-            ("Crushed maize", 12, CONC),
-            ("Soya DOC", 3, CONC),
-            ("Wheat bran", 5, CONC),
-            ("Bypass mineral (close-up)", 3, CONC),
-            ("Mineral mix", 1.5, CONC),
-            ("Salt", 0.5, CONC),
-        ],
-    ),
-    (
-        "D_HEIFER_GROWING",
-        "Growing Heifer TMR (Building C)",
-        "Heifers 6–24 months; push growth to hit 340 kg by 22 months",
-        [
-            (DAIRY_GREEN, 55, WET),
-            (DAIRY_DRY, 20, DRY),
-            ("Crushed maize", 12, CONC),
-            ("Cottonseed cake", 4, CONC),
-            ("Wheat bran", 5, CONC),
-            ("Maize DDGS", 2, CONC),
-            ("Mineral mix", 1.5, CONC),
-            ("Salt", 0.5, CONC),
-        ],
-    ),
-    (
-        "D_CALF_STARTER",
-        "Calf Starter (Building D)",
-        "Calves from day 15 alongside whole milk; wean off milk by day ~90",
-        [
-            ("Crushed maize", 46, CONC),
-            ("Soya DOC", 25, CONC),
-            ("Wheat bran", 12, CONC),
-            ("Maize DDGS", 8, CONC),
-            ("Cottonseed cake", 6, CONC),
-            ("Mineral mix", 2, CONC),
-            ("Salt", 1, CONC),
-        ],
-    ),
-]
-
 # (name, first_dose_age_months, booster_weeks, repeat_months, timing_note)
 VACCINE_TEMPLATES: list[tuple[str, float | None, float | None, float | None, str]] = [
     # FMD at 3 months follows TNAU's Telangana schedule (Vikaspedia/NADCP
@@ -419,50 +247,6 @@ VACCINE_TEMPLATES: list[tuple[str, float | None, float | None, float | None, str
     ),
 ]
 
-# Murrah buffalo health calendar. FMD/brucellosis doses are free under NADCP;
-# the schedule follows standard Telangana buffalo practice.
-DAIRY_VACCINE_TEMPLATES: list[tuple[str, float | None, float | None, float | None, str]] = [
-    ("FMD", 4, 4, 6, "Every 6 months — September & March (free under NADCP)"),
-    (
-        "Haemorrhagic Septicaemia (HS)",
-        6,
-        None,
-        12,
-        "First dose 6 months; annual, May/June (pre-monsoon)",
-    ),
-    ("Black Quarter", 6, None, 12, "Annual, pre-monsoon"),
-    (
-        "Brucellosis",
-        6,
-        None,
-        None,
-        "Heifer calves 4–8 months, once only; never vaccinate pregnant animals",
-    ),
-    ("Anthrax", 6, None, 12, "Annual; region-specific"),
-    ("Lumpy Skin Disease (LSD)", 4, None, 12, "Annual; homologous vaccine (Lumpi-ProvacInd)"),
-    (
-        "IBR (marker vaccine)",
-        6,
-        4,
-        12,
-        "Breeding herds using AI; annual — protects the semen investment",
-    ),
-    (
-        "Deworming",
-        None,
-        None,
-        6,
-        "All animals every 6 months — June & January (calves: every 3 months)",
-    ),
-    (
-        "Dry buffalo therapy",
-        None,
-        None,
-        None,
-        "At dry-off (~60 days before calving): intramammary antibiotic per vet protocol, each lactation",
-    ),
-]
-
 # (ingredient, category)
 FARM_INGREDIENTS: list[tuple[str, str]] = [
     (GREEN, WET),
@@ -475,35 +259,6 @@ FARM_INGREDIENTS: list[tuple[str, str]] = [
     ("DORB", CONC),
     ("Mineral mix", CONC),
 ]
-
-DAIRY_FARM_INGREDIENTS: list[tuple[str, str]] = [
-    (DAIRY_GREEN, WET),
-    ("Hydroponic maize fodder", WET),
-    (DAIRY_DRY, DRY),
-    ("Groundnut haulms", DRY),
-    ("Crushed maize", CONC),
-    ("Cottonseed cake", CONC),
-    ("Soya DOC", CONC),
-    ("Wheat bran", CONC),
-    ("Maize DDGS", CONC),
-    ("Bypass fat", CONC),
-    ("Mineral mix", CONC),
-]
-
-SPECIES_FEED_RECIPES: dict[str, list[tuple[str, str, str, list[tuple[str, float, str]]]]] = {
-    GOAT: FEED_RECIPES,
-    BUFFALO_DAIRY: DAIRY_FEED_RECIPES,
-}
-SPECIES_VACCINE_TEMPLATES: dict[
-    str, list[tuple[str, float | None, float | None, float | None, str]]
-] = {
-    GOAT: VACCINE_TEMPLATES,
-    BUFFALO_DAIRY: DAIRY_VACCINE_TEMPLATES,
-}
-SPECIES_FARM_INGREDIENTS: dict[str, list[tuple[str, str]]] = {
-    GOAT: FARM_INGREDIENTS,
-    BUFFALO_DAIRY: DAIRY_FARM_INGREDIENTS,
-}
 
 
 async def seed_reference_data(db: AsyncSession) -> None:
@@ -523,7 +278,6 @@ async def seed_reference_data(db: AsyncSession) -> None:
         .values(
             [
                 {
-                    "farm_type": farm_type,
                     "code": code.value,
                     "name": name,
                     "who": who,
@@ -531,58 +285,51 @@ async def seed_reference_data(db: AsyncSession) -> None:
                     "daily_kg_per_head": kg,
                     "sort_order": order,
                 }
-                for farm_type in FARM_TYPES
-                for order, (code, name, who, exit_rule, kg) in enumerate(
-                    SPECIES_BUCKET_DEFINITIONS[farm_type]
-                )
+                for order, (code, name, who, exit_rule, kg) in enumerate(BUCKET_DEFINITIONS)
             ]
         )
         .on_conflict_do_nothing()
     )
 
-    for farm_type in FARM_TYPES:
-        for recipe_code, name, description, lines in SPECIES_FEED_RECIPES[farm_type]:
-            recipe_id = (
-                await db.execute(
-                    pg_insert(FeedRecipe)
-                    .values(
-                        farm_type=farm_type,
-                        code=recipe_code,
-                        name=name,
-                        description=description,
-                    )
-                    .on_conflict_do_nothing()
-                    # RETURNING tells us whether THIS process inserted the row:
-                    # only the winner inserts the lines, so a losing racer
-                    # can't duplicate them (feed_recipe_lines has no UNIQUE).
-                    .returning(FeedRecipe.id)
+    for recipe_code, name, description, lines in FEED_RECIPES:
+        recipe_id = (
+            await db.execute(
+                pg_insert(FeedRecipe)
+                .values(
+                    code=recipe_code,
+                    name=name,
+                    description=description,
                 )
-            ).scalar_one_or_none()
-            if recipe_id is None:
-                continue  # already present, or a concurrent boot won this row and its lines
-            db.add_all(
-                [
-                    FeedRecipeLine(
-                        recipe_id=recipe_id, ingredient=ing, kg_per_100kg=kg, category=cat
-                    )
-                    for ing, kg, cat in lines
-                ]
+                .on_conflict_do_nothing()
+                # RETURNING tells us whether THIS process inserted the row:
+                # only the winner inserts the lines, so a losing racer
+                # can't duplicate them (feed_recipe_lines has no UNIQUE).
+                .returning(FeedRecipe.id)
             )
+        ).scalar_one_or_none()
+        if recipe_id is None:
+            continue  # already present, or a concurrent boot won this row and its lines
+        db.add_all(
+            [
+                FeedRecipeLine(
+                    recipe_id=recipe_id, ingredient=ing, kg_per_100kg=kg, category=cat
+                )
+                for ing, kg, cat in lines
+            ]
+        )
 
     await db.execute(
         pg_insert(VaccineTemplate)
         .values(
             [
                 {
-                    "farm_type": farm_type,
                     "name": name,
                     "first_dose_age_months": first_age,
                     "booster_weeks": booster,
                     "repeat_months": repeat,
                     "timing_note": note,
                 }
-                for farm_type in FARM_TYPES
-                for name, first_age, booster, repeat, note in SPECIES_VACCINE_TEMPLATES[farm_type]
+                for name, first_age, booster, repeat, note in VACCINE_TEMPLATES
             ]
         )
         .on_conflict_do_nothing()
@@ -591,16 +338,11 @@ async def seed_reference_data(db: AsyncSession) -> None:
     await db.commit()
 
 
-def _species_ingredient_values() -> tuple[Any, dict[str, list[str]]]:
-    """VALUES relation of (farm_type, ingredient, category) plus per-type names."""
-    rows = [
-        (farm_type, ingredient, category)
-        for farm_type in FARM_TYPES
-        for ingredient, category in SPECIES_FARM_INGREDIENTS[farm_type]
-    ]
-    relation = (
+def _ingredient_values() -> Any:
+    """VALUES relation of (ingredient, category)."""
+    rows = [(ingredient, category) for ingredient, category in FARM_INGREDIENTS]
+    return (
         values(
-            column("farm_type", String(20)),
             column("ingredient", String(120)),
             column("category", String(20)),
             name="seed_ingredients",
@@ -608,11 +350,6 @@ def _species_ingredient_values() -> tuple[Any, dict[str, list[str]]]:
         .data(rows)
         .alias("seed_ingredients")
     )
-    names = {
-        farm_type: [ingredient for ingredient, _category in SPECIES_FARM_INGREDIENTS[farm_type]]
-        for farm_type in FARM_TYPES
-    }
-    return relation, names
 
 
 async def _seed_farm_inventories(
@@ -623,13 +360,12 @@ async def _seed_farm_inventories(
 ) -> None:
     """Insert every missing canonical ingredient for one farm or all farms.
 
-    Ingredients are species-scoped: a farm receives its own farm type's list.
     The INSERT .. SELECT keeps startup's bind count independent of tenant
     count. ON CONFLICT makes concurrent app boots/new-farm retries safe and
     deliberately preserves quantities, prices, and operator-edited reorder
     levels on rows that already exist.
     """
-    ingredients, _names = _species_ingredient_values()
+    ingredients = _ingredient_values()
     source = select(
         Farm.id,
         ingredients.c.ingredient,
@@ -637,7 +373,7 @@ async def _seed_farm_inventories(
         literal("kg"),
         literal(0.0),
         literal(100.0),
-    ).select_from(Farm.__table__.join(ingredients, Farm.farm_type == ingredients.c.farm_type))
+    ).select_from(Farm.__table__.join(ingredients, true()))
     if farm_id is not None and farm_ids is not None:
         raise ValueError("provide farm_id or farm_ids, not both")
     if farm_id is not None:
@@ -693,21 +429,14 @@ def _free_preset_role_name(preset_name: str, code: str, taken: set[str]) -> str:
 def _add_missing_preset_roles(
     db: AsyncSession,
     farm_id: int,
-    farm_type: str,
     existing_codes: set[str | None],
     active_names: set[str],
 ) -> None:
     """Queue inserts for the preset roles a farm doesn't have yet (flush by
     caller).  `active_names` is updated with each chosen name so two presets
-    cannot collide with each other either.
-
-    Presets scoped to other farm types (dairy parlour roles on a goat farm)
-    are skipped: they are undeletable once seeded, so seeding them anywhere
-    they cannot be used would just clutter the team page forever."""
+    cannot collide with each other either."""
     for preset in ROLE_PRESETS:
         if preset["code"] in existing_codes:
-            continue
-        if farm_type not in preset.get("farm_types", FARM_TYPES):
             continue
         name = _free_preset_role_name(preset["name"], preset["code"], active_names)
         active_names.add(name)
@@ -759,16 +488,14 @@ async def seed_default_roles(db: AsyncSession, farm_id: int) -> None:
     advisory lock would invert against those callers and deadlock — which is
     exactly what `test_concurrent_role_seed_serializes_on_farm_row` pins.
     """
-    farm_type = (
-        await db.execute(select(Farm.farm_type).where(Farm.id == farm_id).with_for_update())
-    ).scalar_one()
+    await db.execute(select(Farm.id).where(Farm.id == farm_id).with_for_update())
     result = await db.execute(
         select(Role.code, Role.name, Role.deleted_at).where(Role.farm_id == farm_id)
     )
     codes, names = _role_identity_rows(
         [(code, name, deleted_at) for code, name, deleted_at in result.all()]
     )
-    _add_missing_preset_roles(db, farm_id, farm_type, codes, names)
+    _add_missing_preset_roles(db, farm_id, codes, names)
     await db.flush()
 
 
@@ -782,51 +509,30 @@ async def repair_legacy_farms_batch(db: AsyncSession, *, batch_size: int) -> int
     """Repair at most one finite, lock-skipping batch of legacy farms."""
     if not 1 <= batch_size <= 500:
         raise ValueError("batch_size must be between 1 and 500")
-    ingredients, _names_by_type = _species_ingredient_values()
-    # A farm needs the repair when ANY preset its farm type should hold is
-    # missing — scoped per farm type, so a goat farm is never claimed just
-    # because it lacks the dairy parlour presets.
-    missing_role = [
-        and_(
-            Farm.farm_type == farm_type,
-            or_(
-                *[
-                    ~select(Role.id)
-                    .where(Role.farm_id == Farm.id, Role.code == code)
-                    .correlate(Farm)
-                    .exists()
-                    for code in sorted(preset_codes_for_farm_type(farm_type))
-                ]
-            ),
-        )
-        for farm_type in FARM_TYPES
-    ]
-    # A farm's canonical ingredient list is its own farm type's; both the
-    # expected count and the counted stock are species-scoped.
-    expected_count = (
-        select(func.count())
-        .select_from(ingredients)
-        .where(ingredients.c.farm_type == Farm.farm_type)
-        .correlate(Farm)
-        .scalar_subquery()
+    ingredients = _ingredient_values()
+    # A farm needs the repair when ANY preset it should hold is missing.
+    missing_role = or_(
+        *[
+            ~select(Role.id)
+            .where(Role.farm_id == Farm.id, Role.code == code)
+            .correlate(Farm)
+            .exists()
+            for code in sorted(preset_codes())
+        ]
     )
+    # A farm's canonical ingredient list is the seeded farm-ingredient list.
+    expected_count = select(func.count()).select_from(ingredients).scalar_subquery()
     inventory_count = (
         select(func.count(FeedInventory.id))
-        .join(
-            ingredients,
-            and_(
-                FeedInventory.ingredient == ingredients.c.ingredient,
-                ingredients.c.farm_type == Farm.farm_type,
-            ),
-        )
+        .join(ingredients, FeedInventory.ingredient == ingredients.c.ingredient)
         .where(FeedInventory.farm_id == Farm.id)
         .correlate(Farm)
         .scalar_subquery()
     )
     farm_rows = (
         await db.execute(
-            select(Farm.id, Farm.farm_type)
-            .where(or_(*missing_role, inventory_count < expected_count))
+            select(Farm.id)
+            .where(or_(missing_role, inventory_count < expected_count))
             .order_by(Farm.id)
             .limit(batch_size)
             .with_for_update(skip_locked=True)
@@ -834,8 +540,7 @@ async def repair_legacy_farms_batch(db: AsyncSession, *, batch_size: int) -> int
     ).all()
     if not farm_rows:
         return 0
-    farm_ids = [farm_id for farm_id, _farm_type in farm_rows]
-    farm_types = {farm_id: farm_type for farm_id, farm_type in farm_rows}
+    farm_ids = [farm_id for farm_id, in farm_rows]
 
     role_rows = await db.execute(
         select(Role.farm_id, Role.code, Role.name, Role.deleted_at).where(
@@ -854,9 +559,7 @@ async def repair_legacy_farms_batch(db: AsyncSession, *, batch_size: int) -> int
         # after this call.
         try:
             async with db.begin_nested():
-                _add_missing_preset_roles(
-                    db, selected_farm_id, farm_types[selected_farm_id], codes, names
-                )
+                _add_missing_preset_roles(db, selected_farm_id, codes, names)
                 await db.flush()
         except IntegrityError:
             logger.warning(
@@ -919,26 +622,21 @@ async def backfill_task_assignments_batch(db: AsyncSession, *, batch_size: int) 
         .correlate(Task)
         .exists()
     )
-    # A generated duty routes to its farm type's candidate preset codes —
-    # dairy WEANING prefers CALF_ATTENDANT with MOVER as the fallback — so the
-    # eligibility probe pairs every category with the codes its farm type can
-    # resolve to.
+    # A generated duty routes to its category's candidate preset codes.
     preset_role_exists = or_(
         *[
             and_(
                 Task.category == category,
-                Farm.farm_type == farm_type,
                 select(Role.id)
                 .where(
                     Role.farm_id == Task.farm_id,
-                    Role.code.in_(task_role_codes(farm_type, category)),
+                    Role.code.in_(task_role_codes(category)),
                     Role.deleted_at.is_(None),
                 )
                 .correlate(Task)
                 .exists(),
             )
             for category in TASK_CATEGORY_ROLE_MAP
-            for farm_type in FARM_TYPES
         ]
     )
     resolvable = or_(
@@ -1006,8 +704,6 @@ async def backfill_task_assignments_batch(db: AsyncSession, *, batch_size: int) 
         )
     )
     roles = {(farm_id, code): role_id for farm_id, code, role_id in role_rows.all()}
-    farm_type_rows = await db.execute(select(Farm.id, Farm.farm_type).where(Farm.id.in_(farm_ids)))
-    farm_types = {farm_id: farm_type for farm_id, farm_type in farm_type_rows.all()}
     assigned = 0
     for task in tasks:
         role_id = (
@@ -1016,7 +712,7 @@ async def backfill_task_assignments_batch(db: AsyncSession, *, batch_size: int) 
             else None
         )
         if role_id is None:
-            for code in task_role_codes(farm_types[task.farm_id], task.category):
+            for code in task_role_codes(task.category):
                 role_id = roles.get((task.farm_id, code))
                 if role_id is not None:
                     break

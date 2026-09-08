@@ -31,7 +31,6 @@ from ..models import (
     TaskCategory,
     TaskStatus,
     User,
-    species_profile,
 )
 from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET
 from ..schemas.tasks import TaskCreateIn, TaskOut, TaskRejectIn, TaskSkipIn, TaskTabsOut
@@ -160,16 +159,10 @@ async def _lock_completion_animals(
             Animal.status == AnimalStatus.ACTIVE.value,
         )
     elif target.category == TaskCategory.WEANING.value and target.animal_id is not None:
-        # Goat kids await weaning in RECOVERY with the dam; dairy calves were
-        # separated into the calf shed at birth, so a dairy weaning duty must
-        # also lock the dam's calf-shed offspring — complete_task's dairy
-        # branch graduates exactly those animals, and an animal the route
+        # Kids await weaning in RECOVERY with the dam; the completion's
+        # weaning branch moves exactly those animals, and an animal the route
         # never locked can never be moved by the completion.
-        young_buckets = (
-            (Bucket.RECOVERY.value,)
-            if species_profile(farm.farm_type).young_stay_with_dam
-            else (Bucket.FEMALE_KIDS.value, Bucket.MALE_KIDS.value)
-        )
+        young_buckets = (Bucket.RECOVERY.value,)
         animal_filter = or_(
             Animal.id == target.animal_id,
             and_(

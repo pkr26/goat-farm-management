@@ -31,14 +31,14 @@ import RootLayout, { metadata } from "./layout";
 describe("RootLayout metadata", () => {
   it("publishes the default document title and the per-page template", () => {
     expect(metadata.title).toEqual({
-      default: `${APP_NAME} — Livestock farm management`,
+      default: `${APP_NAME} — Goat farm management`,
       template: `%s · ${APP_NAME}`,
     });
   });
 
   it("describes the product in the meta description", () => {
     expect(metadata.description).toBe(
-      "Commercial goat and buffalo dairy farm management — herd, health, breeding, milk and finance in one place.",
+      "Goat farm management — herd, health, breeding, kidding and finance in one place.",
     );
   });
 

@@ -12,7 +12,7 @@ import { HttpResponse, http } from "msw";
 import { toast } from "sonner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { permissionsHandler, server, TEST_FARMS } from "@/test/msw-server";
+import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 import { farmToday } from "@/lib/format";
 
@@ -184,17 +184,6 @@ describe("FeedingPage mutation hardening", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows the dairy pen-switch note for a buffalo dairy farm", async () => {
-    server.use(
-      http.get("/api/auth/farms", () =>
-        HttpResponse.json([{ ...TEST_FARMS[0], farm_type: "BUFFALO_DAIRY" }]),
-      ),
-    );
-    await renderLoaded();
-    expect(
-      screen.getByText(/Post-fresh stays on the post-fresh medium-yield TMR \(D_LACTATION_MED\) until first AI/),
-    ).toBeInTheDocument();
-  });
 
   it("labels ledger rows with human shift and bucket names", async () => {
     await renderLoaded();

@@ -60,7 +60,7 @@ from ..simulation.assumptions import SimulationAssumptions
 from ..simulation.defaults import PRESET_FACTORIES, SYSTEMS, System, get_preset
 from ..simulation.engine import run_simulation
 from ..simulation.results import SimulationResult
-from ..simulation.vocabulary import GOAT_NOUNS, SpeciesNouns, nouns_for_farm_type
+from ..simulation.vocabulary import GOAT_NOUNS, SpeciesNouns
 from ..utils import today
 from ._run_limits import (
     _charge_run_budget,
@@ -416,7 +416,7 @@ async def run_adhoc(
     # Immutable request snapshot, captured before the rollback below expires
     # the ORM row (a post-rollback attribute read re-queries the detached
     # object and raises MissingGreenlet inside the worker thread).
-    nouns = nouns_for_farm_type(farm.farm_type)
+    nouns = GOAT_NOUNS
     # Unsafe-request authorization deliberately pins Membership/User/Role rows
     # only for the database mutation it authorizes. A simulation is CPU-only
     # after admission; retaining that transaction for a worst-case ~25-second
@@ -570,7 +570,7 @@ async def compare_scenarios(
 
     farm_id = farm.id
     user_id = user.id
-    nouns = nouns_for_farm_type(farm.farm_type)
+    nouns = GOAT_NOUNS
 
     async def run_compare() -> ScenarioCompareOut:
         scenarios = [await _get_scenario(db, farm_id, scenario_id) for scenario_id in id_list]
@@ -665,7 +665,7 @@ async def run_scenario(
     """Run a stored scenario's assumptions (optionally with MC / sensitivity)."""
     farm_id = farm.id
     user_id = user.id
-    nouns = nouns_for_farm_type(farm.farm_type)
+    nouns = GOAT_NOUNS
     scenario = await _get_scenario(db, farm_id, scenario_id)
     assumptions = _load_assumptions(scenario)
     # The validated assumptions are a complete point-in-time scenario snapshot;

@@ -28,7 +28,6 @@ export const TEST_FARMS = [
     location: "Solapur",
     timezone: "Asia/Kolkata",
     role: null,
-    farm_type: "GOAT",
   },
 ];
 
@@ -51,9 +50,6 @@ export const ALL_PERMISSIONS = [
   "purchases.manage",
   "feeding.view",
   "feeding.manage",
-  "milk.view",
-  "milk.manage",
-  "milk.quality",
   "tasks.view",
   "tasks.create",
   "tasks.complete",
@@ -86,25 +82,6 @@ export const server = setupServer(
     HttpResponse.json({ access_token: TEST_ACCESS_TOKEN, user: TEST_USER }),
   ),
   http.get("/api/auth/farms", () => HttpResponse.json(TEST_FARMS)),
-  http.get("/api/milk", () =>
-    HttpResponse.json({
-      records: [],
-      total: 0,
-      limit: 50,
-      offset: 0,
-      total_litres: 0,
-    }),
-  ),
-  http.get("/api/milk/summary", () =>
-    HttpResponse.json({
-      days: 30,
-      total_litres: 0,
-      avg_daily_litres: 0,
-      avg_fat_pct: null,
-      daily: [],
-      animals: [],
-    }),
-  ),
   http.get("/api/feeding/records", () =>
     HttpResponse.json({ records: [], total: 0, limit: 50, offset: 0 }),
   ),
