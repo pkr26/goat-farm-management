@@ -28,6 +28,7 @@ import {
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { PermissionGate } from "@/components/permission-gate";
 import { PageSkeleton, InlineLoading } from "@/components/skeletons";
 import { PaginationControls } from "@/components/pagination-controls";
 import { StatusBadge } from "@/components/status-badge";
@@ -70,9 +71,8 @@ import {
   isPersistableNonnegativeMoney,
   MIN_PERSISTED_MONEY_MESSAGE,
 } from "@/lib/persisted-numbers";
-import { usePermissions } from "@/lib/use-permissions";
+import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
-import { PermissionsError } from "@/components/permissions-error";
 
 const BUCKETS = Object.values(MoveInToBucket);
 const PROFILE_HISTORY_LIMIT = 25;
@@ -95,9 +95,6 @@ const optNum = (schema: z.ZodNumber) =>
   );
 const emptyToNull = (v: string | undefined) => (v ? v : null);
 
-function localToday(): string {
-  return farmToday();
-}
 
 function Detail({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -123,7 +120,7 @@ const weightSchema = (maxWeightKg: number) =>
     date: z
       .string()
       .optional()
-      .refine((s) => !s || s <= localToday(), "Date can't be in the future"),
+      .refine((s) => !s || s <= farmToday(), "Date can't be in the future"),
     weight_kg: z.coerce
       .number()
       .positive("Weight must be greater than 0")
@@ -215,7 +212,7 @@ function AddWeightDialog({
             <Input
               id="w_date"
               type="date"
-              max={localToday()}
+              max={farmToday()}
               aria-invalid={Boolean(errors.date) || undefined}
               aria-describedby={errors.date ? "weight-date-error" : undefined}
               {...register("date")}
@@ -465,9 +462,9 @@ const statusSchema = z
     authority_notified_at: z.string().optional(),
   })
   .superRefine((values, context) => {
-    const statusDate = values.date || localToday();
+    const statusDate = values.date || farmToday();
     for (const field of ["date", "mortality_reported_at", "authority_notified_at"] as const) {
-      if (values[field] && values[field] > localToday()) {
+      if (values[field] && values[field] > farmToday()) {
         context.addIssue({ code: "custom", path: [field], message: "Date can't be in the future" });
       }
     }
@@ -661,7 +658,7 @@ function StatusDialog({
             <Input
               id="s_date"
               type="date"
-              max={localToday()}
+              max={farmToday()}
               aria-invalid={Boolean(errors.date) || undefined}
               aria-describedby={errors.date ? "status-date-error" : undefined}
               {...register("date")}
@@ -732,7 +729,7 @@ function StatusDialog({
                 <Input
                   id="mortality-reported-at"
                   type="date"
-                  max={localToday()}
+                  max={farmToday()}
                   aria-invalid={Boolean(errors.mortality_reported_at) || undefined}
                   aria-describedby={errors.mortality_reported_at ? "mortality-reported-error" : undefined}
                   {...register("mortality_reported_at")}
@@ -787,7 +784,7 @@ function StatusDialog({
                     <Input
                       id="mortality-authority-notified"
                       type="date"
-                      max={localToday()}
+                      max={farmToday()}
                       aria-invalid={Boolean(errors.authority_notified_at) || undefined}
                       aria-describedby={errors.authority_notified_at ? "mortality-authority-error" : undefined}
                       {...register("authority_notified_at")}
@@ -1527,13 +1524,13 @@ function ProfileBody({
   );
 }
 
-function AnimalProfilePageContent() {
+function AnimalProfilePageContent({ perms }: { perms: PermissionsState }) {
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
   const animalId = Number(params.id);
   const validAnimalId =
     /^\d+$/.test(params.id) && Number.isSafeInteger(animalId) && animalId > 0;
-  const { can, loading: permsLoading, isError: permsError, refetch: permsRefetch } = usePermissions();
+  const { can } = perms;
   const allowed = can("animals.view");
   const [kidsOffset, setKidsOffset] = useState(0);
   const [weightsOffset, setWeightsOffset] = useState(0);
@@ -1568,23 +1565,6 @@ function AnimalProfilePageContent() {
         ? "Back to health"
         : "Back to animals";
 
-  if (permsLoading) {
-    return (
-      <div className="space-y-6" role="status" aria-live="polite">
-        <span className="sr-only">Loading…</span>
-        <PageHeader title="Animal" description="Profile, history and lifecycle actions." />
-        <PageSkeleton cards={3} />
-      </div>
-    );
-  }
-  if (permsError) {
-    return (
-      <PermissionsError onRetry={() => void permsRefetch()} />
-    );
-  }
-  if (!allowed) {
-    return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
-  }
   if (!validAnimalId) {
     return (
       <div role="alert" className="space-y-3 rounded-lg border border-destructive/40 p-4">
@@ -1667,6 +1647,7 @@ function AnimalProfilePageContent() {
 
 export default function AnimalProfilePage() {
   const params = useParams<{ id: string }>();
+  const perms = usePermissions();
   return (
     <Suspense
       fallback={
@@ -1682,7 +1663,16 @@ export default function AnimalProfilePage() {
           through the switch — so without a remount, one animal's history
           offsets (and ProfileBody's restriction offset) would be sent as the
           next animal's query params, showing a falsely empty page. */}
-      <AnimalProfilePageContent key={params.id} />
+      <PermissionGate
+        perms={perms}
+        perm="animals.view"
+        label="Animal"
+        description="Profile, history and lifecycle actions."
+        cards={3}
+        announce
+      >
+        <AnimalProfilePageContent key={params.id} perms={perms} />
+      </PermissionGate>
     </Suspense>
   );
 }

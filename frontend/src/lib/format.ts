@@ -90,7 +90,9 @@ export function farmToday(now: Date = new Date()): string {
 /** Backend datetimes without an offset are UTC. Render the instant in the
  * active farm timezone so completion/audit times agree for every operator.
  * The year is always rendered: these are audit rows, and two episodes twelve
- * months apart would otherwise be indistinguishable. */
+ * months apart would otherwise be indistinguishable. Format matches
+ * formatDate ("5 Aug 2026") plus a lowercase 12-hour clock — "5 Aug 2026,
+ * 2:30 pm" — so date + time read identically everywhere in the app. */
 export function formatFarmDateTime(iso: string | null | undefined): string {
   if (!iso) return "—";
   const hasOffset = /(?:Z|[+-]\d{2}:?\d{2})$/.test(iso);
@@ -100,20 +102,22 @@ export function formatFarmDateTime(iso: string | null | undefined): string {
     farmTimeZoneFormat(
       "en-GB",
       {
-        day: "2-digit",
-        month: "2-digit",
+        day: "numeric",
+        month: "short",
         year: "numeric",
-        hour: "2-digit",
+        hour: "numeric",
         minute: "2-digit",
-        hourCycle: "h23",
+        hour12: true,
       },
       activeFarmTimezone,
     )
       .formatToParts(date)
-      .filter((part) => ["day", "month", "year", "hour", "minute"].includes(part.type))
+      .filter((part) =>
+        ["day", "month", "year", "hour", "minute", "dayPeriod"].includes(part.type),
+      )
       .map((part) => [part.type, part.value]),
   );
-  return `${parts.day}-${parts.month}-${parts.year} ${parts.hour}:${parts.minute}`;
+  return `${parts.day} ${parts.month} ${parts.year}, ${parts.hour}:${parts.minute} ${parts.dayPeriod}`;
 }
 
 /** YYYY-MM-DD `days` after `iso` (both YYYY-MM-DD), timezone-safe.
@@ -134,6 +138,13 @@ export function addDays(iso: string, days: number): string {
   const month = String(date.getUTCMonth() + 1).padStart(2, "0");
   const day = String(date.getUTCDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+/** Whole days from `from` to `to` (both YYYY-MM-DD), timezone-safe. */
+export function daysBetween(from: string, to: string): number {
+  const [fy, fm, fd] = from.split("-").map(Number);
+  const [ty, tm, td] = to.split("-").map(Number);
+  return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86400000);
 }
 
 const MONTHS = [

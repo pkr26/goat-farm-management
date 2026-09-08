@@ -13,7 +13,19 @@
 import { usePermissionsApiAuthPermissionsGet } from "@/api/generated/endpoints";
 import { useAuth } from "@/lib/auth-context";
 
-export function usePermissions() {
+/** What usePermissions() resolves to — named so PermissionGate (and page
+ * content components receiving the same single observer's result) can share
+ * the object without re-subscribing a second query observer. */
+export type PermissionsState = {
+  loading: boolean;
+  isError: boolean;
+  error: unknown;
+  refetch: ReturnType<typeof usePermissionsApiAuthPermissionsGet>["refetch"];
+  isOwner: boolean;
+  can: (code: string) => boolean;
+};
+
+export function usePermissions(): PermissionsState {
   const { farmId } = useAuth();
   const query = usePermissionsApiAuthPermissionsGet({
     query: { enabled: farmId !== null },

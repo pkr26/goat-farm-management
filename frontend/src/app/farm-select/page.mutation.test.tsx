@@ -41,7 +41,7 @@ const SECOND_FARM = {
   name: "Navipet Herd",
   location: null,
   role: "Mover",
-  // No timezone: the card must fall back to Asia/Kolkata.
+  timezone: "Asia/Kolkata",
 };
 
 async function renderLoaded(expectedCards: number) {
@@ -126,7 +126,7 @@ describe("FarmSelectPage — picker cards", () => {
     navState.search = "";
   });
 
-  it("labels each card with its type and timezone, defaulting the latter", async () => {
+  it("labels each card with its type and timezone", async () => {
     server.use(http.get("/api/auth/farms", () => HttpResponse.json([GOAT_FARM, SECOND_FARM])));
     await renderLoaded(2);
 
@@ -140,8 +140,8 @@ describe("FarmSelectPage — picker cards", () => {
     const footer = goat.querySelector("p.text-xs") as HTMLElement;
     expect(footer.textContent).toBe("Goat farm · Asia/Kolkata");
 
-    // A farm without an explicit timezone still renders the label
-    // and the timezone fallback.
+    // Timezone is required on the generated FarmOut contract, so every
+    // card renders its farm's own zone.
     const second = cardOf("Navipet Herd");
     expect(within(second).getByText("Goat farm")).toBeInTheDocument();
     expect(within(second).getByText("Asia/Kolkata")).toBeInTheDocument();

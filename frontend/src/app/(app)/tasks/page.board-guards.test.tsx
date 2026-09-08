@@ -203,8 +203,14 @@ function fullPayload(): TabsPayload {
 const RED_BAND = "bg-destructive/10";
 const AMBER_BAND = "bg-warning-tint";
 
+/** Row-content queries scope to the table: the below-md card list
+ * renders the same titles outside it (see animals page tests). */
+function tableScope() {
+  return within(screen.getByRole("table"));
+}
+
 function rowOf(title: string): HTMLElement {
-  const row = screen.getByText(title).closest("tr");
+  const row = tableScope().getByText(title).closest("tr");
   expect(row).not.toBeNull();
   return row as HTMLElement;
 }
@@ -345,7 +351,7 @@ describe("TasksPage branch guards", () => {
       payload.active_limit = 0;
       await renderLoaded();
 
-      expect(screen.getByText("Morning feed count")).toBeInTheDocument();
+      expect(tableScope().getByText("Morning feed count")).toBeInTheDocument();
       await settle();
       expect(nav.replace).not.toHaveBeenCalled();
     });
@@ -373,14 +379,14 @@ describe("TasksPage branch guards", () => {
 
       // The bridge shows the new tab while the router catches up…
       await openTab(user, "Overdue (1)");
-      expect(await screen.findByText("Trim hooves")).toBeInTheDocument();
+      expect(await within(await screen.findByRole("table")).findByText("Trim hooves")).toBeInTheDocument();
 
       // …but the URL lands somewhere else entirely, which wins.
       nav.state.search = "tab=upcoming";
       await act(async () => {
         rerender(<TasksPage />);
       });
-      expect(await screen.findByText("Rotate buck")).toBeInTheDocument();
+      expect(await within(await screen.findByRole("table")).findByText("Rotate buck")).toBeInTheDocument();
 
       // Coming back to the earlier URL must show that URL's tab, not the
       // abandoned bridge.
@@ -388,8 +394,8 @@ describe("TasksPage branch guards", () => {
       await act(async () => {
         rerender(<TasksPage />);
       });
-      expect(await screen.findByText("Morning feed count")).toBeInTheDocument();
-      expect(screen.queryByText("Trim hooves")).not.toBeInTheDocument();
+      expect(await within(await screen.findByRole("table")).findByText("Morning feed count")).toBeInTheDocument();
+      expect(tableScope().queryByText("Trim hooves")).not.toBeInTheDocument();
     });
 
     it("canonicalises a new URL from that URL's offsets, not a superseded page's", async () => {
@@ -562,12 +568,12 @@ describe("TasksPage branch guards", () => {
 
       const finished = rowOf("Weekly sweep");
       expect(within(finished).queryByRole("button", { name: "Verify" })).not.toBeInTheDocument();
-      expect(within(finished).queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
+      expect(within(finished).queryByRole("button", { name: "Reject…" })).not.toBeInTheDocument();
 
       await openTab(user, "Awaiting verification (1)");
       const queued = rowOf("Deep-clean kidding pen");
       expect(within(queued).getByRole("button", { name: "Verify" })).toBeInTheDocument();
-      expect(within(queued).getByRole("button", { name: "Reject" })).toBeInTheDocument();
+      expect(within(queued).getByRole("button", { name: "Reject…" })).toBeInTheDocument();
     });
   });
 

@@ -35,8 +35,7 @@ import type { DailyOpsResult, DayRecord } from "@/api/generated/models";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
-import { PageSkeleton } from "@/components/skeletons";
-import { PermissionsError } from "@/components/permissions-error";
+import { PermissionGate } from "@/components/permission-gate";
 import { StatCard } from "@/components/stat-card";
 import { farmToday } from "@/lib/format";
 import { Button } from "@/components/ui/button";
@@ -348,11 +347,7 @@ function dayBadges(day: DayRecord): string {
   return parts.join(" · ");
 }
 
-export default function OpsSimulationPage() {
-  const { can, loading: permsLoading, isError: permsError, refetch: permsRefetch } =
-    usePermissions();
-  const allowed = can("simulation.view");
-
+function OpsSimulationPageContent() {
   const vocabulary = farmVocabulary;
 
   const runAction = useSingleFlight();
@@ -460,23 +455,6 @@ export default function OpsSimulationPage() {
     URL.revokeObjectURL(url);
   }
 
-  if (permsLoading) {
-    return (
-      <div className="space-y-6">
-        <PageHeader
-          title="Ops Simulation"
-          description="The farm day by day: buildings, duties, feed and every bucket move."
-        />
-        <PageSkeleton cards={2} />
-      </div>
-    );
-  }
-  if (permsError) {
-    return <PermissionsError onRetry={() => void permsRefetch()} />;
-  }
-  if (!allowed) {
-    return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
-  }
 
   const selectedRecord = result ? (result.days[selectedDay - 1] ?? null) : null;
   const finalHead = result
@@ -1098,5 +1076,20 @@ export default function OpsSimulationPage() {
         </>
       )}
     </div>
+  );
+}
+
+export default function OpsSimulationPage() {
+  const perms = usePermissions();
+  return (
+    <PermissionGate
+      perms={perms}
+      perm="simulation.view"
+      label="Ops Simulation"
+      description="The farm day by day: buildings, duties, feed and every bucket move."
+      cards={2}
+    >
+      <OpsSimulationPageContent />
+    </PermissionGate>
   );
 }

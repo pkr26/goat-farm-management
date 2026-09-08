@@ -312,7 +312,7 @@ describe("AnimalProfilePage guards", () => {
       );
       await renderProfile();
 
-      expect(detailValue("Restriction cleared")).toBe("07-08-2026 15:45");
+      expect(detailValue("Restriction cleared")).toBe("7 Aug 2026, 3:45 pm");
       expect(detailValue("Clearance reference")).toBe("VET-CLEAR-9");
     });
 

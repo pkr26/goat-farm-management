@@ -680,7 +680,7 @@ describe("RegisterPage", () => {
 
       expect(await screen.findByText("conflict detail")).toBeInTheDocument();
       expect(
-        screen.queryByText("Could not register — is the backend running?"),
+        screen.queryByText("Network is weak — please check your connection and try again."),
       ).not.toBeInTheDocument();
     });
 
@@ -727,7 +727,7 @@ describe("RegisterPage", () => {
       await submitValid(user);
 
       expect(
-        await screen.findByText("Could not register — is the backend running?"),
+        await screen.findByText("Network is weak — please check your connection and try again."),
       ).toBeInTheDocument();
     });
 

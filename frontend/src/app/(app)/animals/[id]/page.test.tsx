@@ -688,7 +688,7 @@ describe("AnimalProfilePage", () => {
       // The business date must not be inferred from the audit timestamp: a move
       // effective on 20 Jun was recorded after midnight in the farm timezone.
       expect(body.getByText("20 Jun 2026")).toBeInTheDocument();
-      expect(body.getByText("21-06-2026 01:45")).toBeInTheDocument();
+      expect(body.getByText("21 Jun 2026, 1:45 am")).toBeInTheDocument();
       expect(body.getByText("Effective date")).toBeInTheDocument();
       expect(body.getByText("Recorded")).toBeInTheDocument();
     });

@@ -30,6 +30,7 @@ import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PaginationControls } from "@/components/pagination-controls";
 import { PageHeader } from "@/components/page-header";
+import { PermissionGate } from "@/components/permission-gate";
 import { InlineLoading, PageSkeleton, TableSkeleton } from "@/components/skeletons";
 import { StatusBadge } from "@/components/status-badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -73,9 +74,8 @@ import {
   MIN_PERSISTED_MONEY_MESSAGE,
 } from "@/lib/persisted-numbers";
 import { invalidateFarmData } from "@/lib/query-invalidation";
-import { usePermissions } from "@/lib/use-permissions";
+import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
-import { PermissionsError } from "@/components/permissions-error";
 
 const ALL = "ALL";
 const PAGE_SIZE = 50;
@@ -143,9 +143,6 @@ const optNum = (schema: z.ZodNumber) =>
     schema.optional(),
   );
 
-function localToday(): string {
-  return farmToday();
-}
 
 function completedMonths(dateOfBirth: string, referenceDate: string): number | null {
   const birth = dateOfBirth.split("-").map(Number);
@@ -174,11 +171,11 @@ const createAnimalSchema = (vocabulary: FarmVocabulary) =>
     date_of_birth: z
       .string()
       .optional()
-      .refine((value) => !value || value <= localToday(), "Date can't be in the future"),
+      .refine((value) => !value || value <= farmToday(), "Date can't be in the future"),
     estimated_dob: z
       .string()
       .optional()
-      .refine((value) => !value || value <= localToday(), "Date can't be in the future"),
+      .refine((value) => !value || value <= farmToday(), "Date can't be in the future"),
     birth_type: z.enum([...BIRTH_TYPES] as [string, ...string[]]).optional(),
     birth_weight: optNum(
       z
@@ -196,7 +193,7 @@ const createAnimalSchema = (vocabulary: FarmVocabulary) =>
     purchase_date: z
       .string()
       .optional()
-      .refine((value) => !value || value <= localToday(), "Date can't be in the future"),
+      .refine((value) => !value || value <= farmToday(), "Date can't be in the future"),
     purchase_price: optNum(
       z
         .number()
@@ -218,7 +215,7 @@ const createAnimalSchema = (vocabulary: FarmVocabulary) =>
     weight_date: z
       .string()
       .optional()
-      .refine((value) => !value || value <= localToday(), "Date can't be in the future"),
+      .refine((value) => !value || value <= farmToday(), "Date can't be in the future"),
     // Keep the resolver output total before the BORN-only audit requirement
     // below. Programmatic/legacy form submissions may omit this optional
     // input, but validation should still follow the normal issue path rather
@@ -274,7 +271,7 @@ const createAnimalSchema = (vocabulary: FarmVocabulary) =>
         message: "A breeding import requires a date of birth or estimated DOB",
       });
     } else {
-      const ageMonths = completedMonths(recordedDob, localToday());
+      const ageMonths = completedMonths(recordedDob, farmToday());
       if (ageMonths === null || ageMonths < minimumAge) {
         ctx.addIssue({
           code: "custom",
@@ -476,7 +473,9 @@ function CreateAnimalDialog({
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3" noValidate>
           <fieldset disabled={isSubmitting || createFlight.pending} className="contents">
-          <div className="grid grid-cols-2 gap-3">
+          {/* Phones stack single-column: two forced columns squeezed a
+           * date input and a select into ~160px slivers. */}
+          <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="tag_number">Tag number</Label>
               <Input
@@ -628,7 +627,7 @@ function CreateAnimalDialog({
               <Input
                 id="date_of_birth"
                 type="date"
-                max={localToday()}
+                max={farmToday()}
                 {...register("date_of_birth")}
               />
               {errors.date_of_birth && (
@@ -640,7 +639,7 @@ function CreateAnimalDialog({
               <Input
                 id="estimated_dob"
                 type="date"
-                max={localToday()}
+                max={farmToday()}
                 {...register("estimated_dob")}
               />
               {errors.estimated_dob && (
@@ -730,7 +729,7 @@ function CreateAnimalDialog({
                 <Input
                   id="weight_date"
                   type="date"
-                  max={localToday()}
+                  max={farmToday()}
                   {...register("weight_date")}
                 />
                 {errors.weight_date && (
@@ -741,13 +740,13 @@ function CreateAnimalDialog({
           </div>
 
           {source === AnimalCreateInSource.PURCHASED && (
-            <div className="grid grid-cols-2 gap-3 rounded-lg border p-3">
+            <div className="grid gap-3 rounded-lg border p-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="purchase_date">Purchase date</Label>
                 <Input
                   id="purchase_date"
                   type="date"
-                  max={localToday()}
+                  max={farmToday()}
                   {...register("purchase_date")}
                 />
                 {errors.purchase_date && (
@@ -821,9 +820,9 @@ function CreateAnimalDialog({
   );
 }
 
-function AnimalsPageContent() {
+function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
   const queryClient = useQueryClient();
-  const { can, isOwner, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
+  const { can, isOwner } = perms;
   const allowed = can("animals.view");
   /** value → label map for the bucket filter Select root, with the raw
    * code as the value. */
@@ -1171,29 +1170,6 @@ function AnimalsPageContent() {
     invalidateFarmData(queryClient);
   }
 
-  // The header, actions and filters stay mounted while data settles — a page
-  // that collapses to a bare "Loading…" line reads as a broken app on slow
-  // rural connections.
-  if (permsLoading) {
-    return (
-      <div className="space-y-6" role="status" aria-live="polite">
-        <span className="sr-only">Loading…</span>
-        <PageHeader
-          title="Animals"
-          description="Your herd at a glance — filter by bucket, sex or status, or search by tag."
-        />
-        <PageSkeleton cards={1} />
-      </div>
-    );
-  }
-  if (permsError) {
-    return (
-      <PermissionsError onRetry={() => void permsRefetch()} />
-    );
-  }
-  if (!allowed) {
-    return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
-  }
 
   const dataLoading = query.isLoading || searchPending || pageOutOfRange;
   const sort = sortState;
@@ -1454,6 +1430,7 @@ function AnimalsPageContent() {
 
 /** Suspense boundary required because the content reads useSearchParams(). */
 export default function AnimalsPage() {
+  const perms = usePermissions();
   return (
     <Suspense
       fallback={
@@ -1463,7 +1440,16 @@ export default function AnimalsPage() {
         </div>
       }
     >
-      <AnimalsPageContent />
+      <PermissionGate
+        perms={perms}
+        perm="animals.view"
+        label="Animals"
+        description="Your herd at a glance — filter by bucket, sex or status, or search by tag."
+        cards={1}
+        announce
+      >
+        <AnimalsPageContent perms={perms} />
+      </PermissionGate>
     </Suspense>
   );
 }

@@ -53,8 +53,7 @@ import { BreedDefaultsApiSimulationDefaultsGetSystem } from "@/api/generated/mod
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
-import { PageSkeleton } from "@/components/skeletons";
-import { PermissionsError } from "@/components/permissions-error";
+import { PermissionGate } from "@/components/permission-gate";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -86,7 +85,7 @@ import { ApiError } from "@/lib/api-client";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { farmVocabulary, type FarmVocabulary } from "@/lib/farm-vocabulary";
 import { farmToday, formatMoney } from "@/lib/format";
-import { usePermissions } from "@/lib/use-permissions";
+import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 
 const DEFAULT_SYSTEM = BreedDefaultsApiSimulationDefaultsGetSystem.stall_fed;
@@ -224,9 +223,8 @@ function NumberField(
   );
 }
 
-export default function PlannerPage() {
-  const { can, loading: permsLoading, isError: permsError, refetch: permsRefetch } =
-    usePermissions();
+function PlannerPageContent({ perms }: { perms: PermissionsState }) {
+  const { can } = perms;
   const allowed = can("simulation.view");
   const canManage = can("simulation.manage");
   const canUseHerd = can("animals.view");
@@ -607,24 +605,6 @@ export default function PlannerPage() {
     toast.success(`Opened “${plan.name}” — press Plan to re-run it against today's biology.`);
   }
 
-  // ----- Render.
-  if (permsLoading) {
-    return (
-      <div className="space-y-6">
-        <PageHeader
-          title="Planner"
-          description="Set sale targets by month; the planner works backward to today's to-do list."
-        />
-        <PageSkeleton cards={2} />
-      </div>
-    );
-  }
-  if (permsError) {
-    return <PermissionsError onRetry={() => void permsRefetch()} />;
-  }
-  if (!allowed) {
-    return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
-  }
 
   const evaluation = report ? (report.plan.after ?? report.plan.before) : null;
   const breeds = breedsQuery.data?.status === 200 ? breedsQuery.data.data.breeds : [];
@@ -1234,5 +1214,20 @@ export default function PlannerPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+export default function PlannerPage() {
+  const perms = usePermissions();
+  return (
+    <PermissionGate
+      perms={perms}
+      perm="simulation.view"
+      label="Planner"
+      description="Set sale targets by month; the planner works backward to today's to-do list."
+      cards={2}
+    >
+      <PlannerPageContent perms={perms} />
+    </PermissionGate>
   );
 }

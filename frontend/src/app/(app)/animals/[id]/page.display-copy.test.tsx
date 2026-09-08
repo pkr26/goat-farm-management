@@ -414,7 +414,7 @@ describe("AnimalProfilePage rendering and dialog contracts", () => {
       );
       await renderProfile();
 
-      expect(detailValue("Restriction cleared")).toBe("07-08-2026 15:45");
+      expect(detailValue("Restriction cleared")).toBe("7 Aug 2026, 3:45 pm");
       expect(detailValue("Clearance reference")).toBe("—");
     });
 
@@ -441,21 +441,21 @@ describe("AnimalProfilePage rendering and dialog contracts", () => {
       // Bucket cells carry the humanised enum labels.
       expect(cellTexts(rows[0])).toEqual([
         "20 Jun 2026",
-        "21-06-2026 01:45",
+        "21 Jun 2026, 1:45 am",
         "—",
         "Quarantine",
         "",
       ]);
       expect(cellTexts(rows[1])).toEqual([
         "1 Jul 2026",
-        "01-07-2026 10:00",
+        "1 Jul 2026, 10:00 am",
         "Quarantine",
         "Female kids",
         "Weaned into the doeling pen",
       ]);
       expect(cellTexts(rows[2])).toEqual([
         "25 Jul 2026",
-        "25-07-2026 11:30",
+        "25 Jul 2026, 11:30 am",
         "Female kids",
         "Pregnancy A",
         "Confirmed pregnant",
@@ -525,7 +525,7 @@ describe("AnimalProfilePage rendering and dialog contracts", () => {
       expect(cellTexts(rows[0])).toEqual([
         "1",
         "Placed",
-        "01-07-2026 14:30",
+        "1 Jul 2026, 2:30 pm",
         "HEALTH-EVENT-41",
         "—",
       ]);

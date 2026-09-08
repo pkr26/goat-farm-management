@@ -10,6 +10,7 @@ import type { AnimalIdentityOut } from "@/api/generated/models";
 import { Button } from "@/components/ui/button";
 import { DataTableCard } from "@/components/data-table-card";
 import { PageHeader } from "@/components/page-header";
+import { PermissionGate } from "@/components/permission-gate";
 import { StaleDataNotice } from "@/components/stale-data-notice";
 import { PageSkeleton } from "@/components/skeletons";
 import { buttonVariants } from "@/components/ui/button";
@@ -24,9 +25,8 @@ import {
 import { ApiError } from "@/lib/api-client";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { withReturnTo } from "@/lib/permission-navigation";
-import { usePermissions } from "@/lib/use-permissions";
+import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { badgeVariants } from "@/components/ui/badge";
-import { PermissionsError } from "@/components/permissions-error";
 
 /** v1's Animal.display_name: tag plus optional name. */
 function animalName(a: AnimalIdentityOut): string {
@@ -73,8 +73,23 @@ function SummaryRow({ label, value }: { label: string; value: ReactNode }) {
 }
 
 export default function ReportsPage() {
+  const perms = usePermissions();
+  return (
+    <PermissionGate
+      perms={perms}
+      perm="reports.view"
+      label="Reports"
+      description="Key herd, breeding and mortality numbers at a glance."
+      cards={2}
+    >
+      <ReportsPageContent perms={perms} />
+    </PermissionGate>
+  );
+}
+
+function ReportsPageContent({ perms }: { perms: PermissionsState }) {
   const vocabulary = farmVocabulary;
-  const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
+  const { can } = perms;
   const allowed = can("reports.view");
   const canViewAnimals = can("animals.view");
   const canViewHealth = can("health.view");
@@ -82,27 +97,6 @@ export default function ReportsPage() {
   const query = useReportsApiDashboardReportsGet({ query: { enabled: allowed } });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
 
-  // The header stays mounted while data settles — a page that collapses to a
-  // bare "Loading…" line reads as a broken app on slow rural connections.
-  if (permsLoading) {
-    return (
-      <div className="space-y-6">
-        <PageHeader
-          title="Reports"
-          description="Key herd, breeding and mortality numbers at a glance."
-        />
-        <PageSkeleton cards={2} />
-      </div>
-    );
-  }
-  if (permsError) {
-    return (
-      <PermissionsError onRetry={() => void permsRefetch()} />
-    );
-  }
-  if (!allowed) {
-    return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
-  }
   if (query.isLoading || !payload) {
     if (query.isError) {
       return (

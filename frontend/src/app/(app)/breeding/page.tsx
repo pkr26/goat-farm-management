@@ -8,7 +8,7 @@ import { CircleCheckBig, Clock, HeartHandshake, Plus } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Controller, useForm } from "react-hook-form";
+import { Controller, useForm, type FieldPath } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -29,6 +29,7 @@ import type { RemotePickerOption } from "@/components/remote-picker";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { PermissionGate } from "@/components/permission-gate";
 import { StaleDataNotice } from "@/components/stale-data-notice";
 import { PaginationControls } from "@/components/pagination-controls";
 import { StatusBadge } from "@/components/status-badge";
@@ -60,14 +61,18 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { ApiError, farmScopeEpochValue } from "@/lib/api-client";
+import {
+  ApiError,
+  apiValidationErrors,
+  applyApiValidationToForm,
+  } from "@/lib/api-client";
 import { enumLabel } from "@/lib/enum-labels";
-import { farmToday, formatDate } from "@/lib/format";
+import { daysBetween, farmToday, formatDate } from "@/lib/format";
+import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import { farmVocabulary, type FarmVocabulary } from "@/lib/farm-vocabulary";
-import { usePermissions } from "@/lib/use-permissions";
+import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
-import { PermissionsError } from "@/components/permissions-error";
 import { PageSkeleton } from "@/components/skeletons";
 
 /** Deep-link ids arrive as raw query strings; anything that is not a positive
@@ -78,16 +83,7 @@ function parsePositiveId(raw: string | null): number | null {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
-function localToday(): string {
-  return farmToday();
-}
 
-/** Whole days from `from` to `to` (both YYYY-MM-DD), timezone-safe. */
-function daysBetween(from: string, to: string): number {
-  const [fy, fm, fd] = from.split("-").map(Number);
-  const [ty, tm, td] = to.split("-").map(Number);
-  return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86400000);
-}
 
 /** Mirrors services/breeding.py: standing heat ends within ~1 day of the
  * service and the next heat cannot return before ~18 days, so a not-pregnant
@@ -130,7 +126,7 @@ const breedingSchema = (vocabulary: FarmVocabulary) =>
     breeding_date: z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a valid date")
-      .refine((s) => s <= localToday(), "Date can't be in the future"),
+      .refine((s) => s <= farmToday(), "Date can't be in the future"),
   })
   .superRefine((values, ctx) => {
     if (values.method === "NATURAL" && !values.buck_id) {
@@ -149,9 +145,13 @@ function breedingDefaults(): BreedingValues {
     buck_id: "",
     method: "NATURAL",
     semen_sire_name: "",
-    breeding_date: localToday(),
+    breeding_date: farmToday(),
   };
 }
+
+/** The dialog's registered field names — the 422 mapper maps loc tails
+ * against these and falls through anything else to the banner. */
+const BREEDING_FORM_FIELDS: readonly string[] = Object.keys(breedingDefaults());
 
 function NewBreedingDialog({
   open,
@@ -186,6 +186,7 @@ function NewBreedingDialog({
     handleSubmit,
     reset,
     resetField,
+    setError,
     watch,
     formState: { errors, isSubmitting, dirtyFields },
   } = useForm<BreedingValues>({
@@ -209,7 +210,9 @@ function NewBreedingDialog({
   async function onSubmit(values: BreedingValues) {
     await createFlight.run(async () => {
       setFormError(null);
-      const requestFarmEpoch = farmScopeEpochValue();
+        // Same-farm fence: the write keeps its captured X-Farm-Id, but this
+      // continuation must not touch another farm's UI (M-2).
+      const stillOwnsFarm = captureFarmScope();
       try {
         await createMutation.mutateAsync({
           data: {
@@ -223,7 +226,7 @@ function NewBreedingDialog({
         });
         // The write belongs to the farm it was addressed to; the completion
         // must not toast/close/invalidate on a different farm's UI (M-2).
-        if (farmScopeEpochValue() !== requestFarmEpoch) return;
+        if (!stillOwnsFarm()) return;
         toast.success("Breeding saved.");
         reset(breedingDefaults());
         // Clear the lifted labels alongside the form values, or the next
@@ -233,9 +236,24 @@ function NewBreedingDialog({
         onOpenChange(false);
         onSaved();
       } catch (err) {
-        const message = errorText(err);
-        setFormError(message);
-        toast.error(message);
+        // A 422's per-field issues land inline on their inputs (the dialog
+        // already renders field-level errors with aria wiring); only issues
+        // that match no form field degrade to the banner + toast.
+        const unmapped = applyApiValidationToForm(
+          err,
+          (field, message) =>
+            setError(field as FieldPath<BreedingValues>, { type: "server", message }),
+          BREEDING_FORM_FIELDS,
+        );
+        if (unmapped.length === apiValidationErrors(err).length) {
+          const message = errorText(err);
+          setFormError(message);
+          toast.error(message);
+        } else if (unmapped.length > 0) {
+          const message = unmapped.map((issue) => issue.msg).join("; ");
+          setFormError(message);
+          toast.error(message);
+        }
       }
     });
   }
@@ -389,7 +407,7 @@ function NewBreedingDialog({
               <Input
                 id="breeding_date"
                 type="date"
-                max={localToday()}
+                max={farmToday()}
                 aria-invalid={Boolean(errors.breeding_date) || undefined}
                 aria-describedby={errors.breeding_date ? "breeding-date-error" : undefined}
                 {...register("breeding_date")}
@@ -443,7 +461,7 @@ function UltrasoundDialog({
   // explicitly checks it.
   const [pregnant, setPregnant] = useState(false);
   const [kidCount, setKidCount] = useState("");
-  const [resultDate, setResultDate] = useState(localToday());
+  const [resultDate, setResultDate] = useState(farmToday());
   const [saving, setSaving] = useState(false);
   const saveLock = useRef(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -466,7 +484,7 @@ function UltrasoundDialog({
     ? "Result date is required"
     : resultDate < earliestResultDate
       ? `Result date cannot be before ${formatDate(earliestResultDate)}`
-      : resultDate > localToday()
+      : resultDate > farmToday()
         ? "Result date can't be in the future"
         : negativeResultGapDays !== null &&
             negativeResultGapDays > STANDING_HEAT_DAYS &&
@@ -488,7 +506,9 @@ function UltrasoundDialog({
     saveLock.current = true;
     setSaving(true);
     setFormError(null);
-    const requestFarmEpoch = farmScopeEpochValue();
+      // Same-farm fence: the write keeps its captured X-Farm-Id, but this
+      // continuation must not touch another farm's UI (M-2).
+      const stillOwnsFarm = captureFarmScope();
     try {
       await mutation.mutateAsync({
         recordId: record.id,
@@ -498,7 +518,7 @@ function UltrasoundDialog({
           kid_count: pregnant ? Number(kidCount) : null,
         },
       });
-      if (farmScopeEpochValue() !== requestFarmEpoch) return;
+      if (!stillOwnsFarm()) return;
       toast.success("Ultrasound result saved.");
       onClose();
       onSaved();
@@ -538,7 +558,7 @@ function UltrasoundDialog({
               id={`ultrasound-result-date-${record.id}`}
               type="date"
               min={earliestResultDate}
-              max={localToday()}
+              max={farmToday()}
               required
               disabled={saving}
               value={resultDate}
@@ -641,7 +661,7 @@ function PregnancyLossDialog({
     record.ultrasound_result_date && record.ultrasound_result_date > record.breeding_date
       ? record.ultrasound_result_date
       : record.breeding_date;
-  const [lossDate, setLossDate] = useState(localToday());
+  const [lossDate, setLossDate] = useState(farmToday());
   const [cause, setCause] = useState<PregnancyLossInCause>(PregnancyLossInCause.UNKNOWN);
   const [notes, setNotes] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
@@ -649,7 +669,7 @@ function PregnancyLossDialog({
     ? "Loss date is required"
     : lossDate < earliestLossDate
       ? `Loss date cannot be before ${formatDate(earliestLossDate)}`
-      : lossDate > localToday()
+      : lossDate > farmToday()
         ? "Loss date can't be in the future"
         : null;
   const notesError = notes.length > 4_000 ? "Notes cannot exceed 4000 characters" : null;
@@ -660,7 +680,9 @@ function PregnancyLossDialog({
     if (lossDateError || notesError) return;
     await saveFlight.run(async () => {
       setFormError(null);
-      const requestFarmEpoch = farmScopeEpochValue();
+        // Same-farm fence: the write keeps its captured X-Farm-Id, but this
+      // continuation must not touch another farm's UI (M-2).
+      const stillOwnsFarm = captureFarmScope();
       try {
         await mutation.mutateAsync({
           recordId: record.id,
@@ -670,7 +692,7 @@ function PregnancyLossDialog({
             notes: notes.trim() || null,
           },
         });
-        if (farmScopeEpochValue() !== requestFarmEpoch) return;
+        if (!stillOwnsFarm()) return;
         toast.success("Pregnancy loss recorded.");
         onClose();
         onSaved();
@@ -706,7 +728,7 @@ function PregnancyLossDialog({
               id={`pregnancy-loss-date-${record.id}`}
               type="date"
               min={earliestLossDate}
-              max={localToday()}
+              max={farmToday()}
               value={lossDate}
               aria-invalid={Boolean(lossDateError) || undefined}
               aria-describedby={lossDateError ? `pregnancy-loss-date-error-${record.id}` : undefined}
@@ -780,12 +802,12 @@ function PregnancyLossDialog({
   );
 }
 
-function BreedingPageContent() {
+function BreedingPageContent({ perms }: { perms: PermissionsState }) {
   const queryClient = useQueryClient();
   const vocabulary = farmVocabulary;
   const femaleLabel = cap(vocabulary.femaleAdult);
   const maleLabel = cap(vocabulary.maleAdult);
-  const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
+  const { can } = perms;
   const allowed = can("breeding.view");
   const canManage = can("breeding.manage");
   const canViewAnimals = can("animals.view");
@@ -877,26 +899,6 @@ function BreedingPageContent() {
     invalidateFarmData(queryClient);
   }
 
-  if (permsLoading) {
-    return (
-      <div className="space-y-6" role="status" aria-live="polite">
-        <span className="sr-only">Loading…</span>
-        <PageHeader
-          title="Breeding"
-          description="Breeding records, ultrasound checks and pregnancy outcomes."
-        />
-        <PageSkeleton stats={3} cards={1} />
-      </div>
-    );
-  }
-  if (permsError) {
-    return (
-      <PermissionsError onRetry={() => void permsRefetch()} />
-    );
-  }
-  if (!allowed) {
-    return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
-  }
   if (query.isLoading || !payload) {
     if (query.isError) {
       return (
@@ -1073,7 +1075,7 @@ function BreedingPageContent() {
                       {/* A not-pregnant result is recordable before the planned
                           scan (doe back in heat), so the action stays open for
                           every PENDING record; the plan is only a hint. */}
-                      {r.outcome === "PENDING" && r.ultrasound_date && r.ultrasound_date > localToday() && (
+                      {r.outcome === "PENDING" && r.ultrasound_date && r.ultrasound_date > farmToday() && (
                         <span className="text-xs text-muted-foreground">
                           Scan planned {formatDate(r.ultrasound_date)}
                         </span>
@@ -1164,6 +1166,7 @@ function BreedingPageContent() {
 }
 
 export default function BreedingPage() {
+  const perms = usePermissions();
   return (
     <Suspense
       fallback={
@@ -1173,7 +1176,17 @@ export default function BreedingPage() {
         </div>
       }
     >
-      <BreedingPageContent />
+      <PermissionGate
+        perms={perms}
+        perm="breeding.view"
+        label="Breeding"
+        description="Breeding records, ultrasound checks and pregnancy outcomes."
+        stats={3}
+        cards={1}
+        announce
+      >
+        <BreedingPageContent perms={perms} />
+      </PermissionGate>
     </Suspense>
   );
 }

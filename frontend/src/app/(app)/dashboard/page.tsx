@@ -25,6 +25,7 @@ import { PageSkeleton } from "@/components/skeletons";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { PermissionGate } from "@/components/permission-gate";
 import { StaleDataNotice } from "@/components/stale-data-notice";
 import { enumLabel } from "@/lib/enum-labels";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
@@ -48,23 +49,16 @@ import {
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { farmToday, formatDate } from "@/lib/format";
+import { daysBetween, farmToday, formatDate } from "@/lib/format";
 import { withReturnTo } from "@/lib/permission-navigation";
 import { permittedTaskActionPath, type PermissionCheck } from "@/lib/task-action-access";
-import { usePermissions } from "@/lib/use-permissions";
-import { PermissionsError } from "@/components/permissions-error";
+import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 
 /** v1's Animal.display_name: tag plus optional name. */
 function animalName(a: AnimalIdentityOut): string {
   return a.tag_number + (a.name ? ` · ${a.name}` : "");
 }
 
-/** Whole days from `from` to `to` (both YYYY-MM-DD), timezone-safe. */
-function daysBetween(from: string, to: string): number {
-  const [fy, fm, fd] = from.split("-").map(Number);
-  const [ty, tm, td] = to.split("-").map(Number);
-  return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86400000);
-}
 
 /** The tasks page buckets strictly by due date, so a fallback "View" link has
  * to name the tab that can actually hold the row. */
@@ -109,13 +103,30 @@ function TaskLink({
 }
 
 export default function DashboardPage() {
+  const perms = usePermissions();
+  return (
+    <PermissionGate
+      perms={perms}
+      perm="dashboard.view"
+      label="Dashboard"
+      description="Herd overview — tasks, breeding dates and recent weights."
+      stats={5}
+      cards={2}
+      announce
+    >
+      <DashboardPageContent perms={perms} />
+    </PermissionGate>
+  );
+}
+
+function DashboardPageContent({ perms }: { perms: PermissionsState }) {
   const vocabulary = farmVocabulary;
   // Table headers and tag fallbacks start the sentence, so the female-parent
   // noun needs its display-case form ("Doe").
   const femaleParentLabel =
     vocabulary.femaleAdult.charAt(0).toUpperCase() + vocabulary.femaleAdult.slice(1);
   const { farms, farmId } = useAuth();
-  const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
+  const { can } = perms;
   const allowed = can("dashboard.view");
   const canViewAnimals = can("animals.view");
   const canViewBreeding = can("breeding.view");
@@ -136,25 +147,6 @@ export default function DashboardPage() {
   // weights). Gate on either so a withheld section can never read as the
   // factual "No suggestions." (M-1).
 
-  if (permsLoading) {
-    return (
-      <div className="space-y-6">
-        <PageHeader title="Dashboard" description="Herd overview — tasks, breeding dates and recent weights." />
-        <div role="status" aria-live="polite">
-          <span className="sr-only">Loading…</span>
-          <PageSkeleton stats={5} cards={2} />
-        </div>
-      </div>
-    );
-  }
-  if (permsError) {
-    return (
-      <PermissionsError onRetry={() => void permsRefetch()} />
-    );
-  }
-  if (!allowed) {
-    return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
-  }
   if (query.isLoading || !payload) {
     if (query.isError) {
       return (

@@ -172,9 +172,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       farmIdRef.current = id;
       setFarmIdState(id);
       setCurrentFarmId(String(id));
-      const selected = farmsRef.current.find((farm) => farm.id === id) as
-        | (FarmEntry & { timezone?: string })
-        | undefined;
+      // FarmOut.timezone is required on the generated contract, so the
+      // cached entry carries the authoritative zone without a local widen.
+      const selected = farmsRef.current.find((farm) => farm.id === id);
       setActiveFarmTimezone(timezone ?? selected?.timezone);
       writeStoredFarmId(id);
     },

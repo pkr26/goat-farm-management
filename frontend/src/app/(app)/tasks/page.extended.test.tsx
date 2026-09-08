@@ -187,8 +187,14 @@ function fullPayload(): TabsPayload {
   };
 }
 
+/** Row-content queries scope to the table: the below-md card list
+ * renders the same titles outside it (see animals page tests). */
+function tableScope() {
+  return within(screen.getByRole("table"));
+}
+
 function rowOf(title: string): HTMLElement {
-  const row = screen.getByText(title).closest("tr");
+  const row = tableScope().getByText(title).closest("tr");
   expect(row).not.toBeNull();
   return row as HTMLElement;
 }
@@ -277,12 +283,12 @@ describe("TasksPage (extended)", () => {
   it("switches tabs to show their tasks", async () => {
     const user = userEvent.setup();
     await renderLoaded();
-    expect(screen.getByText("Morning feed count")).toBeInTheDocument();
-    expect(screen.queryByText("Rotate buck")).not.toBeInTheDocument();
+    expect(tableScope().getByText("Morning feed count")).toBeInTheDocument();
+    expect(tableScope().queryByText("Rotate buck")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Upcoming (1)" }));
-    expect(await screen.findByText("Rotate buck")).toBeInTheDocument();
-    expect(screen.queryByText("Morning feed count")).not.toBeInTheDocument();
+    expect(await within(await screen.findByRole("table")).findByText("Rotate buck")).toBeInTheDocument();
+    expect(tableScope().queryByText("Morning feed count")).not.toBeInTheDocument();
   });
 
   it("shows the per-tab empty message", async () => {
@@ -304,7 +310,7 @@ describe("TasksPage (extended)", () => {
 
   it("shows the sent-back note under a rejected pending task", async () => {
     await renderLoaded();
-    expect(screen.getByText("Sent back: far pen still dirty")).toBeInTheDocument();
+    expect(tableScope().getByText("Sent back: far pen still dirty")).toBeInTheDocument();
   });
 
   it("renders the assignment and animal cells", async () => {
@@ -333,7 +339,7 @@ describe("TasksPage (extended)", () => {
     // completed_at is naive UTC rendered in the active farm's timezone
     // (Asia/Kolkata, +05:30), so 14:07 UTC must display as 19:37 — asserted as
     // a literal so dropping the UTC normalisation in formatFarmDateTime fails.
-    expect(within(awaitingRow).getByText("05-08-2026 19:37")).toBeInTheDocument();
+    expect(within(awaitingRow).getByText("5 Aug 2026, 7:37 pm")).toBeInTheDocument();
 
     const verifiedRow = rowOf("Weekly sweep");
     expect(within(verifiedRow).getByText("VERIFIED")).toBeInTheDocument();
@@ -361,7 +367,7 @@ describe("TasksPage (extended)", () => {
     expect(within(row).getByText("SKIPPED")).toBeInTheDocument();
     expect(within(row).getByText("Reason: No animals in pen")).toBeInTheDocument();
     // 13:00 naive UTC → 18:30 in the farm's Asia/Kolkata day.
-    expect(within(row).getByText("05-08-2026 18:30")).toBeInTheDocument();
+    expect(within(row).getByText("5 Aug 2026, 6:30 pm")).toBeInTheDocument();
   });
 
   it("pages completed history using the backend total", async () => {
@@ -556,7 +562,7 @@ describe("TasksPage (extended)", () => {
     const user = userEvent.setup();
     await renderLoaded();
     await user.click(screen.getByRole("tab", { name: "Awaiting verification (1)" }));
-    await screen.findByText("Deep-clean kidding pen");
+    await within(await screen.findByRole("table")).findByText("Deep-clean kidding pen");
     return user;
   }
 
@@ -570,11 +576,13 @@ describe("TasksPage (extended)", () => {
     await waitFor(() => expect(listCalls).toBeGreaterThanOrEqual(2));
   });
 
-  it("rejects with a typed note, sends it, and clears the note box", async () => {
+  it("rejects with a typed note, trims it, and reopens with a blank reason", async () => {
     const user = await openAwaiting();
     const row = rowOf("Deep-clean kidding pen");
-    await user.type(within(row).getByPlaceholderText("reason (sent back)"), "  pen still wet ");
-    await user.click(within(row).getByRole("button", { name: "Reject" }));
+    await user.click(within(row).getByRole("button", { name: "Reject…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Reject duty" });
+    await user.type(within(dialog).getByLabelText("Reason *"), "  pen still wet ");
+    await user.click(within(dialog).getByRole("button", { name: "Reject duty" }));
 
     await waitFor(() =>
       expect(actionCalls).toContainEqual({
@@ -584,24 +592,39 @@ describe("TasksPage (extended)", () => {
       }),
     );
     await waitFor(() =>
-      expect(within(rowOf("Deep-clean kidding pen")).getByPlaceholderText("reason (sent back)")),
+      expect(within(rowOf("Deep-clean kidding pen")).getByRole("button", { name: "Reject…" })),
     );
-    expect(
-      within(rowOf("Deep-clean kidding pen")).getByPlaceholderText("reason (sent back)"),
-    ).toHaveValue("");
     await waitFor(() => expect(listCalls).toBeGreaterThanOrEqual(2));
+
+    // A fresh opening starts clean: no stale reason from the last rejection.
+    await user.click(
+      within(rowOf("Deep-clean kidding pen")).getByRole("button", { name: "Reject…" }),
+    );
+    const reopened = await screen.findByRole("dialog", { name: "Reject duty" });
+    expect(within(reopened).getByLabelText("Reason *")).toHaveValue("");
+    expect(within(reopened).queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("rejects without a note as note: null (SPEC expects a note; backend allows none)", async () => {
+  it("blocks rejection until a reason is typed (no noteless POST)", async () => {
     const user = await openAwaiting();
-    await user.click(
-      within(rowOf("Deep-clean kidding pen")).getByRole("button", { name: "Reject" }),
+    const row = rowOf("Deep-clean kidding pen");
+    await user.click(within(row).getByRole("button", { name: "Reject…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Reject duty" });
+
+    await user.click(within(dialog).getByRole("button", { name: "Reject duty" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "Reason is required.",
     );
+    expect(actionCalls).toHaveLength(0);
+    // Typing clears the flag; the same submit then goes through.
+    await user.type(within(dialog).getByLabelText("Reason *"), "pen still wet");
+    await user.click(within(dialog).getByRole("button", { name: "Reject duty" }));
     await waitFor(() =>
       expect(actionCalls).toContainEqual({
         action: "reject",
         taskId: "5",
-        body: { note: null },
+        body: { note: "pen still wet" },
       }),
     );
   });
@@ -623,7 +646,7 @@ describe("TasksPage (extended)", () => {
     expect(screen.getByRole("button", { name: "Retry verify" })).toBeInTheDocument();
   });
 
-  it("does not refetch and retains the note when rejection fails", async () => {
+  it("does not refetch and retains the reason when rejection fails", async () => {
     let failed = 0;
     server.use(
       http.post("/api/tasks/:taskId/reject", () => {
@@ -633,14 +656,18 @@ describe("TasksPage (extended)", () => {
     );
     const user = await openAwaiting();
     const row = rowOf("Deep-clean kidding pen");
-    const reason = within(row).getByLabelText("Rejection reason");
+    await user.click(within(row).getByRole("button", { name: "Reject…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Reject duty" });
+    const reason = within(dialog).getByLabelText("Reason *");
     await user.type(reason, "Still wet");
-    await user.click(within(row).getByRole("button", { name: "Reject" }));
+    await user.click(within(dialog).getByRole("button", { name: "Reject duty" }));
 
     await waitFor(() => expect(failed).toBe(1));
     expect(listCalls).toBe(1);
-    expect(await screen.findByRole("alert")).toHaveTextContent("verification already changed");
-    expect(screen.getByRole("button", { name: "Retry reject" })).toBeInTheDocument();
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "verification already changed",
+    );
+    expect(within(dialog).getByRole("button", { name: "Retry reject" })).toBeInTheDocument();
     expect(reason).toHaveValue("Still wet");
   });
 
@@ -649,7 +676,7 @@ describe("TasksPage (extended)", () => {
     await renderLoaded();
     // The awaiting tab is hidden, so the controls are unreachable.
     expect(screen.queryByRole("button", { name: "Verify" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reject…" })).not.toBeInTheDocument();
   });
 
   // ---------- New-duty dialog ----------

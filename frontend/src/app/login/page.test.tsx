@@ -5,13 +5,14 @@
  * the server-error line instead of navigating.
  */
 
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
+import { LanguageProvider, LANGUAGE_STORAGE_KEY } from "@/lib/i18n";
 
 import LoginPage from "./page";
 
@@ -154,7 +155,7 @@ describe("LoginPage", () => {
     await user.click(screen.getByRole("button", { name: /sign in/i }));
 
     expect(
-      await screen.findByText("Could not sign in — is the backend running?"),
+      await screen.findByText("Network is weak — please check your connection and try again."),
     ).toBeInTheDocument();
     expect(pushMock).not.toHaveBeenCalled();
   });
@@ -440,6 +441,47 @@ describe("LoginPage", () => {
     releasePermissions();
     await new Promise((resolve) => setTimeout(resolve, 50));
 
+    expect(pushMock).not.toHaveBeenCalled();
+  });
+
+  // ---------- forgot-password path + language ----------
+
+  it("explains the owner-reset recovery path from the Forgot password link", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<LoginPage />);
+
+    await user.click(screen.getByRole("button", { name: "Forgot password?" }));
+    const dialog = await screen.findByRole("dialog", { name: "Forgot password?" });
+    // Honest copy: owner resets from Team, no self-service email recovery.
+    expect(within(dialog).getByText(/reset by the farm owner/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/no self-service email recovery/)).toBeInTheDocument();
+
+    // The explicit footer Close (the dialog also ships a corner X close).
+    const closeButtons = within(dialog).getAllByRole("button", { name: "Close" });
+    await user.click(closeButtons[closeButtons.length - 1]);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("offers the language toggle and switches the error copy to Telugu", async () => {
+    server.use(http.post("/api/auth/login", () => HttpResponse.error()));
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, "te");
+    const user = userEvent.setup();
+    renderWithProviders(
+      <LanguageProvider>
+        <LoginPage />
+      </LanguageProvider>,
+    );
+
+    expect(await screen.findByRole("button", { name: "తెలుగు" })).toBeInTheDocument();
+    expect(document.documentElement.lang).toBe("te");
+
+    await user.type(screen.getByLabelText(/email/i), "demo@goatfarm.in");
+    await user.type(screen.getByLabelText(/password/i), "demo1234");
+    await user.click(screen.getByRole("button", { name: /sign in/i }));
+
+    expect(
+      await screen.findByText("నెట్‌వర్క్ బలహీనంగా ఉంది — దయచేసి కనెక్షన్ సరిచూసి మళ్లీ ప్రయత్నించండి."),
+    ).toBeInTheDocument();
     expect(pushMock).not.toHaveBeenCalled();
   });
 });

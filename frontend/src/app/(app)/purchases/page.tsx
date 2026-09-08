@@ -21,6 +21,7 @@ import { PurchaseBatchInSex } from "@/api/generated/models";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { PermissionGate } from "@/components/permission-gate";
 import { StaleDataNotice } from "@/components/stale-data-notice";
 import { PaginationControls } from "@/components/pagination-controls";
 import { InlineLoading, PageSkeleton, TableSkeleton } from "@/components/skeletons";
@@ -53,6 +54,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
+import { mutationError } from "@/lib/mutations";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { MAX_AGE_MONTHS, MAX_BATCH_COUNT } from "@/lib/backend-caps";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
@@ -63,18 +65,11 @@ import {
   isPersistableNonnegativeMoney,
   MIN_PERSISTED_MONEY_MESSAGE,
 } from "@/lib/persisted-numbers";
-import { usePermissions } from "@/lib/use-permissions";
+import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 import { MAX_PAGE_OFFSET, useUrlState, type UrlStateUpdate } from "@/lib/use-url-state";
-import { PermissionsError } from "@/components/permissions-error";
 
-function localToday(): string {
-  return farmToday();
-}
 
-function mutationError(err: unknown): string {
-  return err instanceof ApiError ? err.detail : "Something went wrong";
-}
 
 /** Optional non-negative number: blank → undefined (same shape as backend schemas). */
 const optNum = (schema: z.ZodNumber) =>
@@ -127,7 +122,7 @@ const batchSchema = (maxWeightKg: number) =>
     message: "Date must be year 2000 or later",
     path: ["date"],
   })
-  .refine((v) => !v.date || v.date <= localToday(), {
+  .refine((v) => !v.date || v.date <= farmToday(), {
     message: "Date cannot be in the future",
     path: ["date"],
   });
@@ -287,9 +282,9 @@ function BatchDetailDialog({
   );
 }
 
-function PurchasesPageContent() {
+function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
   const vocabulary = farmVocabulary;
-  const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
+  const { can } = perms;
   const allowed = can("purchases.view");
   const canManage = can("purchases.manage");
   const canViewAnimals = can("animals.view");
@@ -386,7 +381,7 @@ function PurchasesPageContent() {
   } = useForm<BatchInput, unknown, BatchValues>({
     resolver: zodResolver(batchSchema(vocabulary.facts.maxWeightKg)),
     defaultValues: {
-      date: localToday(),
+      date: farmToday(),
       count: 1,
       sex: PurchaseBatchInSex.F,
       create_animals: true,
@@ -423,7 +418,7 @@ function PurchasesPageContent() {
         setOpen(false);
         setPendingBatch(null);
         reset({
-          date: localToday(),
+          date: farmToday(),
           count: 1,
           sex: PurchaseBatchInSex.F,
           create_animals: true,
@@ -435,28 +430,6 @@ function PurchasesPageContent() {
     });
   }
 
-  // The header and layout stay mounted while permissions settle — a page that
-  // collapses to a bare "Loading…" line reads as a broken app on slow rural
-  // connections.
-  if (permsLoading) {
-    return (
-      <div className="space-y-6">
-        <PageHeader
-          title="Purchase batches"
-          description={`Incoming groups of ${vocabulary.speciesPlural} — each batch auto-creates its 45-day quarantine protocol.`}
-        />
-        <PageSkeleton cards={1} />
-      </div>
-    );
-  }
-  if (permsError) {
-    return (
-      <PermissionsError onRetry={() => void permsRefetch()} />
-    );
-  }
-  if (!allowed) {
-    return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
-  }
   if (query.isLoading || !payload) {
     if (query.isError) {
       return (
@@ -489,7 +462,7 @@ function PurchasesPageContent() {
   function openNewBatch() {
     if (createFlight.pending) return;
     reset({
-      date: localToday(),
+      date: farmToday(),
       count: 1,
       sex: PurchaseBatchInSex.F,
       create_animals: true,
@@ -724,7 +697,7 @@ function PurchasesPageContent() {
                 <Input
                   id="date"
                   type="date"
-                  max={localToday()}
+                  max={farmToday()}
                   aria-invalid={Boolean(errors.date) || undefined}
                   aria-describedby={errors.date ? "purchase-date-error" : undefined}
                   {...register("date")}
@@ -880,6 +853,8 @@ function PurchasesPageContent() {
 
 /** Suspense boundary required because the content reads useSearchParams(). */
 export default function PurchasesPage() {
+  const perms = usePermissions();
+  const vocabulary = farmVocabulary;
   return (
     <Suspense
       fallback={
@@ -889,7 +864,15 @@ export default function PurchasesPage() {
         </div>
       }
     >
-      <PurchasesPageContent />
+      <PermissionGate
+        perms={perms}
+        perm="purchases.view"
+        label="Purchase batches"
+        description={`Incoming groups of ${vocabulary.speciesPlural} — each batch auto-creates its 45-day quarantine protocol.`}
+        cards={1}
+      >
+        <PurchasesPageContent perms={perms} />
+      </PermissionGate>
     </Suspense>
   );
 }

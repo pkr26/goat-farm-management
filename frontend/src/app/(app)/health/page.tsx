@@ -8,7 +8,13 @@ import { CalendarClock, Plus, SearchX, Syringe } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
-import { Controller, useForm, useWatch, type FieldErrors } from "react-hook-form";
+import {
+  Controller,
+  useForm,
+  useWatch,
+  type FieldErrors,
+  type FieldPath,
+} from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -37,6 +43,7 @@ import {
 } from "@/components/health-target-pickers";
 import { enumLabel } from "@/lib/enum-labels";
 import { PageHeader } from "@/components/page-header";
+import { PermissionGate } from "@/components/permission-gate";
 import { StaleDataNotice } from "@/components/stale-data-notice";
 import { PaginationControls } from "@/components/pagination-controls";
 import {
@@ -81,20 +88,23 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ApiError, farmScopeEpochValue } from "@/lib/api-client";
+import {
+  ApiError,
+  applyApiValidationToForm,
+  } from "@/lib/api-client";
 import { addDays, farmToday, formatDate, formatMoney } from "@/lib/format";
+import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import {
   isPersistableNonnegativeMoney,
   MIN_PERSISTED_MONEY_MESSAGE,
 } from "@/lib/persisted-numbers";
 import { permittedAppPath, withReturnTo } from "@/lib/permission-navigation";
-import { usePermissions } from "@/lib/use-permissions";
+import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 import { MAX_PAGE_OFFSET, useUrlState } from "@/lib/use-url-state";
 
 import { taskPrefill } from "./task-prefill";
-import { PermissionsError } from "@/components/permissions-error";
 
 const EVENT_TYPES = Object.values(HealthEventInType);
 const BUCKETS = Object.values(HealthEventInBucket);
@@ -117,9 +127,6 @@ const EVENT_TYPE_ITEMS: Record<string, string> = Object.fromEntries(
   EVENT_TYPES.map((t) => [t, enumLabel("eventType", t)]),
 );
 
-function localToday(): string {
-  return farmToday();
-}
 
 /** Canonicalise URL/select ids without JavaScript's permissive Number()
  * syntax (for example, "1e2" must never silently target record 100). */
@@ -222,7 +229,7 @@ const eventSchema = z
     // A blank event date has a defined API meaning: the active farm's today.
     // Validate every dependent date against that effective value rather than
     // letting blank-date submissions pass here and fail at the endpoint.
-    const eventDate = v.date || localToday();
+    const eventDate = v.date || farmToday();
     if (v.scope === "animal" && positiveIdString(v.animal_id) === null) {
       ctx.addIssue({ code: "custom", path: ["animal_id"], message: "Pick an animal" });
     }
@@ -235,7 +242,7 @@ const eventSchema = z
     if (v.task_id && v.task_id !== NONE && positiveIdString(v.task_id) === null) {
       ctx.addIssue({ code: "custom", path: ["task_id"], message: "Pick a valid duty" });
     }
-    if (v.date && v.date > localToday()) {
+    if (v.date && v.date > farmToday()) {
       ctx.addIssue({ code: "custom", path: ["date"], message: "Date cannot be in the future" });
     }
     if (v.next_due_date) {
@@ -261,7 +268,7 @@ const eventSchema = z
         });
       }
     }
-    if (v.product_manufactured_on && v.product_manufactured_on > localToday()) {
+    if (v.product_manufactured_on && v.product_manufactured_on > farmToday()) {
       ctx.addIssue({
         code: "custom",
         path: ["product_manufactured_on"],
@@ -334,7 +341,7 @@ const eventSchema = z
       });
     }
     for (const field of ["authority_notified_at", "isolation_started_at"] as const) {
-      if (v[field] && v[field] > localToday()) {
+      if (v[field] && v[field] > farmToday()) {
         ctx.addIssue({ code: "custom", path: [field], message: "Date cannot be in the future" });
       }
     }
@@ -371,7 +378,7 @@ function eventDefaults(): EventValues {
     animal_id: "",
     bucket: "",
     purchase_batch_id: "",
-    date: localToday(),
+    date: farmToday(),
     type: "VACCINE",
     product_name: "",
     disease_target: "",
@@ -398,13 +405,17 @@ function eventDefaults(): EventValues {
   };
 }
 
+/** The record dialog's registered field names — the 422 mapper maps loc
+ * tails against these and falls through anything else to the banner. */
+const EVENT_FORM_FIELDS: readonly string[] = Object.keys(eventDefaults());
+
 function FieldError({ message, id }: { message?: string; id?: string }) {
   if (!message) return null;
   return <p id={id} role="alert" className="text-sm text-destructive">{message}</p>;
 }
 
-function HealthPageContent() {
-  const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
+function HealthPageContent({ perms }: { perms: PermissionsState }) {
+  const { can } = perms;
   const allowed = can("health.view");
   const canManage = can("health.manage");
   const canViewAnimals = can("animals.view");
@@ -496,7 +507,7 @@ function HealthPageContent() {
           // api/health.py rejects an event dated before the duty's due date,
           // and the event date can never be in the future — so a duty that is
           // not due yet could only ever produce a 409.
-          t.due_date <= localToday(),
+          t.due_date <= farmToday(),
       )
     : [];
   const exactTask =
@@ -548,6 +559,7 @@ function HealthPageContent() {
     reset,
     control,
     setValue,
+    setError,
     getValues,
     unregister,
     formState: { errors, isSubmitting },
@@ -870,7 +882,7 @@ function HealthPageContent() {
         };
         setRecordError(null);
         const epoch = ++submissionEpoch.current;
-        const requestFarmEpoch = farmScopeEpochValue();
+        const stillOwnsFarm = captureFarmScope();
         try {
           const response = await previewMutation.mutateAsync({ data: target });
           if (response.status !== 200) return;
@@ -882,7 +894,7 @@ function HealthPageContent() {
               : null;
           const stillCurrent =
             mounted.current &&
-            farmScopeEpochValue() === requestFarmEpoch &&
+            stillOwnsFarm() &&
             submissionEpoch.current === epoch &&
             currentScope === target.scope &&
             currentTaskId === selectedTaskId &&
@@ -894,7 +906,7 @@ function HealthPageContent() {
         } catch (err) {
           if (
             !mounted.current ||
-            farmScopeEpochValue() !== requestFarmEpoch ||
+            !stillOwnsFarm() ||
             submissionEpoch.current !== epoch
           ) return;
           const message =
@@ -950,14 +962,14 @@ function HealthPageContent() {
     };
     setRecordError(null);
     const epoch = ++submissionEpoch.current;
-    const requestFarmEpoch = farmScopeEpochValue();
+    const stillOwnsFarm = captureFarmScope();
     try {
       const response = await recordMutation.mutateAsync({ data: payload });
       const recordedCount = response.status === 201 ? response.data.length : 0;
       // The request itself retained its original X-Farm-Id. If ownership has
       // since crossed a farm boundary, none of this old farm's completion may
       // affect the new farm's UI, cache, toast stream, or route.
-      if (farmScopeEpochValue() !== requestFarmEpoch) return;
+      if (!stillOwnsFarm()) return;
       // The write happened, so confirm it and refresh the farm views
       // even if this dialog session is already over on the SAME farm.
       toast.success(
@@ -979,13 +991,41 @@ function HealthPageContent() {
     } catch (err) {
       if (
         !mounted.current ||
-        farmScopeEpochValue() !== requestFarmEpoch ||
+        !stillOwnsFarm() ||
         submissionEpoch.current !== epoch
       ) return;
-      const message = err instanceof ApiError ? err.detail : "Could not save the health event.";
       if (values.scope !== "animal") setBulkPreview(null);
-      setRecordError(message);
-      toast.error(message);
+      // A 422's per-field issues land inline on their inputs (the aria
+      // wiring already renders those); only issues that match no form field
+      // degrade to the banner + toast. Same collapsed-section rule as the
+      // client-side invalid-submit path: an inline error hidden inside the
+      // Advanced <details> must force it open or the save looks dead.
+      const mappedFields: string[] = [];
+      const unmapped = applyApiValidationToForm(
+        err,
+        (field, message) => {
+          mappedFields.push(field);
+          setError(field as FieldPath<EventValues>, { type: "server", message });
+        },
+        EVENT_FORM_FIELDS,
+      );
+      if (
+        mappedFields.some((field) =>
+          (ADVANCED_COMPLIANCE_FIELDS as readonly string[]).includes(field),
+        )
+      ) {
+        setAdvancedOpen(true);
+      }
+      if (mappedFields.length === 0) {
+        const message =
+          err instanceof ApiError ? err.detail : "Could not save the health event.";
+        setRecordError(message);
+        toast.error(message);
+      } else if (unmapped.length > 0) {
+        const message = unmapped.map((issue) => issue.msg).join("; ");
+        setRecordError(message);
+        toast.error(message);
+      }
     }
   }
 
@@ -993,28 +1033,6 @@ function HealthPageContent() {
     await eventSubmission.run(() => submitEvent(values));
   }
 
-  // The header and page structure stay mounted while the permission set
-  // settles — a page that collapses to a bare "Loading…" line reads as a
-  // broken app on slow rural connections.
-  if (permsLoading) {
-    return (
-      <div className="space-y-6">
-        <PageHeader
-          title="Health"
-          description="Vaccinations, deworming and treatments across the herd."
-        />
-        <PageSkeleton cards={2} />
-      </div>
-    );
-  }
-  if (permsError) {
-    return (
-      <PermissionsError onRetry={() => void permsRefetch()} />
-    );
-  }
-  if (!allowed) {
-    return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
-  }
   if (eventsQuery.isLoading || !eventPayload) {
     if (eventsQuery.isError) {
       return (
@@ -1496,7 +1514,7 @@ function HealthPageContent() {
                 <Input
                   id="date"
                   type="date"
-                  max={localToday()}
+                  max={farmToday()}
                   aria-invalid={Boolean(errors.date) || undefined}
                   aria-describedby={errors.date ? "event-date-error" : undefined}
                   {...register("date")}
@@ -1650,7 +1668,7 @@ function HealthPageContent() {
                 const linkedTask = linkableHealthTasks.find(
                   (t) => String(t.id) === wTaskId,
                 );
-                if (!linkedTask || linkedTask.due_date <= localToday()) return null;
+                if (!linkedTask || linkedTask.due_date <= farmToday()) return null;
                 return (
                   <p role="status" className="sm:col-span-2 text-sm text-muted-foreground">
                     Duty #{linkedTask.id} is not due until {formatDate(linkedTask.due_date)} — the
@@ -1779,7 +1797,7 @@ function HealthPageContent() {
                   <Input
                     id="product_manufactured_on"
                     type="date"
-                    max={localToday()}
+                    max={farmToday()}
                     aria-invalid={Boolean(errors.product_manufactured_on) || undefined}
                     aria-describedby={errors.product_manufactured_on ? "product-manufactured-error" : undefined}
                     {...register("product_manufactured_on")}
@@ -1875,7 +1893,7 @@ function HealthPageContent() {
                       <Input
                         id="authority_notified_at"
                         type="date"
-                        max={localToday()}
+                        max={farmToday()}
                         aria-invalid={Boolean(errors.authority_notified_at) || undefined}
                         aria-describedby={errors.authority_notified_at ? "authority-notified-error" : undefined}
                         {...register("authority_notified_at")}
@@ -1891,7 +1909,7 @@ function HealthPageContent() {
                       <Input
                         id="isolation_started_at"
                         type="date"
-                        max={localToday()}
+                        max={farmToday()}
                         aria-invalid={Boolean(errors.isolation_started_at) || undefined}
                         aria-describedby={errors.isolation_started_at ? "isolation-started-error" : undefined}
                         {...register("isolation_started_at")}
@@ -1962,6 +1980,7 @@ function HealthPageContent() {
 }
 
 export default function HealthPage() {
+  const perms = usePermissions();
   return (
     <Suspense
       fallback={
@@ -1975,7 +1994,15 @@ export default function HealthPage() {
         </div>
       }
     >
-      <HealthPageContent />
+      <PermissionGate
+        perms={perms}
+        perm="health.view"
+        label="Health"
+        description="Vaccinations, deworming and treatments across the herd."
+        cards={2}
+      >
+        <HealthPageContent perms={perms} />
+      </PermissionGate>
     </Suspense>
   );
 }

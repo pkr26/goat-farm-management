@@ -375,12 +375,87 @@ export function authSessionEpochValue(): number {
 export class ApiError extends Error {
   status: number;
   detail: string;
+  /** Structured FastAPI 422 issues, preserved next to the flattened
+   *  `detail` sentence so form surfaces can map them onto their inputs.
+   *  Empty for every other error shape/status. */
+  readonly validationIssues: ApiValidationIssue[];
 
-  constructor(status: number, detail: string) {
+  constructor(status: number, detail: string, validationIssues: ApiValidationIssue[] = []) {
     super(detail);
     this.status = status;
     this.detail = detail;
+    this.validationIssues = validationIssues;
   }
+}
+
+/** One FastAPI validation error entry: `loc` is the JSON path of the
+ *  offending value (["body", "field", …] — numeric array indices are
+ *  stringified) and `msg` the validator's message. */
+export interface ApiValidationIssue {
+  loc: string[];
+  msg: string;
+}
+
+/** Extracts the structured detail array FastAPI attaches to 422s; anything
+ *  else (string detail, malformed body) yields an empty list. */
+function extractValidationIssues(body: unknown): ApiValidationIssue[] {
+  if (!body || typeof body !== "object" || !("detail" in body)) return [];
+  const detail = (body as { detail: unknown }).detail;
+  if (!Array.isArray(detail)) return [];
+  const issues: ApiValidationIssue[] = [];
+  for (const entry of detail) {
+    if (entry && typeof entry === "object" && "msg" in entry && "loc" in entry) {
+      const loc = (entry as { loc: unknown }).loc;
+      const msg = (entry as { msg: unknown }).msg;
+      // Pydantic emits numeric segments for array indices; the field mapper
+      // works in dotted strings, so adopt them as strings here.
+      if (
+        Array.isArray(loc) &&
+        loc.every((part) => typeof part === "string" || typeof part === "number") &&
+        typeof msg === "string"
+      ) {
+        issues.push({ loc: loc.map(String), msg });
+      }
+    }
+  }
+  return issues;
+}
+
+/** Structured view of a 422's field issues (empty for any other error),
+ *  for surfaces that render errors inline per input instead of one banner. */
+export function apiValidationErrors(err: unknown): ApiValidationIssue[] {
+  return err instanceof ApiError ? err.validationIssues : [];
+}
+
+/** Maps FastAPI 422 issues onto react-hook-form fields and returns the
+ *  remainder that did NOT match a known field (those still need a banner).
+ *
+ * `loc` tails skip the synthetic "body" root FastAPI prefixes request-body
+ *  paths with; the rest is joined in RHF's dot notation. An issue maps when
+ *  the full dotted path — or, failing that, its root segment — is one of
+ *  `fields` (the form's registered top-level names). Unknown fields fall
+ *  through so contract drift surfaces in the toast instead of silently
+ *  vanishing. */
+export function applyApiValidationToForm(
+  err: unknown,
+  setError: (field: string, message: string) => void,
+  fields: readonly string[],
+): ApiValidationIssue[] {
+  const known = new Set(fields);
+  const unmapped: ApiValidationIssue[] = [];
+  for (const issue of apiValidationErrors(err)) {
+    const path = issue.loc[0] === "body" ? issue.loc.slice(1) : issue.loc;
+    const dotted = path.join(".");
+    const root = path[0] ?? "";
+    if (dotted !== "" && known.has(dotted)) {
+      setError(dotted, issue.msg);
+    } else if (root !== "" && known.has(root)) {
+      setError(root, issue.msg);
+    } else {
+      unmapped.push(issue);
+    }
+  }
+  return unmapped;
 }
 
 function assertSafeApiPath(path: string): void {
@@ -660,7 +735,12 @@ async function apiResponseOnce(
     // post-clear epoch is the valid boundary for the original 401. A newer
     // login during delayed body parsing still supersedes it.
     assertAuthSession(responseSessionScope);
-    throw new ApiError(resp.status, extractDetail(body, resp.statusText, resp.status));
+    throw new ApiError(
+      resp.status,
+      extractDetail(body, resp.statusText, resp.status),
+      // Only 422s carry the per-field array the form mapper consumes.
+      resp.status === 422 ? extractValidationIssues(body) : [],
+    );
   }
   // Fully consume and validate protected successful JSON bodies before their
   // logical request is marked complete. A connection that drops after headers

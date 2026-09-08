@@ -427,7 +427,7 @@ describe("LoginPage — server error handling", () => {
       await screen.findByText("Too many attempts — please try again later."),
     ).toBeInTheDocument();
     expect(
-      screen.queryByText("Could not sign in — is the backend running?"),
+      screen.queryByText("Network is weak — please check your connection and try again."),
     ).not.toBeInTheDocument();
     expect(pushMock).not.toHaveBeenCalled();
   });
@@ -445,7 +445,7 @@ describe("LoginPage — server error handling", () => {
 
     expect(await screen.findByText("database is locked")).toBeInTheDocument();
     expect(
-      screen.queryByText("Could not sign in — is the backend running?"),
+      screen.queryByText("Network is weak — please check your connection and try again."),
     ).not.toBeInTheDocument();
   });
 

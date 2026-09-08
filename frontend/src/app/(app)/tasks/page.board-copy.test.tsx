@@ -207,8 +207,14 @@ function fullPayload(): TabsPayload {
   };
 }
 
+/** Row-content queries scope to the table: the below-md card list
+ * renders the same titles outside it (see animals page tests). */
+function tableScope() {
+  return within(screen.getByRole("table"));
+}
+
 function rowOf(title: string): HTMLElement {
-  const row = screen.getByText(title).closest("tr");
+  const row = tableScope().getByText(title).closest("tr");
   expect(row).not.toBeNull();
   return row as HTMLElement;
 }
@@ -285,7 +291,7 @@ describe("TasksPage board copy", () => {
     const user = userEvent.setup();
     await renderLoaded();
     await user.click(screen.getByRole("tab", { name: "Awaiting verification (2)" }));
-    await screen.findByText("Deep-clean kidding pen");
+    await within(await screen.findByRole("table")).findByText("Deep-clean kidding pen");
     return user;
   }
 
@@ -301,7 +307,7 @@ describe("TasksPage board copy", () => {
     expect(dueToday).not.toHaveClass("bg-destructive/10");
 
     await user.click(screen.getByRole("tab", { name: "Overdue (1)" }));
-    await screen.findByText("Trim hooves");
+    await within(await screen.findByRole("table")).findByText("Trim hooves");
     const dueLate = within(dueCellOf("Trim hooves")).getByText(formatDate(THREE_DAYS_AGO));
     expect(dueLate).toHaveClass("bg-destructive/10");
     expect(dueLate).not.toHaveClass("bg-warning-tint");
@@ -315,7 +321,7 @@ describe("TasksPage board copy", () => {
 
     // A week out is neither overdue nor due soon.
     await user.click(screen.getByRole("tab", { name: "Upcoming (1)" }));
-    await screen.findByText("Rotate buck");
+    await within(await screen.findByRole("table")).findByText("Rotate buck");
     const dueLater = within(dueCellOf("Rotate buck")).getByText(formatDate(NEXT_WEEK));
     expect(dueLater).not.toHaveClass("bg-warning-tint");
     expect(dueLater).not.toHaveClass("bg-destructive/10");
@@ -360,8 +366,19 @@ describe("TasksPage board copy", () => {
     );
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Task verified."));
 
-    await user.click(within(rowOf("Weigh the kids")).getByRole("button", { name: "Reject" }));
+    // Rejection is dialog-gated: the row button opens it, the confirm only
+    // fires after a reason is typed.
+    await user.click(within(rowOf("Weigh the kids")).getByRole("button", { name: "Reject…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Reject duty" });
+    await user.type(within(dialog).getByLabelText("Reason *"), "kids not weighed");
+    await user.click(within(dialog).getByRole("button", { name: "Reject duty" }));
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Task sent back."));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(actionCalls).toContainEqual({
+      action: "reject",
+      taskId: "7",
+      body: { note: "kids not weighed" },
+    });
   });
 
   it("toasts a failed completion and clears the row alert once the retry succeeds", async () => {
@@ -528,20 +545,23 @@ describe("TasksPage board copy", () => {
     const user = await openAwaiting();
     const row = rowOf("Deep-clean kidding pen");
 
-    await user.click(within(row).getByRole("button", { name: "Reject" }));
-    expect(await within(row).findByRole("alert")).toHaveTextContent(
+    // The failure surfaces inside the reject dialog now; the retry lives there.
+    await user.click(within(row).getByRole("button", { name: "Reject…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Reject duty" });
+    await user.type(within(dialog).getByLabelText("Reason *"), "redo properly");
+    await user.click(within(dialog).getByRole("button", { name: "Reject duty" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
       "verification already changed",
     );
 
-    await user.click(within(row).getByRole("button", { name: "Retry reject" }));
-    await waitFor(() =>
-      expect(
-        within(rowOf("Deep-clean kidding pen")).queryByRole("alert"),
-      ).not.toBeInTheDocument(),
-    );
+    // The confirm flips to a retry label and the second attempt succeeds.
+    await user.click(within(dialog).getByRole("button", { name: "Retry reject" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(
-      within(rowOf("Deep-clean kidding pen")).getByRole("button", { name: "Reject" }),
+      within(rowOf("Deep-clean kidding pen")).getByRole("button", { name: "Reject…" }),
     ).toBeInTheDocument();
+    expect(attempts).toBe(2);
   });
 
   it("shows a plain message when the task list never reaches the server", async () => {
@@ -604,7 +624,7 @@ describe("TasksPage board copy", () => {
     ).not.toBeInTheDocument();
 
     release();
-    expect(await screen.findByText("Morning feed count")).toBeInTheDocument();
+    expect(await within(await screen.findByRole("table")).findByText("Morning feed count")).toBeInTheDocument();
     expect(listCalls).toBeGreaterThanOrEqual(1);
   });
 
@@ -614,12 +634,12 @@ describe("TasksPage board copy", () => {
     nav.state.search = "tab=upcoming";
     renderWithProviders(<TasksPage />);
 
-    expect(await screen.findByText("Rotate buck")).toBeInTheDocument();
+    expect(await within(await screen.findByRole("table")).findByText("Rotate buck")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Upcoming (1)" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    expect(screen.queryByText("Morning feed count")).not.toBeInTheDocument();
+    expect(tableScope().queryByText("Morning feed count")).not.toBeInTheDocument();
   });
 
   it("names every bucket's pager after the bucket it pages", async () => {
@@ -650,7 +670,7 @@ describe("TasksPage board copy", () => {
   it("leaves an already canonical URL alone", async () => {
     nav.state.search = "tab=today";
     await renderLoaded();
-    await screen.findByText("Morning feed count");
+    await within(await screen.findByRole("table")).findByText("Morning feed count");
 
     expect(nav.replace).not.toHaveBeenCalled();
     expect(nav.push).not.toHaveBeenCalled();
@@ -672,10 +692,10 @@ describe("TasksPage board copy", () => {
     nav.state.search = "tab=today";
     const user = userEvent.setup();
     const { rerender } = await renderLoaded();
-    await screen.findByText("Morning feed count");
+    await within(await screen.findByRole("table")).findByText("Morning feed count");
 
     await user.click(screen.getByRole("tab", { name: "Overdue (1)" }));
-    expect(await screen.findByText("Trim hooves")).toBeInTheDocument();
+    expect(await within(await screen.findByRole("table")).findByText("Trim hooves")).toBeInTheDocument();
     expect(nav.state.search).toBe("tab=overdue");
 
     // Back: the URL is authoritative again, so the click's bridging override
@@ -683,8 +703,8 @@ describe("TasksPage board copy", () => {
     nav.state.search = "tab=today";
     rerender(<TasksPage />);
 
-    expect(await screen.findByText("Morning feed count")).toBeInTheDocument();
-    expect(screen.queryByText("Trim hooves")).not.toBeInTheDocument();
+    expect(await within(await screen.findByRole("table")).findByText("Morning feed count")).toBeInTheDocument();
+    expect(tableScope().queryByText("Trim hooves")).not.toBeInTheDocument();
   });
 });
 
@@ -742,7 +762,7 @@ describe("TasksPage offset canonicalization", () => {
     // decimal offsets the pager emits.
     nav.state.search = "tab=today&today_offset=1e2&overdue_offset=0x10";
     renderWithProviders(<TasksPage />);
-    await screen.findByText("Today row");
+    await within(await screen.findByRole("table")).findByText("Today row");
 
     expect(seenParams[0].get("today_offset")).toBe("0");
     expect(seenParams[0].get("overdue_offset")).toBe("0");
@@ -752,7 +772,7 @@ describe("TasksPage offset canonicalization", () => {
   it("clamps one stale bucket without disturbing its healthy siblings", async () => {
     nav.state.search = "tab=overdue&today_offset=100&overdue_offset=50";
     renderWithProviders(<TasksPage />);
-    await screen.findByText("Overdue row");
+    await within(await screen.findByRole("table")).findByText("Overdue row");
 
     await waitFor(() =>
       expect(nav.replace).toHaveBeenLastCalledWith("/tasks?tab=overdue&overdue_offset=50"),
@@ -768,7 +788,7 @@ describe("TasksPage offset canonicalization", () => {
     nav.state.search = "tab=today&today_offset=100";
     renderWithProviders(<TasksPage />);
 
-    expect(await screen.findByText("Today row")).toBeInTheDocument();
+    expect(await within(await screen.findByRole("table")).findByText("Today row")).toBeInTheDocument();
     expect(nav.replace).toHaveBeenCalledWith("/tasks?tab=today");
     expect(seenParams.at(-1)?.get("today_offset")).toBe("0");
   });

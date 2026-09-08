@@ -4,11 +4,11 @@
  *  ?new=1 makes the animals page auto-open the create dialog. */
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { Suspense, useEffect, useRef } from "react";
 
 import { InlineLoading } from "@/components/skeletons";
 
-export default function AnimalsNewRedirect() {
+function AnimalsNewRedirectContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectStarted = useRef(false);
@@ -31,3 +31,14 @@ export default function AnimalsNewRedirect() {
   // beats a bare "Loading…" paragraph.
   return <InlineLoading />;
 }
+
+export default function AnimalsNewRedirect() {
+  // useSearchParams() suspends during static prerendering; the shim's own
+  // spinner doubles as the fallback so the boundary never flashes blank.
+  return (
+    <Suspense fallback={<InlineLoading />}>
+      <AnimalsNewRedirectContent />
+    </Suspense>
+  );
+}
+

@@ -52,15 +52,15 @@ describe("formatFarmDateTime — naive-UTC → farm timezone", () => {
 
   it("reads an offset-less backend timestamp as UTC and shifts it to the farm", () => {
     setActiveFarmTimezone("Asia/Kolkata");
-    expect(formatFarmDateTime("2026-08-05T14:07:00")).toBe("05-08-2026 19:37");
+    expect(formatFarmDateTime("2026-08-05T14:07:00")).toBe("5 Aug 2026, 7:37 pm");
     setActiveFarmTimezone("America/Phoenix");
-    expect(formatFarmDateTime("2026-08-05T14:07:00")).toBe("05-08-2026 07:07");
+    expect(formatFarmDateTime("2026-08-05T14:07:00")).toBe("5 Aug 2026, 7:07 am");
   });
 
   it("uses an explicit offset when the timestamp carries one", () => {
     setActiveFarmTimezone("Asia/Kolkata");
-    expect(formatFarmDateTime("2026-08-05T14:07:00Z")).toBe("05-08-2026 19:37");
-    expect(formatFarmDateTime("2026-08-05T19:37:00+05:30")).toBe("05-08-2026 19:37");
+    expect(formatFarmDateTime("2026-08-05T14:07:00Z")).toBe("5 Aug 2026, 7:37 pm");
+    expect(formatFarmDateTime("2026-08-05T19:37:00+05:30")).toBe("5 Aug 2026, 7:37 pm");
   });
 
   it("renders an em dash for missing or unparseable input", () => {
@@ -77,8 +77,8 @@ describe("formatFarmDateTime — audit rows a year apart (suspected bug)", () =>
   it("distinguishes two instants exactly twelve months apart", () => {
     setActiveFarmTimezone("Asia/Kolkata");
     // Both rendered "04-03 20:00" before the year was included.
-    expect(formatFarmDateTime("2025-03-04T14:30:00")).toBe("04-03-2025 20:00");
-    expect(formatFarmDateTime("2026-03-04T14:30:00")).toBe("04-03-2026 20:00");
+    expect(formatFarmDateTime("2025-03-04T14:30:00")).toBe("4 Mar 2025, 8:00 pm");
+    expect(formatFarmDateTime("2026-03-04T14:30:00")).toBe("4 Mar 2026, 8:00 pm");
   });
 });
 
@@ -93,11 +93,11 @@ describe("farm timezones Intl rejects but the backend accepts (suspected bug)", 
     expect(farmToday(instant)).toBe("2026-08-09");
     // Threw RangeError before the guard, taking the whole page down.
     expect(() => formatFarmDateTime("2026-08-05T14:07:00")).not.toThrow();
-    expect(formatFarmDateTime("2026-08-05T14:07:00")).toBe("05-08-2026 19:37");
+    expect(formatFarmDateTime("2026-08-05T14:07:00")).toBe("5 Aug 2026, 7:37 pm");
   });
 
   it("falls back for a stale or garbage zone too", () => {
     setActiveFarmTimezone("Not/A_Timezone");
-    expect(formatFarmDateTime("2026-08-05T14:07:00")).toBe("05-08-2026 19:37");
+    expect(formatFarmDateTime("2026-08-05T14:07:00")).toBe("5 Aug 2026, 7:37 pm");
   });
 });

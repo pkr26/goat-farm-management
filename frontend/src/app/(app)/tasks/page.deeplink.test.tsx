@@ -90,8 +90,14 @@ function tasksHandler(tasks: TaskOut[] = [TODAY_TASK, OVERDUE_TASK]) {
   );
 }
 
+/** Row-content queries scope to the table: the below-md card list
+ * renders the same titles outside it (see animals page tests). */
+function tableScope() {
+  return within(screen.getByRole("table"));
+}
+
 function rowOf(title: string): HTMLElement {
-  const row = screen.getByText(title).closest("tr");
+  const row = tableScope().getByText(title).closest("tr");
   expect(row).not.toBeNull();
   return row as HTMLElement;
 }
@@ -107,8 +113,8 @@ describe("TasksPage ?tab= deep links (7-1)", () => {
     renderWithProviders(<TasksPage />);
 
     // The overdue tab's content is shown, not Today's.
-    await screen.findByText("Trim hooves");
-    expect(screen.queryByText("Morning feed count")).not.toBeInTheDocument();
+    await within(await screen.findByRole("table")).findByText("Trim hooves");
+    expect(tableScope().queryByText("Morning feed count")).not.toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Overdue (1)" })).toHaveAttribute(
       "aria-selected",
       "true",
@@ -119,15 +125,15 @@ describe("TasksPage ?tab= deep links (7-1)", () => {
     navState.search = "?tab=today";
     renderWithProviders(<TasksPage />);
 
-    await screen.findByText("Morning feed count");
-    expect(screen.queryByText("Trim hooves")).not.toBeInTheDocument();
+    await within(await screen.findByRole("table")).findByText("Morning feed count");
+    expect(tableScope().queryByText("Trim hooves")).not.toBeInTheDocument();
   });
 
   it("falls back to Today for an unknown tab value", async () => {
     navState.search = "?tab=bogus";
     renderWithProviders(<TasksPage />);
 
-    await screen.findByText("Morning feed count");
+    await within(await screen.findByRole("table")).findByText("Morning feed count");
     expect(screen.getByRole("tab", { name: "Today (1)" })).toHaveAttribute(
       "aria-selected",
       "true",
@@ -139,7 +145,7 @@ describe("TasksPage ?tab= deep links (7-1)", () => {
     server.use(permissionsHandler(["tasks.view"]));
     renderWithProviders(<TasksPage />);
 
-    await screen.findByText("Morning feed count");
+    await within(await screen.findByRole("table")).findByText("Morning feed count");
     expect(
       screen.queryByRole("tab", { name: /Awaiting verification/ }),
     ).not.toBeInTheDocument();
@@ -149,7 +155,7 @@ describe("TasksPage ?tab= deep links (7-1)", () => {
     navState.search = "?tab=today&from=dashboard";
     const user = userEvent.setup();
     renderWithProviders(<TasksPage />);
-    await screen.findByText("Morning feed count");
+    await within(await screen.findByRole("table")).findByText("Morning feed count");
 
     await user.click(screen.getByRole("tab", { name: "Overdue (1)" }));
 
@@ -187,15 +193,15 @@ describe("TasksPage self-verification guard (7-4)", () => {
     server.use(permissionsHandler(["tasks.view", "tasks.verify"]));
     renderWithProviders(<TasksPage />);
 
-    await screen.findByText("Deep-clean kidding pen");
+    await within(await screen.findByRole("table")).findByText("Deep-clean kidding pen");
     const selfRow = rowOf("Deep-clean kidding pen");
     expect(within(selfRow).queryByRole("button", { name: "Verify" })).not.toBeInTheDocument();
-    expect(within(selfRow).queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
+    expect(within(selfRow).queryByRole("button", { name: "Reject…" })).not.toBeInTheDocument();
 
     // …while another worker's completion still offers them.
     const otherRow = rowOf("Scrub water troughs");
     expect(within(otherRow).getByRole("button", { name: "Verify" })).toBeInTheDocument();
-    expect(within(otherRow).getByRole("button", { name: "Reject" })).toBeInTheDocument();
+    expect(within(otherRow).getByRole("button", { name: "Reject…" })).toBeInTheDocument();
   });
 
   it("keeps Verify/Reject for the farm owner even on their own completion", async () => {
@@ -206,9 +212,9 @@ describe("TasksPage self-verification guard (7-4)", () => {
     );
     renderWithProviders(<TasksPage />);
 
-    await screen.findByText("Deep-clean kidding pen");
+    await within(await screen.findByRole("table")).findByText("Deep-clean kidding pen");
     const selfRow = rowOf("Deep-clean kidding pen");
     expect(within(selfRow).getByRole("button", { name: "Verify" })).toBeInTheDocument();
-    expect(within(selfRow).getByRole("button", { name: "Reject" })).toBeInTheDocument();
+    expect(within(selfRow).getByRole("button", { name: "Reject…" })).toBeInTheDocument();
   });
 });

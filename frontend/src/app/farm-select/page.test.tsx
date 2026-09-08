@@ -275,12 +275,12 @@ describe("FarmSelectPage — farm picker", () => {
     expect(screen.getByText("Create a farm")).toBeInTheDocument();
   });
 
-  it("shows each farm's own timezone and defaults a row the API left without one", async () => {
+  it("shows each farm's own timezone on its card", async () => {
     server.use(
       http.get("/api/auth/farms", () =>
         HttpResponse.json([
           { id: 1, name: "London Farm", location: "Kent", role: null, timezone: "Europe/London" },
-          { id: 2, name: "Legacy Farm", location: null, role: null },
+          { id: 2, name: "Legacy Farm", location: null, role: null, timezone: "Asia/Kolkata" },
         ]),
       ),
     );
@@ -289,9 +289,9 @@ describe("FarmSelectPage — farm picker", () => {
 
     await screen.findByText("Legacy Farm");
     // The card must show the farm's OWN zone: due dates and daily records are
-    // rendered in it, so falling back to the default would misdate the farm.
+    // rendered in it, so a wrong zone would misdate the farm. Timezone is
+    // required on the generated FarmOut contract — no silent default remains.
     expect(within(cardOf("London Farm")).getByText("Europe/London")).toBeInTheDocument();
-    // A row from before the timezone column existed reads as the API default.
     expect(within(cardOf("Legacy Farm")).getByText("Asia/Kolkata")).toBeInTheDocument();
     // The empty-state hint belongs to an empty list only.
     expect(

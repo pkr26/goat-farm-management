@@ -124,14 +124,14 @@ describe("LoginPage — mutation targets", () => {
     expect(pushMock).not.toHaveBeenCalled();
   });
 
-  it("asks whether the backend is running on a network failure", async () => {
+  it("shows human connection guidance on a network failure", async () => {
     server.use(http.post("/api/auth/login", () => HttpResponse.error()));
     const user = userEvent.setup();
     renderWithProviders(<LoginPage />);
 
     await fillAndSubmit(user);
     expect(
-      await screen.findByText("Could not sign in — is the backend running?"),
+      await screen.findByText("Network is weak — please check your connection and try again."),
     ).toBeInTheDocument();
   });
 });

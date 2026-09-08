@@ -22,6 +22,7 @@ import type { FeedInventoryOut } from "@/api/generated/models";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { PermissionGate } from "@/components/permission-gate";
 import { InlineLoading, PageSkeleton } from "@/components/skeletons";
 import { Button } from "@/components/ui/button";
 import {
@@ -49,6 +50,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
+import { mutationError } from "@/lib/mutations";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { formatMoney } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
@@ -59,13 +61,9 @@ import {
   MIN_PERSISTED_KG_MESSAGE,
 } from "@/lib/persisted-numbers";
 import { FeedingNav } from "@/components/feeding-nav";
-import { usePermissions } from "@/lib/use-permissions";
+import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
-import { PermissionsError } from "@/components/permissions-error";
 
-function mutationError(err: unknown): string {
-  return err instanceof ApiError ? err.detail : "Something went wrong";
-}
 
 /** Optional non-negative number: blank → undefined (same shape as backend schemas). */
 const optNum = (schema: z.ZodNumber) =>
@@ -417,7 +415,22 @@ function MixBatchDialog({
 }
 
 export default function InventoryPage() {
-  const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
+  const perms = usePermissions();
+  return (
+    <PermissionGate
+      perms={perms}
+      perm="feeding.view"
+      label="Feed inventory"
+      description="Ingredient stock and ready-to-dispense mixed feed."
+      cards={2}
+    >
+      <InventoryPageContent perms={perms} />
+    </PermissionGate>
+  );
+}
+
+function InventoryPageContent({ perms }: { perms: PermissionsState }) {
+  const { can } = perms;
   const allowed = can("feeding.view");
   const canManage = can("feeding.manage");
   /** One mix dialog shared by the header action and the empty-state CTA. */
@@ -432,28 +445,6 @@ export default function InventoryPage() {
   const finishedStock =
     finishedQuery.data?.status === 200 ? finishedQuery.data.data : undefined;
 
-  // The header and layout stay mounted while permissions settle — a page that
-  // collapses to a bare "Loading…" line reads as a broken app on slow rural
-  // connections.
-  if (permsLoading) {
-    return (
-      <div className="space-y-6">
-        <PageHeader
-          title="Feed inventory"
-          description="Ingredient stock and ready-to-dispense mixed feed."
-        />
-        <PageSkeleton cards={2} />
-      </div>
-    );
-  }
-  if (permsError) {
-    return (
-      <PermissionsError onRetry={() => void permsRefetch()} />
-    );
-  }
-  if (!allowed) {
-    return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
-  }
   if (query.isLoading && !items) {
     return (
       <div className="space-y-6">

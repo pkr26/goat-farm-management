@@ -6,7 +6,8 @@
  *     accidental CSP loosening (or the future nonce fix) is caught here.
  * G3  Secret exposure: scan every shipped source file for token/credential
  *     persistence patterns. The design invariant: the access token lives in
- *     memory only; localStorage carries exactly one key (the farm selection);
+ *     memory only; localStorage carries exactly two keys (the farm selection
+ *     and the UI language preference — both non-sensitive UI state);
  *     sessionStorage carries exactly the idempotency store.
  */
 
@@ -86,18 +87,22 @@ describe("ADV G3: secret & persistence surface scan", () => {
     }
   });
 
-  it("every localStorage write goes through the farm-selection key", () => {
-    // The app writes via the FARM_STORAGE_KEY constant, not a literal — so the
-    // invariant is: (a) that constant's value, and (b) no other setItem target.
+  it("every localStorage write goes through a pinned allowlisted key", () => {
+    // The app writes via constants, not literals — so the invariant is:
+    // (a) each constant's value, and (b) no other setItem target. The
+    // language preference joins the farm id as reviewed UI state (never a
+    // credential: nothing session-bearing may enter this list).
     const authContext = readFileSync(join(SRC_ROOT, "lib", "auth-context.tsx"), "utf8");
     expect(authContext).toContain('FARM_STORAGE_KEY = "goatfarm.farmId"');
+    const i18n = readFileSync(join(SRC_ROOT, "lib", "i18n", "index.tsx"), "utf8");
+    expect(i18n).toContain('LANGUAGE_STORAGE_KEY = "herdly.language"');
     for (const file of files) {
       const text = readFileSync(file, "utf8");
       for (const match of text.matchAll(/\.setItem\(\s*([^,)]+)/g)) {
         expect(
           match[1].trim(),
           `${file} writes storage key ${match[1]}`,
-        ).toMatch(/^(FARM_STORAGE_KEY|IDEMPOTENCY_SESSION_STORAGE_KEY)$/);
+        ).toMatch(/^(FARM_STORAGE_KEY|IDEMPOTENCY_SESSION_STORAGE_KEY|LANGUAGE_STORAGE_KEY)$/);
       }
     }
   });

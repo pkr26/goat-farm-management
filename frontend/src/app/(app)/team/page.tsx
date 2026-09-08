@@ -26,6 +26,7 @@ import type { MembershipOut, RoleOut, TeamOut } from "@/api/generated/models";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { PermissionGate } from "@/components/permission-gate";
 import { PageSkeleton } from "@/components/skeletons";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
@@ -57,11 +58,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
+import { mutationError } from "@/lib/mutations";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { useAuth } from "@/lib/auth-context";
-import { usePermissions } from "@/lib/use-permissions";
+import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
-import { PermissionsError } from "@/components/permissions-error";
 
 /** Sentinel for "no role" (empty string is not a valid item value). */
 const NONE = "none";
@@ -71,9 +72,6 @@ type TeamAuthority = {
   canStart: () => boolean;
 };
 
-function mutationError(err: unknown): string {
-  return err instanceof ApiError ? err.detail : "Something went wrong";
-}
 
 function useInvalidateTeam() {
   const queryClient = useQueryClient();
@@ -1188,9 +1186,9 @@ function RoleCard({
   );
 }
 
-export default function TeamPage() {
+function TeamPageContent({ perms }: { perms: PermissionsState }) {
   const { user } = useAuth();
-  const { can, isOwner, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
+  const { can, isOwner } = perms;
   const allowed = can("team.manage");
   const queryClient = useQueryClient();
 
@@ -1218,26 +1216,6 @@ export default function TeamPage() {
     },
   };
 
-  if (permsLoading) {
-    return (
-      <div className="space-y-6" role="status" aria-live="polite">
-        <span className="sr-only">Loading…</span>
-        <PageHeader
-          title="Team"
-          description="Manage the workers on this farm, their roles and what each role can do."
-        />
-        <PageSkeleton cards={2} />
-      </div>
-    );
-  }
-  if (permsError) {
-    return (
-      <PermissionsError onRetry={() => void permsRefetch()} />
-    );
-  }
-  if (!allowed) {
-    return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
-  }
   if (query.isLoading || !payload) {
     if (query.isError) {
       return (
@@ -1489,5 +1467,21 @@ export default function TeamPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function TeamPage() {
+  const perms = usePermissions();
+  return (
+    <PermissionGate
+      perms={perms}
+      perm="team.manage"
+      label="Team"
+      description="Manage the workers on this farm, their roles and what each role can do."
+      cards={2}
+      announce
+    >
+      <TeamPageContent perms={perms} />
+    </PermissionGate>
   );
 }

@@ -1,8 +1,8 @@
 /** Unit tests for the shared display formatters (Indian digit grouping, dates). */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
-import { formatDate, formatMoney } from "./format";
+import { formatDate, formatFarmDateTime, formatMoney, setActiveFarmTimezone } from "./format";
 
 describe("formatMoney", () => {
   it("groups digits the Indian way (2-2-3) with the rupee symbol", () => {
@@ -47,5 +47,18 @@ describe("formatDate", () => {
     expect(formatDate(undefined)).toBe("—");
     expect(formatDate("")).toBe("—");
     expect(formatDate("not-a-date")).toBe("—");
+  });
+});
+
+describe("formatFarmDateTime — unified display style", () => {
+  afterEach(() => setActiveFarmTimezone(null));
+
+  it("renders 'd Mon yyyy, h:mm am/pm' in the farm timezone", () => {
+    // 14:07 UTC → 19:37 at +05:30; the style matches formatDate's date part.
+    setActiveFarmTimezone("Asia/Kolkata");
+    expect(formatFarmDateTime("2026-08-05T14:07:00")).toBe("5 Aug 2026, 7:37 pm");
+    expect(formatFarmDateTime("2026-08-05T02:07:00Z")).toBe("5 Aug 2026, 7:37 am");
+    // Midnight cross: 20:00 UTC is already the next farm day at 01:30.
+    expect(formatFarmDateTime("2026-08-05T20:00:00")).toBe("6 Aug 2026, 1:30 am");
   });
 });

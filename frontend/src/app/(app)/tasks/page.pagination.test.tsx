@@ -77,6 +77,12 @@ function hrefParams(mock: ReturnType<typeof vi.fn>): URLSearchParams {
   return new URL(href, "https://goatfarm.invalid").searchParams;
 }
 
+/** Row-content queries scope to the table: the below-md card list
+ * renders the same titles outside it (see animals page tests). */
+function tableScope() {
+  return within(screen.getByRole("table"));
+}
+
 describe("TasksPage independent pagination", () => {
   let totals: Totals;
   let seenParams: URLSearchParams[];
@@ -164,7 +170,7 @@ describe("TasksPage independent pagination", () => {
     const user = userEvent.setup();
     renderWithProviders(<TasksPage />);
 
-    await screen.findByText("Overdue row");
+    await within(await screen.findByRole("table")).findByText("Overdue row");
     expect(screen.getByRole("tab", { name: "Today (137)" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Overdue (127)" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Upcoming (222)" })).toBeInTheDocument();
@@ -189,11 +195,11 @@ describe("TasksPage independent pagination", () => {
 
     const expectedReturnTo =
       "/tasks?tab=overdue&today_offset=50&overdue_offset=50&upcoming_offset=100&awaiting_offset=50&completed_offset=50&from=dashboard";
-    const openFormHref = within(screen.getByText("Overdue row").closest("tr")!).getByRole(
+    const openFormHref = within(tableScope().getByText("Overdue row").closest("tr")!).getByRole(
       "link",
       { name: "Open form" },
     ).getAttribute("href");
-    const animalHref = screen.getByRole("link", { name: "G-007" }).getAttribute("href");
+    const animalHref = tableScope().getByRole("link", { name: "G-007" }).getAttribute("href");
     expect(new URL(openFormHref!, "https://goatfarm.invalid").searchParams.get("returnTo")).toBe(
       expectedReturnTo,
     );
@@ -280,7 +286,7 @@ describe("TasksPage independent pagination", () => {
     nav.state.search =
       "tab=overdue&today_offset=100&overdue_offset=150&upcoming_offset=50&awaiting_offset=50&completed_offset=100&from=dashboard";
     const { queryClient } = renderWithProviders(<TasksPage />);
-    await screen.findByText("Overdue row");
+    await within(await screen.findByRole("table")).findByText("Overdue row");
     nav.replace.mockClear();
 
     totals = { today: 49, overdue: 51, upcoming: 0, awaiting: 10, completed: 75 };
@@ -308,7 +314,7 @@ describe("TasksPage independent pagination", () => {
     const user = userEvent.setup();
     renderWithProviders(<TasksPage />);
 
-    await screen.findByText("Today row");
+    await within(await screen.findByRole("table")).findByText("Today row");
     expect(screen.queryByRole("tab", { name: /Awaiting verification/ })).not.toBeInTheDocument();
     expect(
       screen.queryByRole("navigation", { name: "awaiting verification tasks pagination" }),

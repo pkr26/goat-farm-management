@@ -18,7 +18,6 @@ import {
   GitCompareArrows,
   HandCoins,
   IndianRupee,
-  Info,
   Landmark,
   Percent,
   PiggyBank,
@@ -29,15 +28,13 @@ import {
   Scale,
   ShieldAlert,
   Sigma,
-  Target,
   TrendingUp,
   TriangleAlert,
   Wallet,
   Wheat,
   Repeat,
-  type LucideIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -62,8 +59,6 @@ import type {
   FarmCalibrationOut,
   HerdEventAssumptions,
   MetricExplanation,
-  OptimizationCandidate,
-  PercentileBand,
   ScenarioOut,
   SimulationAssumptions,
   SimulationResult,
@@ -74,11 +69,10 @@ import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PaginationControls } from "@/components/pagination-controls";
 import { PageHeader } from "@/components/page-header";
-import { PageSkeleton, TableSkeleton, InlineLoading } from "@/components/skeletons";
+import { PermissionGate } from "@/components/permission-gate";
+import { TableSkeleton, InlineLoading } from "@/components/skeletons";
 import { farmVocabulary, type FarmVocabulary } from "@/lib/farm-vocabulary";
-import { Histogram } from "@/components/charts";
 import { MAX_PAGE_OFFSET, useUrlState } from "@/lib/use-url-state";
-import { StatCard } from "@/components/stat-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -116,15 +110,27 @@ import {
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
+import { FieldHelpButton, MetricCard, type FieldHelpState } from "./components/editor-widgets";
+import { formatHead, formatPercent, formatRatio, humanize } from "./components/format-helpers";
+import {
+  NumberArrayInput,
+  NumberInput,
+  type NumberArrayRule,
+  type NumericRule,
+} from "./components/number-inputs";
+import {
+  MonteCarloHistogram,
+  OptimizationResults,
+  RiskBandTable,
+} from "./components/results-visuals";
 import { formatFarmDateTime, formatMoney } from "@/lib/format";
 import {
   SIMULATION_SECTION_HELP,
   simulationFieldHelp,
   speciesAwareLabel,
 } from "@/lib/simulation-field-help";
-import { usePermissions } from "@/lib/use-permissions";
+import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
-import { PermissionsError } from "@/components/permissions-error";
 
 const DEFAULT_SYSTEM = BreedDefaultsApiSimulationDefaultsGetSystem.stall_fed;
 const MAX_COMPARE_SCENARIOS = 5;
@@ -142,27 +148,6 @@ type BoundResult = {
   /** Saved scenario the run came from; null for an ad-hoc editor run. */
   scenarioId: number | null;
   source: string;
-};
-
-type NumericRule = {
-  integer?: boolean;
-  min?: number;
-  max?: number;
-  exclusiveMin?: number;
-  unit?: string;
-};
-
-type NumberArrayRule = {
-  exactLength?: number;
-  maxLength?: number;
-  integer?: boolean;
-  min?: number;
-  max?: number;
-  exclusiveMin?: number;
-  allowEmpty?: boolean;
-  unique?: boolean;
-  nondecreasing?: boolean;
-  itemLabel: string;
 };
 
 const INTEGER_FIELDS = new Set([
@@ -618,10 +603,6 @@ function formatFigure(key: string, value: number | string): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
-/** snake_case → Title Case ("horizon_months" → "Horizon Months"). */
-function humanize(key: string): string {
-  return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
 
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.detail : fallback;
@@ -640,26 +621,6 @@ function runErrorMessage(err: unknown, fallback: string): string {
   return errorMessage(err, fallback);
 }
 
-/** Ratio with a fixed precision; non-finite (e.g. BCR = inf) or null → "—". */
-function formatRatio(value: number | null | undefined, digits = 2): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  return value.toFixed(digits);
-}
-
-/** IRR is a fraction (0.18 → "18.0%"); null → "—". */
-function formatPercent(value: number | null | undefined): string {
-  return value === null || value === undefined || !Number.isFinite(value)
-    ? "—"
-    : `${(value * 100).toFixed(1)}%`;
-}
-
-/** Cohort head counts are expected values (float64), so they are almost never
- * integral. Render them at the precision the backend narrative uses. */
-function formatHead(value: number | null | undefined): string {
-  return value === null || value === undefined || !Number.isFinite(value)
-    ? "—"
-    : value.toFixed(1);
-}
 
 function formatCalibrationValue(value: CalibrationEvidence["calibrated_value"]): string {
   if (Array.isArray(value)) return value.map((item) => formatRatio(item, 3)).join(", ");
@@ -667,78 +628,6 @@ function formatCalibrationValue(value: CalibrationEvidence["calibrated_value"]):
   return Number.isInteger(value) ? String(value) : value.toFixed(3);
 }
 
-/** Headline metric: shared StatCard with tabular numerals, plus an optional
- * "explain" button in the hint slot that opens the metric's dialog. */
-function MetricCard({
-  value,
-  label,
-  icon,
-  tint = "default",
-  onInfo,
-}: {
-  value: string;
-  label: string;
-  icon: LucideIcon;
-  tint?: "default" | "success" | "warning" | "destructive";
-  onInfo?: () => void;
-}) {
-  return (
-    <StatCard
-      label={label}
-      value={<span className="tabular-nums">{value}</span>}
-      icon={icon}
-      tint={tint}
-      hint={
-        onInfo ? (
-          <button
-            type="button"
-            aria-label={`Explain ${label}`}
-            onClick={onInfo}
-            className="inline-flex size-4 items-center justify-center rounded-full border border-muted-foreground/40 text-muted-foreground hover:bg-accent"
-          >
-            <Info className="size-2.5" aria-hidden />
-          </button>
-        ) : undefined
-      }
-    />
-  );
-}
-
-/** Contents of the field-explanation dialog opened by a "?" button. */
-type FieldHelpState = {
-  label: string;
-  body: string | null;
-  facts: { term: string; value: string }[];
-};
-
-/** The "?" affordance beside every assumption label: opens the field's
- *  plain-language explanation — what the term is and what the values mean.
- *  Swallows the click so it never toggles a surrounding <summary>/<details>. */
-function FieldHelpButton({
-  label,
-  onClick,
-}: {
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      title={`What is ${label}?`}
-      onClick={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        onClick();
-      }}
-      className="inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent"
-    >
-      {/* The accessible name is content-based (not an aria-label): an
-          aria-label containing the field name collides with getByLabelText
-          queries for the input the adjacent <Label> points at. */}
-      <span className="sr-only">Explain {label}</span>?
-    </button>
-  );
-}
 
 /** Unit/range/current-value facts shown under a field's explanation. */
 function fieldFacts(
@@ -773,294 +662,6 @@ function fieldFacts(
       value: value.length <= 12 ? value.join(", ") : `${value.length} values`,
     });
   return facts;
-}
-
-type NumberInputProps = Omit<
-  ComponentProps<typeof Input>,
-  "type" | "value" | "onChange" | "onBlur"
-> &
-  NumericRule &
-  {
-    onValidityChange?: (valid: boolean) => void;
-  } &
-  (
-    | {
-        value: number;
-        nullable?: false;
-        onCommit: (value: number) => void;
-      }
-    | {
-        value: number | null;
-        nullable: true;
-        onCommit: (value: number | null) => void;
-      }
-  );
-
-/** Numeric input for the assumptions/events editors: commits only finite
- *  numbers, so NaN (or a silent 0) can never reach the assumptions object.
- *  Blank leaves the stored value unchanged — or commits null when `nullable`
- *  (e.g. price per head = auto); unparseable text shows an inline error. The
- *  draft is local while the field is being edited, so external updates
- *  (defaults / scenario loads) still flow through otherwise. */
-function NumberInput(props: NumberInputProps) {
-  const {
-    value,
-    onCommit,
-    nullable = false,
-    integer,
-    min,
-    max,
-    exclusiveMin,
-    unit,
-    onValidityChange,
-    id,
-    "aria-describedby": describedBy,
-    ...inputProps
-  } = props;
-  const [draft, setDraft] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const errorId = id ? `${id}-error` : undefined;
-  const commit = useRef(onCommit);
-  useEffect(() => {
-    commit.current = onCommit;
-  });
-  // A draft can become legal solely because a live bound changed (for
-  // example, event month 90 when the horizon grows from 60 to 120). Keep the
-  // value to commit after render; clearing only the error would otherwise show
-  // 90 while the payload silently retained the old month.
-  const [recoveredBoundsValue, setRecoveredBoundsValue] = useState<{
-    value: number | null;
-  } | null>(null);
-  const committedBoundsRecovery = useRef<typeof recoveredBoundsValue>(null);
-
-  function validate(raw: string): { value?: number | null; error?: string } {
-    if (raw === "") {
-      return nullable ? { value: null } : { error: "A value is required." };
-    }
-    const parsed = Number(raw);
-    if (!Number.isFinite(parsed)) return { error: "Enter a valid number." };
-    if (integer && !Number.isInteger(parsed)) return { error: "Enter a whole number." };
-    if (exclusiveMin !== undefined && parsed <= exclusiveMin)
-      return { error: `Must be greater than ${exclusiveMin}.` };
-    if (min !== undefined && parsed < min) return { error: `Must be at least ${min}.` };
-    if (max !== undefined && parsed > max) return { error: `Must be at most ${max}.` };
-    return { value: parsed };
-  }
-
-  function update(raw: string) {
-    setDraft(raw);
-    const next = validate(raw);
-    const message = next.error ?? null;
-    setError(message);
-    onValidityChange?.(!message);
-    if (!message) {
-      if (next.value === null) (onCommit as (v: number | null) => void)(null);
-      else (onCommit as (v: number) => void)(next.value as number);
-    }
-  }
-
-  // Bounds can come from live state (the herd-event Month field takes
-  // `max={horizonMonths}`), and validation otherwise ran only on keystroke —
-  // so a bound change stranded both the error text and this field's entry in
-  // the parent's `invalidFields` set, which gates Run and Save. Re-derive
-  // while rendering (React's documented pattern for state that depends on
-  // props) rather than in an effect.
-  const boundsKey = `${min}|${max}|${exclusiveMin}|${integer}|${nullable}`;
-  const [seenBounds, setSeenBounds] = useState(boundsKey);
-  if (boundsKey !== seenBounds) {
-    setSeenBounds(boundsKey);
-    const next = validate(draft ?? (value === null ? "" : String(value)));
-    setRecoveredBoundsValue(
-      draft !== null && error && !next.error
-        ? { value: next.value as number | null }
-        : null,
-    );
-    setError(next.error ?? null);
-  }
-
-  useEffect(() => {
-    if (
-      recoveredBoundsValue === null ||
-      committedBoundsRecovery.current === recoveredBoundsValue
-    )
-      return;
-    committedBoundsRecovery.current = recoveredBoundsValue;
-    if (recoveredBoundsValue.value === null)
-      (commit.current as (v: number | null) => void)(null);
-    else (commit.current as (v: number) => void)(recoveredBoundsValue.value);
-  }, [recoveredBoundsValue]);
-
-  // Keep the parent's invalidFields in step with `error`, however it changed.
-  const notifyValidity = useRef(onValidityChange);
-  useEffect(() => {
-    notifyValidity.current = onValidityChange;
-  });
-  useEffect(() => {
-    notifyValidity.current?.(!error);
-  }, [error]);
-
-  return (
-    <>
-      <Input
-        id={id}
-        data-unit={unit}
-        type="number"
-        step={integer ? 1 : "any"}
-        min={exclusiveMin === undefined ? min : undefined}
-        max={max}
-        aria-invalid={Boolean(error) || undefined}
-        aria-describedby={[describedBy, error ? errorId : null]
-          .filter(Boolean)
-          .join(" ") || undefined}
-        {...inputProps}
-        value={draft ?? (value === null ? "" : String(value))}
-        onChange={(e) => update(e.target.value)}
-        onBlur={() => {
-          if (!error) setDraft(null);
-        }}
-      />
-      {error && (
-        <p id={errorId} role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      )}
-    </>
-  );
-}
-
-function NumberArrayInput({
-  id,
-  value,
-  rule,
-  onCommit,
-  onValidityChange,
-}: {
-  id: string;
-  value: number[];
-  rule: NumberArrayRule;
-  onCommit: (value: number[]) => void;
-  onValidityChange: (valid: boolean) => void;
-}) {
-  const [draft, setDraft] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const errorId = `${id}-error`;
-  const commit = useRef(onCommit);
-  useEffect(() => {
-    commit.current = onCommit;
-  });
-  const [recoveredBoundsValue, setRecoveredBoundsValue] = useState<number[] | null>(null);
-  const committedBoundsRecovery = useRef<typeof recoveredBoundsValue>(null);
-
-  function validate(raw: string): { parsed: number[]; message: string | null } {
-    if (raw.trim() === "" && rule.allowEmpty) return { parsed: [], message: null };
-    const tokens = raw.split(",").map((token) => token.trim());
-    let message: string | null = null;
-    const parsed = tokens.map(Number);
-    if (tokens.some((token) => token === "") || parsed.some((n) => !Number.isFinite(n)))
-      message = "Enter only comma-separated numbers.";
-    else if (rule.exactLength !== undefined && parsed.length !== rule.exactLength)
-      message = `Enter exactly ${rule.exactLength} ${rule.itemLabel}.`;
-    else if (rule.maxLength !== undefined && parsed.length > rule.maxLength)
-      message = `Enter at most ${rule.maxLength} ${rule.itemLabel}.`;
-    else if (rule.integer && parsed.some((n) => !Number.isInteger(n)))
-      message = `Every ${rule.itemLabel} entry must be a whole number.`;
-    else if (
-      rule.exclusiveMin !== undefined &&
-      parsed.some((n) => n <= rule.exclusiveMin!)
-    )
-      message = `Every entry must be greater than ${rule.exclusiveMin}.`;
-    else if (rule.min !== undefined && parsed.some((n) => n < rule.min!))
-      message = `Every entry must be at least ${rule.min}.`;
-    else if (rule.max !== undefined && parsed.some((n) => n > rule.max!))
-      message = `Every entry must be at most ${rule.max}.`;
-    else if (rule.unique && new Set(parsed).size !== parsed.length)
-      message = `${humanize(rule.itemLabel)} must not contain duplicates.`;
-    else if (
-      rule.nondecreasing &&
-      parsed.some((n, index) => index > 0 && n < parsed[index - 1])
-    )
-      message = `${humanize(rule.itemLabel)} must not decrease.`;
-    return { parsed, message };
-  }
-
-  function update(raw: string) {
-    setDraft(raw);
-    const { parsed, message } = validate(raw);
-    setError(message);
-    // Notify synchronously on every raw edit, not only when the derived error
-    // changes. Conflict recovery uses the parent callback as an edit fence, so
-    // a second keystroke in an already-invalid draft must still supersede the
-    // pending refresh before it can remount this input and erase that draft.
-    onValidityChange(!message);
-    if (!message) onCommit(parsed);
-  }
-
-  // Some bounds are derived from live state rather than constants — notably
-  // `max: horizonMonths` for sales.festival_sale_months. Validation otherwise
-  // ran only on keystroke, so raising the horizon left the old error rendered
-  // AND left this field in the parent's `invalidFields` set, which gates Run
-  // and Save; lowering it did the reverse, letting an out-of-range payload
-  // through. `rule` is rebuilt every render, so key on its primitive fields.
-  const boundsKey = [
-    rule.min,
-    rule.max,
-    rule.exclusiveMin,
-    rule.exactLength,
-    rule.maxLength,
-    rule.integer,
-    rule.unique,
-    rule.nondecreasing,
-    rule.allowEmpty,
-  ].join("|");
-  const [seenBounds, setSeenBounds] = useState(boundsKey);
-  if (boundsKey !== seenBounds) {
-    setSeenBounds(boundsKey);
-    const next = validate(draft ?? value.join(", "));
-    setRecoveredBoundsValue(
-      draft !== null && error && !next.message ? next.parsed : null,
-    );
-    setError(next.message);
-  }
-
-  useEffect(() => {
-    if (
-      recoveredBoundsValue === null ||
-      committedBoundsRecovery.current === recoveredBoundsValue
-    )
-      return;
-    committedBoundsRecovery.current = recoveredBoundsValue;
-    commit.current(recoveredBoundsValue);
-  }, [recoveredBoundsValue]);
-
-  // Keep the parent's invalidFields in step with `error`, however it changed.
-  const notifyValidity = useRef(onValidityChange);
-  useEffect(() => {
-    notifyValidity.current = onValidityChange;
-  });
-  useEffect(() => {
-    notifyValidity.current(!error);
-  }, [error]);
-
-  return (
-    <>
-      <Input
-        id={id}
-        type="text"
-        aria-invalid={Boolean(error) || undefined}
-        aria-describedby={error ? errorId : undefined}
-        value={draft ?? value.join(", ")}
-        onChange={(event) => update(event.target.value)}
-        onBlur={() => {
-          if (!error) setDraft(null);
-        }}
-      />
-      {error && (
-        <p id={errorId} role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      )}
-    </>
-  );
 }
 
 /** Rows of the side-by-side scenario comparison table. */
@@ -1119,8 +720,8 @@ function sectionEntries(assumptions: SimulationAssumptions): [string, SectionVal
   );
 }
 
-export default function SimulationPage() {
-  const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
+function SimulationPageContent({ perms }: { perms: PermissionsState }) {
+  const { can } = perms;
   const allowed = can("simulation.view");
   const canManage = can("simulation.manage");
   const canCalibrate = [
@@ -2898,26 +2499,6 @@ export default function SimulationPage() {
     );
   }
 
-  if (permsLoading) {
-    return (
-      <div className="space-y-6" role="status" aria-live="polite">
-        <span className="sr-only">Loading…</span>
-        <PageHeader
-          title="Simulation"
-          description="Project herd growth, cash flow and viability from editable bio-economic assumptions."
-        />
-        <PageSkeleton cards={2} />
-      </div>
-    );
-  }
-  if (permsError) {
-    return (
-      <PermissionsError onRetry={() => void permsRefetch()} />
-    );
-  }
-  if (!allowed) {
-    return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
-  }
 
   return (
     <div className="space-y-6">
@@ -3521,7 +3102,8 @@ export default function SimulationPage() {
               never silently.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-3">
+          {/* Phones stack single-column like every other create dialog. */}
+          <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <Label htmlFor="recurrence-month">First month</Label>
               <NumberInput
@@ -4001,255 +3583,19 @@ export default function SimulationPage() {
   );
 }
 
-/** NPV distribution on the shared chart kit, with P5/P50/P95 markers. */
-function MonteCarloHistogram({
-  counts,
-  edges,
-  p5,
-  p50,
-  p95,
-}: {
-  counts: number[];
-  edges: number[];
-  p5?: number;
-  p50?: number;
-  p95?: number;
-}) {
-  const totalRuns = counts.reduce((sum, count) => sum + count, 0);
-  const max = Math.max(...counts, 1);
-  const peakBin = counts.indexOf(max);
-  const bins = counts.map((count, i) => ({
-    label: `${formatMoney(edges[i])} – ${formatMoney(edges[i + 1])}`,
-    value: count,
-    unit: "runs",
-  }));
+
+export default function SimulationPage() {
+  const perms = usePermissions();
   return (
-    <Histogram
-      bins={bins}
-      domain={[edges[0], edges[edges.length - 1]]}
-      markers={[
-        p50 !== undefined
-          ? { label: "Median (P50)", value: p50, display: formatMoney(p50), strong: true }
-          : null,
-        p5 !== undefined ? { label: "P5", value: p5, display: formatMoney(p5) } : null,
-        p95 !== undefined ? { label: "P95", value: p95, display: formatMoney(p95) } : null,
-      ].filter(Boolean) as {
-        label: string;
-        value: number;
-        display?: string;
-        strong?: boolean;
-      }[]}
-      ariaLabel={`NPV histogram: ${totalRuns} runs across ${counts.length} bins, most frequent ${formatMoney(edges[peakBin])} – ${formatMoney(edges[peakBin + 1])} with ${max} runs`}
-    />
-  );
-}
-
-function RiskBandTable({
-  herd,
-  liquidity,
-}: {
-  herd: PercentileBand;
-  liquidity: PercentileBand;
-}) {
-  const monthCount = Math.min(herd.p50.length, liquidity.p50.length);
-  const indices = Array.from(
-    new Set([
-      0,
-      ...Array.from({ length: monthCount }, (_, index) => index).filter(
-        (index) => (index + 1) % 12 === 0,
-      ),
-      monthCount - 1,
-    ]),
-  ).filter((index) => index >= 0 && index < monthCount);
-
-  return (
-    <div className="space-y-2">
-      <h3 className="text-sm font-medium">Annual uncertainty checkpoints</h3>
-      <div className="overflow-x-auto rounded-lg border">
-        <Table className="min-w-[760px]">
-          <TableHeader>
-            <TableRow>
-              <TableHead>Month</TableHead>
-              <TableHead className="text-right">Herd P5</TableHead>
-              <TableHead className="text-right">Herd P50</TableHead>
-              <TableHead className="text-right">Herd P95</TableHead>
-              <TableHead className="text-right">Cash P5</TableHead>
-              <TableHead className="text-right">Cash P50</TableHead>
-              <TableHead className="text-right">Cash P95</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {indices.map((index) => (
-              <TableRow key={index}>
-                <TableCell>{index + 1}</TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {formatHead(herd.p5[index])}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {formatHead(herd.p50[index])}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {formatHead(herd.p95[index])}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {formatMoney(liquidity.p5[index])}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {formatMoney(liquidity.p50[index])}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {formatMoney(liquidity.p95[index])}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-
-    </div>
-  );
-}
-
-function optimizationCandidateIdentity(candidate: OptimizationCandidate): string {
-  return [
-    candidate.starting_does,
-    candidate.starting_bucks,
-    candidate.max_breeding_does,
-    candidate.sale_age_months,
-    candidate.female_retention_fraction,
-    candidate.loan_fraction,
-  ].join(":");
-}
-
-function OptimizationResults({
-  result,
-  vocabulary,
-}: {
-  result: NonNullable<SimulationResult["optimization"]>;
-  /** The page's species vocabulary — one screen, one set of nouns. */
-  vocabulary: FarmVocabulary;
-}) {
-  const baselineIdentity = optimizationCandidateIdentity(result.baseline);
-  const recommendedIdentity = result.recommended
-    ? optimizationCandidateIdentity(result.recommended)
-    : null;
-  const rows: { label: string; candidate: OptimizationCandidate }[] = [
-    {
-      label:
-        recommendedIdentity === baselineIdentity ? "Baseline / recommended" : "Baseline",
-      candidate: result.baseline,
-    },
-  ];
-  if (result.recommended && recommendedIdentity !== baselineIdentity) {
-    rows.push({ label: "Recommended", candidate: result.recommended });
-  }
-  const seen = new Set(rows.map((row) => optimizationCandidateIdentity(row.candidate)));
-  for (const candidate of result.alternatives ?? []) {
-    const identity = optimizationCandidateIdentity(candidate);
-    if (seen.has(identity)) continue;
-    seen.add(identity);
-    rows.push({ label: `Alternative ${candidate.rank}`, candidate });
-  }
-
-  return (
-    <DataTableCard
-      title={
-        <span className="flex items-center gap-2">
-          <Target className="size-4" aria-hidden />
-          Optimization
-        </span>
-      }
-      description={`${result.feasible_candidates} of ${result.evaluated_candidates} evaluated candidates satisfy the ${humanize(result.objective)} objective constraints.`}
-      contentClassName="space-y-4"
+    <PermissionGate
+      perms={perms}
+      perm="simulation.view"
+      label="Simulation"
+      description="Project herd growth, cash flow and viability from editable bio-economic assumptions."
+      cards={2}
+      announce
     >
-      {result.recommended === null && (
-        <div
-          role="alert"
-          className="flex gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive"
-        >
-          <ShieldAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
-          No evaluated candidate satisfies every financing and capacity constraint. The
-          baseline below is diagnostic, not a recommendation.
-        </div>
-      )}
-      <div className="overflow-x-auto">
-        <Table className="min-w-[820px]">
-          <TableHeader>
-            <TableRow>
-              <TableHead>Decision set</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">{`${vocabulary.femaleAdult}s / ${vocabulary.maleAdult}s / ceiling`}</TableHead>
-              <TableHead className="text-right">Sale age</TableHead>
-              <TableHead className="text-right">Retention</TableHead>
-              <TableHead className="text-right">Debt share</TableHead>
-              <TableHead className="text-right">Project cost</TableHead>
-              <TableHead className="text-right">Capacity / peak</TableHead>
-              <TableHead className="text-right">NPV</TableHead>
-              <TableHead className="text-right">IRR</TableHead>
-              <TableHead className="text-right">Min DSCR</TableHead>
-              <TableHead className="text-right">Minimum cash</TableHead>
-              <TableHead className="text-right">Funding gap</TableHead>
-              <TableHead>Constraint findings</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map(({ label, candidate }) => (
-              <TableRow key={`${label}:${optimizationCandidateIdentity(candidate)}`}>
-                <TableCell className="font-medium">{label}</TableCell>
-                <TableCell
-                  className={candidate.feasible ? "text-success" : "text-destructive"}
-                >
-                  {candidate.feasible ? "Feasible" : "Infeasible"}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {candidate.starting_does} / {candidate.starting_bucks} /{" "}
-                  {candidate.max_breeding_does}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {candidate.sale_age_months} mo
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {formatPercent(candidate.female_retention_fraction)}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {formatPercent(candidate.loan_fraction)}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {formatMoney(candidate.project_cost)}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {formatHead(candidate.capacity_places)} /{" "}
-                  {formatHead(candidate.projected_peak_head)}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {formatMoney(candidate.npv)}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {formatPercent(candidate.irr)}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {formatRatio(candidate.min_dscr)}
-                </TableCell>
-                <TableCell
-                  className={`text-right tabular-nums ${candidate.minimum_cash_balance < 0 ? "text-destructive" : ""}`}
-                >
-                  {formatMoney(candidate.minimum_cash_balance)}
-                </TableCell>
-                <TableCell
-                  className={`text-right tabular-nums ${candidate.funding_gap > 0 ? "text-destructive" : ""}`}
-                >
-                  {formatMoney(candidate.funding_gap)}
-                </TableCell>
-                <TableCell className="min-w-56 text-xs">
-                  {(candidate.constraint_violations ?? []).length > 0
-                    ? candidate.constraint_violations?.join("; ")
-                    : "None"}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-    </DataTableCard>
+      <SimulationPageContent perms={perms} />
+    </PermissionGate>
   );
 }

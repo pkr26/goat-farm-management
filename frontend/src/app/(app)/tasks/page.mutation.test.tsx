@@ -108,8 +108,14 @@ function emptyBoard(extra: Record<string, unknown> = {}) {
   };
 }
 
+/** Row-content queries scope to the table: the below-md card list
+ * renders the same titles outside it (see animals page tests). */
+function tableScope() {
+  return within(screen.getByRole("table"));
+}
+
 function rowOf(title: string): HTMLElement {
-  const row = screen.getByText(title).closest("tr");
+  const row = tableScope().getByText(title).closest("tr");
   expect(row).not.toBeNull();
   return row as HTMLElement;
 }
@@ -119,6 +125,13 @@ beforeEach(() => {
   replaceMock.mockReset();
   pushMock.mockReset();
   TASKS_URLS.length = 0;
+  // The Completed tab resolves finished-by names via /api/team for
+  // team.manage holders; an empty roster means "no name to show".
+  server.use(
+    http.get("/api/team", () =>
+      HttpResponse.json({ memberships: [], roles: [], permission_groups: [], permission_labels: {} }),
+    ),
+  );
 });
 
 describe("TasksPage URL state", () => {
@@ -135,7 +148,7 @@ describe("TasksPage URL state", () => {
     navState.search = "?tab=awaiting";
     renderWithProviders(<TasksPage />);
 
-    expect(await screen.findByText("Morning feed")).toBeInTheDocument();
+    expect(await within(await screen.findByRole("table")).findByText("Morning feed")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Today (1)" })).toHaveAttribute(
       "aria-selected",
       "true",
@@ -160,7 +173,7 @@ describe("TasksPage URL state", () => {
     navState.search = "?tab=awaiting";
     renderWithProviders(<TasksPage />);
 
-    expect(await screen.findByText("Awaited duty")).toBeInTheDocument();
+    expect(await within(await screen.findByRole("table")).findByText("Awaited duty")).toBeInTheDocument();
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 30));
     });
@@ -204,7 +217,7 @@ describe("TasksPage URL state", () => {
     navState.search = "?tab=today&from=dashboard";
     const user = userEvent.setup();
     renderWithProviders(<TasksPage />);
-    await screen.findByText("Morning feed");
+    await within(await screen.findByRole("table")).findByText("Morning feed");
 
     await user.click(screen.getByRole("tab", { name: "Overdue (0)" }));
 
@@ -269,7 +282,7 @@ describe("TasksPage board-settling banner", () => {
       ),
     );
     renderWithProviders(<TasksPage />);
-    await screen.findByText("Morning feed");
+    await within(await screen.findByRole("table")).findByText("Morning feed");
     expect(screen.queryByText("Updating the duty board…")).not.toBeInTheDocument();
   });
 });
@@ -289,7 +302,7 @@ describe("TasksPage row guards and annotations", () => {
     );
     renderWithProviders(<TasksPage />);
 
-    await screen.findByText("Weigh batch kids");
+    await within(await screen.findByRole("table")).findByText("Weigh batch kids");
     const row = rowOf("Weigh batch kids");
     expect(within(row).queryByRole("button", { name: "Complete" })).not.toBeInTheDocument();
     expect(within(row).queryByRole("link", { name: "Open form" })).not.toBeInTheDocument();
@@ -307,7 +320,7 @@ describe("TasksPage row guards and annotations", () => {
     server.use(tasksHandler(emptyBoard({ today: tasks, today_total: 3 })));
     renderWithProviders(<TasksPage />);
 
-    await screen.findByText("Feed the herd");
+    await within(await screen.findByRole("table")).findByText("Feed the herd");
     expect(within(rowOf("Feed the herd")).getByText("Feeding")).toBeInTheDocument();
     expect(within(rowOf("Scrub troughs")).getByText("Cleaning")).toBeInTheDocument();
     expect(within(rowOf("Odd job")).getByText("Other")).toBeInTheDocument();
@@ -322,7 +335,7 @@ describe("TasksPage row guards and annotations", () => {
     server.use(tasksHandler(emptyBoard({ today: [sentBack], today_total: 1 })));
     renderWithProviders(<TasksPage />);
 
-    await screen.findByText("Vaccinate herd");
+    await within(await screen.findByRole("table")).findByText("Vaccinate herd");
     const row = rowOf("Vaccinate herd");
     expect(within(row).getByText("Sent back: fix the dosage")).toBeInTheDocument();
   });
@@ -360,7 +373,7 @@ describe("TasksPage row guards and annotations", () => {
     navState.search = "?tab=completed";
     renderWithProviders(<TasksPage />);
 
-    await screen.findByText("Foot bath");
+    await within(await screen.findByRole("table")).findByText("Foot bath");
     const skippedRow = rowOf("Foot bath");
     expect(within(skippedRow).getByText("Reason: out of meds")).toBeInTheDocument();
     expect(within(rowOf("Clean pens")).queryByText(/Reason:/)).not.toBeInTheDocument();
@@ -579,7 +592,7 @@ describe("TasksPage action + error branches", () => {
     );
     const user = userEvent.setup();
     renderWithProviders(<TasksPage />);
-    await screen.findByText("Clean water troughs");
+    await within(await screen.findByRole("table")).findByText("Clean water troughs");
     const getsBefore = TASKS_URLS.length;
 
     await user.click(within(rowOf("Clean water troughs")).getByRole("button", { name: "Complete" }));
@@ -606,7 +619,7 @@ describe("TasksPage action + error branches", () => {
     expect(alert).toHaveTextContent("Could not load tasks.");
     await user.click(screen.getByRole("button", { name: "Retry tasks" }));
 
-    expect(await screen.findByText("Backlog duty")).toBeInTheDocument();
+    expect(await within(await screen.findByRole("table")).findByText("Backlog duty")).toBeInTheDocument();
   });
 });
 
@@ -619,8 +632,8 @@ describe("TasksPage round-2 mutation survivors", () => {
     );
     renderWithProviders(<TasksPage />);
 
-    expect(await screen.findByText("Foot bath")).toBeInTheDocument();
-    expect(screen.getByText("every 7d")).toBeInTheDocument();
+    expect(await within(await screen.findByRole("table")).findByText("Foot bath")).toBeInTheDocument();
+    expect(tableScope().getByText("every 7d")).toBeInTheDocument();
   });
 
   it("keeps the send-back note off completed duties", async () => {
@@ -636,7 +649,7 @@ describe("TasksPage round-2 mutation survivors", () => {
     await screen.findByRole("tab", { name: "Today (0)" });
 
     await userEvent.setup().click(screen.getByRole("tab", { name: /Completed/ }));
-    expect(await screen.findByText("Old check")).toBeInTheDocument();
+    expect(await within(await screen.findByRole("table")).findByText("Old check")).toBeInTheDocument();
     expect(screen.queryByText(/Sent back:/)).not.toBeInTheDocument();
   });
 
@@ -659,7 +672,7 @@ describe("TasksPage round-2 mutation survivors", () => {
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Retry permissions" }));
 
-    expect(await screen.findByText("Pending duty")).toBeInTheDocument();
+    expect(await within(await screen.findByRole("table")).findByText("Pending duty")).toBeInTheDocument();
     expect(calls).toBeGreaterThanOrEqual(2);
   });
 });
@@ -676,7 +689,7 @@ describe("TasksPage round-2 mutation survivors (recurrence lock)", () => {
     server.use(tasksHandler(emptyBoard({ today: [futureRecurring], today_total: 1 })));
     renderWithProviders(<TasksPage />);
 
-    await screen.findByText("Rotate pasture");
+    await within(await screen.findByRole("table")).findByText("Rotate pasture");
     const row = rowOf("Rotate pasture");
     expect(within(row).queryByRole("button", { name: "Complete" })).not.toBeInTheDocument();
     expect(

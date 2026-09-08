@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/empty-state";
 import { useListRecipesApiFeedingRecipesGet } from "@/api/generated/endpoints";
 import { DataTableCard } from "@/components/data-table-card";
 import { PageHeader } from "@/components/page-header";
+import { PermissionGate } from "@/components/permission-gate";
 import { StaleDataNotice } from "@/components/stale-data-notice";
 import { PageSkeleton } from "@/components/skeletons";
 import { Badge } from "@/components/ui/badge";
@@ -26,38 +27,30 @@ import {
 import { ApiError } from "@/lib/api-client";
 import { FeedingNav } from "@/components/feeding-nav";
 import { enumLabel } from "@/lib/enum-labels";
-import { usePermissions } from "@/lib/use-permissions";
-import { PermissionsError } from "@/components/permissions-error";
+import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 
 export default function RecipesPage() {
-  const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
+  const perms = usePermissions();
+  return (
+    <PermissionGate
+      perms={perms}
+      perm="feeding.view"
+      label="TMR recipes"
+      description="Total mixed ration formulas and the bucket each one feeds."
+      cards={2}
+    >
+      <RecipesPageContent perms={perms} />
+    </PermissionGate>
+  );
+}
+
+function RecipesPageContent({ perms }: { perms: PermissionsState }) {
+  const { can } = perms;
   const allowed = can("feeding.view");
 
   const query = useListRecipesApiFeedingRecipesGet({ query: { enabled: allowed } });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
 
-  // The header and layout stay mounted while permissions settle — a page that
-  // collapses to a bare "Loading…" line reads as a broken app on slow rural
-  // connections.
-  if (permsLoading) {
-    return (
-      <div className="space-y-6">
-        <PageHeader
-          title="TMR recipes"
-          description="Total mixed ration formulas and the bucket each one feeds."
-        />
-        <PageSkeleton cards={2} />
-      </div>
-    );
-  }
-  if (permsError) {
-    return (
-      <PermissionsError onRetry={() => void permsRefetch()} />
-    );
-  }
-  if (!allowed) {
-    return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
-  }
   if (query.isLoading || !payload) {
     if (query.isError) {
       return (

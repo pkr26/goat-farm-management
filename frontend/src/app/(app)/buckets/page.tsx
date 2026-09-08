@@ -10,6 +10,7 @@ import { useBucketsBoardApiBucketsGet } from "@/api/generated/endpoints";
 import type { BucketBoardRow } from "@/api/generated/models";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { PermissionGate } from "@/components/permission-gate";
 import { PageSkeleton } from "@/components/skeletons";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -25,8 +26,7 @@ import {
 import { ApiError } from "@/lib/api-client";
 import { enumLabel } from "@/lib/enum-labels";
 import { safeAppPath } from "@/lib/utils";
-import { usePermissions } from "@/lib/use-permissions";
-import { PermissionsError } from "@/components/permissions-error";
+import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 
 /** The per-head ration is a setting the operator typed and will check against
  * what they configured, and the API stores/dispenses it at 0.001 kg. Render
@@ -122,33 +122,26 @@ function BucketCard({ row, canViewAnimals }: { row: BucketBoardRow; canViewAnima
 }
 
 export default function BucketsPage() {
-  const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
+  const perms = usePermissions();
+  return (
+    <PermissionGate
+      perms={perms}
+      perm="buckets.view"
+      label="Buckets"
+      description="Daily feed plan and occupancy per bucket."
+      cards={2}
+    >
+      <BucketsPageContent perms={perms} />
+    </PermissionGate>
+  );
+}
+
+function BucketsPageContent({ perms }: { perms: PermissionsState }) {
+  const { can } = perms;
   const allowed = can("buckets.view");
   const canViewAnimals = can("animals.view");
   const query = useBucketsBoardApiBucketsGet({ query: { enabled: allowed } });
   const rows = query.data?.status === 200 ? query.data.data : undefined;
-
-  // The header stays mounted while data settles — a page that collapses to a
-  // bare "Loading…" line reads as a broken app on slow rural connections.
-  if (permsLoading) {
-    return (
-      <div className="space-y-6">
-        <PageHeader
-          title="Buckets"
-          description="Daily feed plan and occupancy per bucket."
-        />
-        <PageSkeleton cards={2} />
-      </div>
-    );
-  }
-  if (permsError) {
-    return (
-      <PermissionsError onRetry={() => void permsRefetch()} />
-    );
-  }
-  if (!allowed) {
-    return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
-  }
 
   return (
     <div className="space-y-6">

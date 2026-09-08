@@ -8,20 +8,27 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
-import {
-  getPermissionsApiAuthPermissionsGetQueryOptions,
-} from "@/api/generated/endpoints";
-import type { LoginIn, PermissionsOut, TokenOut } from "@/api/generated/models";
+import type { LoginIn, TokenOut } from "@/api/generated/models";
 import { AuthLayout } from "@/components/auth-layout";
+import { LanguageToggle } from "@/components/language-toggle";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiFetch, ApiError, authSessionEpochValue } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
+import { useT } from "@/lib/i18n";
 import {
   firstPermittedPathFromList,
   permittedAppPathFromList,
 } from "@/lib/permission-navigation";
+import { fetchSharedPermissions } from "@/lib/permission-envelope";
 import { useSingleFlight } from "@/lib/use-single-flight";
 
 
@@ -43,7 +50,9 @@ function LoginPageContent() {
   const searchParams = useSearchParams();
   const { signIn, getFarms } = useAuth();
   const queryClient = useQueryClient();
+  const t = useT();
   const [serverError, setServerError] = useState<string | null>(null);
+  const [forgotOpen, setForgotOpen] = useState(false);
   const mounted = useRef(true);
   const submission = useSingleFlight();
   const {
@@ -82,20 +91,11 @@ function LoginPageContent() {
           return;
         }
         try {
-          // Fetch through the shared query cache so the shell's
-          // usePermissions consumers hit this result instead of refetching.
-          const envelope = await queryClient.fetchQuery(
-            getPermissionsApiAuthPermissionsGetQueryOptions(),
+          const permissions = await fetchSharedPermissions(
+            queryClient,
+            "Could not load permissions.",
           );
           if (!mounted.current || authSessionEpochValue() !== signedInEpoch) return;
-          // The fetch core rejects non-2xx before an envelope is built, so a
-          // settled envelope is always 200; the narrowing is for the type
-          // system only, not a reachable error path.
-          const permissions =
-            envelope.status === 200 ? (envelope.data as PermissionsOut) : null;
-          if (!permissions) {
-            throw new ApiError(envelope.status, "Could not load permissions.");
-          }
           // A session-expiry deep link keeps its destination: the farm-switch
           // variant of the validator demotes record ids the new farm cannot
           // own, exactly as /farm-select does (L1).
@@ -116,14 +116,14 @@ function LoginPageContent() {
       } catch (err) {
         if (!mounted.current) return;
         // Surface the server's own message for every API error (429 rate
-        // limit, 422 password policy, 5xx) — only a network failure gets the
-        // "is the backend running?" fallback.
+        // limit, 422 password policy, 5xx); only a network failure gets the
+        // human connection guidance — never dev-flavoured copy.
         setServerError(
           err instanceof ApiError
             ? err.status === 401
-              ? "Invalid email or password."
+              ? t("login.invalidCredentials")
               : err.detail
-            : "Could not sign in — is the backend running?",
+            : t("login.networkError"),
         );
       }
     });
@@ -142,6 +142,11 @@ function LoginPageContent() {
         </>
       }
     >
+      {/* Language first: a low-literacy Telugu worker must be able to switch
+       * before reading anything else on the card. */}
+      <div className="mb-4 flex justify-end">
+        <LanguageToggle />
+      </div>
       <form onSubmit={(event) => void handleSubmit(onSubmit)(event)} noValidate>
         <fieldset
           disabled={isSubmitting || submission.pending}
@@ -195,6 +200,31 @@ function LoginPageContent() {
           </Button>
         </fieldset>
       </form>
+      {/* Honest recovery path: worker passwords are owner-reset from the
+       * Team page; there is no email recovery yet, so the dialog explains
+       * instead of promising a reset link. */}
+      <div className="mt-4 text-center">
+        <button
+          type="button"
+          className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+          onClick={() => setForgotOpen(true)}
+        >
+          {t("login.forgotPassword")}
+        </button>
+      </div>
+      <Dialog open={forgotOpen} onOpenChange={setForgotOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("login.forgotTitle")}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">{t("login.forgotBody")}</p>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setForgotOpen(false)}>
+              {t("common.close")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AuthLayout>
   );
 }

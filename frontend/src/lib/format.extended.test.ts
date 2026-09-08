@@ -212,29 +212,29 @@ describe("formatFarmDateTime — instants, offsets and fallbacks", () => {
 
   it("reads an offset-less backend datetime as UTC, not browser-local", () => {
     setActiveFarmTimezone("Asia/Kolkata");
-    expect(formatFarmDateTime("2026-08-05T20:00:00")).toBe("06-08-2026 01:30");
+    expect(formatFarmDateTime("2026-08-05T20:00:00")).toBe("6 Aug 2026, 1:30 am");
     setActiveFarmTimezone("America/Phoenix");
-    expect(formatFarmDateTime("2026-08-05T20:00:00")).toBe("05-08-2026 13:00");
+    expect(formatFarmDateTime("2026-08-05T20:00:00")).toBe("5 Aug 2026, 1:00 pm");
   });
 
   it("honours a Z suffix identically to the naive form", () => {
     setActiveFarmTimezone("Asia/Kolkata");
-    expect(formatFarmDateTime("2026-08-05T20:00:00Z")).toBe("06-08-2026 01:30");
+    expect(formatFarmDateTime("2026-08-05T20:00:00Z")).toBe("6 Aug 2026, 1:30 am");
     setActiveFarmTimezone("America/Phoenix");
-    expect(formatFarmDateTime("2026-08-05T20:00:00Z")).toBe("05-08-2026 13:00");
+    expect(formatFarmDateTime("2026-08-05T20:00:00Z")).toBe("5 Aug 2026, 1:00 pm");
   });
 
   it("converts an input carrying a +05:30 offset to the farm's clock", () => {
     setActiveFarmTimezone("America/Phoenix");
-    expect(formatFarmDateTime("2026-08-06T01:30:00+05:30")).toBe("05-08-2026 13:00");
+    expect(formatFarmDateTime("2026-08-06T01:30:00+05:30")).toBe("5 Aug 2026, 1:00 pm");
     setActiveFarmTimezone("Asia/Kolkata");
-    expect(formatFarmDateTime("2026-08-06T01:30:00+05:30")).toBe("06-08-2026 01:30");
+    expect(formatFarmDateTime("2026-08-06T01:30:00+05:30")).toBe("6 Aug 2026, 1:30 am");
   });
 
   it("accepts the ISO compact numeric-offset spelling", () => {
     setActiveFarmTimezone("America/Phoenix");
     expect(formatFarmDateTime("2026-08-06T01:30:00+0530")).toBe(
-      "05-08-2026 13:00",
+      "5 Aug 2026, 1:00 pm",
     );
   });
 
@@ -250,6 +250,6 @@ describe("formatFarmDateTime — instants, offsets and fallbacks", () => {
   it("renders in the default farm timezone when Intl rejects the farm's", () => {
     // Python's zoneinfo and PostgreSQL accept "Factory"; Intl throws on it.
     setActiveFarmTimezone("Factory");
-    expect(formatFarmDateTime("2026-08-05T20:00:00")).toBe("06-08-2026 01:30");
+    expect(formatFarmDateTime("2026-08-05T20:00:00")).toBe("6 Aug 2026, 1:30 am");
   });
 });

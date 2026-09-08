@@ -10,8 +10,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
-import { getPermissionsApiAuthPermissionsGetQueryOptions } from "@/api/generated/endpoints";
-import type { FarmCreateIn, PermissionsOut } from "@/api/generated/models";
+import type { FarmCreateIn } from "@/api/generated/models";
 import { Logo } from "@/components/logo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,6 +29,7 @@ import {
   firstPermittedPathFromList,
   permittedAppPathFromList,
 } from "@/lib/permission-navigation";
+import { fetchSharedPermissions } from "@/lib/permission-envelope";
 import { useSingleFlight } from "@/lib/use-single-flight";
 import { farmTypeLabel } from "@/lib/farm-vocabulary";
 
@@ -96,21 +96,11 @@ function FarmSelectPageContent() {
     // the authoritative timezone.
     selectFarm(farm.id, farm.timezone);
     try {
-      // Fetch through the shared query cache (same key the shell's
-      // usePermissions consumers use) so landing on the first page reuses
-      // this result instead of refetching permissions a second time.
-      const envelope = await queryClient.fetchQuery(
-        getPermissionsApiAuthPermissionsGetQueryOptions(),
+      const permissions = await fetchSharedPermissions(
+        queryClient,
+        "Could not load permissions for this farm.",
       );
       if (!mounted.current || authSessionEpochValue() !== sessionEpoch) return;
-      // The fetch core rejects non-2xx before an envelope is built, so a
-      // settled envelope is always 200; the narrowing is for the type system
-      // only, not a reachable error path.
-      const permissions =
-        envelope.status === 200 ? (envelope.data as PermissionsOut) : null;
-      if (!permissions) {
-        throw new ApiError(envelope.status, "Could not load permissions for this farm.");
-      }
       const requestedPath = permittedAppPathFromList(
         searchParams.get("returnTo"),
         permissions.permissions,
@@ -244,9 +234,7 @@ function FarmSelectPageContent() {
                       {farmTypeLabel}
                     </span>
                     {" · "}
-                    <span>
-                      {(farm as FarmEntry & { timezone?: string }).timezone ?? "Asia/Kolkata"}
-                    </span>
+                    <span>{farm.timezone}</span>
                   </p>
                 </button>
               );

@@ -30,9 +30,11 @@ import { Suspense, useEffect, useRef, type ReactNode } from "react";
 
 import { Logo } from "@/components/logo";
 import { AccountDialog } from "@/components/account-dialog";
+import { LanguageToggle } from "@/components/language-toggle";
 import { PermissionsError } from "@/components/permissions-error";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { APP_NAME } from "@/lib/brand";
+import { useT, type MessageKey } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import {
   Sidebar,
@@ -56,77 +58,80 @@ import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { usePermissions } from "@/lib/use-permissions";
 import { cn } from "@/lib/utils";
 
-type NavItem = { href: string; label: string; perm: string; icon: LucideIcon };
+type NavItem = { href: string; labelKey: MessageKey; perm: string; icon: LucideIcon };
 
-const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
+/** Sidebar labels resolve through the i18n catalog so low-literacy Telangana
+ * workers can navigate; the English catalog strings are byte-identical to
+ * the pre-i18n labels. */
+const NAV_GROUPS: { labelKey: MessageKey; items: NavItem[] }[] = [
   {
-    label: "Overview",
+    labelKey: "nav.group.overview",
     items: [
       {
         href: "/dashboard",
-        label: "Dashboard",
+        labelKey: "nav.dashboard",
         perm: "dashboard.view",
         icon: LayoutDashboard,
       },
     ],
   },
   {
-    label: "Herd",
+    labelKey: "nav.group.herd",
     items: [
-      { href: "/animals", label: "Animals", perm: "animals.view", icon: PawPrint },
-      { href: "/buckets", label: "Buckets", perm: "buckets.view", icon: Boxes },
+      { href: "/animals", labelKey: "nav.animals", perm: "animals.view", icon: PawPrint },
+      { href: "/buckets", labelKey: "nav.buckets", perm: "buckets.view", icon: Boxes },
       {
         href: "/breeding",
-        label: "Breeding",
+        labelKey: "nav.breeding",
         perm: "breeding.view",
         icon: HeartPulse,
       },
-      { href: "/kidding", label: "Kidding", perm: "kidding.view", icon: Baby },
+      { href: "/kidding", labelKey: "nav.kidding", perm: "kidding.view", icon: Baby },
     ],
   },
   {
-    label: "Health & Feed",
+    labelKey: "nav.group.healthFeed",
     items: [
-      { href: "/health", label: "Health", perm: "health.view", icon: Stethoscope },
-      { href: "/feeding", label: "Feeding", perm: "feeding.view", icon: Wheat },
+      { href: "/health", labelKey: "nav.health", perm: "health.view", icon: Stethoscope },
+      { href: "/feeding", labelKey: "nav.feeding", perm: "feeding.view", icon: Wheat },
     ],
   },
   {
-    label: "Operations",
+    labelKey: "nav.group.operations",
     items: [
       {
         href: "/purchases",
-        label: "Purchases",
+        labelKey: "nav.purchases",
         perm: "purchases.view",
         icon: ShoppingCart,
       },
-      { href: "/tasks", label: "Tasks", perm: "tasks.view", icon: ClipboardList },
+      { href: "/tasks", labelKey: "nav.tasks", perm: "tasks.view", icon: ClipboardList },
     ],
   },
   {
-    label: "Business",
+    labelKey: "nav.group.business",
     items: [
-      { href: "/finance", label: "Finance", perm: "finance.view", icon: IndianRupee },
+      { href: "/finance", labelKey: "nav.finance", perm: "finance.view", icon: IndianRupee },
       {
         href: "/planner",
-        label: "Planner",
+        labelKey: "nav.planner",
         perm: "simulation.view",
         icon: CalendarCheck,
       },
       {
         href: "/simulation",
-        label: "Simulation",
+        labelKey: "nav.simulation",
         perm: "simulation.view",
         icon: FlaskConical,
       },
       {
         href: "/ops-simulation",
-        label: "Ops Simulation",
+        labelKey: "nav.opsSimulation",
         perm: "simulation.view",
         icon: CalendarClock,
       },
-      { href: "/reports", label: "Reports", perm: "reports.view", icon: ChartColumn },
-      { href: "/team", label: "Team", perm: "team.manage", icon: Users },
+      { href: "/reports", labelKey: "nav.reports", perm: "reports.view", icon: ChartColumn },
+      { href: "/team", labelKey: "nav.team", perm: "team.manage", icon: Users },
     ],
   },
 ];
@@ -187,7 +192,7 @@ function AppSidebar({
   permsError,
   permsRefetch,
 }: {
-  groups: { label: string; items: NavItem[] }[];
+  groups: { labelKey: MessageKey; items: NavItem[] }[];
   permsRefetch: () => void;
   pathname: string;
   landingHref: string | null;
@@ -195,6 +200,7 @@ function AppSidebar({
   permsError: boolean;
 }) {
   const { isMobile, setOpenMobile } = useSidebar();
+  const t = useT();
   const closeOnMobile = () => {
     if (isMobile) setOpenMobile(false);
   };
@@ -220,8 +226,8 @@ function AppSidebar({
         {/* A failed permissions call must not look like "no access" (7-6). */}
         {permsError && <PermissionsError onRetry={() => void permsRefetch()} />}
         {groups.map((group) => (
-          <SidebarGroup key={group.label}>
-            <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+          <SidebarGroup key={group.labelKey}>
+            <SidebarGroupLabel>{t(group.labelKey)}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {group.items.map((item) => (
@@ -229,11 +235,11 @@ function AppSidebar({
                     <SidebarMenuButton
                       render={<Link href={item.href} />}
                       isActive={isActiveRoute(pathname, item.href)}
-                      tooltip={item.label}
+                      tooltip={t(item.labelKey)}
                       onClick={closeOnMobile}
                     >
                       <item.icon aria-hidden="true" />
-                      <span>{item.label}</span>
+                      <span>{t(item.labelKey)}</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 ))}
@@ -303,6 +309,7 @@ function AppLayoutContent({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const t = useT();
   const farmRedirectIntent = useRef<string | null>(null);
   useDocumentTitle(pathname);
 
@@ -341,6 +348,10 @@ function AppLayoutContent({
       })).filter((group) => group.items.length > 0);
   const landingItem = visibleGroups[0]?.items[0];
   const landingHref = !permsLoading && !permsError ? firstPermittedPath(can) : null;
+  // Without a permitted module (or while permissions are unknown) the brand
+  // link still points somewhere safe, but its label must not promise a page.
+  const landingLabel =
+    landingItem && !permsLoading && !permsError ? t(landingItem.labelKey) : "access status";
   const search = searchParams.toString();
   const returnTo = `${pathname}${search ? `?${search}` : ""}`;
   const farmSelectHref = `/farm-select?returnTo=${encodeURIComponent(returnTo)}`;
@@ -361,7 +372,7 @@ function AppLayoutContent({
         groups={visibleGroups}
         pathname={pathname}
         landingHref={landingHref}
-        landingLabel={landingItem?.label ?? "access status"}
+        landingLabel={landingLabel}
         permsError={permsError}
         permsRefetch={() => void permsRefetch()}
       />
@@ -376,6 +387,7 @@ function AppLayoutContent({
             />
           )}
           <div className="ml-auto flex items-center gap-1.5">
+            <LanguageToggle />
             <ThemeToggle />
             <span className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
             <AccountDialog name={user.name ?? null} email={user.email} />
@@ -383,12 +395,12 @@ function AppLayoutContent({
               variant="ghost"
               size="sm"
               className="text-muted-foreground"
-              aria-label="Logout"
+              aria-label={t("common.logout")}
               onClick={() => void signOut()}
             >
               <LogOut aria-hidden="true" className="size-3.5" />
-              <span className="hidden sm:inline">Logout</span>
-              <span className="sr-only sm:hidden">Logout</span>
+              <span className="hidden sm:inline">{t("common.logout")}</span>
+              <span className="sr-only sm:hidden">{t("common.logout")}</span>
             </Button>
           </div>
         </header>

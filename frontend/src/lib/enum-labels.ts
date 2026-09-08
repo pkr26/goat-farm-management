@@ -2,7 +2,13 @@
  * Human labels for every enum the API surfaces. Raw codes
  * ("MALE_KIDS", "ANIMAL_PURCHASE", "AI_SEXED") must never reach a
  * screen — resolve them through here so wording stays consistent in one place.
+ *
+ * `enumLabel(kind, value, lang)` adds a Telugu map for the worker-facing
+ * kinds; any value missing a Telugu entry falls back to the English label
+ * (never to the raw code), matching the i18n catalog's fallback contract.
  */
+
+import type { Language } from "@/lib/i18n";
 
 function titleCase(value: string): string {
   return value
@@ -93,6 +99,30 @@ const BUCKET_LABELS: Record<string, string> = {
   FEMALE_KIDS: "Female kids",
 };
 
+/**
+ * Telugu labels — deliberately partial. Only codes with well-established
+ * Telugu terms (audit glossary or common farm usage) are translated; the
+ * rest render the English label rather than an invented transliteration.
+ */
+const TE_LABELS: { [K in EnumKind]?: Record<string, string> } = {
+  sex: { M: "మగ", F: "ఆడ" },
+  taskCategory: {
+    VACCINE: "టీకా",
+    DEWORMING: "పురుగుల మందు",
+    KIDDING_DUE: "పిల్లల పుట్టుక",
+    FEED: "మేత",
+    CLEANING: "శుభ్రం చేయడం",
+    OTHER: "ఇతర",
+  },
+  shift: { MORNING: "ఉదయం", AFTERNOON: "మధ్యాహ్నం", NIGHT: "రాత్రి" },
+  txType: { INCOME: "ఆదాయం", EXPENSE: "ఖర్చు" },
+  bucket: {
+    MALE_KIDS: "మగ పిల్లలు",
+    FEMALE_KIDS: "ఆడ పిల్లలు",
+    BREEDING: "సంతానోత్పత్తి",
+  },
+};
+
 export type EnumKind =
   | "sex"
   | "source"
@@ -113,12 +143,19 @@ export type EnumKind =
 /**
  * Resolve an enum code to its user-facing label. Unknown values fall
  * back to Title Case of the code itself so nothing renders in SCREAMING_SNAKE.
+ * With `lang: "te"` a translated label wins when one exists; everything
+ * else falls back to the English label above.
  */
 export function enumLabel(
   kind: EnumKind,
   value: string | null | undefined,
+  lang: Language = "en",
 ): string {
   if (value === null || value === undefined || value === "") return "—";
+  if (lang === "te") {
+    const telugu = TE_LABELS[kind]?.[value];
+    if (telugu) return telugu;
+  }
   if (kind === "bucket") {
     return BUCKET_LABELS[value] ?? titleCase(value);
   }

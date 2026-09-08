@@ -83,7 +83,7 @@ describe("RegisterPage — mutation targets", () => {
     expect(bodies[0]).toEqual({ name: null, email: "new@goatfarm.in", password: "twelve-characters" });
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/farm-select"));
     expect(
-      screen.queryByText("Could not register — is the backend running?"),
+      screen.queryByText("Network is weak — please check your connection and try again."),
     ).not.toBeInTheDocument();
   });
 

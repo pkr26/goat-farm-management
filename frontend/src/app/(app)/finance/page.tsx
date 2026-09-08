@@ -57,12 +57,14 @@ import {
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { PermissionGate } from "@/components/permission-gate";
 import { StaleDataNotice } from "@/components/stale-data-notice";
 import { PaginationControls } from "@/components/pagination-controls";
 import { PageSkeleton } from "@/components/skeletons";
 import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
 import { ApiError } from "@/lib/api-client";
+import { mutationError } from "@/lib/mutations";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { useAuth } from "@/lib/auth-context";
 import { enumLabel } from "@/lib/enum-labels";
@@ -75,10 +77,9 @@ import {
   MIN_PERSISTED_MONEY,
   MIN_PERSISTED_MONEY_MESSAGE,
 } from "@/lib/persisted-numbers";
-import { usePermissions } from "@/lib/use-permissions";
+import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 import { cn } from "@/lib/utils";
-import { PermissionsError } from "@/components/permissions-error";
 
 const CATEGORIES = Object.values(TransactionInCategory);
 const TYPES = Object.values(TransactionInType);
@@ -126,19 +127,13 @@ function categoryFromParams(
     : ALL;
 }
 
-function localToday(): string {
-  return farmToday();
-}
 
-function mutationError(err: unknown): string {
-  return err instanceof ApiError ? err.detail : "Something went wrong";
-}
 
 const txnSchema = z.object({
   date: z
     .string()
     .min(1, "Date is required")
-    .refine((s) => s <= localToday(), "Date can't be in the future"),
+    .refine((s) => s <= farmToday(), "Date can't be in the future"),
   type: z.enum([TransactionInType.INCOME, TransactionInType.EXPENSE]),
   // Derived from the generated enum so a new contract category is accepted
   // the moment the selects offer it (was a hand-copied list — L24).
@@ -158,7 +153,7 @@ type TxnValues = z.output<typeof txnSchema>;
  * mount-time snapshot, which dates entries to the day the tab was opened. */
 function txnDefaults(): DefaultValues<TxnInput> {
   return {
-    date: localToday(),
+    date: farmToday(),
     type: "EXPENSE",
     category: "OTHER",
     notes: "",
@@ -336,7 +331,7 @@ function CorrectionDialog({
               <Input
                 id={`correction-date-${transaction.id}`}
                 type="date"
-                max={localToday()}
+                max={farmToday()}
                 aria-invalid={Boolean(errors.date) || undefined}
                 aria-describedby={errors.date ? `correction-date-${transaction.id}-error` : undefined}
                 {...register("date")}
@@ -529,14 +524,8 @@ function CorrectionDialog({
   );
 }
 
-function FinancePageContent() {
-  const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
-  // The permissions query is disabled until the auth bootstrap selects a
-  // farm; `permsLoading` alone is false during that window while the
-  // permission set is still empty — deciding "no access" then would flash a
-  // denial at a signed-in operator. The skeleton stays up until the session
-  // (and with it the permission fetch) is real.
-  const { loading: authLoading } = useAuth();
+function FinancePageContent({ perms }: { perms: PermissionsState }) {
+  const { can } = perms;
   const allowed = can("finance.view");
   const canManage = can("finance.manage");
   const canViewAnimals = can("animals.view");
@@ -694,28 +683,6 @@ function FinancePageContent() {
     });
   }
 
-  // The header and page structure stay mounted while permissions settle — a
-  // page that collapses to a bare "Loading…" line reads as a broken app on
-  // slow rural connections.
-  if (permsLoading || authLoading) {
-    return (
-      <div className="space-y-6">
-        <PageHeader
-          title="Finance"
-          description="Income, expenses and monthly profit & loss for the farm."
-        />
-        <PageSkeleton stats={3} cards={2} />
-      </div>
-    );
-  }
-  if (permsError) {
-    return (
-      <PermissionsError onRetry={() => void permsRefetch()} />
-    );
-  }
-  if (!allowed) {
-    return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
-  }
   if (query.isLoading || !payload) {
     if (query.isError) {
       return (
@@ -1121,7 +1088,7 @@ function FinancePageContent() {
                 <Input
                   id="date"
                   type="date"
-                  max={localToday()}
+                  max={farmToday()}
                   aria-invalid={Boolean(errors.date) || undefined}
                   aria-describedby={errors.date ? "transaction-date-error" : undefined}
                   {...register("date")}
@@ -1258,6 +1225,13 @@ function FinancePageContent() {
 
 /** Suspense boundary required because the content reads useSearchParams(). */
 export default function FinancePage() {
+  const perms = usePermissions();
+  // The permissions query is disabled until the auth bootstrap selects a
+  // farm; `permsLoading` alone is false during that window while the
+  // permission set is still empty — deciding "no access" then would flash a
+  // denial at a signed-in operator. The skeleton stays up until the session
+  // (and with it the permission fetch) is real.
+  const { loading: authLoading } = useAuth();
   return (
     <Suspense
       fallback={
@@ -1267,7 +1241,17 @@ export default function FinancePage() {
         </div>
       }
     >
-      <FinancePageContent />
+      <PermissionGate
+        perms={perms}
+        perm="finance.view"
+        label="Finance"
+        description="Income, expenses and monthly profit & loss for the farm."
+        stats={3}
+        cards={2}
+        alsoLoading={authLoading}
+      >
+        <FinancePageContent perms={perms} />
+      </PermissionGate>
     </Suspense>
   );
 }

@@ -27,6 +27,7 @@ import {
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { PermissionGate } from "@/components/permission-gate";
 import { StaleDataNotice } from "@/components/stale-data-notice";
 import { PaginationControls } from "@/components/pagination-controls";
 import { InlineLoading, PageSkeleton } from "@/components/skeletons";
@@ -57,8 +58,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
+import { mutationError } from "@/lib/mutations";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { farmToday, formatDate } from "@/lib/format";
+import { useLanguage, useT } from "@/lib/i18n";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import {
   formatPersistedKg,
@@ -67,10 +70,9 @@ import {
 } from "@/lib/persisted-numbers";
 import { FeedingNav } from "@/components/feeding-nav";
 import { enumLabel } from "@/lib/enum-labels";
-import { usePermissions } from "@/lib/use-permissions";
+import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 import { MAX_PAGE_OFFSET, useUrlState, type UrlStateUpdate } from "@/lib/use-url-state";
-import { PermissionsError } from "@/components/permissions-error";
 
 /** Explicit virtual recipe used by quarantine animals on days 1–3. */
 const DRY_ROUGHAGE = "DRY_ROUGHAGE_ONLY";
@@ -123,13 +125,7 @@ function toShiftCell(raw: unknown): ShiftCell {
   };
 }
 
-function localToday(): string {
-  return farmToday();
-}
 
-function mutationError(err: unknown): string {
-  return err instanceof ApiError ? err.detail : "Something went wrong";
-}
 
 const settingSchema = z.object({
   daily_kg_per_head: z.coerce
@@ -147,9 +143,11 @@ type SettingValues = z.output<typeof settingSchema>;
 function KgPerHeadDialog({ line }: { line: PlanLineOut }) {
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
+  const t = useT();
+  const { language } = useLanguage();
   const mut = useSaveSettingApiFeedingSettingsPost();
   const settingFlight = useSingleFlight();
-  const bucketLabel = enumLabel("bucket", line.bucket);
+  const bucketLabel = enumLabel("bucket", line.bucket, language);
   const {
     register,
     handleSubmit,
@@ -184,13 +182,13 @@ function KgPerHeadDialog({ line }: { line: PlanLineOut }) {
         });
         if (!farmScope()) return;
         const stored = quantizePersistedKg(values.daily_kg_per_head);
-        toast.success(`Saved ${formatPersistedKg(stored)} kg/head for ${bucketLabel}.`);
+        toast.success(t("feeding.savedToast", { kg: formatPersistedKg(stored), bucket: bucketLabel }));
         reset({ daily_kg_per_head: stored });
         invalidateFarmData(queryClient);
         setOpen(false);
       } catch (err) {
         if (!farmScope()) return;
-        toast.error(mutationError(err));
+        toast.error(mutationError(err, t("common.somethingWentWrong")));
       }
     });
   }
@@ -212,16 +210,16 @@ function KgPerHeadDialog({ line }: { line: PlanLineOut }) {
         disabled={settingFlight.pending}
         onClick={() => setOpen(true)}
       >
-        Edit
+        {t("feeding.edit")}
       </Button>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Daily ration — {bucketLabel}</DialogTitle>
+          <DialogTitle>{t("feeding.dailyRation", { bucket: bucketLabel })}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
           <fieldset disabled={isSubmitting || settingFlight.pending} className="contents">
           <div className="space-y-1.5">
-            <Label htmlFor={`kg-${line.bucket}`}>kg per head per day *</Label>
+            <Label htmlFor={`kg-${line.bucket}`}>{t("feeding.kgPerHead")}</Label>
             <Input
               id={`kg-${line.bucket}`}
               type="number"
@@ -245,7 +243,7 @@ function KgPerHeadDialog({ line }: { line: PlanLineOut }) {
           </div>
           <DialogFooter>
             <Button type="submit" disabled={isSubmitting || settingFlight.pending}>
-              {isSubmitting || settingFlight.pending ? "Saving…" : "Save"}
+              {isSubmitting || settingFlight.pending ? t("feeding.saving") : t("feeding.save")}
             </Button>
           </DialogFooter>
           </fieldset>
@@ -286,13 +284,15 @@ const dispenseSchema = z.object({
   date: z
     .string()
     .min(1, "Date is required")
-    .refine((s) => s <= localToday(), "Date can't be in the future"),
+    .refine((s) => s <= farmToday(), "Date can't be in the future"),
 });
 type DispenseInput = z.input<typeof dispenseSchema>;
 type DispenseValues = z.output<typeof dispenseSchema>;
 
-function FeedingPageContent() {
-  const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
+function FeedingPageContent({ perms }: { perms: PermissionsState }) {
+  const { can } = perms;
+  const t = useT();
+  const { language } = useLanguage();
   const allowed = can("feeding.view");
   const canManage = can("feeding.manage");
   const canCreateAnimals = can("animals.create");
@@ -300,10 +300,10 @@ function FeedingPageContent() {
   /** value → label maps for the root `items` prop: without them, Base UI's
    * Select.Value renders the raw value in the closed trigger. */
   const bucketItems: Record<string, string> = Object.fromEntries(
-    Object.values(DispenseInBucket).map((b) => [b, enumLabel("bucket", b)]),
+    Object.values(DispenseInBucket).map((b) => [b, enumLabel("bucket", b, language)]),
   );
   const shiftItems: Record<string, string> = Object.fromEntries(
-    Object.values(DispenseInShift).map((s) => [s, enumLabel("shift", s)]),
+    Object.values(DispenseInShift).map((s) => [s, enumLabel("shift", s, language)]),
   );
 
   // F-7: the dispensing-history window lives in the URL, so refresh and
@@ -444,7 +444,7 @@ function FeedingPageContent() {
     formState: { errors, isSubmitting },
   } = useForm<DispenseInput, unknown, DispenseValues>({
     resolver: zodResolver(dispenseSchema),
-    defaultValues: { bucket: "QUARANTINE", shift: "MORNING", recipe_code: "", date: localToday() },
+    defaultValues: { bucket: "QUARANTINE", shift: "MORNING", recipe_code: "", date: farmToday() },
   });
   const wBucket = useWatch({ control, name: "bucket" });
   const wRecipeCode = useWatch({ control, name: "recipe_code" });
@@ -464,38 +464,16 @@ function FeedingPageContent() {
           },
         });
         if (!farmScope()) return;
-        toast.success("Dispensing recorded.");
+        toast.success(t("feeding.dispensedToast"));
         invalidateFarmData(queryClient);
         setDispenseOpen(false);
       } catch (err) {
         if (!farmScope()) return;
-        toast.error(mutationError(err));
+        toast.error(mutationError(err, t("common.somethingWentWrong")));
       }
     });
   }
 
-  // The header and layout stay mounted while permissions settle — a page that
-  // collapses to a bare "Loading…" line reads as a broken app on slow rural
-  // connections.
-  if (permsLoading) {
-    return (
-      <div className="space-y-6">
-        <PageHeader
-          title="Feeding — today"
-          description="The 3-shift ration plan and what's been dispensed so far."
-        />
-        <PageSkeleton cards={2} />
-      </div>
-    );
-  }
-  if (permsError) {
-    return (
-      <PermissionsError onRetry={() => void permsRefetch()} />
-    );
-  }
-  if (!allowed) {
-    return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
-  }
   if (query.isLoading || !payload) {
     if (query.isError) {
       return (
@@ -526,7 +504,7 @@ function FeedingPageContent() {
     );
   }
 
-  const today = localToday();
+  const today = farmToday();
   const dispensedByAllocationShift = new Map<string, number>();
   const dispensedByBucket = new Map<string, number>();
   for (const total of payload.dispensed_totals) {
@@ -583,12 +561,12 @@ function FeedingPageContent() {
                   shift: "MORNING",
                   recipe_code: firstRecipe,
                   qty_kg: undefined,
-                  date: localToday(),
+                  date: farmToday(),
                 });
                 setDispenseOpen(true);
               }}
             >
-              Record dispensing
+              {t("feeding.recordDispensing")}
             </Button>
           )
         }
@@ -661,7 +639,7 @@ function FeedingPageContent() {
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-medium">
-                          {enumLabel("bucket", bucketName)}
+                          {enumLabel("bucket", bucketName, language)}
                         </span>
                         <Badge variant={complete ? "default" : "secondary"}>
                           {complete
@@ -699,7 +677,7 @@ function FeedingPageContent() {
                     className="rounded-xl border bg-card p-3 shadow-xs"
                   >
                     <p className="font-medium">
-                      {enumLabel("bucket", line.bucket)} — {line.recipe_name}
+                      {enumLabel("bucket", line.bucket, language)} — {line.recipe_name}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground tabular-nums">
                       {line.heads} heads · {line.kg_per_head} kg/head ·{" "}
@@ -756,7 +734,7 @@ function FeedingPageContent() {
                   // One bucket can appear on several lines (split by recipe).
                   <TableRow key={`${line.bucket}:${line.recipe_code}`}>
                     <TableCell className="font-medium">
-                      {enumLabel("bucket", line.bucket)}
+                      {enumLabel("bucket", line.bucket, language)}
                     </TableCell>
                     <TableCell>{line.recipe_name}</TableCell>
                     <TableCell className="text-right tabular-nums">{line.heads}</TableCell>
@@ -792,9 +770,9 @@ function FeedingPageContent() {
           </div>
         )}
         <p className="mt-3 text-sm text-muted-foreground">
-          Shifts: {enumLabel("shift", "MORNING")} 6:30 AM (sweep bunks first) ·{" "}
-          {enumLabel("shift", "AFTERNOON")} 1:30 PM · {enumLabel("shift", "NIGHT")} 7:30 PM.{" "}
-          {`${enumLabel("bucket", "RESTING")} switches ${enumLabel("bucket", "MAINTENANCE")} → ${enumLabel("bucket", "FLUSH")} at day 10; ${enumLabel("bucket", "MALE_KIDS")} frame-builder → fattening at day 91.`}
+          Shifts: {enumLabel("shift", "MORNING", language)} 6:30 AM (sweep bunks first) ·{" "}
+          {enumLabel("shift", "AFTERNOON", language)} 1:30 PM · {enumLabel("shift", "NIGHT", language)} 7:30 PM.{" "}
+          {`${enumLabel("bucket", "RESTING", language)} switches ${enumLabel("bucket", "MAINTENANCE", language)} → ${enumLabel("bucket", "FLUSH", language)} at day 10; ${enumLabel("bucket", "MALE_KIDS", language)} frame-builder → fattening at day 91.`}
         </p>
       </DataTableCard>
 
@@ -818,8 +796,8 @@ function FeedingPageContent() {
             <TableBody>
               {payload.records.map((r) => (
                 <TableRow key={r.id}>
-                  <TableCell>{enumLabel("shift", r.shift)}</TableCell>
-                  <TableCell>{enumLabel("bucket", r.bucket)}</TableCell>
+                  <TableCell>{enumLabel("shift", r.shift, language)}</TableCell>
+                  <TableCell>{enumLabel("bucket", r.bucket, language)}</TableCell>
                   <TableCell>{r.recipe_code ?? "—"}</TableCell>
                   <TableCell className="text-right tabular-nums">
                     {formatPersistedKg(r.qty_kg)}
@@ -923,8 +901,8 @@ function FeedingPageContent() {
                 {history.records.map((record) => (
                   <TableRow key={record.id}>
                     <TableCell>{formatDate(record.date)}</TableCell>
-                    <TableCell>{enumLabel("shift", record.shift)}</TableCell>
-                    <TableCell>{enumLabel("bucket", record.bucket)}</TableCell>
+                    <TableCell>{enumLabel("shift", record.shift, language)}</TableCell>
+                    <TableCell>{enumLabel("bucket", record.bucket, language)}</TableCell>
                     <TableCell>{record.recipe_code ?? "—"}</TableCell>
                     <TableCell className="text-right tabular-nums">
                       {formatPersistedKg(record.qty_kg)}
@@ -948,7 +926,7 @@ function FeedingPageContent() {
       <Dialog open={dispenseOpen} onOpenChange={setDispenseOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Record dispensing</DialogTitle>
+            <DialogTitle>{t("feeding.recordDispensing")}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit(onDispense)} className="space-y-4" noValidate>
             <fieldset disabled={isSubmitting || dispenseFlight.pending} className="contents">
@@ -980,7 +958,7 @@ function FeedingPageContent() {
                   <SelectContent>
                     {Object.values(DispenseInBucket).map((b) => (
                       <SelectItem key={b} value={b}>
-                        {enumLabel("bucket", b)}
+                        {enumLabel("bucket", b, language)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1001,7 +979,7 @@ function FeedingPageContent() {
                   <SelectContent>
                     {Object.values(DispenseInShift).map((s) => (
                       <SelectItem key={s} value={s}>
-                        {enumLabel("shift", s)}
+                        {enumLabel("shift", s, language)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1069,7 +1047,9 @@ function FeedingPageContent() {
             </div>
             <DialogFooter>
               <Button type="submit" disabled={isSubmitting || dispenseFlight.pending}>
-                {isSubmitting || dispenseFlight.pending ? "Recording…" : "Record"}
+                {isSubmitting || dispenseFlight.pending
+                  ? t("feeding.recording")
+                  : t("feeding.record")}
               </Button>
             </DialogFooter>
             </fieldset>
@@ -1082,6 +1062,7 @@ function FeedingPageContent() {
 
 /** Suspense boundary required because the content reads useSearchParams(). */
 export default function FeedingPage() {
+  const perms = usePermissions();
   return (
     <Suspense
       fallback={
@@ -1097,7 +1078,15 @@ export default function FeedingPage() {
         </div>
       }
     >
-      <FeedingPageContent />
+      <PermissionGate
+        perms={perms}
+        perm="feeding.view"
+        label="Feeding — today"
+        description="The 3-shift ration plan and what's been dispensed so far."
+        cards={2}
+      >
+        <FeedingPageContent perms={perms} />
+      </PermissionGate>
     </Suspense>
   );
 }

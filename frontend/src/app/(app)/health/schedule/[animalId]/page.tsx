@@ -11,6 +11,7 @@ import { useVaccinationScheduleApiHealthScheduleAnimalIdGet } from "@/api/genera
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { PermissionGate } from "@/components/permission-gate";
 import { StaleDataNotice } from "@/components/stale-data-notice";
 import { PageSkeleton, TableSkeleton } from "@/components/skeletons";
 import { StatusBadge } from "@/components/status-badge";
@@ -26,8 +27,7 @@ import {
 import { ApiError } from "@/lib/api-client";
 import { formatDate } from "@/lib/format";
 import { permittedAppPath, withReturnTo } from "@/lib/permission-navigation";
-import { usePermissions } from "@/lib/use-permissions";
-import { PermissionsError } from "@/components/permissions-error";
+import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 
 /** Status chip: the shared StatusBadge resolves DONE/UPCOMING/OVERDUE to
  *  success/warning/destructive tints; labels are humanized here. */
@@ -65,8 +65,8 @@ function dateOrDash(value: string | null): string {
   return value ? formatDate(value) : "—";
 }
 
-function VaccinationSchedulePageContent() {
-  const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
+function VaccinationSchedulePageContent({ perms }: { perms: PermissionsState }) {
+  const { can } = perms;
   const allowed = can("health.view");
   const canManage = can("health.manage");
   const canViewAnimals = can("animals.view");
@@ -86,28 +86,6 @@ function VaccinationSchedulePageContent() {
     permittedAppPath(searchParams.get("returnTo"), can) ??
     `/health?schedule_animal_id=${encodeURIComponent(params.animalId)}`;
 
-  // The header stays mounted while the permission set settles — a page that
-  // collapses to a bare "Loading…" line reads as a broken app on slow
-  // rural connections. The animal's identity arrives with the payload.
-  if (permsLoading) {
-    return (
-      <div className="space-y-6">
-        <PageHeader
-          title="Vaccination schedule"
-          description="Due dates and boosters from the vaccination templates that apply to this animal."
-        />
-        <PageSkeleton cards={1} />
-      </div>
-    );
-  }
-  if (permsError) {
-    return (
-      <PermissionsError onRetry={() => void permsRefetch()} />
-    );
-  }
-  if (!allowed) {
-    return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
-  }
   if (!validId) {
     return <p className="text-sm text-destructive">Invalid animal id.</p>;
   }
@@ -240,6 +218,7 @@ function VaccinationSchedulePageContent() {
 }
 
 export default function VaccinationSchedulePage() {
+  const perms = usePermissions();
   return (
     <Suspense
       fallback={
@@ -253,7 +232,15 @@ export default function VaccinationSchedulePage() {
         </div>
       }
     >
-      <VaccinationSchedulePageContent />
+      <PermissionGate
+        perms={perms}
+        perm="health.view"
+        label="Vaccination schedule"
+        description="Due dates and boosters from the vaccination templates that apply to this animal."
+        cards={1}
+      >
+        <VaccinationSchedulePageContent perms={perms} />
+      </PermissionGate>
     </Suspense>
   );
 }

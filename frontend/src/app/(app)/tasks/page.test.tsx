@@ -88,8 +88,14 @@ const FUTURE_MANUAL_TASK = makeTask({
   due_date: TOMORROW,
 });
 
+/** Row-content queries scope to the table: the below-md card list
+ * renders the same titles outside it (see animals page tests). */
+function tableScope() {
+  return within(screen.getByRole("table"));
+}
+
 function rowOf(title: string): HTMLElement {
-  const row = screen.getByText(title).closest("tr");
+  const row = tableScope().getByText(title).closest("tr");
   expect(row).not.toBeNull();
   return row as HTMLElement;
 }
@@ -129,7 +135,7 @@ describe("TasksPage row guards", () => {
 
   it("form-linked task shows an Open form link, not a Complete button", async () => {
     renderWithProviders(<TasksPage />);
-    await screen.findByText("Vaccinate goats");
+    await within(await screen.findByRole("table")).findByText("Vaccinate goats");
 
     const row = rowOf("Vaccinate goats");
     expect(within(row).getByRole("link", { name: "Open form" })).toHaveAttribute(
@@ -143,7 +149,7 @@ describe("TasksPage row guards", () => {
 
   it("pending manual task shows a Complete button", async () => {
     renderWithProviders(<TasksPage />);
-    await screen.findByText("Clean water troughs");
+    await within(await screen.findByRole("table")).findByText("Clean water troughs");
 
     const row = rowOf("Clean water troughs");
     expect(within(row).getByRole("button", { name: "Complete" })).toBeInTheDocument();
@@ -152,7 +158,7 @@ describe("TasksPage row guards", () => {
 
   it("future auto-generated duty is locked: no Complete button until due", async () => {
     renderWithProviders(<TasksPage />);
-    await screen.findByText("Weigh batch kids");
+    await within(await screen.findByRole("table")).findByText("Weigh batch kids");
 
     const row = rowOf("Weigh batch kids");
     expect(within(row).queryByRole("button", { name: "Complete" })).not.toBeInTheDocument();
@@ -162,7 +168,7 @@ describe("TasksPage row guards", () => {
 
   it("future recurring duty exposes neither Complete nor Skip until due", async () => {
     renderWithProviders(<TasksPage />);
-    await screen.findByText("Inspect perimeter fence");
+    await within(await screen.findByRole("table")).findByText("Inspect perimeter fence");
 
     const row = rowOf("Inspect perimeter fence");
     expect(within(row).queryByRole("button", { name: "Complete" })).not.toBeInTheDocument();
@@ -171,7 +177,7 @@ describe("TasksPage row guards", () => {
 
   it("future one-off manual duty remains available for early completion", async () => {
     renderWithProviders(<TasksPage />);
-    await screen.findByText("Prepare kidding supplies");
+    await within(await screen.findByRole("table")).findByText("Prepare kidding supplies");
 
     const row = rowOf("Prepare kidding supplies");
     expect(within(row).getByRole("button", { name: "Complete" })).toBeInTheDocument();
@@ -181,7 +187,7 @@ describe("TasksPage row guards", () => {
   it("does not link a form or animal that the task worker cannot access", async () => {
     server.use(permissionsHandler(["tasks.view", "tasks.complete"]));
     renderWithProviders(<TasksPage />);
-    await screen.findByText("Vaccinate goats");
+    await within(await screen.findByRole("table")).findByText("Vaccinate goats");
 
     const row = rowOf("Vaccinate goats");
     expect(within(row).getByText("G-007")).toBeInTheDocument();
@@ -251,7 +257,7 @@ describe("TasksPage deterministic 409 guards", () => {
 
   it("hides Skip on a batch-linked quarantine duty but keeps its form workflow", async () => {
     renderWithProviders(<TasksPage />);
-    await screen.findByText("Day 20: vaccinate ET + Tetanus");
+    await within(await screen.findByRole("table")).findByText("Day 20: vaccinate ET + Tetanus");
 
     const row = rowOf("Day 20: vaccinate ET + Tetanus");
     expect(within(row).getByRole("link", { name: "Open form" })).toBeInTheDocument();
@@ -260,7 +266,7 @@ describe("TasksPage deterministic 409 guards", () => {
 
   it("hides Skip on an animal-linked weaning duty but keeps Complete", async () => {
     renderWithProviders(<TasksPage />);
-    await screen.findByText("Wean kids of G-012");
+    await within(await screen.findByRole("table")).findByText("Wean kids of G-012");
 
     const row = rowOf("Wean kids of G-012");
     expect(within(row).getByRole("button", { name: "Complete" })).toBeInTheDocument();
@@ -269,7 +275,7 @@ describe("TasksPage deterministic 409 guards", () => {
 
   it("replaces the Open form link of a future health duty with a not-due hint", async () => {
     renderWithProviders(<TasksPage />);
-    await screen.findByText("Pre-kidding booster");
+    await within(await screen.findByRole("table")).findByText("Pre-kidding booster");
 
     const row = rowOf("Pre-kidding booster");
     expect(within(row).queryByRole("link", { name: "Open form" })).not.toBeInTheDocument();

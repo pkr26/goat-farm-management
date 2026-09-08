@@ -21,6 +21,7 @@ import type { BreedingRecordOut, KiddingRecordOut } from "@/api/generated/models
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { PermissionGate } from "@/components/permission-gate";
 import { StaleDataNotice } from "@/components/stale-data-notice";
 import { PageSkeleton } from "@/components/skeletons";
 import { farmVocabulary, type FarmVocabulary } from "@/lib/farm-vocabulary";
@@ -53,13 +54,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { ApiError, farmScopeEpochValue } from "@/lib/api-client";
+import { ApiError} from "@/lib/api-client";
 import { enumLabel } from "@/lib/enum-labels";
-import { addDays, farmToday, formatDate } from "@/lib/format";
+import { addDays, daysBetween, farmToday, formatDate } from "@/lib/format";
+import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { invalidateFarmData } from "@/lib/query-invalidation";
-import { usePermissions } from "@/lib/use-permissions";
+import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
-import { PermissionsError } from "@/components/permissions-error";
 
 /** Deep-link ids arrive as raw query strings; anything that is not a positive
  * safe integer is ignored. */
@@ -69,16 +70,7 @@ function parsePositiveId(raw: string | null): number | null {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
-function localToday(): string {
-  return farmToday();
-}
 
-/** Whole days from `from` to `to` (both YYYY-MM-DD), timezone-safe. */
-function daysBetween(from: string, to: string): number {
-  const [fy, fm, fd] = from.split("-").map(Number);
-  const [ty, tm, td] = to.split("-").map(Number);
-  return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86400000);
-}
 
 function errorText(err: unknown): string {
   return err instanceof ApiError ? err.detail : "Something went wrong";
@@ -134,7 +126,7 @@ function kiddingSchema(vocabulary: FarmVocabulary) {
       date: z
         .string()
         .regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a valid date")
-        .refine((s) => s <= localToday(), "Date can't be in the future"),
+        .refine((s) => s <= farmToday(), "Date can't be in the future"),
       ease: z.enum(EASES),
       // Backend KiddingCreateIn caps free text at MAX_FREE_TEXT_LENGTH (4000);
       // an over-long pasted note should fail inline like the pregnancy-loss
@@ -166,7 +158,7 @@ function kiddingSchema(vocabulary: FarmVocabulary) {
             path,
             message: `Can't be before the ${vocabulary.parturition} date`,
           });
-        } else if (reported > localToday()) {
+        } else if (reported > farmToday()) {
           ctx.addIssue({ code: "custom", path, message: "Date can't be in the future" });
         }
       });
@@ -233,7 +225,7 @@ function RecordKiddingDialog({
       breeding.breeding_date,
       vocabulary.facts.gestationWindowDays.max,
     );
-    return [earliest, maxGestationDate < localToday() ? maxGestationDate : localToday()];
+    return [earliest, maxGestationDate < farmToday() ? maxGestationDate : farmToday()];
   }, [breeding.breeding_date, breeding.ultrasound_result_date, vocabulary]);
   const resolver = useMemo(
     () => zodResolver(kiddingSchemaFor(earliestKiddingDate, latestKiddingDate, vocabulary)),
@@ -248,7 +240,7 @@ function RecordKiddingDialog({
   } = useForm<KiddingValues>({
     resolver,
     defaultValues: {
-      date: localToday(),
+      date: farmToday(),
       ease: "NORMAL",
       notes: "",
       // Goat kiddings norm to twins (v1 parity).
@@ -262,7 +254,9 @@ function RecordKiddingDialog({
   async function onSubmit(values: KiddingValues) {
     await createFlight.run(async () => {
       setFormError(null);
-      const requestFarmEpoch = farmScopeEpochValue();
+      // Same-farm fence: the write keeps its captured X-Farm-Id, but this
+      // continuation must not touch another farm's UI (M-2).
+      const stillOwnsFarm = captureFarmScope();
       try {
         await mutation.mutateAsync({
           data: {
@@ -281,7 +275,7 @@ function RecordKiddingDialog({
             })),
           },
         });
-        if (farmScopeEpochValue() !== requestFarmEpoch) return;
+        if (!stillOwnsFarm()) return;
         toast.success("Delivery recorded.");
         onClose();
         onSaved();
@@ -538,7 +532,7 @@ function RecordKiddingDialog({
                       id={`kid-${field.id}-mortality`}
                       type="date"
                       min={kiddingDate}
-                      max={localToday()}
+                      max={farmToday()}
                       aria-invalid={
                         Boolean(errors.kids?.[index]?.mortality_reported_at) || undefined
                       }
@@ -639,11 +633,11 @@ function KidsCell({
   );
 }
 
-function KiddingPageContent() {
+function KiddingPageContent({ perms }: { perms: PermissionsState }) {
   const queryClient = useQueryClient();
   const vocabulary = farmVocabulary;
   const femaleLabel = cap(vocabulary.femaleAdult);
-  const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
+  const { can } = perms;
   const allowed = can("kidding.view");
   const canManage = can("kidding.manage");
   const canViewAnimals = can("animals.view");
@@ -744,28 +738,6 @@ function KiddingPageContent() {
     invalidateFarmData(queryClient);
   }
 
-  // The header and page shape stay mounted while data settles — a page that
-  // collapses to a bare "Loading…" line reads as a broken app on slow rural
-  // connections.
-  if (permsLoading) {
-    return (
-      <div className="space-y-6">
-        <PageHeader
-          title={vocabulary.parturitionCap}
-          description={`Confirmed pregnancies due soon and recent ${vocabulary.parturition} history.`}
-        />
-        <PageSkeleton cards={2} />
-      </div>
-    );
-  }
-  if (permsError) {
-    return (
-      <PermissionsError onRetry={() => void permsRefetch()} />
-    );
-  }
-  if (!allowed) {
-    return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
-  }
   if (query.isLoading || !payload) {
     if (query.isError) {
       return (
@@ -1077,6 +1049,8 @@ function KiddingPageContent() {
 }
 
 export default function KiddingPage() {
+  const perms = usePermissions();
+  const vocabulary = farmVocabulary;
   return (
     <Suspense
       fallback={
@@ -1086,7 +1060,15 @@ export default function KiddingPage() {
         </div>
       }
     >
-      <KiddingPageContent />
+      <PermissionGate
+        perms={perms}
+        perm="kidding.view"
+        label={vocabulary.parturitionCap}
+        description={`Confirmed pregnancies due soon and recent ${vocabulary.parturition} history.`}
+        cards={2}
+      >
+        <KiddingPageContent perms={perms} />
+      </PermissionGate>
     </Suspense>
   );
 }

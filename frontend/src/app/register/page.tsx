@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
+import { useT } from "@/lib/i18n";
 import type { RegisterIn, TokenOut } from "@/api/generated/models";
 import { useSingleFlight } from "@/lib/use-single-flight";
 
@@ -33,6 +34,7 @@ type RegisterValues = z.infer<typeof registerSchema>;
 export default function RegisterPage() {
   const router = useRouter();
   const { signIn } = useAuth();
+  const t = useT();
   const [serverError, setServerError] = useState<string | null>(null);
   const mounted = useRef(true);
   const submission = useSingleFlight();
@@ -70,12 +72,11 @@ export default function RegisterPage() {
       } catch (err) {
         if (!mounted.current) return;
         // Surface the server's own message for every API error (400 duplicate
-        // email, 429 rate limit, 422 password policy, 5xx) — only a network
-        // failure gets the fallback.
+        // email, 429 rate limit, 422 password policy, 5xx); only a network
+        // failure gets the human connection guidance — never dev-flavoured
+        // copy.
         setServerError(
-          err instanceof ApiError
-            ? err.detail
-            : "Could not register — is the backend running?",
+          err instanceof ApiError ? err.detail : t("register.networkError"),
         );
       }
     });

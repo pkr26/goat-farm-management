@@ -67,7 +67,7 @@ describe("formatFarmDateTime — offset detection is anchored to the end", () =>
     // the embedded +0530 and print 14:07 instead of 19:37.
     expect(
       formatFarmDateTime("Tue Aug 05 2026 14:07:00 GMT+0530 (India Standard Time)"),
-    ).toBe("05-08-2026 19:37");
+    ).toBe("5 Aug 2026, 7:37 pm");
   });
 });
 

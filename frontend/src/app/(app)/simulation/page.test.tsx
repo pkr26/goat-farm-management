@@ -1102,7 +1102,7 @@ describe("SimulationPage", () => {
       },
     ]);
 
-    expect(await screen.findByText("09-08-2026 02:00")).toBeInTheDocument();
+    expect(await screen.findByText("9 Aug 2026, 2:00 am")).toBeInTheDocument();
     expect(screen.queryByText("8 Aug 2026")).not.toBeInTheDocument();
   });
 
