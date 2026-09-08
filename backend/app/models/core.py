@@ -12,13 +12,12 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     String,
-    Text,
     UniqueConstraint,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from ..db import Base
+from ..db import Base, JSONText
 from ..permissions import ROLE_PRESET_CODES
 from ..utils import utcnow
 
@@ -112,6 +111,12 @@ class Role(Base):
             f"code IS NULL OR code IN ({_ROLE_PRESET_CODES_SQL})",
             name="ck_roles_preset_code",
         ),
+        # Permissions are a jsonb array at the storage layer; the shape check
+        # makes a wrong-shape write fail in PostgreSQL, not at the next read.
+        CheckConstraint(
+            "jsonb_typeof(permissions) = 'array'",
+            name="ck_roles_permissions_json_array",
+        ),
         Index(
             "uq_roles_farm_active_name",
             "farm_id",
@@ -137,7 +142,11 @@ class Role(Base):
     code: Mapped[str | None] = mapped_column(String(30))  # preset key; null for custom roles
     name: Mapped[str] = mapped_column(String(80))
     description: Mapped[str | None] = mapped_column(String(255))
-    permissions: Mapped[str] = mapped_column(Text, default="[]")  # JSON list of codes
+    # JSON array of permission codes, stored as jsonb (CHECK-enforced array
+    # shape; see ck_roles_permissions_json_array). The ORM attribute keeps the
+    # historical JSON-text interface — readers json.loads, writers json.dumps —
+    # via db.JSONText.
+    permissions: Mapped[str] = mapped_column(JSONText, default="[]")
     # Optimistic-concurrency token for full-role edits.  A row lock only
     # serializes writers; it cannot tell that a second editor built its full
     # permissions payload from stale state.

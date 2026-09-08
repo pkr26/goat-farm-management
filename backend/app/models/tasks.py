@@ -21,7 +21,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
 from .constants import MAX_TASK_TITLE_LENGTH, VERIFICATION_REQUIRED_CATEGORIES
-from .enums import TaskCategory, TaskStatus
+from .enums import TaskCategory, TaskStatus, sql_in_values
 
 if TYPE_CHECKING:
     from .animals import Animal
@@ -65,12 +65,11 @@ class Task(Base):
         ),
         Index("ix_tasks_farm_status_due", "farm_id", "status", "due_date"),
         CheckConstraint(
-            "status IN ('PENDING', 'DONE', 'SKIPPED', 'VERIFIED')",
+            f"status IN ({sql_in_values(TaskStatus)})",
             name="ck_tasks_status",
         ),
         CheckConstraint(
-            "category IN ('VACCINE', 'DEWORMING', 'ULTRASOUND', 'KIDDING_DUE', "
-            "'WEANING', 'BUCKET_MOVE', 'QUARANTINE', 'FEED', 'CLEANING', 'OTHER')",
+            f"category IN ({sql_in_values(TaskCategory)})",
             name="ck_tasks_category",
         ),
         CheckConstraint(

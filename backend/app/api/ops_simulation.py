@@ -42,6 +42,7 @@ router = APIRouter(prefix="/api/ops-sim", tags=["ops-simulation"], responses=COM
 
 SimView = Annotated[set[str], Depends(require_perm("simulation.view"))]
 
+
 @router.post("/run", response_model=DailyOpsRunOut)
 async def run_daily_ops_simulation(
     payload: DailyOpsRunIn,

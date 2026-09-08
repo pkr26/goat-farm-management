@@ -22,6 +22,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
 from ..utils import today, utcnow
+from .enums import HealthEventType, sql_in_values
 
 if TYPE_CHECKING:
     from .animals import Animal
@@ -47,7 +48,7 @@ class HealthEvent(Base):
             name="ck_health_events_cost_nonneg",
         ),
         CheckConstraint(
-            "type IN ('VACCINE', 'DEWORMING', 'TREATMENT', 'FOOTBATH', 'VITAMIN')",
+            f"type IN ({sql_in_values(HealthEventType)})",
             name="ck_health_events_type",
         ),
         CheckConstraint(
@@ -166,6 +167,15 @@ Index(
     "ix_health_events_animal_template_latest",
     HealthEvent.animal_id,
     HealthEvent.schedule_template_id,
+    HealthEvent.date.desc(),
+    HealthEvent.id.desc(),
+)
+# The farm-wide events feed pages with ORDER BY date DESC, id DESC after a
+# farm_id equality filter; the plain date index cannot serve that ordering
+# tenant-bounded, so every page sorted the farm's whole history.
+Index(
+    "ix_health_events_farm_date_id",
+    HealthEvent.farm_id,
     HealthEvent.date.desc(),
     HealthEvent.id.desc(),
 )

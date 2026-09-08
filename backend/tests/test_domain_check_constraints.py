@@ -277,6 +277,98 @@ async def test_every_model_check_is_installed_and_validated() -> None:
     assert all(validated for table, name, validated in rows if (table, name) in expected)
 
 
+# The exact SQL text of every vocabulary CHECK as installed by the historical
+# migrations. models/ now derives these IN-lists from models/enums.py
+# (sql_in_values); this snapshot pins the rendered bytes so an enum edit can
+# never silently drift the ORM constraint away from the database's.
+_BUCKETS_SQL = (
+    "'QUARANTINE', 'FOUNDATION', 'BREEDING', 'PREGNANCY_EARLY', "
+    "'PREGNANCY_LATE', 'DELIVERY', 'RECOVERY', 'RESTING', "
+    "'MALE_KIDS', 'FEMALE_KIDS'"
+)
+_VOCABULARY_CONSTRAINT_SQL: dict[tuple[str, str], str] = {
+    ("animals", "ck_animals_sex"): "sex IN ('M', 'F')",
+    (
+        "animals",
+        "ck_animals_birth_type",
+    ): (
+        "birth_type IS NULL OR birth_type IN "
+        "('SINGLE', 'TWIN', 'TRIPLET', 'QUADRUPLET', 'MULTIPLET')"
+    ),
+    ("animals", "ck_animals_source"): "source IN ('BORN', 'PURCHASED')",
+    ("animals", "ck_animals_current_bucket"): f"current_bucket IN ({_BUCKETS_SQL})",
+    ("animals", "ck_animals_status"): "status IN ('ACTIVE', 'SOLD', 'DEAD', 'CULLED')",
+    (
+        "bucket_moves",
+        "ck_bucket_moves_from_bucket",
+    ): f"from_bucket IS NULL OR from_bucket IN ({_BUCKETS_SQL})",
+    ("bucket_moves", "ck_bucket_moves_to_bucket"): f"to_bucket IN ({_BUCKETS_SQL})",
+    ("bucket_definitions", "ck_bucket_definitions_code"): f"code IN ({_BUCKETS_SQL})",
+    (
+        "bucket_feed_settings",
+        "ck_bucket_feed_settings_bucket",
+    ): f"bucket IN ({_BUCKETS_SQL})",
+    (
+        "breeding_records",
+        "ck_breeding_loss_cause",
+    ): (
+        "loss_cause IS NULL OR loss_cause IN "
+        "('UNKNOWN', 'DISEASE', 'INJURY', 'NUTRITIONAL', 'TRAUMA', "
+        "'ANIMAL_STATUS_CHANGE', 'OTHER')"
+    ),
+    ("breeding_records", "ck_breeding_records_method"): "method IN ('NATURAL', 'AI', 'AI_SEXED')",
+    (
+        "breeding_records",
+        "ck_breeding_records_outcome",
+    ): "outcome IN ('PENDING', 'CONFIRMED_PREGNANT', 'FAILED', 'ABORTED', 'UNASSESSED')",
+    ("kidding_records", "ck_kidding_records_ease"): "ease IN ('NORMAL', 'ASSISTED', 'DIFFICULT')",
+    ("kid_entries", "ck_kid_entries_status"): "status IN ('ALIVE', 'STILLBORN', 'DIED')",
+    ("kid_entries", "ck_kid_entries_sex"): "sex IN ('M', 'F')",
+    (
+        "health_events",
+        "ck_health_events_type",
+    ): "type IN ('VACCINE', 'DEWORMING', 'TREATMENT', 'FOOTBATH', 'VITAMIN')",
+    ("feeding_records", "ck_feeding_records_shift"): "shift IN ('MORNING', 'AFTERNOON', 'NIGHT')",
+    ("feeding_records", "ck_feeding_records_bucket"): f"bucket IN ({_BUCKETS_SQL})",
+    (
+        "feed_recipe_lines",
+        "ck_feed_recipe_lines_category",
+    ): "category IN ('ROUGHAGE_WET', 'ROUGHAGE_DRY', 'CONCENTRATE')",
+    (
+        "feed_inventory",
+        "ck_feed_inventory_category",
+    ): "category IN ('ROUGHAGE_WET', 'ROUGHAGE_DRY', 'CONCENTRATE')",
+    ("tasks", "ck_tasks_status"): "status IN ('PENDING', 'DONE', 'SKIPPED', 'VERIFIED')",
+    (
+        "tasks",
+        "ck_tasks_category",
+    ): (
+        "category IN ('VACCINE', 'DEWORMING', 'ULTRASOUND', 'KIDDING_DUE', "
+        "'WEANING', 'BUCKET_MOVE', 'QUARANTINE', 'FEED', 'CLEANING', 'OTHER')"
+    ),
+    ("transactions", "ck_transactions_type"): "type IN ('INCOME', 'EXPENSE')",
+    (
+        "transactions",
+        "ck_transactions_category",
+    ): (
+        "category IN ('ANIMAL_SALE', 'ANIMAL_PURCHASE', 'FEED', 'MEDICINE', "
+        "'VET', 'LABOUR', 'EQUIPMENT', 'MANURE', 'OTHER')"
+    ),
+}
+
+
+async def test_enum_vocabulary_constraints_render_byte_identical_sql() -> None:
+    """Vocabulary CHECKs derive from enums.py but render the pinned bytes."""
+    actual = {
+        (table.name, constraint.name): str(constraint.sqltext)
+        for table in Base.metadata.tables.values()
+        for constraint in table.constraints
+        if isinstance(constraint, CheckConstraint)
+        and (table.name, constraint.name) in _VOCABULARY_CONSTRAINT_SQL
+    }
+    assert actual == _VOCABULARY_CONSTRAINT_SQL
+
+
 async def test_valid_direct_sql_boundary_values_and_domain_graph_commit(
     client: httpx.AsyncClient,
 ) -> None:

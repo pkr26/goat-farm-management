@@ -278,6 +278,7 @@ TASK_CATEGORY_ROLE_MAP: dict[str, str] = {
     "CLEANING": "CLEANER",
 }
 
+
 def preset_codes() -> set[str]:
     """Preset codes every farm is seeded with."""
     return {preset["code"] for preset in ROLE_PRESETS}

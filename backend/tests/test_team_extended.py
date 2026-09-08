@@ -18,6 +18,7 @@ from datetime import timedelta
 import httpx
 import pytest
 from sqlalchemy import event, func, insert, select, text
+from sqlalchemy.exc import DBAPIError
 
 import app.api.team as team_api
 from app.core.config import get_settings
@@ -3009,27 +3010,40 @@ async def test_cross_farm_worker_cannot_peek_team(client: httpx.AsyncClient) -> 
 
 
 @pytest.mark.parametrize("corrupt", ["null", "5", "true", '"abc"', "not json"])
-async def test_corrupt_role_permissions_fail_closed_instead_of_500(
+async def test_corrupt_role_permissions_cannot_be_stored_by_the_database(
     client: httpx.AsyncClient, corrupt: str
 ) -> None:
     """`permission_set` is deliberately fail-closed on a corrupt permissions
     column, but it only caught ValueError: valid JSON that is not a list
     ("null", "5") raised an uncaught TypeError on every authenticated request
     that worker made, and a bare JSON string silently decomposed into its
-    characters instead of granting nothing."""
+    characters instead of granting nothing.
+
+    Since the jsonb migration (c4f6a8b0d2e5) that corruption cannot be written
+    through PostgreSQL at all: unparseable text fails the jsonb cast and any
+    valid non-array JSON fails ck_roles_permissions_json_array. The worker's
+    real permissions therefore survive every attempt — the read-time
+    fail-closed parse in ``Role.permission_set`` remains only as a backstop
+    for damage the schema can no longer express."""
     owner = await owner_with_farm(client, "corrupt-perms-owner@farm.in")
     cleaner = await worker_headers(client, owner, "CLEANER", "corrupt-perms@farm.in")
     assert (await client.get("/api/tasks", headers=cleaner)).status_code == 200
 
     async with get_sessionmaker()() as db:
-        await db.execute(
-            text(
-                "UPDATE roles SET permissions = :value WHERE farm_id = :farm AND code = 'CLEANER'"
-            ),
-            {"value": corrupt, "farm": int(owner["X-Farm-Id"])},
-        )
-        await db.commit()
+        with pytest.raises(DBAPIError) as caught:
+            await db.execute(
+                text(
+                    "UPDATE roles SET permissions = :value "
+                    "WHERE farm_id = :farm AND code = 'CLEANER'"
+                ),
+                {"value": corrupt, "farm": int(owner["X-Farm-Id"])},
+            )
+        await db.rollback()
+    denial = str(caught.value)
+    assert (
+        "ck_roles_permissions_json_array" in denial
+        or "invalid input syntax for type json" in denial
+    ), denial
 
     resp = await client.get("/api/tasks", headers=cleaner)
-    assert resp.status_code == 403, resp.text
-    assert resp.json()["detail"].startswith("Missing permission")
+    assert resp.status_code == 200, resp.text

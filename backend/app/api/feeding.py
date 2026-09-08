@@ -231,9 +231,7 @@ async def feeding_history(
 async def list_recipes(db: DbSession, farm: CurrentFarm, perms: FeedingView) -> RecipeListOut:
     """All feed recipes (with lines) + the bucket allocation reference table."""
     result = await db.execute(
-        select(FeedRecipe)
-        .options(selectinload(FeedRecipe.lines))
-        .order_by(FeedRecipe.id)
+        select(FeedRecipe).options(selectinload(FeedRecipe.lines)).order_by(FeedRecipe.id)
     )
     return RecipeListOut(
         recipes=[FeedRecipeOut.model_validate(recipe) for recipe in result.scalars().all()],

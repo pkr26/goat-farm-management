@@ -17,20 +17,34 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from ..db import Base
 from ..utils import DEFAULT_BUSINESS_TIMEZONE, business_date, today, utcnow
 from .constants import BREEDING_READY_BUCKETS
-from .enums import AnimalStatus, BreedingOutcome, Sex
+from .enums import (
+    AnimalSource,
+    AnimalStatus,
+    BirthType,
+    BreedingOutcome,
+    Bucket,
+    Sex,
+    sql_in_values,
+)
 from .species import GOAT_PROFILE
 
 if TYPE_CHECKING:
     from .breeding import BreedingRecord
     from .core import Farm
     from .purchases import PurchaseBatch
+
+# Vocabulary IN-lists rendered once from the enum definitions so the CHECK
+# literals cannot drift from models/enums.py (see sql_in_values).
+_BUCKET_VALUES = sql_in_values(Bucket)
+_ANIMAL_STATUS_VALUES = sql_in_values(AnimalStatus)
 
 
 class Animal(Base):
@@ -65,22 +79,18 @@ class Animal(Base):
             "sale_price IS NULL OR sale_price >= 0",
             name="ck_animals_sale_price_nonneg",
         ),
-        CheckConstraint("sex IN ('M', 'F')", name="ck_animals_sex"),
+        CheckConstraint(f"sex IN ({sql_in_values(Sex)})", name="ck_animals_sex"),
         CheckConstraint(
-            "birth_type IS NULL OR birth_type IN "
-            "('SINGLE', 'TWIN', 'TRIPLET', 'QUADRUPLET', 'MULTIPLET')",
+            f"birth_type IS NULL OR birth_type IN ({sql_in_values(BirthType)})",
             name="ck_animals_birth_type",
         ),
-        CheckConstraint("source IN ('BORN', 'PURCHASED')", name="ck_animals_source"),
+        CheckConstraint(f"source IN ({sql_in_values(AnimalSource)})", name="ck_animals_source"),
         CheckConstraint(
-            "current_bucket IN "
-            "('QUARANTINE', 'FOUNDATION', 'BREEDING', 'PREGNANCY_EARLY', "
-            "'PREGNANCY_LATE', 'DELIVERY', 'RECOVERY', 'RESTING', "
-            "'MALE_KIDS', 'FEMALE_KIDS')",
+            f"current_bucket IN ({_BUCKET_VALUES})",
             name="ck_animals_current_bucket",
         ),
         CheckConstraint(
-            "status IN ('ACTIVE', 'SOLD', 'DEAD', 'CULLED')",
+            f"status IN ({_ANIMAL_STATUS_VALUES})",
             name="ck_animals_status",
         ),
         CheckConstraint(
@@ -229,11 +239,19 @@ class Animal(Base):
         back_populates="animal",
         order_by="WeightRecord.date",
         cascade="all, delete-orphan",
+        # Two FK paths link the tables (animal_id and the tenant composite
+        # fk_weight_records_farm_animal); the history collection follows the
+        # single-column identity FK.
+        foreign_keys="WeightRecord.animal_id",
     )
     bucket_moves: Mapped[list[BucketMove]] = relationship(
         back_populates="animal",
         order_by="BucketMove.moved_at",
         cascade="all, delete-orphan",
+        # Two FK paths link the tables (animal_id and the tenant composite
+        # fk_bucket_moves_farm_animal); the history collection follows the
+        # single-column identity FK.
+        foreign_keys="BucketMove.animal_id",
     )
     breedings_as_doe: Mapped[list[BreedingRecord]] = relationship(
         back_populates="doe", foreign_keys="BreedingRecord.doe_id"
@@ -409,6 +427,13 @@ class Animal(Base):
 class WeightRecord(Base):
     __tablename__ = "weight_records"
     __table_args__ = (
+        # Tenant guard: the measurement can never point at another farm's
+        # animal, independently of API/service filters.
+        ForeignKeyConstraint(
+            ["farm_id", "animal_id"],
+            ["animals.farm_id", "animals.id"],
+            name="fk_weight_records_farm_animal",
+        ),
         Index("ix_weight_records_date", "date"),
         CheckConstraint("weight_kg > 0", name="ck_weight_records_weight_positive"),
         CheckConstraint(
@@ -422,6 +447,7 @@ class WeightRecord(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
     animal_id: Mapped[int] = mapped_column(ForeignKey("animals.id"), index=True)
     date: Mapped[date] = mapped_column(default=today)
     weight_kg: Mapped[float]
@@ -429,29 +455,33 @@ class WeightRecord(Base):
     notes: Mapped[str | None] = mapped_column(String(255))
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
-    animal: Mapped[Animal] = relationship(back_populates="weight_records")
+    # foreign_keys disambiguates the single-column animal_id FK from the
+    # (farm_id, animal_id) tenant composite on the same table.
+    animal: Mapped[Animal] = relationship(back_populates="weight_records", foreign_keys=[animal_id])
 
 
 class BucketMove(Base):
     __tablename__ = "bucket_moves"
     __table_args__ = (
+        # Tenant guard: a lifecycle move can never point at another farm's
+        # animal, independently of API/service filters.
+        ForeignKeyConstraint(
+            ["farm_id", "animal_id"],
+            ["animals.farm_id", "animals.id"],
+            name="fk_bucket_moves_farm_animal",
+        ),
         CheckConstraint(
-            "from_bucket IS NULL OR from_bucket IN "
-            "('QUARANTINE', 'FOUNDATION', 'BREEDING', 'PREGNANCY_EARLY', "
-            "'PREGNANCY_LATE', 'DELIVERY', 'RECOVERY', 'RESTING', "
-            "'MALE_KIDS', 'FEMALE_KIDS')",
+            f"from_bucket IS NULL OR from_bucket IN ({_BUCKET_VALUES})",
             name="ck_bucket_moves_from_bucket",
         ),
         CheckConstraint(
-            "to_bucket IN "
-            "('QUARANTINE', 'FOUNDATION', 'BREEDING', 'PREGNANCY_EARLY', "
-            "'PREGNANCY_LATE', 'DELIVERY', 'RECOVERY', 'RESTING', "
-            "'MALE_KIDS', 'FEMALE_KIDS')",
+            f"to_bucket IN ({_BUCKET_VALUES})",
             name="ck_bucket_moves_to_bucket",
         ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
     animal_id: Mapped[int] = mapped_column(ForeignKey("animals.id"), index=True)
     from_bucket: Mapped[str | None] = mapped_column(String(20))  # None = initial placement
     to_bucket: Mapped[str] = mapped_column(String(20))
@@ -467,7 +497,9 @@ class BucketMove(Base):
     reason: Mapped[str | None] = mapped_column(String(255))
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
-    animal: Mapped[Animal] = relationship(back_populates="bucket_moves")
+    # foreign_keys disambiguates the single-column animal_id FK from the
+    # (farm_id, animal_id) tenant composite on the same table.
+    animal: Mapped[Animal] = relationship(back_populates="bucket_moves", foreign_keys=[animal_id])
 
 
 # ---------------------------------------------------------------------------
@@ -479,10 +511,7 @@ class BucketDefinition(Base):
         # One definition row per lifecycle stage code.
         UniqueConstraint("code", name="uq_bucket_definitions_code"),
         CheckConstraint(
-            "code IN "
-            "('QUARANTINE', 'FOUNDATION', 'BREEDING', 'PREGNANCY_EARLY', "
-            "'PREGNANCY_LATE', 'DELIVERY', 'RECOVERY', 'RESTING', "
-            "'MALE_KIDS', 'FEMALE_KIDS')",
+            f"code IN ({_BUCKET_VALUES})",
             name="ck_bucket_definitions_code",
         ),
         CheckConstraint(
@@ -511,10 +540,7 @@ class BucketFeedSetting(Base):
     __table_args__ = (
         UniqueConstraint("farm_id", "bucket", name="uq_feed_setting_per_bucket"),
         CheckConstraint(
-            "bucket IN "
-            "('QUARANTINE', 'FOUNDATION', 'BREEDING', 'PREGNANCY_EARLY', "
-            "'PREGNANCY_LATE', 'DELIVERY', 'RECOVERY', 'RESTING', "
-            "'MALE_KIDS', 'FEMALE_KIDS')",
+            f"bucket IN ({_BUCKET_VALUES})",
             name="ck_bucket_feed_settings_bucket",
         ),
         CheckConstraint(
@@ -569,3 +595,28 @@ Index(
     postgresql_where=text("status = 'ACTIVE' AND cull_candidate IS TRUE"),
 )
 Index("ix_animals_farm_status", Animal.farm_id, Animal.status)
+
+
+@event.listens_for(Session, "before_flush")
+def _derive_history_farm_id(session: Session, flush_context: object, instances: object) -> None:
+    """Populate weight_records/bucket_moves.farm_id for pre-tenant writers.
+
+    These history tables gained their tenant farm_id (migration
+    b6d8f0a2c4e6) late; their call sites construct rows from the animal
+    alone (``WeightRecord(animal_id=...)``) and are owned by other remediation
+    streams. Resolving the animal's farm here keeps every ORM flush correct
+    without threading farm_id through each writer: the animal is looked up in
+    the session's identity map or database, so a row can never silently land
+    with a wrong farm. A row whose animal cannot be resolved keeps farm_id
+    NULL and fails the NOT NULL constraint loudly rather than guessing.
+    Bulk/Core ``insert()`` statements bypass flush events and must supply
+    farm_id themselves — the only such writers are migrations and tests.
+    """
+    for obj in session.new:
+        if not isinstance(obj, (WeightRecord, BucketMove)) or obj.farm_id is not None:
+            continue
+        if obj.animal_id is None:
+            continue
+        animal = session.get(Animal, obj.animal_id)
+        if animal is not None:
+            obj.farm_id = animal.farm_id

@@ -35,6 +35,8 @@ async def _alembic(*args: str) -> subprocess.CompletedProcess[str]:
         ("e9f0a1b2c3d4", "ix_tasks_pending_animal_id_id", "tasks"),
         ("d7e8f9a0b1c2", "ix_feeding_records_farm_date_id", "feeding_records"),
         ("d4e5f6a7b8c9", "ix_bucket_moves_animal_moved_id_desc", "bucket_moves"),
+        ("bd201c1cdc1b", "ix_transactions_farm_date_id", "transactions"),
+        ("bd201c1cdc1b", "ix_health_events_farm_date_id", "health_events"),
     ],
 )
 async def test_online_index_upgrade_rebuilds_same_named_invalid_remnant(

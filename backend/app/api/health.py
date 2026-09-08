@@ -106,12 +106,7 @@ async def schedule_templates(
     Fixed global reference data, scoped to the farm's species; the farm
     dependency keeps it behind the same tenant auth as the rest of the module.
     """
-    rows = (
-        await db.execute(
-            select(VaccineTemplate)
-            .order_by(VaccineTemplate.name)
-        )
-    ).scalars()
+    rows = (await db.execute(select(VaccineTemplate).order_by(VaccineTemplate.name))).scalars()
     return ScheduleTemplateListOut(
         templates=[
             ScheduleTemplateOut(
@@ -809,9 +804,7 @@ async def _record_event_mutation(
     template = None
     if payload.type in (HealthEventType.VACCINE.value, HealthEventType.DEWORMING.value):
         try:
-            template = await validated_template(
-                db, requested_template, payload.type
-            )
+            template = await validated_template(db, requested_template, payload.type)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
         template_name = str(template.name) if template is not None else None
@@ -873,9 +866,7 @@ async def _record_event_mutation(
                     status_code=422, detail="Disease target does not match the linked task"
                 )
             try:
-                template = await validated_template(
-                    db, expected_template, payload.type
-                )
+                template = await validated_template(db, expected_template, payload.type)
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from None
             template_name = expected_template

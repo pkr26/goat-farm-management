@@ -20,6 +20,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
 from ..utils import today, utcnow
+from .enums import TransactionCategory, TransactionType, sql_in_values
 
 if TYPE_CHECKING:
     from .animals import Animal
@@ -33,12 +34,11 @@ class Transaction(Base):
             name="ck_transactions_amount_bounded",
         ),
         CheckConstraint(
-            "type IN ('INCOME', 'EXPENSE')",
+            f"type IN ({sql_in_values(TransactionType)})",
             name="ck_transactions_type",
         ),
         CheckConstraint(
-            "category IN ('ANIMAL_SALE', 'ANIMAL_PURCHASE', 'FEED', 'MEDICINE', "
-            "'VET', 'LABOUR', 'EQUIPMENT', 'MANURE', 'OTHER')",
+            f"category IN ({sql_in_values(TransactionCategory)})",
             name="ck_transactions_category",
         ),
         CheckConstraint(
@@ -96,7 +96,6 @@ class Transaction(Base):
         Index("ix_transactions_feed_inventory_id", "feed_inventory_id"),
         Index("ix_transactions_related_animal_id", "related_animal_id"),
     )
-
     id: Mapped[int] = mapped_column(primary_key=True)
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
     date: Mapped[date] = mapped_column(default=today, index=True)
@@ -126,3 +125,15 @@ class Transaction(Base):
     void_reason: Mapped[str | None] = mapped_column(String(255))
 
     related_animal: Mapped[Animal | None] = relationship(foreign_keys=[related_animal_id])
+
+
+# The ledger feed pages with ORDER BY date DESC, id DESC after a farm_id
+# equality filter (optionally a month range). transactions only carried
+# single-column indexes, so every page sorted the farm's whole ledger
+# history (all years) instead of walking a tenant-bounded ordered index.
+Index(
+    "ix_transactions_farm_date_id",
+    Transaction.farm_id,
+    Transaction.date.desc(),
+    Transaction.id.desc(),
+)

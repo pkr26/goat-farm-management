@@ -66,9 +66,7 @@ def upgrade() -> None:
     # 2. Milk production records and milk-sale ledger provenance.
     op.drop_table("milk_records")
     op.execute("DELETE FROM transactions WHERE category = 'MILK'")
-    op.drop_constraint(
-        "ck_transactions_milk_provenance", "transactions", type_="check"
-    )
+    op.drop_constraint("ck_transactions_milk_provenance", "transactions", type_="check")
     for column in (
         "milk_litres",
         "milk_unit_price_per_litre",
@@ -116,9 +114,7 @@ def upgrade() -> None:
     )
 
     # 6. Goat gestation recording band on breeding records.
-    op.drop_constraint(
-        "ck_breeding_loss_within_max_gestation", "breeding_records", type_="check"
-    )
+    op.drop_constraint("ck_breeding_loss_within_max_gestation", "breeding_records", type_="check")
     op.create_check_constraint(
         "ck_breeding_loss_within_max_gestation",
         "breeding_records",
@@ -152,9 +148,7 @@ def downgrade() -> None:
         "breeding_records",
         "ultrasound_result_date IS NULL OR ultrasound_result_date <= breeding_date + 350",
     )
-    op.drop_constraint(
-        "ck_breeding_loss_within_max_gestation", "breeding_records", type_="check"
-    )
+    op.drop_constraint("ck_breeding_loss_within_max_gestation", "breeding_records", type_="check")
     op.create_check_constraint(
         "ck_breeding_loss_within_max_gestation",
         "breeding_records",

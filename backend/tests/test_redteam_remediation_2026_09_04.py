@@ -278,6 +278,7 @@ async def test_red_m2_goat_farm_rejects_ai_service(client: httpx.AsyncClient) ->
     assert resp.status_code == 409, resp.text
     assert "goat protocol" in resp.json()["detail"]
 
+
 # RED-H3 — off-ledger sales/purchases
 # ---------------------------------------------------------------------------
 

@@ -18,7 +18,15 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
-from .enums import BreedingMethod, BreedingOutcome, KiddingEase, KidStatus
+from .constants import PREGNANCY_LOSS_CAUSES
+from .enums import (
+    BreedingMethod,
+    BreedingOutcome,
+    KiddingEase,
+    KidStatus,
+    Sex,
+    sql_in_values,
+)
 
 if TYPE_CHECKING:
     from .animals import Animal
@@ -36,9 +44,7 @@ class BreedingRecord(Base):
     __table_args__ = (
         UniqueConstraint("farm_id", "id", name="uq_breeding_records_farm_id_id"),
         CheckConstraint(
-            "loss_cause IS NULL OR loss_cause IN "
-            "('UNKNOWN', 'DISEASE', 'INJURY', 'NUTRITIONAL', 'TRAUMA', "
-            "'ANIMAL_STATUS_CHANGE', 'OTHER')",
+            f"loss_cause IS NULL OR loss_cause IN ({sql_in_values(PREGNANCY_LOSS_CAUSES)})",
             name="ck_breeding_loss_cause",
         ),
         CheckConstraint(
@@ -72,7 +78,7 @@ class BreedingRecord(Base):
             name="ck_breeding_loss_metadata_matches_outcome",
         ),
         CheckConstraint(
-            "method IN ('NATURAL', 'AI', 'AI_SEXED')",
+            f"method IN ({sql_in_values(BreedingMethod)})",
             name="ck_breeding_records_method",
         ),
         # Natural service names a herd sire; AI services may name the semen
@@ -83,7 +89,7 @@ class BreedingRecord(Base):
             name="ck_breeding_records_sire_identity",
         ),
         CheckConstraint(
-            "outcome IN ('PENDING', 'CONFIRMED_PREGNANT', 'FAILED', 'ABORTED', 'UNASSESSED')",
+            f"outcome IN ({sql_in_values(BreedingOutcome)})",
             name="ck_breeding_records_outcome",
         ),
         CheckConstraint(
@@ -176,7 +182,7 @@ class BreedingRecord(Base):
     ultrasound_result_date: Mapped[date | None]
     ultrasound_done: Mapped[bool] = mapped_column(default=False)
     pregnant: Mapped[bool | None]
-    kid_count_detected: Mapped[int | None]  # 1/2/3
+    kid_count_detected: Mapped[int | None]  # 1-4 detected kids (goat quadruplet ceiling)
     expected_kidding_date: Mapped[date | None]  # breeding_date + 150
     outcome: Mapped[str] = mapped_column(String(20), default=BreedingOutcome.PENDING.value)
     loss_date: Mapped[date | None]
@@ -207,7 +213,7 @@ class KiddingRecord(Base):
         UniqueConstraint("breeding_record_id", name="uq_kidding_breeding_record"),
         UniqueConstraint("farm_id", "id", name="uq_kidding_records_farm_id_id"),
         CheckConstraint(
-            "ease IN ('NORMAL', 'ASSISTED', 'DIFFICULT')",
+            f"ease IN ({sql_in_values(KiddingEase)})",
             name="ck_kidding_records_ease",
         ),
         ForeignKeyConstraint(
@@ -247,7 +253,7 @@ class KidEntry(Base):
     __tablename__ = "kid_entries"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('ALIVE', 'STILLBORN', 'DIED')",
+            f"status IN ({sql_in_values(KidStatus)})",
             name="ck_kid_entries_status",
         ),
         CheckConstraint(
@@ -255,7 +261,7 @@ class KidEntry(Base):
             "(status <> 'DIED' AND mortality_reported_at IS NULL)",
             name="ck_kid_entries_mortality_matches_status",
         ),
-        CheckConstraint("sex IN ('M', 'F')", name="ck_kid_entries_sex"),
+        CheckConstraint(f"sex IN ({sql_in_values(Sex)})", name="ck_kid_entries_sex"),
         CheckConstraint(
             "birth_weight IS NULL OR "
             "(birth_weight BETWEEN 0 AND 1000 AND "

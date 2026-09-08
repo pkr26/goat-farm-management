@@ -169,8 +169,7 @@ async def _migration_scenario():
             orf = await conn.fetchval("SELECT count(*) FROM vaccine_templates WHERE name='ORF'")
             assert orf == 0
             rate = await conn.fetchval(
-                "SELECT daily_kg_per_head FROM bucket_definitions "
-                "WHERE code='QUARANTINE'"
+                "SELECT daily_kg_per_head FROM bucket_definitions WHERE code='QUARANTINE'"
             )
             assert float(rate) == pytest.approx(1.1)
         finally:

@@ -112,10 +112,7 @@ async def _golden_reports(farm_id: int) -> dict:
         )
         defs = list(
             (
-                await db.execute(
-                    select(BucketDefinition)
-                    .order_by(BucketDefinition.sort_order)
-                )
+                await db.execute(select(BucketDefinition).order_by(BucketDefinition.sort_order))
             ).scalars()
         )
         records = list(

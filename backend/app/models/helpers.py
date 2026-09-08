@@ -72,6 +72,7 @@ QUARANTINE_PROTOCOL = [
     (45, TaskCategory.BUCKET_MOVE, "Day 45: 10% zinc sulfate footbath → release to FOUNDATION"),
 ]
 
+
 class QuarantineTaskSpec(TypedDict):
     """One auto-generated quarantine task."""
 

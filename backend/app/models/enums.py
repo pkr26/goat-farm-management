@@ -7,6 +7,23 @@
 import enum
 
 
+def sql_in_values(vocabulary: type[enum.Enum] | tuple[str, ...]) -> str:
+    """Render the quoted IN-list of a vocabulary for a CHECK constraint.
+
+    Single-sourcing: the same enum members back the Python enum classes, the
+    model CHECK constraints and (historically) the migration DDL literals.
+    Deriving the SQL text here means a vocabulary change surfaces as one
+    reviewable enum edit instead of silently diverging between the ORM and
+    the database. The rendered bytes are pinned by
+    tests/test_domain_check_constraints.py, so a member added without its
+    migration fails loudly rather than drifting.
+    """
+    values = (
+        tuple(member.value for member in vocabulary) if isinstance(vocabulary, type) else vocabulary
+    )
+    return ", ".join(f"'{value}'" for value in values)
+
+
 class Bucket(str, enum.Enum):
     QUARANTINE = "QUARANTINE"
     FOUNDATION = "FOUNDATION"

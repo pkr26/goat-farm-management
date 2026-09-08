@@ -973,11 +973,7 @@ async def test_reference_seed_repairs_missing_release_rows_without_rewriting_exi
 
     async with get_sessionmaker()() as db:
         recipe_id = (
-            await db.execute(
-                select(FeedRecipe.id).where(
-                    FeedRecipe.code == missing_recipe
-                )
-            )
+            await db.execute(select(FeedRecipe.id).where(FeedRecipe.code == missing_recipe))
         ).scalar_one()
         await db.execute(delete(FeedRecipeLine).where(FeedRecipeLine.recipe_id == recipe_id))
         await db.execute(delete(FeedRecipe).where(FeedRecipe.id == recipe_id))
@@ -986,11 +982,7 @@ async def test_reference_seed_repairs_missing_release_rows_without_rewriting_exi
                 BucketDefinition.code == missing_bucket,
             )
         )
-        await db.execute(
-            delete(VaccineTemplate).where(
-                VaccineTemplate.name == missing_vaccine
-            )
-        )
+        await db.execute(delete(VaccineTemplate).where(VaccineTemplate.name == missing_vaccine))
         await db.execute(
             update(BucketDefinition)
             .where(BucketDefinition.code == preserved_bucket)
@@ -1006,15 +998,11 @@ async def test_reference_seed_repairs_missing_release_rows_without_rewriting_exi
             await db.execute(
                 select(BucketDefinition.id).where(
                     BucketDefinition.code == missing_bucket,
-                    )
+                )
             )
         ).scalar_one()
         recipe = (
-            await db.execute(
-                select(FeedRecipe).where(
-                    FeedRecipe.code == missing_recipe
-                )
-            )
+            await db.execute(select(FeedRecipe).where(FeedRecipe.code == missing_recipe))
         ).scalar_one()
         line_count = len(
             (
@@ -1031,16 +1019,14 @@ async def test_reference_seed_repairs_missing_release_rows_without_rewriting_exi
         assert line_count == expected_line_count
         assert (
             await db.execute(
-                select(VaccineTemplate.id).where(
-                    VaccineTemplate.name == missing_vaccine
-                )
+                select(VaccineTemplate.id).where(VaccineTemplate.name == missing_vaccine)
             )
         ).scalar_one()
         preserved_name = (
             await db.execute(
                 select(BucketDefinition.name).where(
                     BucketDefinition.code == preserved_bucket,
-                    )
+                )
             )
         ).scalar_one()
         assert preserved_name == "Operator-preserved label"
@@ -1532,6 +1518,7 @@ async def test_partially_seeded_role_set_is_completed() -> None:
         # Exactly one row per preset: the two pre-existing ones were not
         # duplicated and no preset was skipped by a rolled-back savepoint.
         assert len(rows) == len(PRESET_ROLE_CODES)
+
 
 async def test_tombstoned_preset_name_is_reused() -> None:
     """`uq_roles_farm_active_name` is partial on `deleted_at IS NULL`, so a

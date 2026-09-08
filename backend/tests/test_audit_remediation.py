@@ -47,6 +47,8 @@ async def _make_buck(client, headers, tag):
     )
     assert resp.status_code in (200, 201), resp.text
     return resp.json()
+
+
 # ---------------------------------------------------------------------------
 # Buck:doe mating policy (M-1 goat adversarial: 1 buck serviced 21 does)
 # ---------------------------------------------------------------------------

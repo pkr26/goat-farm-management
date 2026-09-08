@@ -10,6 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
 from ..utils import today
+from .enums import Bucket, FeedingShift, IngredientCategory, sql_in_values
 
 
 class FeedRecipe(Base):
@@ -38,7 +39,7 @@ class FeedRecipeLine(Base):
             name="ck_feed_recipe_lines_kg",
         ),
         CheckConstraint(
-            "category IN ('ROUGHAGE_WET', 'ROUGHAGE_DRY', 'CONCENTRATE')",
+            f"category IN ({sql_in_values(IngredientCategory)})",
             name="ck_feed_recipe_lines_category",
         ),
         CheckConstraint(
@@ -66,7 +67,7 @@ class FeedInventory(Base):
         # can never point at another farm's stock item.
         UniqueConstraint("farm_id", "id", name="uq_feed_inventory_farm_id_id"),
         CheckConstraint(
-            "category IN ('ROUGHAGE_WET', 'ROUGHAGE_DRY', 'CONCENTRATE')",
+            f"category IN ({sql_in_values(IngredientCategory)})",
             name="ck_feed_inventory_category",
         ),
         CheckConstraint("unit = 'kg'", name="ck_feed_inventory_unit"),
@@ -135,14 +136,11 @@ class FeedingRecord(Base):
     __tablename__ = "feeding_records"
     __table_args__ = (
         CheckConstraint(
-            "shift IN ('MORNING', 'AFTERNOON', 'NIGHT')",
+            f"shift IN ({sql_in_values(FeedingShift)})",
             name="ck_feeding_records_shift",
         ),
         CheckConstraint(
-            "bucket IN "
-            "('QUARANTINE', 'FOUNDATION', 'BREEDING', 'PREGNANCY_EARLY', "
-            "'PREGNANCY_LATE', 'DELIVERY', 'RECOVERY', 'RESTING', "
-            "'MALE_KIDS', 'FEMALE_KIDS')",
+            f"bucket IN ({sql_in_values(Bucket)})",
             name="ck_feeding_records_bucket",
         ),
         CheckConstraint(

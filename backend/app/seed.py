@@ -311,9 +311,7 @@ async def seed_reference_data(db: AsyncSession) -> None:
             continue  # already present, or a concurrent boot won this row and its lines
         db.add_all(
             [
-                FeedRecipeLine(
-                    recipe_id=recipe_id, ingredient=ing, kg_per_100kg=kg, category=cat
-                )
+                FeedRecipeLine(recipe_id=recipe_id, ingredient=ing, kg_per_100kg=kg, category=cat)
                 for ing, kg, cat in lines
             ]
         )
@@ -540,7 +538,7 @@ async def repair_legacy_farms_batch(db: AsyncSession, *, batch_size: int) -> int
     ).all()
     if not farm_rows:
         return 0
-    farm_ids = [farm_id for farm_id, in farm_rows]
+    farm_ids = [farm_id for (farm_id,) in farm_rows]
 
     role_rows = await db.execute(
         select(Role.farm_id, Role.code, Role.name, Role.deleted_at).where(

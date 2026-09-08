@@ -15,6 +15,7 @@ from app.db import get_sessionmaker
 from app.models import (
     Animal,
     BreedingRecord,
+    BucketMove,
     FarmMembership,
     HealthEvent,
     KiddingRecord,
@@ -24,6 +25,7 @@ from app.models import (
     Task,
     Transaction,
     User,
+    WeightRecord,
 )
 from app.utils import today
 
@@ -275,6 +277,30 @@ async def _build_two_farm_graphs(client: httpx.AsyncClient) -> list[Mutation]:
             amount=Decimal("20.00"),
             related_animal_id=doe_two.id,
         )
+        weight_one = WeightRecord(
+            farm_id=farm_one,
+            animal_id=kid_animal_one.id,
+            date=today(),
+            weight_kg=3.0,
+        )
+        weight_two = WeightRecord(
+            farm_id=farm_two,
+            animal_id=kid_animal_two.id,
+            date=today(),
+            weight_kg=3.0,
+        )
+        move_one = BucketMove(
+            farm_id=farm_one,
+            animal_id=kid_animal_one.id,
+            to_bucket="RECOVERY",
+            reason="Tenant-safe placement",
+        )
+        move_two = BucketMove(
+            farm_id=farm_two,
+            animal_id=kid_animal_two.id,
+            to_bucket="RECOVERY",
+            reason="Tenant-safe placement",
+        )
         db.add_all(
             [
                 kid_entry_one,
@@ -285,6 +311,10 @@ async def _build_two_farm_graphs(client: httpx.AsyncClient) -> list[Mutation]:
                 task_two,
                 original_one,
                 original_two,
+                weight_one,
+                weight_two,
+                move_one,
+                move_two,
             ]
         )
         await db.flush()
@@ -468,6 +498,38 @@ async def _build_two_farm_graphs(client: httpx.AsyncClient) -> list[Mutation]:
                 kid_animal_two.id,
                 "fk_kid_entries_farm_animal",
             ),
+            Mutation(
+                "weight_records",
+                weight_one.id,
+                "animal_id",
+                kid_animal_one.id,
+                kid_animal_two.id,
+                "fk_weight_records_farm_animal",
+            ),
+            Mutation(
+                "weight_records",
+                weight_one.id,
+                "farm_id",
+                farm_one,
+                farm_two,
+                "fk_weight_records_farm_animal",
+            ),
+            Mutation(
+                "bucket_moves",
+                move_one.id,
+                "animal_id",
+                kid_animal_one.id,
+                kid_animal_two.id,
+                "fk_bucket_moves_farm_animal",
+            ),
+            Mutation(
+                "bucket_moves",
+                move_one.id,
+                "farm_id",
+                farm_one,
+                farm_two,
+                "fk_bucket_moves_farm_animal",
+            ),
         ]
 
 
@@ -540,6 +602,72 @@ async def test_task_assignment_requires_a_membership_even_for_existing_user(
             )
         await db.rollback()
     assert "fk_tasks_farm_assigned_membership" in str(caught.value)
+
+
+async def test_history_table_inserts_reject_cross_tenant_animal(
+    client: httpx.AsyncClient,
+) -> None:
+    """A weight/bucket history row cannot be created across farms.
+
+    The UPDATE guards above protect existing rows; this pins the INSERT
+    path, which is how an out-of-band writer would most simply attach
+    another farm's animal to a recorded measurement or lifecycle move.
+    """
+    owner = await owner_with_farm(client, email="history-fk-owner@farm.in")
+    other = await create_farm(
+        client,
+        {"Authorization": owner["Authorization"]},
+        name="Other History Farm",
+    )
+    farm_one = int(owner["X-Farm-Id"])
+    farm_two = int(other["X-Farm-Id"])
+
+    animal_ids: dict[int, int] = {}
+    async with get_sessionmaker()() as db:
+        for farm_id in (farm_one, farm_two):
+            animal = Animal(
+                farm_id=farm_id,
+                tag_number=f"HISTORY-FK-{farm_id}",
+                breed="Osmanabadi",
+                sex="F",
+                source="PURCHASED",
+                current_bucket="BREEDING",
+            )
+            db.add(animal)
+            await db.flush()
+            animal_ids[farm_id] = animal.id
+        await db.commit()
+
+    same_farm_inserts = (
+        (
+            "INSERT INTO weight_records (farm_id, animal_id, date, weight_kg) "
+            "VALUES (:farm_id, :animal_id, :on_date, 3.0)",
+            "weight_records",
+        ),
+        (
+            "INSERT INTO bucket_moves (farm_id, animal_id, to_bucket, moved_at, "
+            "effective_date) VALUES (:farm_id, :animal_id, 'RECOVERY', now(), "
+            "CURRENT_DATE)",
+            "bucket_moves",
+        ),
+    )
+    for statement, _table in same_farm_inserts:
+        async with get_sessionmaker()() as db:
+            await db.execute(
+                text(statement),
+                {"farm_id": farm_one, "animal_id": animal_ids[farm_one], "on_date": today()},
+            )
+            await db.commit()
+
+    for statement, table in same_farm_inserts:
+        async with get_sessionmaker()() as db:
+            with pytest.raises(IntegrityError) as caught:
+                await db.execute(
+                    text(statement),
+                    {"farm_id": farm_one, "animal_id": animal_ids[farm_two], "on_date": today()},
+                )
+            await db.rollback()
+        assert f"fk_{table}_farm_animal" in str(caught.value)
 
 
 async def test_composite_lineage_guards_preserve_single_fk_set_null(

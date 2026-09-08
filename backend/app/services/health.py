@@ -232,9 +232,7 @@ async def validated_template(
     if event_type not in {HealthEventType.VACCINE.value, HealthEventType.DEWORMING.value}:
         raise ValueError("A schedule template is valid only for vaccine or deworming events")
     template = (
-        await db.execute(
-            select(VaccineTemplate).where(VaccineTemplate.name == template_name)
-        )
+        await db.execute(select(VaccineTemplate).where(VaccineTemplate.name == template_name))
     ).scalar_one_or_none()
     if template is None:
         raise ValueError("Unknown schedule template")
@@ -442,9 +440,7 @@ async def inferred_schedule_template(
     """Canonicalize a new unlabelled event only when its legacy text is unique."""
     if event_type == HealthEventType.DEWORMING.value:
         return (
-            await db.execute(
-                select(VaccineTemplate).where(VaccineTemplate.name == "Deworming")
-            )
+            await db.execute(select(VaccineTemplate).where(VaccineTemplate.name == "Deworming"))
         ).scalar_one_or_none()
     if event_type != HealthEventType.VACCINE.value:
         return None

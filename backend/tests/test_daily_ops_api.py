@@ -75,6 +75,8 @@ async def test_run_include_ledger_opt_in(client: httpx.AsyncClient) -> None:
     assert ledger.startswith("# Buckets & Tasks — daily operations ledger")
     assert "## Day 1 — 2026-09-03" in ledger
     assert "## Transition matrix" in ledger
+
+
 async def test_run_rejects_incoherent_herd(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client, email="incoherent@ops-sim.in")
     document = _run_document(
