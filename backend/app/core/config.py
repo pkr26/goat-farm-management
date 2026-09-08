@@ -245,6 +245,18 @@ class Settings(BaseSettings):
     auth_rate_limit_max_attempts: int = Field(default=10, ge=1)
     auth_rate_limit_window_seconds: int = Field(default=300, ge=1)
 
+    # Storage seam behind the sliding-window limiter (app/ratelimit.py). Only
+    # the process-local "memory" backend exists today; the knob exists so a
+    # multi-replica deployment fails startup loudly instead of silently
+    # multiplying every limit per process (see README's single-worker section).
+    rate_limit_backend: str = "memory"
+
+    # Prometheus /metrics endpoint and metric collection. The endpoint is
+    # unauthenticated by design: the compose edge routes only /api/ to the
+    # backend, so /metrics stays on the internal network (see README's
+    # observability section before exposing it anywhere else).
+    metrics_enabled: bool = True
+
     # Comma-separated IPs/CIDRs of trusted reverse proxies (e.g.
     # "127.0.0.1,10.0.0.0/8"). When non-empty, X-Forwarded-For from those
     # hosts restores the real client IP (rate limiting, logs). Default ""
@@ -351,6 +363,21 @@ class Settings(BaseSettings):
         if len(set(canonical)) != len(canonical):
             raise ValueError("GOATFARM_ALLOWED_HOSTS must not contain duplicate host patterns")
         return canonical
+
+    @field_validator("rate_limit_backend")
+    @classmethod
+    def _known_rate_limit_backend(cls, value: str) -> str:
+        """Only the process-local backend is implemented; anything else must
+        fail startup with the single-replica constraint spelled out, not boot
+        into silently multiplied limits."""
+        if value != "memory":
+            raise ValueError(
+                f"GOATFARM_RATE_LIMIT_BACKEND={value!r} is not implemented; only 'memory' "
+                "exists. The memory backend is per-process — running more than one "
+                "backend replica multiplies every auth limit per process. See the "
+                "single-worker / single-replica section of README.md before scaling."
+            )
+        return value
 
     @field_validator("refresh_cookie_name")
     @classmethod

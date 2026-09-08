@@ -2,7 +2,7 @@
 
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
@@ -164,7 +164,9 @@ class ErrorOut(BaseModel):
 # HTTPException(400|401|403|404|409|422|429) that the generated contract used
 # to leave undeclared (53/86 routes), so consumers could not know a route can
 # 409/404. APIRouter(responses=...) merges these into every route's docs.
-COMMON_ERROR_RESPONSES = {
+# Annotated to match APIRouter's expected shape (dict[int | str, dict[str, Any]])
+# so the ~14 routers passing this to APIRouter(responses=...) stay strict-clean.
+COMMON_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     400: {"model": ErrorOut, "description": "Rejected (invalid state or values)"},
     401: {"model": ErrorOut, "description": "Not authenticated"},
     403: {"model": ErrorOut, "description": "Authenticated but not permitted"},

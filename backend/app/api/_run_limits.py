@@ -24,6 +24,8 @@ from typing import cast
 from fastapi import HTTPException
 from starlette.concurrency import run_in_threadpool
 
+from .. import metrics
+
 
 def _finite_payload(value: object) -> bool:
     """False if any float anywhere in a ``model_dump``'d payload is NaN/±inf."""
@@ -291,6 +293,7 @@ def _check_run_budget(farm_id: int, user_id: int, cost: int) -> None:
     if _run_budget.would_exceed_any(
         (("user", user_id, cost), ("farm", farm_id, cost)),
     ):
+        metrics.record_simulation_admission_rejection("cpu_budget")
         raise HTTPException(
             status_code=429,
             detail="Simulation CPU budget exhausted; try again shortly.",
@@ -364,6 +367,7 @@ async def _with_run_limits[RunResult](
 
     try:
         if lock.locked() or user_lock.locked() or _global_run_slots.locked():
+            metrics.record_simulation_admission_rejection("capacity_busy")
             raise HTTPException(
                 status_code=429,
                 detail="Simulation capacity is busy; wait for the current run to finish.",

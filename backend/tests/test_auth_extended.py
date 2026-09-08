@@ -1762,11 +1762,11 @@ async def test_refresh_expiry_boundary_is_not_classified_as_invalid_replay(
             request.cancel()
 
     assert response.status_code == 401, response.text
-    assert (
+    assert not auth_limiter.has_attempts(
         auth_api.REFRESH_PREVERIFY_SCOPE,
         auth_api._refresh_token_key(cookie),
-    ) not in auth_limiter._hits
-    assert ("refresh-invalid", "127.0.0.1") not in auth_limiter._hits
+    )
+    assert not auth_limiter.has_attempts("refresh-invalid", "127.0.0.1")
 
     async with get_sessionmaker()() as db:
         session = (
@@ -1832,11 +1832,11 @@ async def test_compacted_refresh_expiry_while_waiting_does_not_revoke_family(
             request.cancel()
 
     assert response.status_code == 401, response.text
-    assert (
+    assert not auth_limiter.has_attempts(
         auth_api.REFRESH_PREVERIFY_SCOPE,
         auth_api._refresh_token_key(predecessor),
-    ) not in auth_limiter._hits
-    assert ("refresh-invalid", "127.0.0.1") not in auth_limiter._hits
+    )
+    assert not auth_limiter.has_attempts("refresh-invalid", "127.0.0.1")
     async with get_sessionmaker()() as db:
         family = list(
             (

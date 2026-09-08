@@ -1,8 +1,7 @@
 """Kidding: upcoming/overdue due list, history, record a kidding."""
 
-import re
 from datetime import timedelta
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func, select
@@ -22,7 +21,13 @@ from ..models import (
 from ..models.species import GOAT_PROFILE
 from ..schemas.breeding import BreedingRecordOut
 from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET
-from ..schemas.kidding import KiddingCreateIn, KiddingListOut, KiddingRecordOut, KidEntryOut
+from ..schemas.kidding import (
+    KiddingCreateIn,
+    KiddingEaseStr,
+    KiddingListOut,
+    KiddingRecordOut,
+    KidEntryOut,
+)
 from ..services import (
     IdempotencyKey,
     KidSpec,
@@ -32,7 +37,7 @@ from ..services import (
     require_farm_not_future,
 )
 from ..utils import today
-from ._shared import breeding_out
+from ._shared import breeding_out, unique_constraint_name
 
 router = APIRouter(prefix="/api/kidding", tags=["kidding"], responses=COMMON_ERROR_RESPONSES)
 
@@ -42,28 +47,18 @@ DUE_DEFAULT_LIMIT = 30
 DUE_MAX_LIMIT = 100
 
 
-def _unique_constraint_name(exc: IntegrityError) -> str | None:
-    """Name of the unique constraint an IntegrityError tripped, or None.
-    SQLAlchemy's asyncpg adaptation stringifies the driver error (no
-    ``diag.constraint_name`` like psycopg), so the name is recovered from
-    the message when the driver attribute is absent."""
-    orig = getattr(exc, "orig", None)
-    name = getattr(orig, "constraint_name", None)
-    if isinstance(name, str):
-        return name
-    match = re.search(r'violates unique constraint "([^"]+)"', str(orig))
-    return match.group(1) if match else None
-
-
 def _kidding_out(record: KiddingRecord) -> KiddingRecordOut:
     """Response model for a record whose kids/doe were eager-loaded (async
     sessions forbid implicit lazy loads)."""
+    # KiddingRecord.ease is Mapped[str], pinned to the KiddingEase vocabulary
+    # (= KiddingEaseStr's members) by ck_kidding_records_ease; the cast only
+    # narrows the proven-enum str to the wire Literal.
     return KiddingRecordOut(
         id=record.id,
         doe_id=record.doe_id,
         date=record.date,
         breeding_record_id=record.breeding_record_id,
-        ease=record.ease,
+        ease=cast(KiddingEaseStr, record.ease),
         notes=record.notes,
         kids=[KidEntryOut.model_validate(kid) for kid in record.kids],
         doe_tag=record.doe.tag_number,
@@ -368,7 +363,7 @@ async def create_kidding(
             # <doe>-K<n> tag raced _unique_tag's pre-insert snapshot). Answer
             # each with its own pre-check's status/message, never a bare 500.
             await db.rollback()
-            if _unique_constraint_name(exc) in {
+            if unique_constraint_name(exc) in {
                 "uq_animal_tag_per_farm",
                 "uq_kid_entries_farm_tag",
                 "uq_stillborn_tag_farm_namespace",

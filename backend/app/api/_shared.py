@@ -6,11 +6,14 @@ This module is the single source of truth; names are public-style because the
 routers share them.
 """
 
+import re
 from collections.abc import Set
 from dataclasses import dataclass
 from datetime import date, datetime
+from typing import cast
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -33,7 +36,12 @@ from ..models import (
 )
 from ..models.species import GOAT_PROFILE
 from ..schemas.animals import AnimalOut
-from ..schemas.breeding import BreedingRecordOut
+from ..schemas.breeding import (
+    BreedingMethodStr,
+    BreedingOutcomeStr,
+    BreedingRecordOut,
+    PregnancyLossCauseWithSystem,
+)
 from ..schemas.tasks import TaskOut
 from ..utils import DEFAULT_BUSINESS_TIMEZONE, business_date
 
@@ -260,6 +268,29 @@ def task_action_url(task: Task) -> str | None:
     return None
 
 
+def unique_constraint_name(exc: IntegrityError) -> str | None:
+    """Recover a PostgreSQL unique-constraint name through asyncpg's wrapper."""
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    # SQLAlchemy's asyncpg adapter wraps native asyncpg exceptions one level
+    # deeper than ordinary driver errors. Walk a small, explicitly bounded
+    # chain: trigger-raised UniqueViolationError carries ``constraint_name``
+    # only on that native cause and its message need not name the constraint.
+    for _ in range(5):
+        if current is None or id(current) in seen:
+            break
+        seen.add(id(current))
+        name = getattr(current, "constraint_name", None)
+        if isinstance(name, str):
+            return name
+        match = re.search(r'violates unique constraint "([^"]+)"', str(current))
+        if match:
+            return match.group(1)
+        nested = getattr(current, "orig", None) or current.__cause__ or current.__context__
+        current = nested if isinstance(nested, BaseException) else None
+    return None
+
+
 def assignee_label(user: User | None) -> str | None:
     """Non-identifying operational name for a task's assignee.
 
@@ -291,13 +322,22 @@ def task_out(task: Task) -> TaskOut:
 def breeding_out(br: BreedingRecord) -> BreedingRecordOut:
     """Response model for a record whose doe/buck/kidding_record were
     eager-loaded (async sessions forbid implicit lazy loads)."""
+    # The ORM columns are Mapped[str], but the database pins every value to
+    # the same vocabulary the Out Literals publish via CHECK constraints
+    # (ck_breeding_records_method/ck_breeding_records_outcome over
+    # models.enums.BreedingMethod/BreedingOutcome, and
+    # ck_breeding_loss_cause over models.constants.PREGNANCY_LOSS_CAUSES,
+    # which equals PregnancyLossCauseWithSystem's members including the
+    # server-owned ANIMAL_STATUS_CHANGE). Verified against the model enums;
+    # the cast narrows the proven-enum str to the wire Literal, it does not
+    # loosen anything.
     return BreedingRecordOut(
         id=br.id,
         doe_id=br.doe_id,
         buck_id=br.buck_id,
         semen_sire_name=br.semen_sire_name,
         breeding_date=br.breeding_date,
-        method=br.method,
+        method=cast(BreedingMethodStr, br.method),
         heat_cycle_number=br.heat_cycle_number,
         ultrasound_date=br.ultrasound_date,
         ultrasound_result_date=br.ultrasound_result_date,
@@ -305,9 +345,11 @@ def breeding_out(br: BreedingRecord) -> BreedingRecordOut:
         pregnant=br.pregnant,
         kid_count_detected=br.kid_count_detected,
         expected_kidding_date=br.expected_kidding_date,
-        outcome=br.outcome,
+        outcome=cast(BreedingOutcomeStr, br.outcome),
         loss_date=br.loss_date,
-        loss_cause=br.loss_cause,
+        loss_cause=(
+            cast(PregnancyLossCauseWithSystem, br.loss_cause) if br.loss_cause is not None else None
+        ),
         loss_notes=br.loss_notes,
         loss_recorded_by_id=br.loss_recorded_by_id,
         loss_recorded_at=br.loss_recorded_at,
@@ -327,6 +369,17 @@ async def visible_to(
     lock_assignee: bool = False,
 ) -> bool:
     """Return the object-level equivalent of ``services.tasks.task_scope``.
+
+    TWIN IMPLEMENTATION — this row-at-a-time evaluator and the SQL predicate
+    in ``app/services/tasks.py::task_scope`` encode ONE contract: role duties,
+    personal duties, and the fallback-visibility-while-assignee-unavailable
+    window (including the nested assignee-availability EXISTS mirrored here
+    as the assignee membership + user-tombstone lookups). The engines cannot
+    be merged without a behavioral rewrite (one builds sets in SQL, one
+    evaluates a single row under optional FOR UPDATE pins), so
+    ``tests/test_task_visibility_parity.py`` enumerates every DB-reachable
+    task/assignee/membership combination and fails on any disagreement.
+    Change the contract here → change the twin and the parity matrix too.
 
     A role stored beside a named worker is a continuity fallback, not a second
     live assignment. Same-role peers see it only after the assignee becomes

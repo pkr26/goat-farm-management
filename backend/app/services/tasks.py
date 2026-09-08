@@ -823,6 +823,17 @@ async def create_manual_task(
 async def task_scope(db: AsyncSession, farm: Farm, user: User) -> Select[tuple[Task]]:
     """Base select of tasks visible to this user on this farm.
 
+    TWIN IMPLEMENTATION — this SQL predicate and the row-at-a-time evaluator
+    ``app/api/_shared.py::visible_to`` encode ONE contract: role duties,
+    personal duties, and the fallback-visibility-while-assignee-unavailable
+    window (the ``assignee_is_available`` EXISTS below is mirrored there as
+    the assignee membership + user-tombstone lookups). The engines cannot be
+    merged without a behavioral rewrite (one builds sets in SQL, one
+    evaluates a single row under optional FOR UPDATE pins), so
+    ``tests/test_task_visibility_parity.py`` enumerates every DB-reachable
+    task/assignee/membership combination and fails on any disagreement.
+    Change the contract here → change the twin and the parity matrix too.
+
     Owner sees everything. A worker sees role-only duties for their role and
     duties assigned to them personally. A named assignment falls back to its
     recorded role only after that assignee is inactive or tombstoned;

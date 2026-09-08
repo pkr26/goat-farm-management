@@ -12,6 +12,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 
+from . import metrics
 from .core.config import get_settings
 from .db import get_db
 from .models import Farm, FarmMembership, RefreshSession, Role, User
@@ -91,6 +92,7 @@ def invalid_token_rate_error(request: Request, scope: str) -> HTTPException:
     settings = get_settings()
     ip_key = request.client.host if request.client else "unknown"
     logger.info("%s throttled (ip=%s)", scope, ip_key)
+    metrics.record_auth_rate_limit_rejection(scope)
     return HTTPException(
         status_code=429,
         detail="Too many invalid authentication attempts — please try again later.",

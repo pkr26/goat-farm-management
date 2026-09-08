@@ -24,6 +24,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
+from . import metrics, ratelimit
 from .api import (
     animals,
     auth,
@@ -176,6 +177,7 @@ async def _refresh_session_cleanup_loop(
                         batch_size=batch_size,
                     )
                     await db.commit()
+                metrics.record_refresh_session_purge_batch(removed)
                 removed_total += removed
                 if removed < batch_size:
                     break
@@ -549,8 +551,8 @@ _REQUIRED_IDEMPOTENCY_HEADER_ROUTES = (
 def _publish_required_idempotency_headers(app: FastAPI) -> None:
     default_openapi = app.openapi
 
-    def openapi_with_required_headers(**kwargs: object) -> dict:
-        schema = default_openapi(**kwargs)  # type: ignore[operator]
+    def openapi_with_required_headers() -> dict[str, Any]:
+        schema = default_openapi()
         for path, method in _REQUIRED_IDEMPOTENCY_HEADER_ROUTES:
             for parameter in schema["paths"][path][method]["parameters"]:
                 if parameter.get("name") == "Idempotency-Key" and parameter.get("in") == "header":
@@ -560,9 +562,19 @@ def _publish_required_idempotency_headers(app: FastAPI) -> None:
     app.openapi = openapi_with_required_headers  # type: ignore[method-assign]
 
 
+async def metrics_endpoint() -> Response:
+    """Prometheus text exposition for internal scrapers (never under /api)."""
+    return Response(content=metrics.render(), media_type=metrics.CONTENT_TYPE_LATEST)
+
+
 def create_app() -> FastAPI:
     _configure_logging()
     settings = get_settings()
+    # Fail fast (and loudly, with the single-replica explanation) if the
+    # configured limiter backend does not exist. Settings validation rejects
+    # unknown values first; this keeps the seam honest for direct Settings()
+    # construction.
+    ratelimit.build_limiter_backend()
     is_production = settings.environment == "production"
     # Interactive docs and the raw schema are dev conveniences; in production
     # they disclose the full API surface, so they are not served at all.
@@ -601,6 +613,12 @@ def create_app() -> FastAPI:
         # it is ignored, so it can't steer the auth rate limiter.
         app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=trusted)
 
+    def _route_template(request: Request) -> str:
+        """Route *template* for metrics/labels (bounded), not the raw path."""
+        route = request.scope.get("route")
+        path = getattr(route, "path", None)
+        return path if isinstance(path, str) and path else "unmatched"
+
     @app.middleware("http")
     async def request_id_middleware(
         request: Request, call_next: RequestResponseEndpoint
@@ -619,10 +637,22 @@ def create_app() -> FastAPI:
         try:
             response = await call_next(request)
             status_code = response.status_code
+            # Read-only hook: the idempotency service (out of rewrite scope
+            # here) marks every replayed response with this header, so
+            # counting it at the middleware covers every idempotent mutation
+            # without touching the service or its callers.
+            if response.headers.get("Idempotency-Replayed") == "true":
+                metrics.record_idempotency_replay()
             _apply_baseline_response_headers(request, response, request_id)
             return response
         finally:
             duration_ms = (time.perf_counter() - started) * 1000
+            metrics.observe_http_request(
+                request.method,
+                _route_template(request),
+                status_code,
+                duration_ms / 1000,
+            )
             logger.info(
                 "request method=%s path=%s status=%d duration_ms=%.2f",
                 request.method,
@@ -648,6 +678,16 @@ def create_app() -> FastAPI:
         },
         include_in_schema=True,
     )(readyz)
+    if settings.metrics_enabled:
+        # Deliberately NOT under /api: the compose edge routes /api/ to the
+        # backend and everything else to the frontend, so this endpoint is
+        # unreachable from the public internet in the shipped topology and
+        # can stay unauthenticated for internal scrapers. It is likewise kept
+        # out of the OpenAPI contract (include_in_schema=False) because it is
+        # an operational interface, not part of the client API. When
+        # GOATFARM_METRICS_ENABLED=false the route is not registered at all
+        # (404) and app.metrics collectors take no observations.
+        app.get("/metrics", include_in_schema=False)(metrics_endpoint)
     app.include_router(auth.router)
     app.include_router(animals.router)
     app.include_router(buckets.router)

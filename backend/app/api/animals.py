@@ -1,8 +1,7 @@
 """Animals module: list/filters, create, profile, bucket moves, weights, status."""
 
-import re
 from datetime import date
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func, literal, or_, select
@@ -75,7 +74,7 @@ from ..services import (
 from ..services.animals import skip_pending_tasks_for_empty_batch
 from ..services.breeding import mark_unassessed
 from ..utils import money, today
-from ._shared import AnimalComputedFacts, animal_computed_facts, animal_out
+from ._shared import AnimalComputedFacts, animal_computed_facts, animal_out, unique_constraint_name
 
 router = APIRouter(prefix="/api/animals", tags=["animals"], responses=COMMON_ERROR_RESPONSES)
 
@@ -83,29 +82,6 @@ NOT_FOUND = "Animal not found"
 PROFILE_HISTORY_DEFAULT_LIMIT = 25
 PROFILE_HISTORY_MAX_LIMIT = 100
 SALE_CAPABLE_STATUSES = frozenset({AnimalStatus.SOLD.value, AnimalStatus.CULLED.value})
-
-
-def _unique_constraint_name(exc: IntegrityError) -> str | None:
-    """Recover a PostgreSQL unique-constraint name through asyncpg's wrapper."""
-    current: BaseException | None = exc
-    seen: set[int] = set()
-    # SQLAlchemy's asyncpg adapter wraps native asyncpg exceptions one level
-    # deeper than ordinary driver errors. Walk a small, explicitly bounded
-    # chain: trigger-raised UniqueViolationError carries ``constraint_name``
-    # only on that native cause and its message need not name the constraint.
-    for _ in range(5):
-        if current is None or id(current) in seen:
-            break
-        seen.add(id(current))
-        name = getattr(current, "constraint_name", None)
-        if isinstance(name, str):
-            return name
-        match = re.search(r'violates unique constraint "([^"]+)"', str(current))
-        if match:
-            return match.group(1)
-        nested = getattr(current, "orig", None) or current.__cause__ or current.__context__
-        current = nested if isinstance(nested, BaseException) else None
-    return None
 
 
 async def _profile_computed_facts(
@@ -151,7 +127,8 @@ async def _animal_out(
     animal: Animal,
     reference_date: date,
     timezone_name: str,
-    permissions: set[str]) -> AnimalOut:
+    permissions: set[str],
+) -> AnimalOut:
     """Serialize current facts without loading the animal's lifetime history."""
     animal_id = animal.id  # read before expire: expired attrs can't be touched
     db.expire(animal)
@@ -168,9 +145,8 @@ async def _animal_out(
 
 
 async def _lock_pristine_batch_protocol_for_quarantine_reentry(
-    db: AsyncSession,
-    farm_id: int,
-    purchase_batch_id: int) -> None:
+    db: AsyncSession, farm_id: int, purchase_batch_id: int
+) -> None:
     """Allow a batch animal to re-enter quarantine only before work starts.
 
     The caller already holds the Animal row.  Locking Batch and then its Tasks
@@ -302,7 +278,7 @@ async def list_animals(
             farm.timezone,
             permissions=perms,
             computed=computed[animal.id],
-            )
+        )
         for animal in page_animals
     ]
     return AnimalListOut(animals=animals, total=total)
@@ -505,8 +481,7 @@ async def create_animal(
                         date_of_birth=payload.date_of_birth,
                         estimated_dob=payload.estimated_dob,
                         birth_type=payload.birth_type,
-                        breed=payload.breed.strip()
-                        or GOAT_PROFILE.default_breed,
+                        breed=payload.breed.strip() or GOAT_PROFILE.default_breed,
                         birth_weight=payload.birth_weight,
                         purchase_date=(payload.purchase_date or farm_date)
                         if managed_purchase
@@ -588,7 +563,7 @@ async def create_animal(
                 # path as the ordinary animals-table constraint. Otherwise a
                 # committed or concurrently inserted stillborn tag escaped the
                 # pre-check and surfaced as an unhandled 500.
-                if _unique_constraint_name(exc) not in {
+                if unique_constraint_name(exc) not in {
                     "uq_animal_tag_per_farm",
                     "uq_stillborn_tag_farm_namespace",
                 }:
@@ -724,7 +699,7 @@ async def animal_profile(
             farm.timezone,
             permissions=perms,
             computed=computed,
-            ),
+        ),
         kids=[AnimalOffspringOut.model_validate(kid) for kid in kids_result.scalars()],
         kids_total=kids_total,
         kids_offset=kids_offset,
@@ -746,8 +721,14 @@ async def animal_profile(
         moves=[
             BucketMoveOut(
                 id=move.id,
-                from_bucket=move.from_bucket,
-                to_bucket=move.to_bucket,
+                # from_bucket/to_bucket are Mapped[str] in the ORM; writers
+                # only ever store Bucket enum values (BucketStr's members) —
+                # move_animal validates the transition against that same
+                # vocabulary — so the cast narrows, not loosens.
+                from_bucket=(
+                    cast(BucketStr, move.from_bucket) if move.from_bucket is not None else None
+                ),
+                to_bucket=cast(BucketStr, move.to_bucket),
                 # Movement coordinates are ordinary herd operations. The
                 # arbitrary narrative can contain diagnoses, commercial
                 # provenance, or an owner's import rationale, so it follows
@@ -856,7 +837,7 @@ async def move_bucket(
             # The BREEDING-entry gate inside enforces the goat thresholds
             # (10 months / 22 kg), keeping juveniles out of the breeding
             # pool.
-            )
+        )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
     if (
@@ -890,7 +871,7 @@ async def move_bucket(
             db,
             farm.id,
             animal.purchase_batch_id,
-            )
+        )
     move_animal(
         db,
         animal,
@@ -902,9 +883,7 @@ async def move_bucket(
         facts=transition_facts,
     )
     await db.commit()
-    return await _animal_out(
-        db, animal, today(farm.timezone), farm.timezone, perms
-    )
+    return await _animal_out(db, animal, today(farm.timezone), farm.timezone, perms)
 
 
 @router.post("/{animal_id}/weight", status_code=201)
@@ -1253,6 +1232,4 @@ async def change_status(
             )
         )
     await db.commit()
-    return await _animal_out(
-        db, animal, today(farm.timezone), farm.timezone, perms
-    )
+    return await _animal_out(db, animal, today(farm.timezone), farm.timezone, perms)

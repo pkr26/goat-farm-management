@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 
+from .. import metrics
 from ..core.config import get_settings
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm, revoke_user_sessions
 from ..models import (
@@ -161,6 +162,7 @@ def _team_password_work_throttled(actor_id: int) -> bool:
 
 def _team_password_rate_error(actor_id: int) -> HTTPException:
     logger.info("team password work throttled (actor_id=%s)", actor_id)
+    metrics.record_auth_rate_limit_rejection(TEAM_PASSWORD_WORK_SCOPE)
     return HTTPException(
         status_code=429,
         detail=TEAM_PASSWORD_WORK_LIMIT_REASON,
@@ -181,6 +183,7 @@ async def _hash_team_password(password: str, *, actor_id: int) -> str:
     if _team_password_work_throttled(actor_id):
         raise _team_password_rate_error(actor_id)
     if not auth_limiter.try_reserve(TEAM_PASSWORD_RESERVATION_SCOPE, key):
+        metrics.record_auth_rate_limit_rejection(TEAM_PASSWORD_RESERVATION_SCOPE)
         raise PasswordWorkCapacityError("Owner already has password work in flight")
     work: asyncio.Task[str] | None = None
     try:
@@ -555,6 +558,48 @@ def _guard_peer_manager(membership: FarmMembership, user: User, farm: Farm) -> N
         raise HTTPException(
             status_code=403, detail="Only the farm owner can manage other team managers."
         )
+
+
+async def _locked_membership(
+    db: AsyncSession,
+    farm: Farm,
+    user: User,
+    membership_id: int,
+    *,
+    self_service_detail: str | None = None,
+    pin_user: bool = True,
+) -> FarmMembership:
+    """The one lock bundle every worker-lifecycle mutation runs under.
+
+    FOR NO KEY UPDATE membership lock → self-service guard → Membership→User
+    pin → conditional Membership→Role pin → peer-manager re-guard. change_role
+    and set_worker_status repeat this sequence verbatim; reset_password runs
+    the owner-only variant (no self guard — an owner is never a member — and
+    ``pin_user=False`` because it takes the stronger FOR UPDATE User row lock
+    itself and must keep its own distinct 400 on a vanished account).
+
+    Keeping the sequence in one place keeps the lock graph linear
+    (Membership → User → Role) and the re-guard semantics identical across
+    routes. The NO KEY UPDATE lock mutates only is_active/role_id, never the
+    (farm_id, user_id) key Task rows FK-reference, so it does not block the
+    KEY SHARE lock a concurrent task insert (auto-generation, duty spawning)
+    acquires on this membership row.
+    """
+    membership = await _get_membership(
+        db,
+        farm,
+        membership_id,
+        for_update=True,
+        no_key_update=True,
+    )
+    if self_service_detail is not None and membership.user_id == user.id:
+        raise HTTPException(status_code=400, detail=self_service_detail)
+    if pin_user:
+        await _pin_membership_user(db, membership)
+    if user.id != farm.owner_id:
+        await _pin_membership_role(db, farm, membership)
+    _guard_peer_manager(membership, user, farm)
+    return membership
 
 
 def _guard_manager_role(role: Role, user: User, farm: Farm) -> None:
@@ -939,26 +984,15 @@ async def change_role(
         _guard_manager_role(preflight_role, user, farm)
         _guard_role_scope(preflight_membership.role, perms, user, farm)
         _guard_role_scope(preflight_role, perms, user, farm)
-    # FOR NO KEY UPDATE, like the status endpoint: a role change only mutates
-    # role_id, never the (farm_id, user_id) key that Task rows FK-reference,
-    # so the weaker lock suffices and does not block the KEY SHARE lock a
-    # concurrent task insert (auto-generation, duty spawning) acquires on
-    # this worker's membership row.
-    membership = await _get_membership(
+    # Same self-service guard as the status endpoint: holding team.manage
+    # must not let a worker promote his own membership to a richer role.
+    membership = await _locked_membership(
         db,
         farm,
+        user,
         membership_id,
-        for_update=True,
-        no_key_update=True,
+        self_service_detail="You cannot change your own role.",
     )
-    # Same self-service guard as the toggle endpoint: holding team.manage
-    # must not let a worker promote his own membership to a richer role.
-    if membership.user_id == user.id:
-        raise HTTPException(status_code=400, detail="You cannot change your own role.")
-    await _pin_membership_user(db, membership)
-    if user.id != farm.owner_id:
-        await _pin_membership_role(db, farm, membership)
-    _guard_peer_manager(membership, user, farm)
     try:
         role = await _get_role(db, farm, payload.role_id, for_share=True)
     except HTTPException as exc:
@@ -1012,19 +1046,13 @@ async def set_worker_status(
             )
         _guard_peer_manager(preflight_membership, user, farm)
         _guard_role_scope(preflight_membership.role, perms, user, farm)
-    membership = await _get_membership(
+    membership = await _locked_membership(
         db,
         farm,
+        user,
         membership_id,
-        for_update=True,
-        no_key_update=True,
+        self_service_detail="You cannot deactivate your own membership.",
     )
-    if membership.user_id == user.id:
-        raise HTTPException(status_code=400, detail="You cannot deactivate your own membership.")
-    await _pin_membership_user(db, membership)
-    if user.id != farm.owner_id:
-        await _pin_membership_role(db, farm, membership)
-    _guard_peer_manager(membership, user, farm)
     _guard_role_scope(membership.role, perms, user, farm)
     membership.is_active = payload.is_active
     # This is a farm-local authorization change, not an account security
@@ -1054,19 +1082,11 @@ async def reset_password(
         actor_token_version=prepared.actor_token_version,
         farm_id=prepared.farm_id,
     )
-    # FOR NO KEY UPDATE, like the status endpoint: a password reset rewrites
-    # only the separately-locked User row, never the (farm_id, user_id) key
-    # that Task rows FK-reference, so the weaker lock suffices and does not
-    # block the KEY SHARE lock a concurrent task insert (auto-generation,
-    # duty spawning) acquires on this worker's membership row.
-    membership = await _get_membership(
-        db,
-        farm,
-        membership_id,
-        for_update=True,
-        no_key_update=True,
-    )
-    _guard_peer_manager(membership, user, farm)
+    # Owner-only variant of the lifecycle lock bundle: no self-service guard
+    # (an owner is never a member) and no shared User pin — this route takes
+    # the stronger FOR UPDATE User row lock itself below, because it rewrites
+    # that row, and must keep its own distinct 400 on a vanished account.
+    membership = await _locked_membership(db, farm, user, membership_id, pin_user=False)
     # Serialize with farm creation and new foreign-key affiliations before the
     # eligibility query; otherwise an account could gain a global affiliation
     # between the check and the password rewrite.

@@ -1,22 +1,102 @@
-"""Dependency-free in-memory sliding-window rate limiter.
+"""Sliding-window rate limiting behind a swappable storage backend.
 
 Per-process and non-persistent by design (single-process deployment): counts
-live in a dict keyed by (scope, client key) and are lost on restart, and
+live in a backend keyed by (scope, client key) and are lost on restart, and
 under `--workers N` / horizontal scaling each process gets its own bucket
-(effective limits multiply by the process count) — a documented constraint;
-a shared backend (e.g. Redis) is the fix if multi-process is ever needed.
+(effective limits multiply by the process count) — a documented constraint.
 The auth endpoints use it to throttle login/register/refresh brute force;
 the test suite disables it via GOATFARM_AUTH_RATE_LIMIT_ENABLED=false.
+
+Storage is isolated behind the ``LimiterBackend`` protocol so a shared
+backend (e.g. Redis) can replace the dicts without touching the policy or
+any call site. Only ``MemoryLimiterBackend`` exists today;
+``GOATFARM_RATE_LIMIT_BACKEND`` accepts only "memory" and fails startup
+otherwise (see app.core.config and the single-worker section of README.md).
+The policy layer (``SlidingWindowRateLimiter``) keeps its historical public
+signatures, so routers and tests are unchanged.
 """
 
 import time
 from collections import OrderedDict, deque
 from collections.abc import Callable
+from typing import Protocol
+
+from .core.config import get_settings
 
 
-class SlidingWindowRateLimiter:
-    """Attempts older than the window expire; at `max_attempts` inside the
-    window the key is blocked until the oldest attempt ages out."""
+class LimiterBackend(Protocol):
+    """Storage seam under the sliding-window policy.
+
+    Buckets are addressed by ``(scope, key)``. Implementations own expiry
+    bookkeeping, cardinality bounding and reservation accounting; the policy
+    layer above decides what a bucket's hits *mean*. All methods must be
+    safe to call from one event-loop thread (the API's deployment model).
+    """
+
+    def pruned_hit_count(self, scope: str, key: str, window_seconds: int) -> int:
+        """Attempts inside the window after expiry housekeeping.
+
+        A pure probe must not allocate a permanent bucket for an unseen key.
+        """
+        ...
+
+    def is_known(self, scope: str, key: str) -> bool:
+        """Whether the bucket currently holds at least one live hit."""
+        ...
+
+    def limit_for(self, scope: str, key: str) -> int | None:
+        """The last admission threshold this bucket was judged against."""
+        ...
+
+    def promote(self, scope: str, key: str, limit: int) -> None:
+        """Refresh a known bucket's threshold (a probe that found history)."""
+        ...
+
+    def mark_blocked(self, scope: str, key: str, window_seconds: int, limit: int) -> None:
+        """Record that a rejected attempt found the bucket already full.
+
+        The window/threshold are refreshed so denied traffic neither extends
+        the window nor loses the bucket's eviction protection; no hit is
+        appended (a denied attempt carries no new admission information).
+        """
+        ...
+
+    def append_hit(
+        self,
+        scope: str,
+        key: str,
+        window_seconds: int,
+        at: float,
+        limit: int | None,
+    ) -> None:
+        """Append one admitted attempt, evicting at the key ceiling."""
+        ...
+
+    def forget(self, scope: str, key: str) -> None:
+        """Drop a bucket entirely (e.g. after a successful login)."""
+        ...
+
+    def try_reserve(self, scope: str, key: str, *, max_in_flight: int) -> bool:
+        """Atomically reserve one bounded in-flight admission slot."""
+        ...
+
+    def release(self, scope: str, key: str) -> None:
+        """Release a prior reservation; missing releases are safe."""
+        ...
+
+    def clear(self) -> None:
+        """Test hook: drop all state."""
+        ...
+
+
+class MemoryLimiterBackend:
+    """The original dict/deque storage, unchanged, behind the protocol.
+
+    Per-process and non-persistent; counts are lost on restart and multiply
+    per replica. O(1) tiered LRU eviction keeps a unique-key spray from
+    erasing a hot victim's brute-force history or turning bookkeeping
+    saturation into a process-wide denial of service.
+    """
 
     def __init__(
         self,
@@ -52,45 +132,37 @@ class SlidingWindowRateLimiter:
         self._reservations: dict[tuple[str, str], int] = {}
         self._next_sweep = self._clock() + sweep_interval_seconds
 
-    def is_blocked(self, scope: str, key: str, max_attempts: int, window_seconds: int) -> bool:
-        bucket = (scope, key)
-        hits = self._prune(scope, key, window_seconds)
-        if bucket in self._hits:
-            self._limits[bucket] = max_attempts
-            self._reclassify(bucket, touch=True)
-        # A full bookkeeping map must never turn a unique-key spray into a
-        # process-wide denial of service. Pure probes allocate nothing, so an
-        # unseen (and possibly valid) identity remains admissible; record()
-        # makes room only if that request later needs to enter the failure
-        # ledger.
-        return len(hits) >= max_attempts
+    def pruned_hit_count(self, scope: str, key: str, window_seconds: int) -> int:
+        return len(self._prune(scope, key, window_seconds))
 
-    def record(
+    def is_known(self, scope: str, key: str) -> bool:
+        return (scope, key) in self._hits
+
+    def limit_for(self, scope: str, key: str) -> int | None:
+        return self._limits.get((scope, key))
+
+    def promote(self, scope: str, key: str, limit: int) -> None:
+        bucket = (scope, key)
+        if bucket not in self._hits:
+            return
+        self._limits[bucket] = limit
+        self._reclassify(bucket, touch=True)
+
+    def mark_blocked(self, scope: str, key: str, window_seconds: int, limit: int) -> None:
+        bucket = (scope, key)
+        self._windows[bucket] = window_seconds
+        self._limits[bucket] = limit
+        self._reclassify(bucket, touch=True)
+
+    def append_hit(
         self,
         scope: str,
         key: str,
         window_seconds: int,
-        *,
-        max_attempts: int | None = None,
+        at: float,
+        limit: int | None,
     ) -> None:
         bucket = (scope, key)
-        hits = self._prune(scope, key, window_seconds)
-        effective_limit = max_attempts if max_attempts is not None else self._limits.get(bucket)
-        if effective_limit is not None:
-            if effective_limit < 1:
-                raise ValueError("max_attempts must be positive")
-            # Once a bucket is blocked, later rejected attempts carry no new
-            # admission information. Keeping every one of them lets a single
-            # hot IP defeat the key-cardinality bound with an unbounded deque
-            # (invalid-token callers deliberately classify a fresh token before
-            # consulting their shared IP budget). Preserve the original
-            # threshold hits so denied traffic does not extend the window, just
-            # as routes that can pre-check a bucket stop recording at the limit.
-            if len(hits) >= effective_limit:
-                self._windows[bucket] = window_seconds
-                self._limits[bucket] = effective_limit
-                self._reclassify(bucket, touch=True)
-                return
         # Bound cardinality even during a distributed unique-key spray. Sweep
         # expired buckets first. If all are still live, evict the least
         # security-relevant bucket: below-threshold one-shot entries before a
@@ -104,25 +176,21 @@ class SlidingWindowRateLimiter:
             eviction_class = self._cold if self._cold else self._protected
             candidate = next(iter(eviction_class))
             self._drop(candidate)
-        hits.append(self._clock())
-        # _prune drops emptied deques from the map — re-store so this hit lands.
-        self._hits[bucket] = hits
+        hits = self._hits.get(bucket)
+        if hits is None:
+            # _prune drops emptied deques from the map — re-store so this hit lands.
+            hits = deque()
+            self._hits[bucket] = hits
+        hits.append(at)
         self._windows[bucket] = window_seconds
-        if effective_limit is not None:
-            self._limits[bucket] = effective_limit
+        if limit is not None:
+            self._limits[bucket] = limit
         self._reclassify(bucket, touch=True)
 
-    def reset(self, scope: str, key: str) -> None:
-        """Forget all recorded attempts (e.g. after a successful login)."""
+    def forget(self, scope: str, key: str) -> None:
         self._drop((scope, key))
 
-    def try_reserve(
-        self,
-        scope: str,
-        key: str,
-        *,
-        max_in_flight: int = 1,
-    ) -> bool:
+    def try_reserve(self, scope: str, key: str, *, max_in_flight: int) -> bool:
         """Atomically reserve one bounded in-flight admission slot.
 
         The API process runs these synchronous calls on one asyncio event-loop
@@ -130,8 +198,6 @@ class SlidingWindowRateLimiter:
         request.  A hard cardinality ceiling also keeps a unique-key spray
         from turning the reservation map itself into an availability issue.
         """
-        if max_in_flight < 1:
-            raise ValueError("max_in_flight must be positive")
         bucket = (scope, key)
         in_flight = self._reservations.get(bucket, 0)
         if in_flight >= max_in_flight:
@@ -142,7 +208,6 @@ class SlidingWindowRateLimiter:
         return True
 
     def release(self, scope: str, key: str) -> None:
-        """Release a prior admission reservation; missing releases are safe."""
         bucket = (scope, key)
         in_flight = self._reservations.get(bucket)
         if in_flight is None:
@@ -153,7 +218,6 @@ class SlidingWindowRateLimiter:
             self._reservations[bucket] = in_flight - 1
 
     def clear(self) -> None:
-        """Test hook: drop all state."""
         self._hits.clear()
         self._windows.clear()
         self._limits.clear()
@@ -233,6 +297,175 @@ class SlidingWindowRateLimiter:
         else:
             self._reclassify(bucket, touch=True)
         return hits
+
+
+def build_limiter_backend() -> LimiterBackend:
+    """Resolve ``GOATFARM_RATE_LIMIT_BACKEND`` into a backend instance.
+
+    Unknown values fail fast here with the single-replica explanation;
+    Settings validation normally rejects them first. ``create_app`` calls
+    this at startup so a misconfigured backend name cannot boot.
+    """
+    name = get_settings().rate_limit_backend
+    if name != "memory":
+        raise RuntimeError(
+            f"GOATFARM_RATE_LIMIT_BACKEND={name!r} is not implemented; only 'memory' "
+            "exists. The memory backend is per-process — running more than one "
+            "backend replica multiplies every auth limit per process. See the "
+            "single-worker / single-replica section of README.md before scaling."
+        )
+    return MemoryLimiterBackend()
+
+
+class SlidingWindowRateLimiter:
+    """Attempts older than the window expire; at `max_attempts` inside the
+    window the key is blocked until the oldest attempt ages out."""
+
+    def __init__(
+        self,
+        clock: Callable[[], float] = time.monotonic,
+        *,
+        max_keys: int = 50_000,
+        sweep_interval_seconds: int = 30,
+        backend: LimiterBackend | None = None,
+    ) -> None:
+        if max_keys < 1:
+            raise ValueError("max_keys must be positive")
+        if sweep_interval_seconds < 1:
+            raise ValueError("sweep_interval_seconds must be positive")
+        self._clock = clock
+        self._backend = (
+            backend
+            if backend is not None
+            else MemoryLimiterBackend(
+                clock, max_keys=max_keys, sweep_interval_seconds=sweep_interval_seconds
+            )
+        )
+
+    def is_blocked(self, scope: str, key: str, max_attempts: int, window_seconds: int) -> bool:
+        hits = self._backend.pruned_hit_count(scope, key, window_seconds)
+        if self._backend.is_known(scope, key):
+            self._backend.promote(scope, key, max_attempts)
+        # A full bookkeeping map must never turn a unique-key spray into a
+        # process-wide denial of service. Pure probes allocate nothing, so an
+        # unseen (and possibly valid) identity remains admissible; record()
+        # makes room only if that request later needs to enter the failure
+        # ledger.
+        return hits >= max_attempts
+
+    def record(
+        self,
+        scope: str,
+        key: str,
+        window_seconds: int,
+        *,
+        max_attempts: int | None = None,
+    ) -> None:
+        hits = self._backend.pruned_hit_count(scope, key, window_seconds)
+        effective_limit = (
+            max_attempts if max_attempts is not None else self._backend.limit_for(scope, key)
+        )
+        if effective_limit is not None:
+            if effective_limit < 1:
+                raise ValueError("max_attempts must be positive")
+            # Once a bucket is blocked, later rejected attempts carry no new
+            # admission information. Keeping every one of them lets a single
+            # hot IP defeat the key-cardinality bound with an unbounded deque
+            # (invalid-token callers deliberately classify a fresh token before
+            # consulting their shared IP budget). Preserve the original
+            # threshold hits so denied traffic does not extend the window, just
+            # as routes that can pre-check a bucket stop recording at the limit.
+            if hits >= effective_limit:
+                self._backend.mark_blocked(scope, key, window_seconds, effective_limit)
+                return
+        self._backend.append_hit(scope, key, window_seconds, self._clock(), effective_limit)
+
+    def reset(self, scope: str, key: str) -> None:
+        """Forget all recorded attempts (e.g. after a successful login)."""
+        self._backend.forget(scope, key)
+
+    def has_attempts(self, scope: str, key: str) -> bool:
+        """Whether the bucket currently holds any recorded attempts.
+
+        Diagnostic/test introspection (replaces direct ``_hits`` membership
+        checks now that storage lives behind the backend seam); raw bucket
+        presence, no time-window pruning.
+        """
+        return self._backend.is_known(scope, key)
+
+    def try_reserve(
+        self,
+        scope: str,
+        key: str,
+        *,
+        max_in_flight: int = 1,
+    ) -> bool:
+        """Atomically reserve one bounded in-flight admission slot."""
+        if max_in_flight < 1:
+            raise ValueError("max_in_flight must be positive")
+        return self._backend.try_reserve(scope, key, max_in_flight=max_in_flight)
+
+    def release(self, scope: str, key: str) -> None:
+        """Release a prior admission reservation; missing releases are safe."""
+        self._backend.release(scope, key)
+
+    def clear(self) -> None:
+        """Test hook: drop all state."""
+        self._backend.clear()
+
+    # ------------------------------------------------------------------
+    # Historical white-box test surface. test_security_hardening and friends
+    # assert against the memory implementation's LRU tiers, windows and
+    # reservations; the seam moved that storage behind the backend, so these
+    # read-only views keep those tests meaningful and unchanged. They exist
+    # only for the memory backend (a Redis backend would expose equivalent
+    # state through its own diagnostics, not these dicts).
+    # ------------------------------------------------------------------
+    def _memory(self) -> MemoryLimiterBackend:
+        backend = self._backend
+        if not isinstance(backend, MemoryLimiterBackend):
+            raise AttributeError("bucket introspection exists only on the memory backend")
+        return backend
+
+    @property
+    def _hits(self) -> dict[tuple[str, str], deque[float]]:
+        return self._memory()._hits
+
+    @property
+    def _windows(self) -> dict[tuple[str, str], int]:
+        return self._memory()._windows
+
+    @property
+    def _limits(self) -> dict[tuple[str, str], int]:
+        return self._memory()._limits
+
+    @property
+    def _cold(self) -> "OrderedDict[tuple[str, str], None]":
+        return self._memory()._cold
+
+    @property
+    def _protected(self) -> "OrderedDict[tuple[str, str], None]":
+        return self._memory()._protected
+
+    @property
+    def _reservations(self) -> dict[tuple[str, str], int]:
+        return self._memory()._reservations
+
+    @property
+    def _max_keys(self) -> int:
+        return self._memory()._max_keys
+
+    @_max_keys.setter
+    def _max_keys(self, value: int) -> None:
+        self._memory()._max_keys = value
+
+    @property
+    def _next_sweep(self) -> float:
+        return self._memory()._next_sweep
+
+    @_next_sweep.setter
+    def _next_sweep(self, value: float) -> None:
+        self._memory()._next_sweep = value
 
 
 auth_limiter = SlidingWindowRateLimiter()

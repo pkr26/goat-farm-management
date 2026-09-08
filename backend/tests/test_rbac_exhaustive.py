@@ -43,6 +43,11 @@ from .conftest import login, owner_with_farm
 UNGUARDED_BY_DESIGN: dict[tuple[str, str], str] = {
     ("GET", "/healthz"): "liveness probe — unauthenticated by design",
     ("GET", "/readyz"): "readiness probe — unauthenticated by design",
+    ("GET", "/metrics"): (
+        "Prometheus exposition for internal scrapers — unauthenticated by design; "
+        "the compose edge routes only /api/ to the backend, so it is never public "
+        "(see README observability section; GOATFARM_METRICS_ENABLED=false removes it)"
+    ),
     ("POST", "/api/auth/register"): "creates the account permissions are evaluated against",
     ("POST", "/api/auth/login"): "issues the token permissions are evaluated against",
     ("POST", "/api/auth/refresh"): "rotates the caller's own session, authorized by the token",

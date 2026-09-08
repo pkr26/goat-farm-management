@@ -17,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from .. import metrics
 from ..core.config import get_settings
 from ..deps import (
     INVALID_ACCESS_TOKEN_SCOPE,
@@ -238,6 +239,7 @@ def _login_blocked(request: Request, email: str) -> bool:
     if blocked:
         # Security audit trail: throttling must be observable.
         logger.info("login throttled (ip=%s)", _client_key(request))
+        metrics.record_auth_rate_limit_rejection("login")
     return blocked
 
 
@@ -273,6 +275,7 @@ def _rate_limited(scope: str, key: str) -> bool:
     )
     if blocked:
         logger.info("%s throttled (key=%s)", scope, key)
+        metrics.record_auth_rate_limit_rejection(scope)
     return blocked
 
 
@@ -303,6 +306,7 @@ def _account_password_blocked(scope: str, account_scope: str, rate_key: str, use
     )
     if blocked:
         logger.info("%s throttled (user_id=%s)", scope, user_id)
+        metrics.record_auth_rate_limit_rejection(scope)
     return blocked
 
 
@@ -392,6 +396,7 @@ def _reserve_password_work(scope: str, key: str) -> _PasswordWorkReservation:
     and the same generic retryable 429 response.
     """
     if not auth_limiter.try_reserve(scope, key):
+        metrics.record_auth_rate_limit_rejection(scope)
         raise PasswordWorkCapacityError("Password workflow already in flight")
     return _PasswordWorkReservation(scope, key)
 
@@ -479,6 +484,7 @@ def _check_refresh_preverification_budget(request: Request, token: str | None) -
         window,
     ):
         logger.info("refresh pre-verification throttled (repeatedly invalid cookie)")
+        metrics.record_auth_rate_limit_rejection(REFRESH_PREVERIFY_SCOPE)
         raise _too_many_attempts()
 
 
@@ -671,6 +677,7 @@ def _raise_invalid_refresh(request: Request, token: str | None = None) -> NoRetu
         auth_limiter.record("refresh-invalid", rate_key, window, max_attempts=ip_limit)
         if auth_limiter.is_blocked("refresh-invalid", rate_key, ip_limit, window):
             logger.info("refresh-invalid throttled (key=%s)", rate_key)
+            metrics.record_auth_rate_limit_rejection("refresh-invalid")
             raise _too_many_attempts()
     raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 

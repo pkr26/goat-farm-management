@@ -14,7 +14,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.api.animals import _unique_constraint_name
+from app.api._shared import unique_constraint_name as _unique_constraint_name
 from app.db import get_sessionmaker
 from app.models import Animal, KidEntry
 from app.utils import today
