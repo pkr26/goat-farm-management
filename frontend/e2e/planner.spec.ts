@@ -43,8 +43,12 @@ test.describe("planner", () => {
     await expect(page.getByRole("button", { name: "Plan", exact: true })).toBeEnabled();
 
     await page.getByRole("button", { name: "Plan", exact: true }).click();
-    // Feasibility verdict card (either branch) plus the dated action list and
-    // the requirement chains are the page's core output sections.
+    // Feasibility verdict card plus the dated action list and the requirement
+    // chains are the page's core output sections. The verdict branch itself is
+    // deliberately not pinned: the plan anchors to the current month, so the
+    // feasibility math legitimately shifts with the calendar — asserting one
+    // branch would turn the suite into a time bomb. A regression that breaks
+    // the verdict rendering itself still fails here.
     await expect(
       page.getByText(/^(The plan is feasible|The plan cannot fully close)( · stale — re-run after edits)?$/),
     ).toBeVisible({ timeout: 120_000 });
@@ -55,8 +59,10 @@ test.describe("planner", () => {
     await expect(
       page.getByText("Stage plan — the herd shape the targets require", { exact: true }),
     ).toBeVisible();
-    // No failed-run banner survived the run.
-    await expect(page.getByRole("alert")).toHaveCount(0);
+    // No error banner survived the run. Scoped to the page's inline error
+    // paragraphs (<p role="alert">) because Next.js's route announcer is also
+    // role="alert" on a <div> and would otherwise always match with count 1.
+    await expect(page.locator('p[role="alert"]')).toHaveCount(0);
   });
 
   test("a target in the plan's start month is rejected inline and blocks the run", async ({

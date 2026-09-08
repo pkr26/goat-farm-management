@@ -42,8 +42,16 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.13"
-          cache: pip
-          cache-dependency-path: backend/uv.lock
+
+      - name: Cache uv downloads
+        # uv keeps its own wheel cache; setup-python's pip cache never sees it
+        # (the only pip install is the uv wheel itself). Cache uv's directory
+        # keyed on the lockfile instead.
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/uv
+          key: uv-${{ runner.os }}-${{ hashFiles('backend/uv.lock') }}
+          restore-keys: uv-${{ runner.os }}-
 
       # conftest connects to postgres without an explicit user, i.e. as the
       # runner OS user — give that role superuser so it can create the test DB.
@@ -98,13 +106,26 @@ jobs:
         working-directory: backend
         env:
           GOATFARM_TEST_DB: goatfarm_test
-        # --cov-fail-under turns the run into a ratchet: a change that drops
-        # app-wide line coverage below the floor fails the build instead of
-        # silently eroding it. The floor is deliberately modest (the
-        # integration suite covers routers/services heavily; seed/lifecycle
-        # code drags the aggregate down) — raise it toward the measured
-        # value, never above it.
-        run: python -m pytest -q --cov=app --cov-report=term --cov-fail-under=75
+        # --cov turns the run into a ratchet: a change that drops app-wide
+        # line coverage below the floor fails the build instead of silently
+        # eroding it. The floor itself is single-sourced in pyproject.toml
+        # ([tool.coverage.report] fail_under) — pytest-cov reads it there, so
+        # a local instrumented run enforces the same gate. It is deliberately
+        # modest (the integration suite covers routers/services heavily;
+        # seed/lifecycle code drags the aggregate down) — raise it toward the
+        # measured value, never above it.
+        run: python -m pytest -q --cov=app --cov-report=term --cov-report=xml
+
+      - name: Upload backend coverage report
+        # Keep the measured number auditable from CI history — without a
+        # retained report the "measured X%" claims can never be re-derived
+        # after the console log scrolls away.
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: backend-coverage
+          path: backend/coverage.xml
+          retention-days: 30
 
       - name: Dependency vulnerability scan
         working-directory: backend
@@ -163,6 +184,16 @@ jobs:
         # coverage); still comfortably inside the job timeout below.
         run: pnpm test:coverage
 
+      - name: Upload frontend coverage report
+        # Same rationale as the backend report: retain the measured numbers
+        # so the thresholds' headroom is auditable from CI history.
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: frontend-coverage
+          path: frontend/coverage
+          retention-days: 30
+
       - name: Production build + typecheck
         working-directory: frontend
         run: pnpm build
@@ -206,8 +237,16 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.13"
-          cache: pip
-          cache-dependency-path: backend/uv.lock
+
+      - name: Cache uv downloads
+        # uv keeps its own wheel cache; setup-python's pip cache never sees it
+        # (the only pip install is the uv wheel itself). Cache uv's directory
+        # keyed on the lockfile instead.
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/uv
+          key: uv-${{ runner.os }}-${{ hashFiles('backend/uv.lock') }}
+          restore-keys: uv-${{ runner.os }}-
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:

@@ -69,12 +69,20 @@ testpaths = ["tests"]
 # silent no-op. --strict-config: any misspelled config key fails the run.
 addopts = ["--strict-markers", "--strict-config"]
 
+[tool.coverage.report]
+# Coverage ratchet floor for `pytest --cov=app` (ci.yml). Single-sourced here
+# so pytest-cov enforces the same floor for local instrumented runs as for CI
+# (the flag --cov-fail-under would override, not complement, this value).
+# Keep it at or below the measured app-wide coverage on main — raise it as
+# coverage improves, never above the measured value.
+fail_under = 75
+
 [tool.mutmut]
 source_paths = ["app"]
 # Scope deliberately narrowed to the math-critical financial core: the
 # projection engine, finance/NPV math, Monte Carlo, market pricing, the
-# assumption builder, and the simulation request/response schemas (~4,400 of
-# the simulation package's ~9,800 lines). The previous package-wide scope
+# assumption builder, and the simulation request/response schemas (~4,800 of
+# the simulation package's ~10,200 lines). The previous package-wide scope
 # (`app/simulation/*.py`) generated 10,345 mutants — far more than a campaign
 # could classify — so almost all were never tested. The rest of the package
 # (planners, explain, daily ops, snapshot) stays covered by the deterministic

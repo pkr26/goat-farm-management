@@ -59,17 +59,41 @@ test.describe("ops simulation", () => {
     await expect(page.getByText(/^Model .+ · seed 2026 · 7 days · 11 head at the start\.$/)).toBeVisible();
   });
 
-  test("a row without a tag is reported inline and never reaches the API", async ({
+  test("a row without a tag is reported inline, blocks the run, and never reaches the API", async ({
     page,
   }) => {
     test.setTimeout(90_000);
     await signIn(page);
     await opsSimReady(page);
 
-    // Clearing the first animal's tag makes the herd unrunnable client-side;
-    // the inline error surfaces before any request can be made.
-    await page.getByLabel(/^Tag for row 1/).fill("");
-    await expect(page.getByText("Every animal needs a tag.")).toBeVisible();
+    // If a request ever escaped the client-side guard it would be a bug;
+    // abort rather than let it reach the backend so the counter below stays
+    // a truthful "never sent", not "sent and failed".
+    const runRequests: string[] = [];
+    await page.route("**/api/ops-sim/run", (route) => {
+      runRequests.push(route.request().url());
+      return route.abort();
+    });
+
+    // Clearing the first animal's tag makes the herd unrunnable client-side.
+    // The label regex must include the "(D1)" suffix: a bare /^Tag for row 1/
+    // also matches rows 10 and 11 ("Tag for row 10 (D10)", "…row 11 (B1)")
+    // and fails Playwright's strict mode.
+    await page.getByLabel(/^Tag for row 1 \(D1\)/).fill("");
+    await expect(
+      page.locator("p").filter({ hasText: "Every animal needs a tag." }),
+    ).toBeVisible();
+
+    // Pressing Run must surface the same error as a toast and return before
+    // the mutation can fire (sonner toasts render as [data-sonner-toast]).
+    await page.getByRole("button", { name: /^Run \d+ days$/ }).click();
+    await expect(
+      page
+        .locator("[data-sonner-toast]")
+        .filter({ hasText: "Every animal needs a tag." }),
+    ).toBeVisible();
+    expect(runRequests).toEqual([]);
+
     // No result sections exist for the blocked run.
     await expect(page.getByText("Day timeline", { exact: true })).toHaveCount(0);
     await expect(page.getByText("Transition matrix", { exact: true })).toHaveCount(0);

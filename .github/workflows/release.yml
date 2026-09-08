@@ -1,9 +1,11 @@
 name: Release
 
-# Container CD: push a v* tag to build and publish both application images to
-# ghcr.io, gate them on the same Trivy policy as security.yml, and cut a
-# GitHub release carrying the SPDX SBOMs. Tags are cut only after the CI gate
-# on main is green, so this workflow runs no tests itself.
+# Container CD: push a v* tag to build both application images for
+# linux/amd64 + linux/arm64, gate each architecture on the same Trivy policy
+# as security.yml BEFORE anything is published, then push multi-arch manifests
+# to ghcr.io with provenance+SBOM attestations and cut a GitHub release
+# carrying the per-architecture SPDX SBOMs. Tags are cut only after the CI
+# gate on main is green, so this workflow runs no tests itself.
 on:
   push:
     tags: ["v*"]
@@ -18,24 +20,42 @@ permissions:
 
 jobs:
   images:
-    name: Build, push, SBOM, scan
+    name: Build, scan, SBOM, publish
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # The arm64 legs build under QEMU, and each architecture is built twice
+    # (once loaded locally for the gate, once for the pushed multi-arch
+    # manifest, with the second build hitting the first's layer cache). That
+    # can exceed the old 40-minute single-arch budget several times over, so
+    # keep a generous ceiling for a rarely-run workflow.
+    timeout-minutes: 90
     permissions:
       # GITHUB_TOKEN pushes the two images to ghcr.io. No other job in this
       # workflow may write packages.
       packages: write
       contents: read
+    outputs:
+      backend_image: ${{ steps.images.outputs.backend_image }}
+      frontend_image: ${{ steps.images.outputs.frontend_image }}
+      backend_digest: ${{ steps.push-backend.outputs.digest }}
+      frontend_digest: ${{ steps.push-frontend.outputs.digest }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up QEMU (arm64 emulation)
+        # The published images are multi-arch; the arm64 legs need emulation
+        # on the amd64 hosted runner.
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
 
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Resolve image names
+        id: images
         # GHCR requires lowercase repository names; repository_owner may
         # contain uppercase, so normalize once here and reuse via env.
         run: |
           owner="$(printf '%s' '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          echo "backend_image=ghcr.io/${owner}/goatfarm-backend" >> "$GITHUB_OUTPUT"
+          echo "frontend_image=ghcr.io/${owner}/goatfarm-frontend" >> "$GITHUB_OUTPUT"
           echo "BACKEND_IMAGE=ghcr.io/${owner}/goatfarm-backend" >> "$GITHUB_ENV"
           echo "FRONTEND_IMAGE=ghcr.io/${owner}/goatfarm-frontend" >> "$GITHUB_ENV"
           echo "TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
@@ -45,86 +65,186 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: echo "${GITHUB_TOKEN}" | docker login ghcr.io --username '${{ github.actor }}' --password-stdin
 
-      - name: Build and push backend image
-        # provenance/sbom via buildx attach the SLSA provenance and SPDX SBOM
-        # attestations to the pushed multi-manifest image in the registry.
+      # ── Gate phase ─────────────────────────────────────────────────────
+      # Build each image per architecture into the local daemon and run the
+      # Trivy gate on those bits. Nothing is pushed until every scan below
+      # has passed, so a vulnerable build can never leave a deployable tag
+      # in the registry. Per-arch builds are required because the same tag
+      # resolves to different base-image layers (and CVE sets) on amd64 and
+      # arm64. provenance is disabled for load builds: attestations cannot
+      # be represented in a docker-load tarball and are attached by the
+      # publish builds below instead.
+
+      - name: Gate-build backend (linux/amd64)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          load: true
+          platforms: linux/amd64
+          tags: ${{ env.BACKEND_IMAGE }}:${{ env.TAG }}-gate-amd64
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan backend (linux/amd64) for fixable high/critical vulnerabilities
+        # Same policy as security.yml: fail before publishing on any fixable
+        # high/critical vulnerability. Trivy resolves the locally loaded image
+        # by this tag.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.BACKEND_IMAGE }}:${{ env.TAG }}-gate-amd64
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Gate-build frontend (linux/amd64)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: frontend
+          file: frontend/Dockerfile
+          push: false
+          load: true
+          platforms: linux/amd64
+          tags: ${{ env.FRONTEND_IMAGE }}:${{ env.TAG }}-gate-amd64
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan frontend (linux/amd64) for fixable high/critical vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.FRONTEND_IMAGE }}:${{ env.TAG }}-gate-amd64
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Gate-build backend (linux/arm64, QEMU)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          load: true
+          platforms: linux/arm64
+          tags: ${{ env.BACKEND_IMAGE }}:${{ env.TAG }}-gate-arm64
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan backend (linux/arm64) for fixable high/critical vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.BACKEND_IMAGE }}:${{ env.TAG }}-gate-arm64
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Gate-build frontend (linux/arm64, QEMU)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: frontend
+          file: frontend/Dockerfile
+          push: false
+          load: true
+          platforms: linux/arm64
+          tags: ${{ env.FRONTEND_IMAGE }}:${{ env.TAG }}-gate-arm64
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan frontend (linux/arm64) for fixable high/critical vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.FRONTEND_IMAGE }}:${{ env.TAG }}-gate-arm64
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      # SPDX SBOMs from the exact per-architecture images that were just
+      # gated — one asset per architecture, because the base-image package
+      # sets differ between amd64 and arm64.
+      - name: Generate backend SPDX SBOM (linux/amd64)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          image: ${{ env.BACKEND_IMAGE }}:${{ env.TAG }}-gate-amd64
+          format: spdx-json
+          output-file: backend-sbom-linux-amd64.spdx.json
+          upload-artifact: false
+
+      - name: Generate backend SPDX SBOM (linux/arm64)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          image: ${{ env.BACKEND_IMAGE }}:${{ env.TAG }}-gate-arm64
+          format: spdx-json
+          output-file: backend-sbom-linux-arm64.spdx.json
+          upload-artifact: false
+
+      - name: Generate frontend SPDX SBOM (linux/amd64)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          image: ${{ env.FRONTEND_IMAGE }}:${{ env.TAG }}-gate-amd64
+          format: spdx-json
+          output-file: frontend-sbom-linux-amd64.spdx.json
+          upload-artifact: false
+
+      - name: Generate frontend SPDX SBOM (linux/arm64)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          image: ${{ env.FRONTEND_IMAGE }}:${{ env.TAG }}-gate-arm64
+          format: spdx-json
+          output-file: frontend-sbom-linux-arm64.spdx.json
+          upload-artifact: false
+
+      - name: Preserve SBOM artifacts
+        # Uploaded by the pinned upload-artifact step so the release job
+        # gets a deterministic download path.
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-sboms
+          path: |
+            backend-sbom-linux-amd64.spdx.json
+            backend-sbom-linux-arm64.spdx.json
+            frontend-sbom-linux-amd64.spdx.json
+            frontend-sbom-linux-arm64.spdx.json
+          retention-days: 30
+
+      # ── Publish phase ──────────────────────────────────────────────────
+      # Only reached after every per-arch scan passed. provenance/sbom via
+      # buildx attach the SLSA provenance and SPDX SBOM attestations to the
+      # pushed multi-manifest image in the registry; cache-from reuses the
+      # gate builds' layers so this mostly just uploads.
+
+      - name: Publish backend image (linux/amd64 + linux/arm64)
+        id: push-backend
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: Dockerfile
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: ${{ env.BACKEND_IMAGE }}:${{ env.TAG }}
           provenance: mode=max
           sbom: true
+          cache-from: type=gha
 
-      - name: Build and push frontend image
+      - name: Publish frontend image (linux/amd64 + linux/arm64)
+        id: push-frontend
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: frontend
           file: frontend/Dockerfile
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: ${{ env.FRONTEND_IMAGE }}:${{ env.TAG }}
           provenance: mode=max
           sbom: true
-
-      - name: Pull pushed images back
-        # Scans and SBOMs below run against the exact manifests that were
-        # published, not a second local build whose digest could differ.
-        run: |
-          docker pull "${BACKEND_IMAGE}:${TAG}"
-          docker pull "${FRONTEND_IMAGE}:${TAG}"
-
-      - name: Generate backend SPDX SBOM
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
-        with:
-          image: ${{ env.BACKEND_IMAGE }}:${{ env.TAG }}
-          format: spdx-json
-          output-file: backend-sbom.spdx.json
-          # Uploaded by the pinned upload-artifact steps below so the release
-          # job gets deterministic download paths.
-          upload-artifact: false
-
-      - name: Generate frontend SPDX SBOM
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
-        with:
-          image: ${{ env.FRONTEND_IMAGE }}:${{ env.TAG }}
-          format: spdx-json
-          output-file: frontend-sbom.spdx.json
-          upload-artifact: false
-
-      - name: Preserve backend SBOM artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: goatfarm-backend-sbom
-          path: backend-sbom.spdx.json
-          retention-days: 30
-
-      - name: Preserve frontend SBOM artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: goatfarm-frontend-sbom
-          path: frontend-sbom.spdx.json
-          retention-days: 30
-
-      # Same policy as security.yml: fail the release on any fixable
-      # high/critical vulnerability in either image.
-      - name: Scan backend image for fixable high/critical vulnerabilities
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: ${{ env.BACKEND_IMAGE }}:${{ env.TAG }}
-          format: table
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "1"
-
-      - name: Scan frontend image for fixable high/critical vulnerabilities
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: ${{ env.FRONTEND_IMAGE }}:${{ env.TAG }}
-          format: table
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "1"
+          cache-from: type=gha
 
   release:
     name: GitHub release with SBOMs
@@ -135,24 +255,49 @@ jobs:
       # Only this job — and only after the Trivy gate passed — may write to
       # the repository: it creates the release on the pushed tag.
       contents: write
+    env:
+      # No checkout in this job: gh cannot infer the repository without a
+      # git remote, and it does not read GITHUB_REPOSITORY. Point it at the
+      # target repo explicitly.
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      BACKEND_IMAGE: ${{ needs.images.outputs.backend_image }}
+      FRONTEND_IMAGE: ${{ needs.images.outputs.frontend_image }}
+      BACKEND_DIGEST: ${{ needs.images.outputs.backend_digest }}
+      FRONTEND_DIGEST: ${{ needs.images.outputs.frontend_digest }}
     steps:
-      - name: Download backend SBOM
+      - name: Download SBOM assets
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: goatfarm-backend-sbom
+          name: release-sboms
           path: release-assets
 
-      - name: Download frontend SBOM
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: goatfarm-frontend-sbom
-          path: release-assets
-
-      - name: Create release with SBOM assets
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create or update release with SBOM assets
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
-            --title "${GITHUB_REF_NAME}" \
-            --generate-notes \
-            release-assets/backend-sbom.spdx.json release-assets/frontend-sbom.spdx.json
+          tag="${GITHUB_REF_NAME}"
+          # v1.2.3-rc1 / -beta tags publish as pre-releases, not latest.
+          args=(--title "$tag" --generate-notes)
+          case "$tag" in
+            *-*) args+=(--prerelease) ;;
+          esac
+          assets=(release-assets/*.spdx.json)
+          if gh release view "$tag" >/dev/null 2>&1; then
+            # Re-run after a partial failure: never duplicate the release,
+            # just refresh its assets and digest notes.
+            gh release upload "$tag" "${assets[@]}" --clobber
+          else
+            gh release create "$tag" "${args[@]}" "${assets[@]}"
+          fi
+          # Pin the published digests in the notes so deployments can verify
+          # what the tag resolved to at release time. Idempotent on re-run.
+          gh release view "$tag" --json body --jq .body > release-body.md
+          if ! grep -q "Published image digests" release-body.md; then
+            {
+              echo
+              echo "### Published image digests"
+              echo
+              echo "- \`${BACKEND_IMAGE}:${tag}\` (linux/amd64, linux/arm64) → \`${BACKEND_DIGEST}\`"
+              echo "- \`${FRONTEND_IMAGE}:${tag}\` (linux/amd64, linux/arm64) → \`${FRONTEND_DIGEST}\`"
+            } >> release-body.md
+            gh release edit "$tag" --notes-file release-body.md
+          fi

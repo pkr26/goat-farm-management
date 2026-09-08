@@ -48,8 +48,16 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.13"
-          cache: pip
-          cache-dependency-path: backend/uv.lock
+
+      - name: Cache uv downloads
+        # uv keeps its own wheel cache; setup-python's pip cache never sees it
+        # (the only pip install is the uv wheel itself). Cache uv's directory
+        # keyed on the lockfile so weekly campaigns reuse the same downloads.
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/uv
+          key: uv-${{ runner.os }}-${{ hashFiles('backend/uv.lock') }}
+          restore-keys: uv-${{ runner.os }}-
 
       - name: Create runner Postgres role
         run: psql -h localhost -U postgres -d postgres -c "CREATE ROLE runner LOGIN SUPERUSER"
@@ -68,14 +76,20 @@ jobs:
           GOATFARM_TEST_DB: goatfarm_test
         # `timeout` (not timeout-minutes) ends the campaign cleanly inside the
         # job window: exit 124 means the scheduled window ran out mid-campaign
-        # and the already-classified mutants are still preserved below. Any
-        # other exit code (baseline failure, surviving mutants) is recorded
-        # and triaged from the artifacts — this job is informational and never
-        # gates a PR or a release.
+        # and the already-classified mutants are still preserved below. The
+        # campaign is informational and never gates a PR or release, but it
+        # must not be invisible either: a non-zero, non-124 exit means mutmut
+        # itself failed (baseline test failure, config error, crash) and is
+        # surfaced as a warning annotation on the run — the previous
+        # package-wide campaign silently classified 1 of 10,345 mutants and
+        # nobody noticed because the job stayed green.
         run: |
           status=0
           timeout --signal=TERM --kill-after=60 20000 ./.venv/bin/mutmut run --max-children 4 || status=$?
           echo "mutmut exit code: ${status} (124 = campaign window exhausted)"
+          if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then
+            echo "::warning::mutmut exited ${status} — the campaign did not complete (baseline failure or config error). Inspect the job log and the results artifact."
+          fi
 
       - name: Record mutmut results
         # Runs even when the campaign step failed or was timed out.
@@ -83,6 +97,15 @@ jobs:
         working-directory: backend
         run: |
           ./.venv/bin/mutmut results | tee mutmut-results.txt || true
+          # Survivors are the campaign's actual output; make their count
+          # visible as a run annotation instead of burying it in the artifact.
+          # grep -c prints nothing when the file is missing; default to 0 so
+          # the -gt test never sees an empty string.
+          survivors="$(grep -c ': survived' mutmut-results.txt || true)"
+          survivors="${survivors:-0}"
+          if [ "${survivors}" -gt 0 ]; then
+            echo "::warning::${survivors} surviving mutants — triage them in the uploaded results artifact."
+          fi
           {
             echo "### Mutation campaign"
             echo '```'
@@ -95,8 +118,13 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: mutmut-results
+          # The .meta files carry the per-mutant verdicts (exit codes) that
+          # `mutmut results` reads — without them a partial campaign's
+          # classifications cannot be reconstructed or resumed after the
+          # runner is recycled.
           path: |
             backend/mutmut-results.txt
             backend/mutants/mutmut-stats.json
+            backend/mutants/**/*.meta
           if-no-files-found: warn
           retention-days: 90

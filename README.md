@@ -288,8 +288,8 @@ test-only changes are invalidated by the configured test-file dependency hash.
 **Mutation-score scope (read before quoting a number).** The mutmut campaign
 mutates **only the math-critical financial core** — `app/simulation/engine.py`,
 `finance.py`, `montecarlo.py`, `market.py`, `assumptions.py`, and
-`app/schemas/simulation.py` (~4,400 of the simulation package's ~9,800 lines;
-6 of the backend tree's ~240 Python files) — and runs only the deterministic
+`app/schemas/simulation.py` (~4,800 of the simulation package's ~10,200 lines;
+6 of the backend `app` tree's 99 Python files) — and runs only the deterministic
 simulation suites against each mutant (`only_mutate` and
 `pytest_add_cli_args_test_selection` in `backend/pyproject.toml`). The earlier
 package-wide scope (`app/simulation/*.py`) generated 10,345 mutants, of which
@@ -316,22 +316,28 @@ The API contract flows one way: backend routes/schemas →
 export **and** `pnpm orval`.
 
 CI (`.github/workflows/ci.yml`) runs the full gate on every push/PR: backend
-pytest against a Postgres service with a coverage floor (`--cov=app
---cov-fail-under=75` — a coverage regression fails the build), `ruff format
---check`, `ruff check`, `mypy --strict`, `pip-audit`; frontend `pnpm install
---frozen-lockfile`, `pnpm test:coverage` (the 85/80/85/85
-statements/branches/functions/lines thresholds in `vitest.config.ts` fail the
-job), `pnpm build`, `pnpm audit`; Playwright against the real frontend,
-API, and PostgreSQL; and builds both application containers. A separate
-pinned-action security workflow runs CodeQL, full-history secret scanning,
-produces SPDX SBOMs for the backend, frontend, and deployed Compose
-infrastructure images, and fails on error/high CodeQL or fixable high/critical
-image vulnerabilities. A weekly scheduled mutation campaign
-(`.github/workflows/mutation.yml`) covers the financial core (see above), and
-pushing a `v*` tag triggers `.github/workflows/release.yml`, which publishes
-both images to ghcr.io with SLSA provenance and SPDX SBOM attestations,
-re-gates them on the same Trivy policy, and cuts a GitHub release with the
-SBOMs attached.
+pytest against a Postgres service with a coverage floor (`--cov=app`, the
+`fail_under` floor in `backend/pyproject.toml` `[tool.coverage.report]` — a
+coverage regression fails the build; both coverage reports are uploaded as
+CI artifacts so the measured numbers stay auditable), `ruff format --check`,
+`ruff check`, `mypy --strict`, an OpenAPI-snapshot freshness check, an Alembic
+upgrade/downgrade round-trip, and `pip-audit`; frontend `pnpm install
+--frozen-lockfile`, ESLint, TypeScript, an Orval freshness check, `pnpm
+test:coverage` (the 85/80/85/85 statements/branches/functions/lines thresholds
+in `vitest.config.ts` fail the job), `pnpm build`, `pnpm audit`; Playwright
+against the real frontend, API, and PostgreSQL; and builds both application
+containers. A separate pinned-action security workflow runs CodeQL,
+full-history secret scanning, produces SPDX SBOMs for the backend, frontend,
+and deployed Compose infrastructure images, and fails on error/high CodeQL or
+fixable high/critical image vulnerabilities. A weekly scheduled mutation
+campaign (`.github/workflows/mutation.yml`) covers the financial core (see
+above), and pushing a `v*` tag triggers `.github/workflows/release.yml`, which
+builds both images for `linux/amd64` and `linux/arm64`, runs the
+per-architecture Trivy fixable-HIGH/CRITICAL gate **before anything is
+published**, pushes
+the multi-arch manifests to ghcr.io with SLSA provenance and SPDX SBOM
+attestations, and cuts a GitHub release with the per-architecture SPDX SBOMs
+and the published image digests attached.
 Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
 
 ## Production
@@ -462,14 +468,39 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
   name alongside any public API hostname (for example,
   `["api.example.com","backend"]`). Omitting it makes the API health check pass
   while every request Next forwards is rejected with `400 Invalid host header`.
+- **Container hardening defaults.** Every service in `docker-compose.yml`
+  runs with `security_opt: ["no-new-privileges:true"]` and
+  `cap_drop: ["ALL"]`, and carries explicit `mem_limit`/`cpus` values
+  (db 1g/2.0, migrate 1g/1.0, backend 2g/2.0, frontend 1g/1.0, edge
+  256m/0.5 — plain `docker compose up` enforces these compose-spec limits,
+  no swarm needed). Two services then re-add only the capabilities their
+  images genuinely require: `db` gets
+  `CHOWN/DAC_OVERRIDE/FSETID/SETGID/SETUID` (initdb on the fresh volume plus
+  the root→postgres drop), and `edge` gets `CHOWN/SETGID/SETUID` — the
+  official nginx image's root master chowns its temp dirs at startup and
+  every worker setgid/setuid(101)s, both fatally without those capabilities.
+  Dropping all of them crash-loops the edge, the sole public listener. The
+  edge additionally runs with a read-only root filesystem (its writable
+  surface is two size-capped tmpfs mounts: `/var/cache/nginx` for body/proxy
+  buffers, `/var/run` for the pid file), healthchecks a loopback-only
+  `/edge-healthz` location served by nginx itself (so its status never
+  depends on an upstream being up), and every service rotates its json-file
+  logs at 10 MB × 3 files. Preserve these settings when overriding
+  `docker-compose.yml` for a deployment — especially the edge capability set
+  and `read_only`, which are load-bearing, not decorative.
 - **Registry-based single-host deploys.** Pushing a `v*` tag runs
-  `.github/workflows/release.yml`: it builds and pushes
+  `.github/workflows/release.yml`: it builds
   `ghcr.io/<owner>/goatfarm-backend:vX.Y.Z` and
-  `ghcr.io/<owner>/goatfarm-frontend:vX.Y.Z` with SLSA provenance and SPDX
-  SBOM attestations attached via buildx, scans both images with the same
-  fixable-HIGH/CRITICAL Trivy gate as the security workflow, and then creates
-  a GitHub release carrying the two SPDX SBOM files. On the deployment host,
-  point Compose at the published tags instead of local builds (`docker login
+  `ghcr.io/<owner>/goatfarm-frontend:vX.Y.Z` for `linux/amd64` and
+  `linux/arm64` (so ARM hosts — including Apple-Silicon machines — pull a
+  native manifest), gates each architecture on the same
+  fixable-HIGH/CRITICAL Trivy policy as the security workflow **before
+  publishing anything**, pushes the multi-arch manifests with SLSA provenance
+  and SPDX SBOM attestations attached via buildx, and creates a GitHub
+  release carrying the four per-architecture SPDX SBOM files and the
+  published image digests (tags containing a pre-release suffix such as
+  `-rc1` publish as GitHub pre-releases). On the deployment host, point
+  Compose at the published tags instead of local builds (`docker login
   ghcr.io` first — packages are private by default):
 
   ```yaml
@@ -821,7 +852,9 @@ frontend/
     lib/                  api-client (token store, refresh retry, ApiError),
                           auth-context, use-permissions, format
     components/ui/        Committed shadcn/ui primitives (base-ui)
-  e2e/                    Playwright specs (auth, animals, breeding flow, task guards)
+  e2e/                    Playwright specs — 18 total, incl. auth, animals,
+                          breeding flow, task guards, planner, ops-simulation,
+                          navigation RBAC, and API-contract/proxy suites
   src/**/*.test.*         Vitest + MSW unit/component tests
 ```
 
