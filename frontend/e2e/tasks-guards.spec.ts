@@ -38,7 +38,7 @@ test.describe("tasks guards", () => {
     await page.goto("/tasks");
     await page.getByRole("tab", { name: /Overdue/ }).click();
     const ultrasoundRow = page.getByRole("row", {
-      name: new RegExp(`Ultrasound check: ${doeTag}`),
+      name: new RegExp(`Pregnancy check: ${doeTag}`),
     });
     await expect(ultrasoundRow).toBeVisible({ timeout: 15_000 });
     await expect(ultrasoundRow.getByRole("link", { name: "Open form" })).toBeVisible();
@@ -59,7 +59,7 @@ test.describe("tasks guards", () => {
     await page.getByRole("button", { name: "New duty" }).click();
     const dialog = page.getByRole("dialog", { name: "New duty" });
     await dialog.getByLabel("Title").fill(dutyTitle);
-    await pickSelectOption(dialog, "Category", "CLEANING");
+    await pickSelectOption(dialog, "Category", "Cleaning");
     await dialog.getByRole("button", { name: "Create duty" }).click();
     await expect(page.getByText("Duty created.")).toBeVisible();
     await expect(dialog).toBeHidden();

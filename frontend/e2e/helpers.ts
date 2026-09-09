@@ -79,6 +79,35 @@ export async function signIn(page: Page): Promise<void> {
 }
 
 /**
+ * Human labels for the enum codes the UI renders (worker-first UX): raw
+ * codes never appear on screen anymore, so specs that still speak in codes
+ * are translated here. Mirrors `src/lib/enum-labels.ts` — the product map is
+ * the single source of truth; keep this in sync when a label changes.
+ */
+const UI_LABELS: Record<string, string> = {
+  QUARANTINE: "Quarantine",
+  FOUNDATION: "Foundation",
+  BREEDING: "Breeding",
+  PREGNANCY_EARLY: "Pregnancy A",
+  PREGNANCY_LATE: "Pregnancy B",
+  DELIVERY: "Delivery",
+  RECOVERY: "Recovery",
+  RESTING: "Resting",
+  MALE_KIDS: "Male kids",
+  FEMALE_KIDS: "Female kids",
+  CLEANING: "Cleaning",
+  FEED: "Feeding",
+  MORNING: "Morning",
+  AFTERNOON: "Afternoon",
+  NIGHT: "Night",
+};
+
+/** Translate an enum code to the label the UI shows (identity if unknown). */
+export function uiLabel(code: string): string {
+  return UI_LABELS[code] ?? code;
+}
+
+/**
  * The shadcn/base-ui Select has no accessible name wiring to its Label, so we
  * scope the trigger to the field wrapper div that contains the label text.
  */
@@ -187,7 +216,7 @@ export async function createAnimal(page: Page, animal: NewAnimal): Promise<void>
     "Historical born-on-farm import",
   );
   if (animal.bucket) {
-    await pickSelectOption(dialog, "Bucket *", animal.bucket);
+    await pickSelectOption(dialog, "Bucket *", uiLabel(animal.bucket));
   }
   if (animal.dateOfBirth) {
     await dialog.getByLabel("Date of birth").fill(animal.dateOfBirth);
@@ -254,7 +283,7 @@ export async function createBreeding(
   }
 
   await page.goto("/breeding");
-  await page.getByRole("button", { name: "Add breeding" }).click();
+  await page.getByRole("button", { name: "Add breeding" }).first().click();
   let dialog = page.getByRole("dialog", { name: "Add breeding" });
   const noEligibleBuck = dialog.getByText(/No eligible bucks are available/);
   let buckPicker = dialog.getByRole("combobox", { name: "Buck *", exact: true });
@@ -281,7 +310,7 @@ export async function createBreeding(
       entryWeightDate: breedingDate,
     });
     await page.goto("/breeding");
-    await page.getByRole("button", { name: "Add breeding" }).click();
+    await page.getByRole("button", { name: "Add breeding" }).first().click();
     dialog = page.getByRole("dialog", { name: "Add breeding" });
     buckPicker = dialog.getByRole("combobox", { name: "Buck *", exact: true });
     await expect(buckPicker).toBeEnabled({ timeout: 20_000 });

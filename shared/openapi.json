@@ -14033,6 +14033,24 @@
             "type": "integer",
             "title": "Suggestions Total"
           },
+          "restricted_animals": {
+            "items": {
+              "$ref": "#/components/schemas/RestrictedAnimalOut"
+            },
+            "type": "array",
+            "title": "Restricted Animals"
+          },
+          "restricted_animals_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restricted Animals Total"
+          },
           "recent_weights": {
             "items": {
               "$ref": "#/components/schemas/DashboardWeightOut"
@@ -14078,6 +14096,8 @@
           "cull_candidates_total",
           "suggestions",
           "suggestions_total",
+          "restricted_animals",
+          "restricted_animals_total",
           "recent_weights",
           "recent_weights_total",
           "preview_limit",
@@ -20036,6 +20056,48 @@
         ],
         "title": "RequirementStep",
         "description": "One link of a target's backward requirement chain."
+      },
+      "RestrictedAnimalOut": {
+        "properties": {
+          "animal": {
+            "$ref": "#/components/schemas/AnimalIdentityOut"
+          },
+          "current_bucket": {
+            "type": "string",
+            "title": "Current Bucket"
+          },
+          "held_since": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Held Since"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "animal",
+          "current_bucket",
+          "held_since"
+        ],
+        "title": "RestrictedAnimalOut",
+        "description": "One animal currently frozen by a movement restriction / disease hold.\n\nA hold silently blocks move, breeding, sale and cull until a referenced\nclearance \u2014 this list is the farm-wide surface that makes it impossible\nto forget. The clinical narrative (`reason`) is only populated for a\ncaller with health.view; the operational fact of the hold is visible to\nanyone who can already see the animal."
       },
       "RiskAssumptions": {
         "properties": {

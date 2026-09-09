@@ -30,7 +30,7 @@ test.describe("health flow", () => {
 
     // Record a VACCINE event on the animal through the Health page dialog.
     await page.goto("/health");
-    await page.getByRole("button", { name: "+ Add event" }).click();
+    await page.getByRole("button", { name: "Add event" }).click();
     const dialog = page.getByRole("dialog", { name: "Add health event" });
     await expect(dialog).toBeVisible();
     await pickRemoteOption(dialog, "Animal *", new RegExp(tag), tag);
@@ -46,7 +46,7 @@ test.describe("health flow", () => {
     // The event shows in the farm-wide log.
     const logRow = page.getByRole("row", { name: new RegExp(tag) });
     await expect(logRow).toBeVisible();
-    await expect(logRow.getByText("VACCINE")).toBeVisible();
+    await expect(logRow.getByText("Vaccination")).toBeVisible();
     await expect(logRow.getByText(product)).toBeVisible();
     await expect(logRow.getByRole("cell", { name: "SC", exact: true })).toBeVisible();
 
@@ -55,8 +55,8 @@ test.describe("health flow", () => {
     await expect(page.getByText("Health events (1)")).toBeVisible();
     await expect(page.getByRole("row", { name: new RegExp(product) })).toBeVisible();
 
-    // The vaccination schedule flips the PPR row to DONE; the other templates
-    // of an unvaccinated 5-month-old are still OVERDUE.
+    // The vaccination schedule flips the PPR row to Done; the other templates
+    // of an unvaccinated 5-month-old are still Overdue.
     await page.goto("/health");
     await pickRemoteOption(
       page.locator("body"),
@@ -74,7 +74,7 @@ test.describe("health flow", () => {
 
     const pprRow = page.getByRole("row").filter({ hasText: "PPR" });
     await expect(pprRow).toHaveCount(1);
-    await expect(pprRow.getByText("DONE", { exact: true })).toBeVisible();
-    await expect(page.getByText("OVERDUE", { exact: true }).first()).toBeVisible();
+    await expect(pprRow.getByText("Done", { exact: true })).toBeVisible();
+    await expect(page.getByText("Overdue", { exact: true }).first()).toBeVisible();
   });
 });

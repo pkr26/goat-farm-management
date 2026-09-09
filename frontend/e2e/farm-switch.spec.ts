@@ -58,7 +58,7 @@ test.describe("farm switching", () => {
     }
 
     // Farm B's herd is empty; farm A's animal must not leak from the cache.
-    await expect(page.getByText("No animals match these filters.")).toBeVisible({
+    await expect(page.getByText("No animals yet")).toBeVisible({
       timeout: 15_000,
     });
     await expect(page.getByRole("link", { name: tagA, exact: true })).toHaveCount(0);

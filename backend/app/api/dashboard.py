@@ -13,7 +13,7 @@ from datetime import date, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import ScalarSelect, Select, func, select
+from sqlalchemy import ScalarSelect, Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 from sqlalchemy.sql.elements import ColumnElement
@@ -28,6 +28,7 @@ from ..models import (
     KiddingRecord,
     KidEntry,
     KidStatus,
+    MovementRestrictionAction,
     Task,
     TaskCategory,
     WeightRecord,
@@ -42,6 +43,7 @@ from ..schemas.dashboard import (
     MortalityOut,
     MoveSuggestionOut,
     ReportsOut,
+    RestrictedAnimalOut,
 )
 from ..schemas.summaries import (
     AnimalIdentityOut,
@@ -336,6 +338,62 @@ async def dashboard(
     status_totals = {str(status): int(count) for status, count in status_rows}
     can_view_health = "health.view" in perms
 
+    # Animals frozen by an active movement restriction / disease hold. The
+    # hold silently blocks move, breeding, sale and cull until a referenced
+    # clearance, and its only other surface is per-animal — so this list is
+    # what makes a forgotten hold visible farm-wide. Identity + bucket are
+    # already animals.view facts everywhere else; the clinical reason stays
+    # behind health.view exactly like restriction_reason on the profile.
+    restricted_animals: list[RestrictedAnimalOut] = []
+    restricted_animals_total: int | None = None
+    if "animals.view" in perms:
+        held = select(Animal).where(
+            Animal.farm_id == farm.id,
+            Animal.status == AnimalStatus.ACTIVE.value,
+            or_(
+                Animal.movement_restricted.is_(True),
+                Animal.suspected_scheduled_disease.is_(True),
+            ),
+        )
+        held_rows = (
+            await db.execute(
+                held.add_columns(_exact_total(held).label("preview_total"))
+                .order_by(Animal.tag_number, Animal.id)
+                .limit(DASHBOARD_PREVIEW_LIMIT)
+            )
+        ).all()
+        restricted_animals_total = int(held_rows[0].preview_total) if held_rows else 0
+        placed_dates: dict[int, Any] = {}
+        if held_rows:
+            placed_rows = (
+                await db.execute(
+                    select(
+                        MovementRestrictionAction.animal_id,
+                        func.max(MovementRestrictionAction.acted_at),
+                    )
+                    .where(
+                        MovementRestrictionAction.farm_id == farm.id,
+                        MovementRestrictionAction.animal_id.in_([row[0].id for row in held_rows]),
+                        MovementRestrictionAction.action == "PLACED",
+                    )
+                    .group_by(MovementRestrictionAction.animal_id)
+                )
+            ).all()
+            placed_dates = {animal_id: acted_at for animal_id, acted_at in placed_rows}
+        restricted_animals = [
+            RestrictedAnimalOut(
+                animal=_animal_identity_out(row[0]),
+                current_bucket=row[0].current_bucket,
+                held_since=placed_dates.get(row[0].id),
+                reason=(
+                    (row[0].restriction_reason or row[0].suspected_disease)
+                    if can_view_health
+                    else None
+                ),
+            )
+            for row in held_rows
+        ]
+
     return DashboardOut(
         buckets=[
             BucketCountOut(code=d.code, name=d.name, count=counts.get(d.code, 0)) for d in defs
@@ -368,6 +426,8 @@ async def dashboard(
         cull_candidates_total=cull_candidates_total,
         suggestions=[MoveSuggestionOut.model_validate(s) for s in suggestions],
         suggestions_total=suggestions_total,
+        restricted_animals=restricted_animals,
+        restricted_animals_total=restricted_animals_total,
         recent_weights=[
             DashboardWeightOut(
                 id=row[0].id,

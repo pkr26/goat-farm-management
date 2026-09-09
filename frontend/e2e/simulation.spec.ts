@@ -223,15 +223,29 @@ test.describe("simulation", () => {
     await page.locator("#sim-herd-bucks").fill("1");
     await page.locator("#sim-herd-bucks").blur();
 
+    // The breed/calibration festival-sale months span the default 120-month
+    // horizon; the 24-month horizon leaves months > 24 invalid and gates Run.
+    // Clear the list AFTER calibration (an empty list is legal — no festival
+    // timing), because calibrating replaces the assumptions wholesale.
+    const salesSection = page.locator("details", {
+      has: page.locator("#sim-sales-festival_sale_months"),
+    });
+    await salesSection.locator("summary").click();
+    const festivalMonths = salesSection.locator("#sim-sales-festival_sale_months");
+    await festivalMonths.fill("");
+    await festivalMonths.blur();
+
+    // Section summaries now embed an "Explain … ?" help button, so anchor
+    // each collapsible to one of its own field ids instead of summary text.
     const riskSection = page.locator("details", {
-      has: page.getByText("Risk", { exact: true }),
+      has: page.locator("#sim-risk-monte_carlo_runs"),
     });
     await riskSection.locator("summary").click();
     await riskSection.locator("#sim-risk-monte_carlo_runs").fill("20");
     await riskSection.locator("#sim-risk-monte_carlo_runs").blur();
 
     const optimizationSection = page.locator("details", {
-      has: page.getByText("Optimization", { exact: true }),
+      has: page.locator("#sim-optimization-max_candidates"),
     });
     await optimizationSection.locator("summary").click();
     await optimizationSection.locator("#sim-optimization-max_candidates").fill("8");

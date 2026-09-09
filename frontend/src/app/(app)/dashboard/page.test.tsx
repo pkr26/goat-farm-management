@@ -119,6 +119,7 @@ function makePayload(overrides: Partial<DashboardOut> = {}): DashboardOut {
     kiddings_due: [],
     cull_candidates: [],
     suggestions: [],
+    restricted_animals: [],
     recent_weights: [],
     ...overrides,
   };
@@ -132,6 +133,8 @@ function makePayload(overrides: Partial<DashboardOut> = {}): DashboardOut {
     cull_candidates_total:
       overrides.cull_candidates_total ?? payload.cull_candidates.length,
     suggestions_total: overrides.suggestions_total ?? payload.suggestions.length,
+    restricted_animals_total:
+      overrides.restricted_animals_total ?? payload.restricted_animals.length,
     recent_weights_total: overrides.recent_weights_total ?? payload.recent_weights.length,
     preview_limit: overrides.preview_limit ?? 20,
     recent_weights_limit: overrides.recent_weights_limit ?? 10,

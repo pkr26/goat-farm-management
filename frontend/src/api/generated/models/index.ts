@@ -242,6 +242,7 @@ export * from './reportsOutStatusCounts';
 export * from './reproductionAssumptions';
 export * from './requirementChain';
 export * from './requirementStep';
+export * from './restrictedAnimalOut';
 export * from './riskAssumptions';
 export * from './riskVariable';
 export * from './roleChangeIn';

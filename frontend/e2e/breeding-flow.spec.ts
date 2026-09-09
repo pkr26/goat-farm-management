@@ -52,6 +52,6 @@ test.describe("breeding flow", () => {
 
     // The doe's profile shows she was moved to PREGNANCY_EARLY.
     await openAnimalProfile(page, doeTag);
-    await expect(profileDetail(page, "Bucket")).toHaveText("PREGNANCY EARLY");
+    await expect(profileDetail(page, "Bucket")).toHaveText("Pregnancy A");
   });
 });

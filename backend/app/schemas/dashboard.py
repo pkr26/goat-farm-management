@@ -1,5 +1,7 @@
 """Pydantic schemas for dashboard and reports."""
 
+import datetime as dt
+
 from pydantic import BaseModel
 
 from .summaries import AnimalIdentityOut, DashboardKiddingDueOut, DashboardWeightOut
@@ -10,6 +12,23 @@ class MoveSuggestionOut(BaseModel):
     animal: AnimalIdentityOut
     to: str
     reason: str
+
+
+class RestrictedAnimalOut(BaseModel):
+    """One animal currently frozen by a movement restriction / disease hold.
+
+    A hold silently blocks move, breeding, sale and cull until a referenced
+    clearance — this list is the farm-wide surface that makes it impossible
+    to forget. The clinical narrative (`reason`) is only populated for a
+    caller with health.view; the operational fact of the hold is visible to
+    anyone who can already see the animal.
+    """
+
+    animal: AnimalIdentityOut
+    current_bucket: str
+    # When the current hold was placed (latest PLACED action).
+    held_since: dt.datetime | None
+    reason: str | None = None
 
 
 class BucketCountOut(BaseModel):
@@ -37,6 +56,11 @@ class DashboardOut(BaseModel):
     cull_candidates_total: int | None
     suggestions: list[MoveSuggestionOut]
     suggestions_total: int
+    # Animals currently under an active movement restriction / disease hold.
+    # None means the caller lacks animals.view — the preview was withheld,
+    # not empty. A literal 0 must always mean "genuinely none".
+    restricted_animals: list[RestrictedAnimalOut]
+    restricted_animals_total: int | None
     recent_weights: list[DashboardWeightOut]
     # None means the caller lacks animals.view — the weights preview was
     # withheld, not empty. A literal 0 must always mean "genuinely none".

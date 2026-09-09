@@ -39,7 +39,7 @@ test.describe("animals", () => {
     await expect(page.getByRole("heading", { name: new RegExp(tag) })).toBeVisible({
       timeout: 15_000,
     });
-    await expect(profileDetail(page, "Bucket")).toHaveText("FOUNDATION");
+    await expect(profileDetail(page, "Bucket")).toHaveText("Foundation");
 
     // Record a weight.
     await page.getByRole("button", { name: "Record weight" }).click();
@@ -53,23 +53,23 @@ test.describe("animals", () => {
     await expect(page.getByText("Weight history (2)")).toBeVisible();
     await expect(profileDetail(page, "Latest weight")).toHaveText("26.5 kg");
 
-    // FOUNDATION → BREEDING is a legal manual transition for this eligible doe.
+    // Foundation → Breeding is a legal manual transition for this eligible doe.
     await page.getByRole("button", { name: "Move bucket" }).click();
     const moveDialog = page.getByRole("dialog", { name: "Move bucket" });
-    await pickSelectOption(moveDialog, "To bucket *", "BREEDING");
+    await pickSelectOption(moveDialog, "To bucket *", "Breeding");
     await moveDialog.getByRole("button", { name: "Move" }).click();
     await expect(page.getByText("Animal moved.")).toBeVisible();
     await expect(moveDialog).toBeHidden();
 
     // Profile reflects the legal transition; creation itself logs the initial
     // bucket, so assert the transition row rather than a hardcoded count.
-    await expect(profileDetail(page, "Bucket")).toHaveText("BREEDING");
+    await expect(profileDetail(page, "Bucket")).toHaveText("Breeding");
     await expect(
-      page.getByRole("row", { name: /FOUNDATION\s+BREEDING/ }),
+      page.getByRole("row", { name: /Foundation\s+Breeding/ }),
     ).toBeVisible();
 
     // And the list shows the new bucket too.
     await openAnimalProfile(page, tag);
-    await expect(profileDetail(page, "Bucket")).toHaveText("BREEDING");
+    await expect(profileDetail(page, "Bucket")).toHaveText("Breeding");
   });
 });

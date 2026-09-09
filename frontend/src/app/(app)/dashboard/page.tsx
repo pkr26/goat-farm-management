@@ -632,6 +632,68 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
             </p>
           )}
         </DataTableCard>
+
+        {/* Animals frozen by a movement restriction / disease hold. The hold
+            silently blocks move, breeding, sale and cull until a referenced
+            clearance, and this is its only farm-wide surface — so it renders
+            whenever the caller can see animal identity at all (a null total
+            means the section was withheld, and 0 stays silent like the cull
+            banner: no alarm fatigue when nobody is held). */}
+        {(payload.restricted_animals_total ?? 0) > 0 && (
+          <DataTableCard
+            title={`Movement restrictions (${payload.restricted_animals_total})`}
+            contentClassName="space-y-3"
+          >
+            <p className="flex items-center gap-2 rounded-lg bg-warning-tint px-3 py-2 text-sm text-warning-tint-foreground">
+              <TriangleAlert className="size-4 shrink-0" aria-hidden="true" />
+              <span>
+                These animals cannot move, breed or be sold until a vet records a
+                referenced clearance.
+              </span>
+            </p>
+            <Table>
+              <TableHeader className="sr-only">
+                <TableRow>
+                  <th scope="col">Animal</th>
+                  <th scope="col">Bucket</th>
+                  <th scope="col">Held since</th>
+                  <th scope="col">Reason</th>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {payload.restricted_animals.map((r) => (
+                  <TableRow key={r.animal.id}>
+                    <TableCell>
+                      {canViewAnimals ? (
+                        <Link
+                          href={withReturnTo(`/animals/${r.animal.id}`, "/dashboard")}
+                          className="text-primary underline"
+                        >
+                          {animalName(r.animal)}
+                        </Link>
+                      ) : (
+                        animalName(r.animal)
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="secondary">{enumLabel("bucket", r.current_bucket)}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      {r.held_since ? new Date(r.held_since).toLocaleDateString() : "—"}
+                    </TableCell>
+                    <TableCell className="max-w-64 truncate">{r.reason ?? "—"}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            {payload.restricted_animals.length < (payload.restricted_animals_total ?? 0) && (
+              <p className="text-sm text-muted-foreground">
+                Showing {payload.restricted_animals.length} of{" "}
+                {payload.restricted_animals_total} held animals.
+              </p>
+            )}
+          </DataTableCard>
+        )}
       </div>
 
       <section className="order-7 space-y-3 md:order-none">

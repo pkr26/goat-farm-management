@@ -1870,16 +1870,25 @@ async def test_skipped_cleaning_needs_no_verification(client: httpx.AsyncClient)
 
 
 async def test_skip_form_linked_duty_allowed(client: httpx.AsyncClient) -> None:
-    """The linked-form guard applies to complete, not skip (skipping records no data)."""
+    """The linked-form guard applies to complete, not skip (skipping records
+    no data) — a form-linked VACCINE duty stays skippable. The pregnancy-check
+    ULTRASOUND duty is the deliberate exception: its skip would strand the
+    doe behind an open service, so it refuses until a scan result is recorded."""
     owner = await owner_with_farm(client)
-    doe = await make_doe(client, owner)
-    buck = await make_buck(client, owner)
-    await make_breeding(client, owner, doe, buck, today() - timedelta(days=40))
+    buck = await make_buck(client, owner, tag="B-SKIP1")
+    await make_pregnancy(client, owner, today() - timedelta(days=120))
     tabs = await get_tabs(client, owner)
-    us = next(t for t in all_tasks(tabs) if t["category"] == "ULTRASOUND")
-    resp = await client.post(f"/api/tasks/{us['id']}/skip", headers=owner)
+    vaccine = next(t for t in all_tasks(tabs) if t["category"] == "VACCINE")
+    resp = await client.post(f"/api/tasks/{vaccine['id']}/skip", headers=owner)
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == "SKIPPED"
+
+    doe2 = await make_doe(client, owner, tag="D-SKIP2")
+    await make_breeding(client, owner, doe2, buck, today() - timedelta(days=40))
+    us = next(t for t in all_tasks(await get_tabs(client, owner)) if t["category"] == "ULTRASOUND")
+    refused = await client.post(f"/api/tasks/{us['id']}/skip", headers=owner)
+    assert refused.status_code == 409, refused.text
+    assert "pregnancy check" in refused.json()["detail"].lower()
 
 
 async def test_skip_auto_future_duty_allowed(client: httpx.AsyncClient) -> None:

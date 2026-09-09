@@ -11,6 +11,7 @@ import type { DashboardOutSexCounts } from './dashboardOutSexCounts';
 import type { DashboardOutStatusTotals } from './dashboardOutStatusTotals';
 import type { DashboardWeightOut } from './dashboardWeightOut';
 import type { MoveSuggestionOut } from './moveSuggestionOut';
+import type { RestrictedAnimalOut } from './restrictedAnimalOut';
 import type { TaskOut } from './taskOut';
 
 export interface DashboardOut {
@@ -30,6 +31,8 @@ export interface DashboardOut {
   cull_candidates_total: number | null;
   suggestions: MoveSuggestionOut[];
   suggestions_total: number;
+  restricted_animals: RestrictedAnimalOut[];
+  restricted_animals_total: number | null;
   recent_weights: DashboardWeightOut[];
   recent_weights_total: number | null;
   preview_limit: number;

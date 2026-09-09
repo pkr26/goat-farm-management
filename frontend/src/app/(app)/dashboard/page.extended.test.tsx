@@ -18,6 +18,7 @@ import type {
   DashboardWeightOut,
   FarmOut,
   MoveSuggestionOut,
+  RestrictedAnimalOut,
   TaskOut,
 } from "@/api/generated/models";
 import { TEST_FARMS, permissionsHandler, server } from "@/test/msw-server";
@@ -149,6 +150,7 @@ function makePayload(overrides: Partial<DashboardOut> = {}): DashboardOut {
     kiddings_due: [],
     cull_candidates: [],
     suggestions: [],
+    restricted_animals: [],
     recent_weights: [],
     ...overrides,
   };
@@ -162,6 +164,8 @@ function makePayload(overrides: Partial<DashboardOut> = {}): DashboardOut {
     cull_candidates_total:
       overrides.cull_candidates_total ?? payload.cull_candidates.length,
     suggestions_total: overrides.suggestions_total ?? payload.suggestions.length,
+    restricted_animals_total:
+      overrides.restricted_animals_total ?? payload.restricted_animals.length,
     recent_weights_total: overrides.recent_weights_total ?? payload.recent_weights.length,
     preview_limit: overrides.preview_limit ?? 20,
     recent_weights_limit: overrides.recent_weights_limit ?? 10,
@@ -747,5 +751,42 @@ describe("DashboardPage — active farm and permission loading", () => {
     expect(
       await screen.findByRole("heading", { name: "Dashboard" }),
     ).toBeInTheDocument();
+  });
+});
+
+
+describe("DashboardPage — movement restrictions", () => {
+  const held: RestrictedAnimalOut = {
+    animal: identity({ id: 61, tag_number: "R-061", name: "Reka" }),
+    current_bucket: "BREEDING",
+    held_since: new Date("2026-08-01T10:00:00Z").toISOString(),
+    reason: "Reportable-condition concern",
+  };
+
+  it("lists held animals with bucket, hold age and clinical reason", async () => {
+    server.use(dashboardHandler(makePayload({ restricted_animals: [held], restricted_animals_total: 1 })));
+    renderWithProviders(<DashboardPage />);
+    await screen.findByRole("heading", { name: /— Dashboard/ });
+
+    expect(screen.getByText("Movement restrictions (1)")).toBeInTheDocument();
+    expect(screen.getByText("R-061 · Reka")).toBeInTheDocument();
+    expect(
+      screen.getByText("These animals cannot move, breed or be sold until a vet records a referenced clearance."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Reportable-condition concern")).toBeInTheDocument();
+  });
+
+  it("stays silent with no holds and hidden without animal access", async () => {
+    server.use(dashboardHandler(COMPLETE));
+    renderWithProviders(<DashboardPage />);
+    await screen.findByRole("heading", { name: /— Dashboard/ });
+    expect(screen.queryByText(/Movement restrictions/)).not.toBeInTheDocument();
+
+    server.use(
+      dashboardHandler({ ...COMPLETE, restricted_animals: [held], restricted_animals_total: null }),
+    );
+    renderWithProviders(<DashboardPage />);
+    await screen.findAllByRole("heading", { name: /— Dashboard/ });
+    expect(screen.queryByText(/Movement restrictions/)).not.toBeInTheDocument();
   });
 });

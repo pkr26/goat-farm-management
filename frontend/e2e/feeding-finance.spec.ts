@@ -56,8 +56,8 @@ test.describe("feeding and finance", () => {
     await page.getByRole("button", { name: "Record dispensing" }).click();
     const dialog = page.getByRole("dialog", { name: "Record dispensing" });
     await expect(dialog).toBeVisible();
-    await pickSelectOption(dialog, "Bucket", "QUARANTINE");
-    await pickSelectOption(dialog, "Shift", "MORNING");
+    await pickSelectOption(dialog, "Bucket", "Quarantine");
+    await pickSelectOption(dialog, "Shift", "Morning");
     await pickSelectOption(dialog, "Recipe *", "Dry roughage only");
     await dialog.getByLabel(/Quantity/).fill("3.7");
     await dialog.getByRole("button", { name: "Record", exact: true }).click();
@@ -69,7 +69,7 @@ test.describe("feeding and finance", () => {
     const todayLog = page
       .getByText(/^Today's dispensing log \(1\)$/)
       .locator('xpath=ancestor::*[@data-slot="card"][1]');
-    const logRow = todayLog.getByRole("row", { name: /MORNING QUARANTINE/ });
+    const logRow = todayLog.getByRole("row", { name: /Morning\s+Quarantine/ });
     await expect(logRow).toHaveCount(1, { timeout: 15_000 });
     await expect(logRow.getByRole("cell", { name: "3.7", exact: true })).toBeVisible();
   });
@@ -92,7 +92,7 @@ test.describe("feeding and finance", () => {
     const dialog = page.getByRole("dialog", { name: "New transaction" });
     await expect(dialog).toBeVisible();
     // Type defaults to EXPENSE.
-    await pickSelectOption(dialog, "Category", "FEED");
+    await pickSelectOption(dialog, "Category", "Feed");
     await dialog.getByLabel(/Amount/).fill("321.50");
     await dialog.getByLabel("Notes").fill(note);
     await dialog.getByRole("button", { name: "Add transaction" }).click();
@@ -104,7 +104,7 @@ test.describe("feeding and finance", () => {
     const row = page.getByRole("row", { name: new RegExp(note) });
     await expect(row).toBeVisible({ timeout: 15_000 });
     await expect(row.getByText("EXPENSE")).toBeVisible();
-    await expect(row.getByText("FEED")).toBeVisible();
+    await expect(row.getByText("Feed")).toBeVisible();
     await expect(row.getByText("₹321.50")).toBeVisible();
   });
 

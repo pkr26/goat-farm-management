@@ -22,6 +22,8 @@ from ..models import (
     VERIFICATION_REQUIRED_CATEGORIES,
     Animal,
     AnimalStatus,
+    BreedingOutcome,
+    BreedingRecord,
     Bucket,
     Farm,
     FarmMembership,
@@ -675,6 +677,38 @@ async def skip(
                 "complete it once the animals can be moved"
             ),
         )
+    if task.auto_generated and task.category == TaskCategory.ULTRASOUND.value:
+        # The pregnancy check closes an open service. A PENDING breeding
+        # blocks re-service (uq_breeding_open_pregnancy), no dashboard
+        # suggestion watches a doe idling in BREEDING, and no follow-up duty
+        # is regenerated — so a skipped check leaves the doe stranded in the
+        # breeding pen with no prompt to resolve her, exactly like the
+        # quarantine and RECOVERY gates above. The ultrasound form accepts a
+        # backdated result, so recording the scan is always the honest close.
+        # The outcome read is lock-free: once terminal it never reopens, and
+        # a still-active linked doe is already guaranteed by
+        # _require_locked_linked_animal_active above.
+        outcome = (
+            await db.execute(
+                select(BreedingRecord.outcome).where(
+                    BreedingRecord.id == task.breeding_record_id,
+                    BreedingRecord.farm_id == farm.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if outcome == BreedingOutcome.PENDING.value:
+            doe_active = any(
+                animal.id == task.animal_id and animal.status == AnimalStatus.ACTIVE.value
+                for animal in locked_animals
+            )
+            if doe_active:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "The pregnancy check cannot be skipped while the service is open — "
+                        "record the scan result (a late date is fine) to close it"
+                    ),
+                )
     try:
         await skip_task(db, task, user, payload.reason if payload else None)
     except ValueError as exc:

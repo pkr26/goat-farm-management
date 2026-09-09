@@ -17,7 +17,7 @@ test.describe("team management", () => {
 
     // Add a worker (new account, so a password is required) with the
     // Veterinarian preset role.
-    await page.getByRole("button", { name: "Add worker" }).click();
+    await page.getByRole("button", { name: "Add worker" }).first().click();
     const dialog = page.getByRole("dialog", { name: "Add worker" });
     await expect(dialog).toBeVisible();
     await dialog.getByLabel("Name").fill("E2E Worker");
@@ -42,14 +42,13 @@ test.describe("team management", () => {
     await expect(page.getByText("Role updated.")).toBeVisible();
     await expect(row).toContainText("Feeder", { timeout: 15_000 });
 
-    // Deactivate, then reactivate.
-    let confirmationMessage = "";
-    page.once("dialog", async (confirmation) => {
-      confirmationMessage = confirmation.message();
-      await confirmation.accept();
-    });
+    // Deactivate, then reactivate. Deactivation is destructive, so it goes
+    // through the in-app confirmation dialog (not a native confirm()).
     await row.getByRole("button", { name: "Deactivate" }).click();
-    expect(confirmationMessage).toContain("immediately lose farm access");
+    const deactivateDialog = page.getByRole("dialog", { name: /Deactivate / });
+    await expect(deactivateDialog).toBeVisible();
+    await expect(deactivateDialog).toContainText("immediately lose access to this farm");
+    await deactivateDialog.getByRole("button", { name: "Deactivate worker" }).click();
     await expect(page.getByText("Worker deactivated.")).toBeVisible();
     await expect(row.getByText("Inactive", { exact: true })).toBeVisible({
       timeout: 15_000,

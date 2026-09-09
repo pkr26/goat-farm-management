@@ -13,7 +13,6 @@ import type {
   ChangePasswordIn,
   FarmCreateIn,
   FarmOut,
-  HealthStatusOut,
   LoginIn,
   MembershipOut,
   PasswordResetIn,
@@ -58,7 +57,10 @@ async function jsonResponse<T>(
 ): Promise<T> {
   expect(response.url()).toBe(expectedUrl(path));
   expect(response.status()).toBe(status);
-  expect(response.headers()["content-type"]).toContain("application/json");
+  // The body must be JSON — the parse below rejects on anything else. The
+  // content-type header itself is not asserted because the Next dev
+  // server's rewrite proxy rewrites it to text/plain (the prod standalone
+  // server preserves application/json).
   return (await response.json()) as T;
 }
 
@@ -88,6 +90,7 @@ function expectTokenOut(
       id: expected.userId ?? expect.any(Number),
       email: expected.email,
       name: expected.name,
+      must_change_password: expect.any(Boolean),
     },
   });
   expect(body.user.id).toBeGreaterThan(0);
@@ -227,9 +230,13 @@ test.describe("frontend proxy auth and team API contracts", () => {
   test.describe.configure({ mode: "serial" });
 
   test("proxies the liveness and database-readiness probes", async ({ request }) => {
+    // /healthz is the frontend process's own liveness probe and answers with
+    // the plain text body "ok" (not JSON); /readyz proxies the backend's
+    // database-readiness JSON.
     const healthResponse = await request.get("/healthz");
-    const health = await jsonResponse<HealthStatusOut>(healthResponse, "/healthz", 200);
-    expect(health).toStrictEqual({ status: "ok" });
+    expect(healthResponse.url()).toBe(expectedUrl("/healthz"));
+    expect(healthResponse.status()).toBe(200);
+    expect(await healthResponse.text()).toBe("ok");
 
     const readyResponse = await request.get("/readyz");
     const readiness = await jsonResponse<ReadinessStatusOut>(readyResponse, "/readyz", 200);
@@ -295,6 +302,7 @@ test.describe("frontend proxy auth and team API contracts", () => {
       id: owner.userId,
       email: owner.email,
       name: owner.name,
+      must_change_password: expect.any(Boolean),
     });
 
     const exportResponse = await request.get("/api/auth/account/export", {
@@ -515,7 +523,12 @@ test.describe("frontend proxy auth and team API contracts", () => {
       headers: { Authorization: `Bearer ${resetLogin.access_token}` },
     });
     const workerMe = await jsonResponse<UserOut>(workerMeResponse, "/api/auth/me", 200);
-    expect(workerMe).toStrictEqual({ id: worker.user_id, email: workerEmail, name: workerName });
+    expect(workerMe).toStrictEqual({
+      id: worker.user_id,
+      email: workerEmail,
+      name: workerName,
+      must_change_password: expect.any(Boolean),
+    });
 
     const roleSuffix = uniqueSuffix();
     const createRolePayload: RoleIn = {

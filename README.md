@@ -762,6 +762,24 @@ footbath) before joining `FOUNDATION`. The app auto-generates dated tasks for
 every transition: ultrasounds, pre-kidding vaccines, bucket moves, weaning,
 and the whole quarantine schedule.
 
+**Sires are terminal residents of `BREEDING`.** A retained buck is promoted
+from `MALE_KIDS` into `BREEDING` (12+ months, 25+ kg) and lives there for
+his whole working life — the graph deliberately offers no bucket exit,
+because does cycle through the pens while the buck stays with them.
+"Buck rotation" is a *herd* decision, not a move: rotate a sire out by
+selling/culling him and restocking (exactly what the planning engine's
+`buck_rotation_years` models); the owner-only history override exists for
+audited corrections, and an inbreeding fence refuses parent-offspring and
+full-sibling pairings. Seasonal buck separation is not modeled — a farm that
+needs it should record the separation in the buck's notes.
+
+**Sick animals never change buckets.** Each bucket building has its own vet
+area; treatment is a health event, and a suspected scheduled disease instead
+freezes the animal in place with a **movement restriction** (move, breeding,
+sale and cull all refuse, fail-closed) until a vet records a referenced
+clearance. The dashboard's *Movement restrictions* card is the farm-wide
+list of currently held animals.
+
 ## Duties & verification
 
 - Auto-generated tasks (ultrasound, vaccine, bucket move, weaning, …) are

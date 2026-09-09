@@ -56,7 +56,7 @@ test.describe("kidding flow", () => {
     await weightInputs.nth(0).fill("2.5");
     await weightInputs.nth(1).fill("2.3");
     await dialog.getByRole("button", { name: "Save kidding" }).click();
-    await expect(page.getByText("Kidding recorded.")).toBeVisible();
+    await expect(page.getByText("Delivery recorded.")).toBeVisible();
     await expect(dialog).toBeHidden();
 
     // Recent kiddings lists the doe with both kids linked to their profiles.
@@ -64,7 +64,7 @@ test.describe("kidding flow", () => {
     await expect(recordRow).toBeVisible({ timeout: 15_000 });
     await expect(recordRow.getByRole("link", { name: kid1, exact: true })).toBeVisible();
     await expect(recordRow.getByRole("link", { name: kid2, exact: true })).toBeVisible();
-    await expect(recordRow.getByText(/F, alive/)).toHaveCount(2);
+    await expect(recordRow.getByText(/Female, alive/)).toHaveCount(2);
 
     // Both kids are now animals (auto-created, source BORN, RECOVERY bucket).
     await page.goto("/animals");
@@ -73,11 +73,11 @@ test.describe("kidding flow", () => {
     await page.getByPlaceholder("Search by tag…").fill(kid2);
     await expect(page.getByRole("link", { name: kid2, exact: true })).toBeVisible();
     await openAnimalProfile(page, kid1);
-    await expect(profileDetail(page, "Bucket")).toHaveText("RECOVERY");
+    await expect(profileDetail(page, "Bucket")).toHaveText("Recovery");
 
     // The doe left PREGNANCY_EARLY for RECOVERY.
     await openAnimalProfile(page, doeTag);
-    await expect(profileDetail(page, "Bucket")).toHaveText("RECOVERY");
+    await expect(profileDetail(page, "Bucket")).toHaveText("Recovery");
     await expect(page.getByText("Kids (2)")).toBeVisible();
   });
 });

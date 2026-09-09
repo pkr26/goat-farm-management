@@ -8,7 +8,7 @@ async function createCleaningDuty(page: Page, title: string): Promise<void> {
   await page.getByRole("button", { name: "New duty" }).click();
   const dialog = page.getByRole("dialog", { name: "New duty" });
   await dialog.getByLabel("Title").fill(title);
-  await pickSelectOption(dialog, "Category", "CLEANING");
+  await pickSelectOption(dialog, "Category", "Cleaning");
   await dialog.getByRole("button", { name: "Create duty" }).click();
   await expect(page.getByText("Duty created.")).toBeVisible();
   await expect(dialog).toBeHidden();
@@ -65,8 +65,10 @@ test.describe("tasks verification", () => {
 
     // Reject with a reason — the duty leaves Awaiting verification.
     const awaitingRow = page.getByRole("row", { name: new RegExp(title) });
-    await awaitingRow.getByPlaceholder("reason (sent back)").fill(note);
-    await awaitingRow.getByRole("button", { name: "Reject" }).click();
+    await awaitingRow.getByRole("button", { name: "Reject…" }).click();
+    const rejectDialog = page.getByRole("dialog", { name: "Reject duty" });
+    await rejectDialog.getByLabel("Reason *").fill(note);
+    await rejectDialog.getByRole("button", { name: "Reject duty" }).click();
     await expect(page.getByText("Task sent back.")).toBeVisible();
     await expect(page.getByRole("row", { name: new RegExp(title) })).toHaveCount(0);
 

@@ -672,7 +672,9 @@ test.describe.serial("frontend proxy domain API contracts", () => {
     const original = await jsonResponse<TransactionOut>(
       await request.post("/api/finance/new", {
         data: originalPayload,
-        headers: farmHeaders,
+        // The mutation requires an idempotency key (retry-safe replay
+        // contract); any stable key works for a single submit.
+        headers: { ...farmHeaders, "Idempotency-Key": crypto.randomUUID() },
       }),
       201,
     );

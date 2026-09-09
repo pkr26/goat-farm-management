@@ -33,7 +33,7 @@ test.describe("registration", () => {
     await expect(
       page.locator("nav").getByRole("link", { name: "Animals", exact: true }),
     ).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText("Active animals")).toBeVisible();
+    await expect(page.getByText("Active animals", { exact: true })).toBeVisible();
 
     // The empty-state CTA exercises the /animals/new → /animals?new=1 shim.
     // The animals page strips ?new=1 as soon as the dialog opens, so accept
