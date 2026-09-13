@@ -289,6 +289,17 @@ describe("idempotency mutation boundaries", () => {
     expect(sentKeys[1]).not.toBe(sentKeys[0]);
   });
 
+  it("generates a fresh UUID v4 idempotency key for an unprotected-caller mutation", async () => {
+    let sentKey: string | null = null;
+    await runProtected(async (init) => {
+      sentKey = new Headers(init.headers).get("Idempotency-Key");
+      return { ok: true } as const;
+    });
+    expect(sentKey).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+  });
+
   it("uses all request dimensions when deciding whether in-flight work is identical", async () => {
     const releases: Array<() => void> = [];
     const execute = vi.fn((init: RequestInit) => {

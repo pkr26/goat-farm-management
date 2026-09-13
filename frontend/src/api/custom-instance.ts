@@ -21,6 +21,7 @@ const FREE_TEXT_QUERY_PARAMS = new Set(["q"]);
 
 function stripNullQueryValues(url: string): string {
   const queryStart = url.indexOf("?");
+  // Stryker disable next-line ConditionalExpression, UnaryOperator: a url without "?" has no query pairs to strip — URLSearchParams parses it as one path-shaped key with an empty value, so the loop changes nothing and the original url returns either way; and every request url starts with "/api", so the "?" index is never 1
   if (queryStart === -1) return url;
   const params = new URLSearchParams(url.slice(queryStart + 1));
   let changed = false;

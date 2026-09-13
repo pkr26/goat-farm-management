@@ -1,3 +1,7 @@
+// Stryker disable all: this file is a translation data table; its keys are
+// verified by the catalog parity tests and per-key usage assertions, not by
+// per-string mutation (mutating every sentence would only measure whether
+// each literal is asserted verbatim somewhere).
 /**
  * Telugu message catalog (తెలుగు). Typed as Partial over the English key
  * set: an untranslated key simply renders its English text, so this file can

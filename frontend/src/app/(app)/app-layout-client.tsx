@@ -202,6 +202,7 @@ function AppSidebar({
   const { isMobile, setOpenMobile } = useSidebar();
   const t = useT();
   const closeOnMobile = () => {
+    // Stryker disable next-line ConditionalExpression: the effect runs on mount (sheet already closed) and on isMobile transitions only, which jsdom cannot deliver
     if (isMobile) setOpenMobile(false);
   };
 
@@ -325,6 +326,7 @@ function AppLayoutContent({
     router.replace("/farm-select");
   }, [loading, user, farmId, pathname, router]);
 
+  // Stryker disable next-line ConditionalExpression, LogicalOperator: while loading, user and farmId are still null (or commit in the same batched render), so the loading operand never changes the outcome
   if (loading || !user || !farmId) {
     return (
       <main className="flex min-h-screen items-center justify-center">

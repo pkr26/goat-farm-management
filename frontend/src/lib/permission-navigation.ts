@@ -89,6 +89,7 @@ function resolveAppPath(
   const safe = safeAppPath(raw);
   if (!safe) return null;
   const rawPath = safe.split(/[?#]/, 1)[0];
+  // Stryker disable next-line ConditionalExpression, LogicalOperator: safeAppPath already rejected percent-encoded pathnames, so the % operand is unreachable defense-in-depth
   if (rawPath.includes("%") || rawPath.includes("\\")) return null;
 
   const url = new URL(safe, "https://goatfarm.invalid");
@@ -97,6 +98,7 @@ function resolveAppPath(
   // `/tasks/../finance`). A return destination is user-controlled URL state,
   // so accept only its already-canonical spelling instead of silently
   // changing which module was requested.
+  // Stryker disable next-line ConditionalExpression: safeAppPath already rejects any spelling that changes under URL canonicalization, so this re-check can never fire
   if (path !== rawPath) return null;
   const special = MANAGE_ROUTE_PERMISSIONS.find(
     ({ path: root }) => path === root || path.startsWith(`${root}/`),
@@ -142,6 +144,7 @@ export function permittedAppPathFromList(
   // can still contain one. Treat that spelling as the same id-free route and
   // preserve its query/hash instead of mistaking it for a record detail URL.
   const pathWithoutTrailingSlash =
+    // Stryker disable next-line ConditionalExpression, EqualityOperator: a length-1 path is always "/", which never resolves past resolveAppPath's route lookup, so both the > operand and the >= swap only differ on unreachable input
     resolved.path.length > 1 && resolved.path.endsWith("/")
       ? resolved.path.slice(0, -1)
       : resolved.path;

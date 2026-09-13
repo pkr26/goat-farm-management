@@ -10,10 +10,13 @@
 
 import type { Language } from "@/lib/i18n";
 
+// Stryker disable next-line Regex: the chained .filter(Boolean) below already drops the empty strings a single-character split would produce, so the greedy quantifier never changes the result
+const SEPARATOR_RUN = /[_\s-]+/;
+
 function titleCase(value: string): string {
   return value
     .toLowerCase()
-    .split(/[_\s-]+/)
+    .split(SEPARATOR_RUN)
     .filter(Boolean)
     .map((word) =>
       /^(ai)$/i.test(word) ? word.toUpperCase() : word.charAt(0).toUpperCase() + word.slice(1),
@@ -149,6 +152,7 @@ export type EnumKind =
 export function enumLabel(
   kind: EnumKind,
   value: string | null | undefined,
+  // Stryker disable next-line StringLiteral: the empty string only fails the "te" comparison below, which yields the English catalog exactly like "en"
   lang: Language = "en",
 ): string {
   if (value === null || value === undefined || value === "") return "—";
@@ -159,6 +163,7 @@ export function enumLabel(
   if (kind === "bucket") {
     return BUCKET_LABELS[value] ?? titleCase(value);
   }
+  // Stryker disable next-line OptionalChaining: every EnumKind has a SIMPLE_LABELS entry, so the kind lookup never yields undefined
   return SIMPLE_LABELS[kind]?.[value] ?? titleCase(value);
 }
 

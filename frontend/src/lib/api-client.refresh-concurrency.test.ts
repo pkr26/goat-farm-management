@@ -540,3 +540,87 @@ describe("queued cookie mutations across a session teardown", () => {
     expect(sent).toEqual(["/api/auth/refresh", "/api/auth/register"]);
   });
 });
+
+describe("refresh payload guards — campaign kills", () => {
+  beforeEach(() => {
+    stubFifoLocks();
+    setAccessToken(actorToken(1));
+    setCurrentFarmId(null);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  /** Each malformed refresh body must end the refresh attempt (a rejected
+   *  outcome) rather than being accepted as a session. */
+  async function expectRejectedRefresh(body: unknown) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse(200, body)),
+    );
+    const outcome = await refreshSessionDetailed();
+    expect(outcome).toEqual({ kind: "rejected" });
+  }
+
+  it("rejects a refresh body whose access token is not a string", async () => {
+    await expectRejectedRefresh({
+      access_token: 123,
+      user: { id: 1, email: "a@example.test", name: null },
+    });
+  });
+
+  it("rejects a refresh body whose user is malformed", async () => {
+    await expectRejectedRefresh({
+      access_token: actorToken(1),
+      user: { id: "one", email: "a@example.test", name: null },
+    });
+  });
+
+  it("rejects a refresh body whose user is absent", async () => {
+    await expectRejectedRefresh({ access_token: actorToken(1) });
+  });
+
+  it("rejects a refresh body whose user is null", async () => {
+    await expectRejectedRefresh({ access_token: actorToken(1), user: null });
+  });
+});
+
+describe("auth-failure registration stack — campaign kills", () => {
+  beforeEach(() => {
+    stubFifoLocks();
+    setAccessToken(actorToken(1));
+    setCurrentFarmId(null);
+  });
+
+  afterEach(async () => {
+    setOnAuthFailure(null);
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    await flushMacrotasks();
+  });
+
+  it("restores the previous handler when the newer registration unregisters", async () => {
+    const older = vi.fn();
+    const newer = vi.fn();
+    setOnAuthFailure(older);
+    const unregister = setOnAuthFailure(newer);
+    unregister();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input) =>
+        String(input) === "/api/auth/refresh"
+          ? jsonResponse(200, { access_token: 7, user: { id: 1, email: "a@b.test", name: null } })
+          : jsonResponse(401, { detail: "Expired" }),
+      ),
+    );
+
+    const error = await rejectionOf(apiFetch("/api/animals"));
+    expect(error).toMatchObject({ status: 401 });
+    // The newest tree is gone: the still-mounted older handler owns failures.
+    expect(older).toHaveBeenCalledTimes(1);
+    expect(newer).not.toHaveBeenCalled();
+  });
+});

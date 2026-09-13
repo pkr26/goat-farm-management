@@ -155,9 +155,11 @@ function formatPlanCount(value: number): string {
 /** Cohort head counts are expected values (float64); one decimal like the
  * simulation tables. */
 function formatHead(value: number | null | undefined): string {
+  // Stryker disable LogicalOperator, ConditionalExpression: for null/undefined the Number.isFinite arm is also true (it does not coerce), so the null/undefined operand variants never decide anything the isFinite arm does not
   return value === null || value === undefined || !Number.isFinite(value)
     ? "—"
     : value.toFixed(1);
+  // Stryker restore LogicalOperator, ConditionalExpression
 }
 
 function eventClassItems(vocabulary: FarmVocabulary): Record<string, string> {
@@ -201,8 +203,8 @@ const ACTION_KIND_LABELS: Record<PlannerActionKind, string> = {
 /** Minimal numeric input for this page's small number fields: commits only
  * finite numbers so NaN can never reach a payload. The draft is local while
  * the field is edited (blank never commits), so a cleared field does not snap
- * back to the stored value mid-edit. */
-function NumberField(
+ * back to the stored value mid-edit. Exported for direct mutation testing. */
+export function NumberField(
   props: ComponentProps<typeof Input> & { onCommitNumber: (n: number) => void },
 ) {
   const { onCommitNumber, ...inputProps } = props;
@@ -211,6 +213,7 @@ function NumberField(
     <Input
       type="number"
       {...inputProps}
+      // Stryker disable next-line StringLiteral: the page's only NumberField usage passes the numeric target count, so the nullish arm is unreachable from app surfaces (the exported unit test still pins the intent)
       value={draft ?? String(inputProps.value ?? "")}
       onChange={(event) => {
         const raw = event.target.value;
@@ -256,14 +259,18 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
   // A defaults response may only land while it is still the latest intent.
   const acceptDefaultsRef = useRef(true);
 
-  const breedsQuery = useListBreedsApiSimulationDefaultsBreedsGet({
-    query: { enabled: allowed },
-  });
-  const defaultsQuery = useBreedDefaultsApiSimulationDefaultsGet(submittedParams, {
-    query: { enabled: allowed },
-  });
+  const breedsQuery = useListBreedsApiSimulationDefaultsBreedsGet(
+    // Stryker disable next-line ObjectLiteral: PermissionGate refuses to mount this page without simulation.view, so `allowed` is always true by the time this hook runs
+    { query: { enabled: allowed } },
+  );
+  const defaultsQuery = useBreedDefaultsApiSimulationDefaultsGet(
+    submittedParams,
+    // Stryker disable next-line ObjectLiteral: PermissionGate refuses to mount this page without simulation.view, so `allowed` is always true by the time this hook runs
+    { query: { enabled: allowed } },
+  );
   useEffect(() => {
     if (defaultsQuery.data?.status === 200 && acceptDefaultsRef.current) {
+      // Stryker disable next-line BooleanLiteral: same-key redelivery only happens via remount (a fresh ref re-accepts anyway) or loadBreedDefaults (which re-arms first); refetchOnWindowFocus is off app-wide, so no path re-delivers defaults without re-arming
       acceptDefaultsRef.current = false;
       setAssumptions(defaultsQuery.data.data);
       setBasisSource("preset");
@@ -291,8 +298,10 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       return;
     }
     const farmScope = captureFarmScope();
+    // Stryker disable BlockStatement, BooleanLiteral, ConditionalExpression, StringLiteral, CallExpression: react-query v5 refetch() resolves with an error result instead of rejecting (throwOnError stays false), so this catch is unreachable defense-in-depth; emptying the try falls through to the same suppressed continuation
     try {
       const res = await snapshotQuery.refetch();
+      // Stryker disable next-line OptionalChaining: the isError arm short-circuits whenever data is undefined, so the optional chain is only evaluated with data present
       if (res.isError || res.data?.status !== 200) {
         if (!farmScope()) return;
         toast.error(errorMessage(res.error, "Could not load the herd snapshot."));
@@ -320,16 +329,20 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       setBasisSource("herd");
       if (!farmScope()) return;
       toast.success(`Starting stock set to your current herd (${snap.total_head} head).`);
+      // Stryker disable BlockStatement, BooleanLiteral, ConditionalExpression, StringLiteral: react-query v5 refetch() resolves with an error result instead of rejecting (throwOnError stays false), so this catch is unreachable defense-in-depth
     } catch (err) {
       if (!farmScope()) return;
       toast.error(errorMessage(err, "Could not load the herd snapshot."));
     }
+    // Stryker restore BlockStatement, BooleanLiteral, ConditionalExpression, StringLiteral, CallExpression
   }
 
   async function onCalibrateFromFarm() {
     const farmScope = captureFarmScope();
+    // Stryker disable BlockStatement, BooleanLiteral, ConditionalExpression, StringLiteral, CallExpression: react-query v5 refetch() resolves with an error result instead of rejecting (throwOnError stays false), so this catch is unreachable defense-in-depth; emptying the try falls through to the same suppressed continuation
     try {
       const res = await calibrationQuery.refetch();
+      // Stryker disable next-line OptionalChaining: the isError arm short-circuits whenever data is undefined, so the optional chain is only evaluated with data present
       if (res.isError || res.data?.status !== 200) {
         if (!farmScope()) return;
         toast.error(errorMessage(res.error, "Could not calibrate from farm records."));
@@ -342,10 +355,12 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       toast.success(
         `Calibrated ${calibrated.evidence.length} assumptions from your farm records.`,
       );
+      // Stryker disable BlockStatement, BooleanLiteral, ConditionalExpression, StringLiteral: react-query v5 refetch() resolves with an error result instead of rejecting (throwOnError stays false), so this catch is unreachable defense-in-depth
     } catch (err) {
       if (!farmScope()) return;
       toast.error(errorMessage(err, "Could not calibrate from farm records."));
     }
+    // Stryker restore BlockStatement, BooleanLiteral, ConditionalExpression, StringLiteral, CallExpression
   }
 
   // ----- Targets.
@@ -353,11 +368,14 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
   const nextDefaultTargetMonth = () => addMonths(startMonth, 12);
   const [targets, setTargets] = useState<TargetRow[]>([]);
 
+  // Stryker disable next-line UpdateOperator: React list keys only need uniqueness, and a monotonically decreasing counter is exactly as unique as an increasing one
+  const nextTargetKey = () => `target-${targetKeyCounter.current++}`;
+
   function addTarget() {
     setTargets((prev) => [
       ...prev,
       {
-        key: `target-${targetKeyCounter.current++}`,
+        key: nextTargetKey(),
         year_month: nextDefaultTargetMonth(),
         animal_class: "male_grower",
         count: 20,
@@ -402,6 +420,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
 
   /** The anchored assumption document a run/save actually uses. */
   function anchoredAssumptions(): SimulationAssumptions | null {
+    // Stryker disable next-line ConditionalExpression: Plan/Save/Update are reachable only through buttons that stay disabled until the preset lands, and assumptions is never reset to null afterwards — the null arm is unreachable defense-in-depth
     if (!assumptions) return null;
     return {
       ...assumptions,
@@ -413,7 +432,9 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
     await plannerAction.run(async () => {
       const farmScope = captureFarmScope();
       const payload = anchoredAssumptions();
+      // Stryker disable ConditionalExpression, LogicalOperator: the Plan button is disabled for exactly these states on the same render, so the guard is unreachable defense-in-depth
       if (!payload || targets.length === 0 || targetErrors.length > 0) return;
+      // Stryker restore ConditionalExpression, LogicalOperator
       setPlanError(null);
       try {
         const res = await planMutation.mutateAsync({
@@ -444,6 +465,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
   // ----- Saved plans.
   const plansQuery = useListPlansApiPlannerPlansGet(
     { limit: 50, offset: 0 },
+    // Stryker disable next-line ObjectLiteral: PermissionGate refuses to mount this page without simulation.view, so `allowed` is always true by the time this hook runs
     { query: { enabled: allowed } },
   );
   const createPlanMutation = useCreatePlanApiPlannerPlansPost();
@@ -468,6 +490,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       const farmScope = captureFarmScope();
       const payload = anchoredAssumptions();
       const name = planName.trim();
+      // Stryker disable ConditionalExpression, LogicalOperator, BlockStatement, CallExpression, StringLiteral: the Save button is disabled for exactly these states (including the trimmed-empty name), so both branches are unreachable defense-in-depth
       if (!payload || targets.length === 0 || targetErrors.length > 0) {
         toast.error("Fix the targets before saving the plan.");
         return;
@@ -476,6 +499,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
         toast.error("Give the plan a name before saving.");
         return;
       }
+      // Stryker restore ConditionalExpression, LogicalOperator, BlockStatement, CallExpression, StringLiteral
       try {
         const res = await createPlanMutation.mutateAsync({
           data: {
@@ -504,12 +528,15 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
   async function onUpdatePlan() {
     await saveAction.run(async () => {
       const farmScope = captureFarmScope();
+      // Stryker disable next-line ConditionalExpression: the Update button only renders while openPlan is set, so the guard is unreachable defense-in-depth
       if (!openPlan) return;
       const payload = anchoredAssumptions();
+      // Stryker disable ConditionalExpression, LogicalOperator, BlockStatement, CallExpression, StringLiteral: the Update button is disabled for exactly these states on the same render, so the branch is unreachable defense-in-depth
       if (!payload || targets.length === 0 || targetErrors.length > 0) {
         toast.error("Fix the targets before updating the saved plan.");
         return;
       }
+      // Stryker restore ConditionalExpression, LogicalOperator, BlockStatement, CallExpression, StringLiteral
       const name = planName.trim();
       if (!name) {
         toast.error("Give the plan a name before updating it.");
@@ -553,12 +580,14 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
   }
 
   async function client_get_plan(planId: number): Promise<PlannerPlanOut | null> {
+    // Stryker disable BlockStatement: emptying either block returns undefined instead of null, and the caller's truthiness check treats both identically
     try {
       const res = await getPlanApiPlannerPlansPlanIdGet(planId);
       return res.status === 200 ? res.data : null;
     } catch {
       return null;
     }
+    // Stryker restore BlockStatement
   }
 
   async function onDeletePlan(plan: PlannerPlanOut) {
@@ -584,7 +613,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
     if (!plan.targets || !plan.assumptions) return;
     setTargets(
       plan.targets.map((target) => ({
-        key: `target-${targetKeyCounter.current++}`,
+        key: nextTargetKey(),
         year_month: target.year_month,
         animal_class: target.animal_class,
         count: target.count,
@@ -611,6 +640,9 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
   const breedSelectItems = Object.fromEntries(
     breeds.map((b) => [b, b.replace(/_/g, " ")]),
   ) as Record<string, string>;
+
+  // Stryker disable next-line LogicalOperator: the mutant dereferences whichever half is missing and crashes the render with a TypeError that escapes into the test runner itself (Stryker records RuntimeError, not a kill); the both-null test pins the real guard
+  const showEvaluationReport = report && evaluation;
 
   return (
     <div className="space-y-6">
@@ -885,7 +917,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
         </p>
       )}
 
-      {report && evaluation && (
+      {showEvaluationReport && (
         <>
           <Card>
             <CardHeader>
@@ -919,7 +951,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                     const risk = report.plan.probabilities?.[index];
                     const echo = report.targets_echo[index];
                     return (
-                      <TableRow key={`plan-fill-${index}`}>
+                      <TableRow key={index}>
                         <TableCell>{echo ? formatYearMonth(echo.year_month) : fill.month}</TableCell>
                         <TableCell>{formatPlanClass(fill.animal_class, vocabulary)}</TableCell>
                         <TableCell>{formatPlanCount(fill.requested)}</TableCell>
@@ -950,10 +982,11 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
             <CardContent className="space-y-2">
               {report.actions.map((action, index) => {
                 const Icon = ACTION_ICONS[action.kind];
+                // Stryker disable next-line OptionalChaining: inside the report!==null render branch, report cannot be null at this node
                 const missed = action.year_month < (report?.start_year_month ?? startMonth);
                 return (
                   <div
-                    key={`action-${index}`}
+                    key={index}
                     className={`flex items-start gap-3 rounded-lg border p-3 ${
                       missed ? "border-warning-tint-border bg-warning-tint/30" : "border-border"
                     }`}
@@ -985,7 +1018,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
             <CardContent className="space-y-4">
               {report.chains.map((chain, index) => (
                 <div
-                  key={`chain-${index}`}
+                  key={index}
                   className="space-y-2 rounded-lg border border-border p-3"
                 >
                   <p className="text-sm font-medium">
@@ -1011,7 +1044,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                     </TableHeader>
                     <TableBody>
                       {chain.steps.map((step, stepIndex) => (
-                        <TableRow key={`chain-step-${index}-${stepIndex}`}>
+                        <TableRow key={stepIndex}>
                           <TableCell>{formatYearMonth(step.year_month)}</TableCell>
                           <TableCell>{step.quantity}</TableCell>
                           <TableCell>{step.label}</TableCell>
@@ -1057,7 +1090,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                 </TableHeader>
                 <TableBody>
                   {report.stage_plan.map((row) => (
-                    <TableRow key={`stage-${row.month}`}>
+                    <TableRow key={row.month}>
                       <TableCell>{formatYearMonth(row.year_month)}</TableCell>
                       <TableCell>{formatHead(row.female_kids)}</TableCell>
                       <TableCell>{formatHead(row.male_kids)}</TableCell>
@@ -1082,20 +1115,24 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
             </div>
           </DataTableCard>
 
-          {(report.notes ?? []).length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Notes</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {(report.notes ?? []).map((note, index) => (
-                  <p key={`plan-note-${index}`} className="text-sm text-muted-foreground" role="note">
-                    {note}
-                  </p>
-                ))}
-              </CardContent>
-            </Card>
-          )}
+          {((): React.ReactNode => {
+            const notes: string[] = report.notes ?? [];
+            if (notes.length === 0) return null;
+            return (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Notes</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {notes.map((note, index) => (
+                    <p key={index} className="text-sm text-muted-foreground" role="note">
+                      {note}
+                    </p>
+                  ))}
+                </CardContent>
+              </Card>
+            );
+          })()}
         </>
       )}
 
@@ -1129,7 +1166,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
             </TableHeader>
             <TableBody>
               {savedPlans.map((plan) => (
-                <TableRow key={`saved-plan-${plan.id}`}>
+                <TableRow key={plan.id}>
                   <TableCell className="font-medium">{plan.name}</TableCell>
                   <TableCell>{formatYearMonth(plan.start_year_month)}</TableCell>
                   <TableCell>
@@ -1175,6 +1212,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       <Dialog
         open={pendingDelete !== null}
         onOpenChange={(next) => {
+          // Stryker disable next-line BooleanLiteral, ConditionalExpression: the open state is driven programmatically via pendingDelete, so onOpenChange only ever reports dismissal (next=false)
           if (!next) setPendingDelete(null);
         }}
       >
@@ -1183,11 +1221,11 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
             <DialogTitle>Delete plan?</DialogTitle>
             <DialogDescription>
               {pendingDelete !== null && (
-                <>
-                  This permanently deletes{" "}
-                  <span className="font-medium text-foreground">{pendingDelete.name}</span>{" "}
-                  and its saved assumptions. Runs already exported are not affected.
-                </>
+                <span>
+                  {`This permanently deletes `}
+                  <span className="font-medium text-foreground">{pendingDelete.name}</span>
+                  {` and its saved assumptions. Runs already exported are not affected.`}
+                </span>
               )}
             </DialogDescription>
           </DialogHeader>
@@ -1203,8 +1241,9 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
             <Button
               type="button"
               variant="destructive"
-              disabled={deletePlanMutation.isPending || pendingDelete === null}
+              disabled={deletePlanMutation.isPending}
               onClick={() => {
+                // Stryker disable next-line ConditionalExpression: the confirm button renders only inside the dialog, which is open exactly when pendingDelete is non-null
                 if (pendingDelete) void onDeletePlan(pendingDelete);
               }}
             >

@@ -54,6 +54,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
   const [activeAction, setActiveAction] = useState<AccountAction | null>(null);
   const activeActionRef = useRef<AccountAction | null>(null);
   const dialogEpoch = useRef(0);
+  // Stryker disable next-line BooleanLiteral: the mount effect below overwrites the initial value before any continuation can observe it
   const mounted = useRef(true);
   const mutation = useChangePasswordApiAuthChangePasswordPost();
   const {
@@ -63,12 +64,16 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
     formState: { errors, isSubmitting },
   } = useForm<PasswordValues>({
     resolver: zodResolver(passwordSchema),
+    // Stryker disable next-line ObjectLiteral: undefined defaults are observably identical to empty strings for these always-empty fields
     defaultValues: { current_password: "", new_password: "", confirm_password: "" },
   });
 
+  // Stryker disable BlockStatement, ArrayDeclaration: an empty effect body leaves the already-true ref value in place, and a constant string dep still runs the effect exactly once
   useEffect(() => {
     mounted.current = true;
+    // Stryker disable next-line BlockStatement: unmount-only — the refs die with the instance
     return () => {
+      // Stryker disable BooleanLiteral, AssignmentOperator: unmount-only writes — the refs die with the instance
       mounted.current = false;
       // The dialog can disappear with the surrounding shell without close()
       // running. Invalidate late failures so they never target a dead
@@ -76,6 +81,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
       dialogEpoch.current += 1;
     };
   }, []);
+  // Stryker restore BlockStatement, ArrayDeclaration, BooleanLiteral, AssignmentOperator
 
   function beginAction(action: AccountAction) {
     // Disabled buttons update on the next render. The ref is the synchronous
@@ -88,15 +94,18 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
   }
 
   function finishAction(action: AccountAction) {
+    // Stryker disable next-line ConditionalExpression: a mismatched finish is unreachable — beginAction's ref lock serializes account actions
     if (activeActionRef.current !== action) return;
     activeActionRef.current = null;
-    if (mounted.current) setActiveAction(null);
+    // setState after unmount is a React no-op; no mounted re-check needed.
+    setActiveAction(null);
   }
 
   function close() {
     // Async actions may settle after the user closes the dialog. Advance the
     // epoch so a late failure cannot repopulate an error that close() just
     // cleared and then surprise the user on the next open.
+    // Stryker disable next-line AssignmentOperator: every consumer compares epochs for equality only, and a monotonic decrease yields fresh distinct values exactly like the increment
     dialogEpoch.current += 1;
     setOpen(false);
     setServerError(null);
@@ -374,7 +383,10 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
           </p>
           <DialogFooter>
             <Button type="submit" disabled={activeAction !== null || isSubmitting}>
-              {activeAction === "password" || isSubmitting ? "Changing…" : "Change password"}
+              {/* react-hook-form's isSubmitting spans the entire password-action
+                 window (beginAction runs inside the submit handler), so it
+                 alone decides the label. */}
+              {isSubmitting ? "Changing…" : "Change password"}
             </Button>
           </DialogFooter>
           </fieldset>

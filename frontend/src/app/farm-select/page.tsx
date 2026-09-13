@@ -67,6 +67,7 @@ function FarmSelectPageContent() {
   const queryClient = useQueryClient();
   const [serverError, setServerError] = useState<string | null>(null);
   const [selectingFarmId, setSelectingFarmId] = useState<number | null>(null);
+  // Stryker disable next-line BooleanLiteral: the mount effect below overwrites the initial value before any continuation can observe it
   const mounted = useRef(true);
   const farmTransition = useSingleFlight();
   const {
@@ -79,14 +80,17 @@ function FarmSelectPageContent() {
     defaultValues: { name: "", location: "", timezone: "Asia/Kolkata" },
   });
 
+  // Stryker disable ArrayDeclaration: a constant string dep never changes, so the effect still runs exactly once
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
     };
   }, []);
+  // Stryker restore ArrayDeclaration
 
   async function openFarm(farm: FarmEntry) {
+    // Stryker disable next-line ConditionalExpression: openFarm runs synchronously inside the click handler, so the provider is necessarily mounted here
     if (!mounted.current) return;
     const sessionEpoch = authSessionEpochValue();
     setServerError(null);
@@ -96,10 +100,12 @@ function FarmSelectPageContent() {
     // the authoritative timezone.
     selectFarm(farm.id, farm.timezone);
     try {
+      // Stryker disable StringLiteral: only read in permission-envelope's unreachable non-200 branch; the catch below never surfaces it (it renders its own fallback copy)
       const permissions = await fetchSharedPermissions(
         queryClient,
         "Could not load permissions for this farm.",
       );
+      // Stryker restore StringLiteral
       if (!mounted.current || authSessionEpochValue() !== sessionEpoch) return;
       const requestedPath = permittedAppPathFromList(
         searchParams.get("returnTo"),
@@ -129,6 +135,7 @@ function FarmSelectPageContent() {
 
   async function onSubmit(values: FarmValues) {
     await farmTransition.run(async () => {
+      // Stryker disable next-line ConditionalExpression: onSubmit runs synchronously inside the submit event, so the provider is necessarily mounted here
       if (!mounted.current) return;
       const sessionEpoch = authSessionEpochValue();
       setServerError(null);

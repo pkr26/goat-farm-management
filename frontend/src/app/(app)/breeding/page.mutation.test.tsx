@@ -20,7 +20,8 @@ import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 import { farmToday } from "@/lib/format";
 
-import BreedingPage from "./page";
+import BreedingPage, { breedingSchema } from "./page";
+import { farmVocabulary } from "@/lib/farm-vocabulary";
 
 const { navState, toastMock } = vi.hoisted(() => ({
   navState: { search: "" },
@@ -788,5 +789,25 @@ describe("BreedingPage mutation hardening", () => {
 
     await waitFor(() => expect(toastMock.error).not.toHaveBeenCalled());
     expect(toastMock.success).not.toHaveBeenCalledWith("Pregnancy loss recorded.");
+  });
+});
+
+
+describe("breedingSchema — regex and message anchors", () => {
+  const schema = breedingSchema(farmVocabulary);
+  const base = { doe_id: "10", buck_id: "20", breeding_date: "2026-01-01", method: "NATURAL" } as const;
+
+  it("rejects trailing garbage behind a valid date prefix", () => {
+    expect(schema.safeParse({ ...base, breeding_date: "2026-01-01x" }).success).toBe(false);
+  });
+
+  it("files its buck gate under the custom zod code with its message", () => {
+    const bad = schema.safeParse({ ...base, buck_id: "" });
+    expect(bad.success).toBe(false);
+    if (!bad.success) {
+      expect(bad.error.issues.map((i) => i.message)).toContain(
+        `Select a ${farmVocabulary.maleAdult} for a natural service`,
+      );
+    }
   });
 });

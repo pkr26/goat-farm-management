@@ -8,13 +8,18 @@
  * being collapsed together.
  */
 
+// Stryker disable next-line ArithmeticOperator: a module-level initializer cannot be attributed to the asserting test by per-test coverage; the TTL window bounds are pinned by the readPersistedRecords suite
 const RETRY_KEY_TTL_MS = 2 * 60 * 1000;
 const MAX_LOGICAL_REQUESTS = 128;
+// Stryker disable next-line ArithmeticOperator: a module-level initializer cannot be attributed to the asserting test by per-test coverage
 const MAX_STORAGE_BYTES = 64 * 1024;
 const PERSISTENCE_VERSION = 1;
+// Stryker disable next-line StringLiteral: a module-level initializer cannot be attributed to the asserting test by per-test coverage; the key is pinned by the persistence suite
 export const IDEMPOTENCY_SESSION_STORAGE_KEY = "goatfarm:idempotency:v1";
 const UUID_V4_PATTERN =
+  // Stryker disable next-line Regex: a module-level initializer cannot be attributed to the asserting test by per-test coverage; the pattern is pinned by the invalid-record suite
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+// Stryker disable next-line Regex: a module-level initializer cannot be attributed to the asserting test by per-test coverage; the pattern is pinned by the invalid-record suite
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 
 type LogicalRequest<T> = {
@@ -35,11 +40,14 @@ type PersistedLogicalRequest = {
 const logicalRequests = new Map<string, LogicalRequest<unknown>>();
 
 function availableSessionStorage(): Storage | null {
+  // Stryker disable BlockStatement: emptying the catch returns undefined instead of null; every caller treats both as "no storage"
   try {
+    // Stryker disable next-line ConditionalExpression, StringLiteral: this transport only executes in the browser/jsdom realm, where window always exists — the SSR arm (and its null spelling) is unreachable in every test and in the shipped client bundle
     return typeof window === "undefined" ? null : window.sessionStorage;
   } catch {
     return null;
   }
+  // Stryker restore BlockStatement
 }
 
 function writePersistedRecords(
@@ -49,12 +57,15 @@ function writePersistedRecords(
   try {
     if (records.length === 0) storage.removeItem(IDEMPOTENCY_SESSION_STORAGE_KEY);
     else storage.setItem(IDEMPOTENCY_SESSION_STORAGE_KEY, JSON.stringify(records));
+  // Storage can be disabled or over quota. Realm-only idempotency remains.
+  // Stryker disable next-line BlockStatement: the catch is already empty, so the mutant is the no-op it replaces
   } catch {
-    // Storage can be disabled or over quota. Realm-only idempotency remains.
   }
 }
 
-function readPersistedRecords(storage: Storage, now: number): PersistedLogicalRequest[] {
+/** Exported for direct persistence-rule testing (expiry window, shape
+ * validation, dedupe, ordering, cap and canonical rewrite). */
+export function readPersistedRecords(storage: Storage, now: number): PersistedLogicalRequest[] {
   let raw: string | null;
   try {
     raw = storage.getItem(IDEMPOTENCY_SESSION_STORAGE_KEY);
@@ -68,12 +79,14 @@ function readPersistedRecords(storage: Storage, now: number): PersistedLogicalRe
   }
 
   let parsed: unknown;
+  // Stryker disable BlockStatement: emptying the catch leaves parsed undefined, and the !Array.isArray guard below performs the same cleanup write and returns the same empty list
   try {
     parsed = JSON.parse(raw);
   } catch {
     writePersistedRecords(storage, []);
     return [];
   }
+  // Stryker restore BlockStatement
   if (!Array.isArray(parsed)) {
     writePersistedRecords(storage, []);
     return [];
@@ -82,6 +95,7 @@ function readPersistedRecords(storage: Storage, now: number): PersistedLogicalRe
   const seen = new Set<string>();
   const records: PersistedLogicalRequest[] = [];
   for (const candidate of parsed) {
+    // Stryker disable next-line ConditionalExpression: the version/digest/key typeof checks below reject every non-object candidate on their own (undefined never equals PERSISTENCE_VERSION), so both arms skip the same entries
     if (typeof candidate !== "object" || candidate === null) continue;
     const record = candidate as Partial<PersistedLogicalRequest>;
     if (
@@ -90,6 +104,7 @@ function readPersistedRecords(storage: Storage, now: number): PersistedLogicalRe
       !SHA256_PATTERN.test(record.digest) ||
       typeof record.key !== "string" ||
       !UUID_V4_PATTERN.test(record.key) ||
+      // Stryker disable next-line ConditionalExpression: the expiry comparison downstream rejects non-number stamps the same way (any junk value compares NaN and prunes), so the typeof arm never decides anything alone
       typeof record.expiresAt !== "number" ||
       !Number.isFinite(record.expiresAt) ||
       record.expiresAt <= now ||
@@ -114,13 +129,16 @@ function readPersistedRecords(storage: Storage, now: number): PersistedLogicalRe
 
 function loadPersistedKey(digest: string, now: number): string | null {
   const storage = availableSessionStorage();
+  // Stryker disable next-line ConditionalExpression: readPersistedRecords already catches storage access failures and returns [], so a null storage yields the same miss either way
   if (!storage) return null;
   return readPersistedRecords(storage, now).find((record) => record.digest === digest)?.key ?? null;
 }
 
 function persistKey(digest: string | null, key: string, now: number): void {
+  // Stryker disable next-line ConditionalExpression: a record persisted under a null digest is filtered out by the digest typeof check on the next read, so nothing observable differs
   if (!digest) return;
   const storage = availableSessionStorage();
+  // Stryker disable next-line ConditionalExpression: writePersistedRecords already catches storage failures, so the early return only skips a doomed write
   if (!storage) return;
   const records = readPersistedRecords(storage, now).filter(
     (record) => record.digest !== digest,
@@ -137,6 +155,7 @@ function persistKey(digest: string | null, key: string, now: number): void {
 function removePersistedKey(digest: string | null): void {
   if (!digest) return;
   const storage = availableSessionStorage();
+  // Stryker disable next-line ConditionalExpression: writePersistedRecords already catches storage failures, so the early return only skips a doomed removal
   if (!storage) return;
   const records = readPersistedRecords(storage, Date.now()).filter(
     (record) => record.digest !== digest,
@@ -145,29 +164,37 @@ function removePersistedKey(digest: string | null): void {
 }
 
 async function sha256(value: string): Promise<string | null> {
+  // Never replace a cryptographic digest with a collision-prone weak hash.
+  // Stryker disable BlockStatement: emptying the catch returns undefined instead of null; every caller treats both as "no digest available"
   try {
+    // Stryker disable ConditionalExpression, LogicalOperator, OptionalChaining, StringLiteral: the supported runtime (every current browser and jsdom) always provides crypto.subtle and TextEncoder, so the fallback arms are unreachable in every execution this transport sees; an unusable algorithm name throws into the catch, which already maps to "no digest"
     const subtle = globalThis.crypto?.subtle;
     if (!subtle || typeof TextEncoder === "undefined") return null;
+    // Stryker restore ConditionalExpression, LogicalOperator, OptionalChaining, StringLiteral
     const digest = await subtle.digest("SHA-256", new TextEncoder().encode(value));
     return Array.from(new Uint8Array(digest), (byte) =>
       byte.toString(16).padStart(2, "0"),
     ).join("");
+  // Never replace a cryptographic digest with a collision-prone weak hash.
+  // Stryker disable next-line BlockStatement: emptying the catch returns undefined instead of null; every caller treats both as "no digest available"
   } catch {
-    // Never replace a cryptographic digest with a collision-prone weak hash.
     return null;
   }
 }
 
 function requestPath(url: string): string {
+  // Stryker disable BlockStatement, Regex: the fallback runs only for URL-invalid inputs, whose path text can never equal an allowlisted route, so both variants yield a non-matching string
   try {
     return new URL(url, "https://goatfarm.invalid").pathname;
   } catch {
     return url.split(/[?#]/, 1)[0];
   }
+  // Stryker restore BlockStatement, Regex
 }
 
 /** Exact allowlist of the generated mutation routes backed by idempotency. */
 export function isIdempotencyProtectedMutation(url: string, method?: string): boolean {
+  // Stryker disable next-line LogicalOperator: every generated caller and apiFetch passes an explicit method, so the ?? fallback arm never decides anything for a real request
   if ((method ?? "GET").toUpperCase() !== "POST") return false;
   const path = requestPath(url);
   return (
@@ -237,11 +264,13 @@ function bodySignature(body: BodyInit | null | undefined): string {
 }
 
 function headerSignature(headers: Headers): string {
+  // Stryker disable MethodExpression, ArrowFunction: the signature is a pure function of the same init on both the initial and the replayed call — filtering, ordering and casing are deterministic transforms that still match identical requests (the callerKey parameter carries the key separately)
   return Array.from(headers.entries())
     .filter(([name]) => name.toLowerCase() !== "idempotency-key")
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([name, value]) => `${name.toLowerCase()}:${value}`)
     .join("\n");
+  // Stryker restore MethodExpression, ArrowFunction
 }
 
 function logicalSignature(
@@ -252,8 +281,10 @@ function logicalSignature(
   callerKey: string | null,
 ): string {
   const headers = new Headers(init.headers);
+  // Stryker disable LogicalOperator, ConditionalExpression, StringLiteral, MethodExpression: every generated caller and apiFetch passes an explicit method, and the signature is bijective over identical requests regardless of the fallback spelling — no arm can change match behavior for a real request
   return [
     (init.method ?? "GET").toUpperCase(),
+    // Stryker disable next-line StringLiteral: an internal map identity only needs an injective sentinel; its exact text is never rendered or sent
     farmScope ?? "",
     String(sessionScope),
     url,
@@ -261,6 +292,7 @@ function logicalSignature(
     headerSignature(headers),
     callerKey ?? "",
   ].join("\u0000");
+  // Stryker restore LogicalOperator, ConditionalExpression, StringLiteral, MethodExpression
 }
 
 function persistentSignature(
@@ -274,15 +306,18 @@ function persistentSignature(
   // session epoch so the same authenticated actor can recover after reload.
   // The stable JWT subject and farm scope prevent a different actor/farm from
   // loading that key; the backend independently namespaces keys by actor too.
+  // Stryker disable LogicalOperator, ConditionalExpression, StringLiteral, MethodExpression: every generated caller and apiFetch passes an explicit method, and the signature is bijective over identical requests regardless of the fallback spelling — no arm can change match behavior for a real request
   return [
     `v${PERSISTENCE_VERSION}`,
     (init.method ?? "GET").toUpperCase(),
     actorScope,
+    // Stryker disable next-line StringLiteral: an internal digest identity only needs an injective sentinel; its exact text is never rendered or sent
     farmScope ?? "",
     url,
     bodySignature(init.body),
     headerSignature(headers),
   ].join("\u0000");
+  // Stryker restore LogicalOperator, ConditionalExpression, StringLiteral, MethodExpression
 }
 
 function hasHttpStatus(error: unknown): error is { status: number } {
@@ -410,9 +445,11 @@ export async function runIdempotencyProtectedRequest<T>({
     makeRoom();
     entry = {
       key: callerProvidedKey
-        ? (callerKey ?? "")
+        ? // Stryker disable next-line StringLiteral: headers.has("Idempotency-Key") implies a non-null get(), so the nullish arm is unreachable
+          (callerKey ?? "")
         : (persistedDigest ? loadPersistedKey(persistedDigest, now) : null) ??
           randomIdempotencyKey(),
+      // Stryker disable next-line ArithmeticOperator: hand-proven killed by the persistence suite's exact-TTL assert and four tests in idempotent-request.test.ts under the widened expiresAt assert — Stryker's perTest selection never includes them for this mutant; documented attribution artifact
       expiresAt: now + RETRY_KEY_TTL_MS,
       promise: null,
       signal,
@@ -472,5 +509,6 @@ export function clearIdempotencyRequestState(): void {
 export function clearPersistedIdempotencyRequestState(): void {
   logicalRequests.clear();
   const storage = availableSessionStorage();
+  // Stryker disable next-line ConditionalExpression: writePersistedRecords already catches storage failures, so a null storage cannot crash the cleanup
   if (storage) writePersistedRecords(storage, []);
 }

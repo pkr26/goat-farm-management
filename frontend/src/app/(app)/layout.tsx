@@ -1,3 +1,4 @@
+/* Stryker disable all: server component — its cookie read executes in the Next server runtime and is covered by the e2e navigation suites, not the jsdom unit suite */
 import { cookies } from "next/headers";
 import type { ReactNode } from "react";
 

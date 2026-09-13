@@ -958,6 +958,9 @@ describe("protected mutation idempotency transport", () => {
       expect(storedRecords()[0].digest).toMatch(/^[0-9a-f]{64}$/);
       expect(storedRecords()[0].key).toBe(keys[0]);
       expect(storedRecords()[0].expiresAt).toBeLessThanOrEqual(Date.now() + 2 * 60 * 1000);
+      // The stamp is exactly one TTL in the future — a flipped sign would
+      // expire the recovery key the moment it is written.
+      expect(storedRecords()[0].expiresAt).toBeGreaterThan(Date.now());
       for (const secret of [
         "body-secret",
         "header-secret",

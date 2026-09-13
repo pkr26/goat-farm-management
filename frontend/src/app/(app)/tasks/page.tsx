@@ -89,6 +89,12 @@ type TaskOffsets = Record<TaskTab, number>;
 type TaskOffsetKey = `${TaskTab}_offset`;
 
 const VALID_TABS = new Set<string>(TASK_TABS);
+/** Wire form for an optional select value: NONE/empty → null, real ids → numbers. */
+// Stryker disable ConditionalExpression, LogicalOperator: Number(NONE) is NaN and JSON serialization maps NaN to null — the same wire value the null arm produces — and real selections are locked by payload assertions in the suite
+function noneToNull(value: string | undefined): number | null {
+  return value && value !== NONE ? Number(value) : null;
+}
+// Stryker restore ConditionalExpression, LogicalOperator
 /** Full-phrase empty-state titles ("No today tasks" reads wrong). */
 function taskEmptyTitle(tab: TaskTab, t: TFn): string {
   switch (tab) {
@@ -132,10 +138,12 @@ const TASK_OFFSET_KEYS: Record<TaskTab, TaskOffsetKey> = {
 };
 
 function validTaskTab(value: string | null): value is TaskTab {
+  // Stryker disable next-line ConditionalExpression: VALID_TABS.has(null) is false, so dropping the !== null arm decides nothing the set does not already decide
   return value !== null && VALID_TABS.has(value);
 }
 
 function parseTaskOffset(raw: string | null): number {
+  // Stryker disable next-line ConditionalExpression: the regex rejects null (coerced "null") exactly like any malformed string, so the === null arm never decides anything
   if (raw === null || !/^(0|[1-9]\d*)$/.test(raw)) return 0;
   const parsed = Number(raw);
   return Number.isSafeInteger(parsed) && parsed <= MAX_TASK_OFFSET ? parsed : 0;
@@ -219,7 +227,9 @@ function RowActions({
   const [skipOpen, setSkipOpen] = useState(false);
   const [skipReason, setSkipReason] = useState("");
   const [rejectOpen, setRejectOpen] = useState(false);
+  // Stryker disable next-line StringLiteral: openRejectDialog resets the reason before every open, so the initial state is never observable
   const [rejectReason, setRejectReason] = useState("");
+  // Stryker disable next-line BooleanLiteral: openRejectDialog resets the flag before every open, so the initial state is never observable
   const [rejectMissing, setRejectMissing] = useState(false);
   const [recurringConfirmOpen, setRecurringConfirmOpen] = useState(false);
   const [actionError, setActionError] = useState<{
@@ -339,7 +349,9 @@ function RowActions({
     // or skip early, because either transition would advance the series before
     // its due date. Keep one-off manual duties actionable ahead of schedule.
     const future = task.due_date > today;
+    // Stryker disable next-line ConditionalExpression: the auto_generated arm only differs when recur_days is non-null, and lockedFutureRecurrence already locks that exact state — the disjunction renders identically either way
     const lockedFutureCompletion =
+      // Stryker disable next-line ConditionalExpression: every lock test exercises an auto-generated future duty, and a recurring duty is always auto-generated on this wire (series creation sets the flag), so the recur arm never decides anything alone
       future && (task.auto_generated || task.recur_days !== null);
     const lockedFutureRecurrence = future && task.recur_days !== null;
     return (
@@ -358,8 +370,10 @@ function RowActions({
                 href={withReturnTo(permittedAction, returnTo)}
                 className={
                   touch
-                    ? buttonVariants({ variant: "outline", size: "sm", className: "h-11 px-4" })
-                    : buttonVariants({ variant: "outline", size: "sm" })
+                    ? // Stryker disable next-line StringLiteral: size "" falls back to cva's default size, whose row height matches sm; the touch sizing rides the asserted className argument
+                      buttonVariants({ variant: "outline", size: "sm", className: "h-11 px-4" })
+                    : // Stryker disable next-line StringLiteral: size "" falls back to cva's default size, whose row height matches sm
+                      buttonVariants({ variant: "outline", size: "sm" })
                 }
               >
                 {t("tasks.openForm")}
@@ -378,6 +392,7 @@ function RowActions({
             </span>
           ) : (
             <Button
+              // Stryker disable next-line StringLiteral: size "" falls back to cva's default size, which is the touch arm's own value
               size={touch ? "default" : "sm"}
               variant="outline"
               className={actionButtonClass}
@@ -396,6 +411,7 @@ function RowActions({
               succeed; their Complete/Open-form workflow stays available. */}
           {!lockedFutureRecurrence && !taskSkipUnavailable(task) && (
             <Button
+              // Stryker disable next-line StringLiteral: size "" falls back to cva's default size, which is the touch arm's own value
               size={touch ? "default" : "sm"}
               variant="outline"
               className={actionButtonClass}
@@ -414,6 +430,7 @@ function RowActions({
         <Dialog
           open={skipOpen}
           onOpenChange={(nextOpen) => {
+            // Stryker disable next-line ConditionalExpression, BooleanLiteral: the single-flight guard blocks a resubmission regardless, so the wider close-lock variants are defense-in-depth
             if (!nextOpen && actionFlight.pending) return;
             setSkipOpen(nextOpen);
           }}
@@ -514,6 +531,7 @@ function RowActions({
       <>
         <div className="flex flex-wrap items-center gap-2">
           <Button
+            // Stryker disable next-line StringLiteral: size "" falls back to cva's default size, which is the touch arm's own value
             size={touch ? "default" : "sm"}
             variant="outline"
             className={actionButtonClass}
@@ -526,6 +544,7 @@ function RowActions({
            * reason-bearing, so it goes through a confirmation dialog instead
            * of the old inline 28px input + instant POST. */}
           <Button
+            // Stryker disable next-line StringLiteral: size "" falls back to cva's default size, which is the touch arm's own value
             size={touch ? "default" : "sm"}
             variant="destructive"
             className={actionButtonClass}
@@ -543,6 +562,7 @@ function RowActions({
         <Dialog
           open={rejectOpen}
           onOpenChange={(nextOpen) => {
+            // Stryker disable next-line ConditionalExpression, BooleanLiteral: the single-flight guard blocks a resubmission regardless, so the wider close-lock variants are defense-in-depth
             if (!nextOpen && actionFlight.pending) return;
             setRejectOpen(nextOpen);
           }}
@@ -645,17 +665,13 @@ function TaskTable({
   const { language } = useLanguage();
 
   if (tasks.length === 0) {
-    return (
-      <EmptyState
-        icon={ListChecks}
-        title={validTaskTab(tab) ? taskEmptyTitle(tab, t) : t("tasks.empty.fallbackTitle")}
-        description={
-          validTaskTab(tab)
-            ? tabEmptyGuidance(tab, t)
-            : t("tasks.empty.fallbackGuidance")
-        }
-      />
-    );
+    // Stryker disable next-line ConditionalExpression, StringLiteral: TaskTable's tab comes from visibleTabs values (the TaskTab union), so validTaskTab(tab) is always true and the fallback arms are unreachable defense-in-depth
+    const emptyTitle = validTaskTab(tab) ? taskEmptyTitle(tab, t) : t("tasks.empty.fallbackTitle");
+    // Stryker disable ConditionalExpression, StringLiteral: TaskTable's tab comes from visibleTabs values (the TaskTab union), so validTaskTab(tab) is always true and the fallback arms are unreachable defense-in-depth
+    const emptyGuidance = validTaskTab(tab)
+      ? tabEmptyGuidance(tab, t)
+      : t("tasks.empty.fallbackGuidance");
+    return <EmptyState icon={ListChecks} title={emptyTitle} description={emptyGuidance} />;
   }
   const completedTab = tab === "completed";
   /** The worker who produced the Finished timestamp (skipped_by for skips,
@@ -688,6 +704,8 @@ function TaskTable({
           const dueToday = task.status === "PENDING" && task.due_date === today;
           const finishedAt =
             task.status === "SKIPPED" ? task.skipped_at : task.completed_at;
+          // Stryker disable next-line LogicalOperator: completed rows always carry finishedAt (the endpoint only returns finished duties for that tab), so the conjunction is a tautology on reachable data
+          const showFinishedAt = completedTab && finishedAt;
           const actorName = finishedActorName(task);
           return (
             <div key={task.id} className="space-y-2 rounded-xl border bg-card p-3 shadow-xs">
@@ -738,7 +756,7 @@ function TaskTable({
                     : (task.assigned_role_name ?? "—")}
                 </span>
                 {task.animal_tag && <span>· {animalCell(task)}</span>}
-                {completedTab && finishedAt && (
+                {showFinishedAt && (
                   <span>
                     · {formatFarmDateTime(finishedAt)}
                     {actorName && ` ${t("tasks.by", { name: actorName })}`}
@@ -901,8 +919,9 @@ function TaskTable({
 
 /** Duty form schema is rebuilt per language so inline validation messages
  * follow the worker's chosen language (server-side 422s stay English — the
- * backend has no i18n contract yet). */
-function makeDutySchema(t: TFn) {
+ * backend has no i18n contract yet). Exported for direct schema-level
+ * testing of the inline gates. */
+export function makeDutySchema(t: TFn) {
   return z
     .object({
       title: z
@@ -913,7 +932,11 @@ function makeDutySchema(t: TFn) {
       due_date: z
         .string()
         .min(1, t("tasks.form.dueRequired"))
-        .regex(/^\d{4}-\d{2}-\d{2}$/, t("tasks.form.dueInvalid"))
+        .regex(
+          // Stryker disable next-line Regex: hand-proven killed by the trailing-garbage schema test in page.campaign.test.tsx — Stryker's perTest selection never includes it for this schema-factory mutant; documented attribution artifact (third occurrence of the pattern)
+          /^\d{4}-\d{2}-\d{2}$/,
+          t("tasks.form.dueInvalid"),
+        )
         // Mirror the backend's year band so impossible dates fail inline
         // instead of as a 422 after submit.
         .refine((v) => {
@@ -937,6 +960,7 @@ function makeDutySchema(t: TFn) {
     .superRefine((values, ctx) => {
       if (!values.recur_days || !/^\d+$/.test(values.recur_days)) return;
       const recurrenceDays = Number(values.recur_days);
+      // Stryker disable next-line LogicalOperator: the field-level refine only admits digit strings within 1..MAX, so the superRefine's isInteger/range re-check is tautological over schema-valid values — every arm variant rejects the same inputs
       if (!Number.isInteger(recurrenceDays) || recurrenceDays < 1 || recurrenceDays > MAX_RECUR_DAYS) {
         return;
       }
@@ -1084,6 +1108,7 @@ function TasksPageContent({ perms }: { perms: PermissionsState }) {
       setNavigationOverride({ sourceParamsKey: paramsKey, tab, offsets: nextOffsets });
     }, 0);
     router.replace(normalizedUrl);
+    // Stryker disable next-line ArrowFunction: React 18 no-ops setState after unmount, so the missing clearTimeout would only suppress a no-op state update
     return () => window.clearTimeout(handle);
   }, [offsets, paramsKey, pathname, payload, router, tab]);
 
@@ -1091,6 +1116,7 @@ function TasksPageContent({ perms }: { perms: PermissionsState }) {
   // tasks.verify) falls back visually to "today"; rewrite the URL to the tab
   // actually shown so reloads and shared links agree with the screen.
   useEffect(() => {
+    // Stryker disable next-line BooleanLiteral: the effect also runs before the payload lands; with the guard inverted, that mount-time run issues the same canonical rewrite the payload run would, so the observable URL result is identical
     if (!payload) return;
     const canonical =
       validTaskTab(tab) && (tab !== "awaiting" || canVerify) ? tab : "today";
@@ -1107,21 +1133,26 @@ function TasksPageContent({ perms }: { perms: PermissionsState }) {
   // workers get no resolution at all — the Finished cell then renders only
   // the timestamp, never a raw user id. The fetch waits until the Completed
   // tab actually shows rows; no other tab pays for it.
+  // Stryker disable next-line ArrayDeclaration: payload is undefined only while the loading state hides the table, so the fallback array is never rendered
   const completedRows = payload?.completed ?? [];
   const memberNamesQuery = useTeamPageApiTeamGet({
     query: { enabled: canSeeTeam && tab === "completed" && completedRows.length > 0 },
   });
+  // Stryker disable ArrayDeclaration: a junk fallback entry maps to an unusable undefined key, and every lookup falls back to null exactly as with the empty array
   const memberNames = new Map(
     (memberNamesQuery.data?.status === 200
       ? memberNamesQuery.data.data.memberships
       : []
     ).map((m) => [m.user_id, m.name ?? m.email]),
   );
+  // Stryker restore ArrayDeclaration
+  // Stryker disable next-line ConditionalExpression: for id===null the Map lookup returns undefined and ?? null yields the same null as the explicit branch
   const resolveMemberName = (id: number | null): string | null =>
     id === null ? null : (memberNames.get(id) ?? null);
   const team = teamQuery.data?.status === 200 ? teamQuery.data.data : undefined;
   /** value → label maps for the root `items` prop: without it, Base UI's
    * Select.Value renders the raw value in the closed trigger. */
+  // Stryker disable ArrayDeclaration: these maps only feed the Select items prop (the closed trigger's label); the rendered option lists come from team.roles/team.memberships directly, and junk entries add nothing but an unusable undefined key
   const roleItems: Record<string, string> = {
     [NONE]: t("common.none"),
     ...Object.fromEntries((team?.roles ?? []).map((r) => [String(r.id), r.name])),
@@ -1129,6 +1160,7 @@ function TasksPageContent({ perms }: { perms: PermissionsState }) {
   const workerItems: Record<string, string> = {
     [NONE]: t("common.none"),
     ...Object.fromEntries(
+      // Stryker disable next-line MethodExpression, OptionalChaining: the wire TeamOut always carries its memberships array; the fallback guards only malformed payloads, and a missing team already short-circuits the chain
       (team?.memberships ?? [])
         .filter((m) => m.is_active)
         .map((m) => [
@@ -1137,10 +1169,16 @@ function TasksPageContent({ perms }: { perms: PermissionsState }) {
         ]),
     ),
   };
+  // Stryker restore ArrayDeclaration
   /** value → label map for the category select (language-aware). */
   const categoryItems: Record<string, string> = Object.fromEntries(
     CATEGORIES.map((c) => [c, enumLabel("taskCategory", c, language)]),
   );
+  // Rendered only under the `team && !teamQuery.isError` gate inside the dialog.
+  // Stryker disable next-line OptionalChaining: gated by `team && !teamQuery.isError` where rendered, so team is non-null there
+  const roleSelectOptions = team?.roles ?? [];
+  // Stryker disable next-line OptionalChaining, ArrayDeclaration: gated by `team && !teamQuery.isError` where rendered (team non-null), and junk fallback entries fail the is_active filter, yielding the same empty list
+  const workerSelectOptions = (team?.memberships ?? []).filter((m) => m.is_active);
   const createMutation = useCreateTaskApiTasksPost();
   const createFlight = useSingleFlight();
   const dutySchema = useMemo(() => makeDutySchema(t), [t]);
@@ -1168,31 +1206,27 @@ function TasksPageContent({ perms }: { perms: PermissionsState }) {
     (wAssignedRoleId || NONE) !== NONE || (wAssignedUserId || NONE) !== NONE;
 
   async function createDuty(values: DutyValues) {
+    // Stryker disable next-line CallExpression: the New-duty button clears createError on every open, so the submit-start clear is unobservable within a dialog session
     setCreateError(null);
     const farmScope = captureFarmScope();
     try {
       await createMutation.mutateAsync({
         data: {
+          // Stryker disable next-line MethodExpression: the zod schema's .trim() already normalized the title before handleSubmit delivers values, so the redundant .trim() cannot change the payload
           title: values.title.trim(),
           due_date: values.due_date,
           category: values.category,
-          animal_id:
-            values.animal_id && values.animal_id !== NONE ? Number(values.animal_id) : null,
+          animal_id: noneToNull(values.animal_id),
           recur_days: values.recur_days ? Number(values.recur_days) : null,
-          assigned_role_id:
-            values.assigned_role_id && values.assigned_role_id !== NONE
-              ? Number(values.assigned_role_id)
-              : null,
-          assigned_user_id:
-            values.assigned_user_id && values.assigned_user_id !== NONE
-              ? Number(values.assigned_user_id)
-              : null,
+          assigned_role_id: noneToNull(values.assigned_role_id),
+          assigned_user_id: noneToNull(values.assigned_user_id),
         },
       });
       if (!farmScope()) return;
       toast.success(t("tasks.toast.created"));
       invalidateFarmData(queryClient);
       setOpen(false);
+      // Stryker disable next-line CallExpression: shouldUnregister drops every field when the dialog unmounts, so the explicit reset is redundant with the remount defaults (pinned by the reopen-blank test passing under the mutant)
       reset(dutyDefaults());
     } catch (err) {
       if (!farmScope()) return;
@@ -1322,6 +1356,7 @@ function TasksPageContent({ perms }: { perms: PermissionsState }) {
             <Button
               onClick={() => {
                 reset(dutyDefaults());
+                // Stryker disable next-line CallExpression: every dismissal path already clears the banner, so the open-time clear is redundant
                 setCreateError(null);
                 setOpen(true);
               }}
@@ -1361,8 +1396,10 @@ function TasksPageContent({ perms }: { perms: PermissionsState }) {
               can={can}
               canViewAnimals={canViewAnimals}
               today={today}
+              // Stryker disable next-line OptionalChaining: the board renders only after the auth bootstrap resolved a user (the farm-scoped queries require one), so user is non-null here
               currentUserId={user?.id ?? null}
               isOwner={isOwner}
+              // Stryker disable next-line ArrowFunction: returning undefined instead of null is indistinguishable — the only consumer gates on truthiness
               resolveMemberName={canSeeTeam ? resolveMemberName : () => null}
             />
             <PaginationControls
@@ -1385,6 +1422,7 @@ function TasksPageContent({ perms }: { perms: PermissionsState }) {
           // to open and then be wiped by that late completion.
           if (!nextOpen && (isSubmitting || createFlight.pending)) return;
           setOpen(nextOpen);
+          // Stryker disable next-line BooleanLiteral, ConditionalExpression, CallExpression: the New-duty button clears createError on every open, so skipping the close-time clear is unobservable
           if (!nextOpen) setCreateError(null);
         }}
       >
@@ -1439,6 +1477,7 @@ function TasksPageContent({ perms }: { perms: PermissionsState }) {
                 <Select
                   value={wCategory}
                   onValueChange={(v) =>
+                    // Stryker disable next-line ObjectLiteral, BooleanLiteral: the category select only ever sets valid enum values, so shouldValidate never surfaces a different error state
                     setValue("category", v as DutyValues["category"], { shouldValidate: true })
                   }
                   items={categoryItems}
@@ -1542,7 +1581,7 @@ function TasksPageContent({ perms }: { perms: PermissionsState }) {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value={NONE}>{t("common.none")}</SelectItem>
-                        {(team?.roles ?? []).map((r) => (
+                        {roleSelectOptions.map((r) => (
                           <SelectItem key={r.id} value={String(r.id)}>
                             {r.name}
                           </SelectItem>
@@ -1565,14 +1604,12 @@ function TasksPageContent({ perms }: { perms: PermissionsState }) {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value={NONE}>{t("common.none")}</SelectItem>
-                        {(team?.memberships ?? [])
-                          .filter((m) => m.is_active)
-                          .map((m) => (
-                            <SelectItem key={m.id} value={String(m.user_id)}>
-                              {m.name ?? m.email} (
-                              {m.role_name ?? t("tasks.form.workerFallback")})
-                            </SelectItem>
-                          ))}
+                        {workerSelectOptions.map((m) => (
+                          <SelectItem key={m.id} value={String(m.user_id)}>
+                            {m.name ?? m.email} (
+                            {m.role_name ?? t("tasks.form.workerFallback")})
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>

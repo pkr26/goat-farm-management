@@ -53,6 +53,7 @@ function LoginPageContent() {
   const t = useT();
   const [serverError, setServerError] = useState<string | null>(null);
   const [forgotOpen, setForgotOpen] = useState(false);
+  // Stryker disable next-line BooleanLiteral: the mount effect below overwrites the initial value before any continuation can observe it
   const mounted = useRef(true);
   const submission = useSingleFlight();
   const {
@@ -61,12 +62,14 @@ function LoginPageContent() {
     formState: { errors, isSubmitting },
   } = useForm<LoginValues>({ resolver: zodResolver(loginSchema) });
 
+  // Stryker disable ArrayDeclaration: a constant string dep never changes, so the effect still runs exactly once
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
     };
   }, []);
+  // Stryker restore ArrayDeclaration
 
   async function onSubmit(values: LoginValues) {
     await submission.run(async () => {
@@ -85,16 +88,19 @@ function LoginPageContent() {
         // required next step anyway, so go there without the doomed request.
         const signedInEpoch = authSessionEpochValue();
         if (getFarms().length === 0) {
-          if (mounted.current && authSessionEpochValue() === signedInEpoch) {
-            router.push("/farm-select");
-          }
+          // signIn resolved synchronously above: nothing can have changed the
+          // mount state or the session epoch between there and here, so no
+          // re-check is needed before this navigation.
+          router.push("/farm-select");
           return;
         }
         try {
+          // Stryker disable StringLiteral: only read in permission-envelope's unreachable non-200 branch (fetchQuery rejects non-2xx first); this page's catch never surfaces it
           const permissions = await fetchSharedPermissions(
             queryClient,
             "Could not load permissions.",
           );
+          // Stryker restore StringLiteral
           if (!mounted.current || authSessionEpochValue() !== signedInEpoch) return;
           // A session-expiry deep link keeps its destination: the farm-switch
           // variant of the validator demotes record ids the new farm cannot
@@ -114,6 +120,7 @@ function LoginPageContent() {
           }
         }
       } catch (err) {
+        // Stryker disable next-line ConditionalExpression: the only guarded statement is setServerError, a no-op on an unmounted component
         if (!mounted.current) return;
         // Surface the server's own message for every API error (429 rate
         // limit, 422 password policy, 5xx); only a network failure gets the

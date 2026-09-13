@@ -403,6 +403,16 @@ describe("AnimalsPage mutation hardening", () => {
       );
     }
 
+    it("hides the historical-import fields from a plain purchase", async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<AnimalsPage />);
+      await screen.findAllByText("G-001");
+      const dialog = await openCreateDialog(user);
+      expect(
+        within(dialog).queryByLabelText("Historical import reason *"),
+      ).not.toBeInTheDocument();
+    });
+
     it("sorts by tag ascending, then descending, then back to the server order", async () => {
       const user = userEvent.setup();
       renderWithProviders(<AnimalsPage />);
@@ -463,19 +473,32 @@ describe("AnimalsPage mutation hardening", () => {
     });
 
     it("sorts an unaged animal before an aged one on age", async () => {
+      // The unknown row sits between plain values and sub-sentinel rows (0/1):
+      // insertion sort passes the incoming row as `a`, so both argument
+      // orders against the unknown occur — a sentinel flip on either side
+      // reorders the result.
+      // The unknown row sits BETWEEN the 0 and 1 rows: insertion sort then
+      // compares (unknown, 0) with the unknown as `a` AND (1, unknown) with
+      // the unknown as `b` — every sentinel flip reorders the result.
       const pair = [
         animal({ id: 5, tag_number: "G-00A", age_months: 5, latest_weight_kg: 5 }),
-        animal({ id: 6, tag_number: "G-00B", age_months: null, latest_weight_kg: null }),
+        animal({ id: 6, tag_number: "G-00B", age_months: 6, latest_weight_kg: 6 }),
+        animal({ id: 7, tag_number: "G-00C", age_months: 0, latest_weight_kg: 0 }),
+        animal({ id: 9, tag_number: "G-00E", age_months: null, latest_weight_kg: null }),
+        animal({ id: 8, tag_number: "G-00D", age_months: 1, latest_weight_kg: 1 }),
       ];
       server.use(
-        http.get("/api/animals", () => HttpResponse.json({ animals: pair, total: 2 })),
+        http.get("/api/animals", () => HttpResponse.json({ animals: pair, total: 5 })),
       );
       const user = userEvent.setup();
       renderWithProviders(<AnimalsPage />);
-      await screen.findByText("2 animal(s)");
+      await screen.findByText("5 animal(s)");
 
       await user.click(within(tableHead(6)).getByRole("button"));
-      expect(tagColumnOrder()).toEqual(["G-00B", "G-00A"]);
+      expect(tagColumnOrder()).toEqual(["G-00E", "G-00C", "G-00D", "G-00A", "G-00B"]);
+      // Weight uses the same sentinel: unknown before a 0 kg record.
+      await user.click(within(tableHead(7)).getByRole("button"));
+      expect(tagColumnOrder()).toEqual(["G-00E", "G-00C", "G-00D", "G-00A", "G-00B"]);
     });
   });
 

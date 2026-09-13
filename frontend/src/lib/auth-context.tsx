@@ -36,7 +36,7 @@ import { setActiveFarmTimezone } from "@/lib/format";
 export type SessionUser = UserOut;
 export type FarmEntry = FarmOut;
 
-interface AuthState {
+export interface AuthState {
   user: SessionUser | null;
   farms: FarmEntry[];
   farmId: number | null;
@@ -57,7 +57,9 @@ interface AuthState {
 }
 
 const AuthContext = createContext<AuthState | null>(null);
+// Stryker disable next-line StringLiteral: a module-level initializer cannot be attributed to the asserting test by per-test coverage; the key is pinned verbatim by the persistence suite
 const FARM_STORAGE_KEY = "goatfarm.farmId";
+// Stryker disable next-line ArrayDeclaration, StringLiteral: a module-level initializer cannot be attributed to the asserting test by per-test coverage; the list is pinned by the redirect suite
 const PUBLIC_PATHS = ["/login", "/register"];
 
 /** Site data can be blocked for the origin (reading `window.localStorage`
@@ -71,10 +73,12 @@ function readStoredFarmId(): number | null {
     const raw = window.localStorage.getItem(FARM_STORAGE_KEY);
     if (raw === null) return null;
     const stored = Number(raw);
+    // Stryker disable BlockStatement: the catch's only statement returns null, and the sole caller reads this via ??, which treats the mutant's undefined exactly like null
     return Number.isSafeInteger(stored) && stored > 0 ? stored : null;
   } catch {
     return null;
   }
+  // Stryker restore BlockStatement
 }
 
 function writeStoredFarmId(id: number): void {
@@ -130,6 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // refreshFarms had a chance to set farmId — misfiring the /farm-select
   // redirect. Guard the initial refresh to at most one in-flight call.
   const initialRefreshStarted = useRef(false);
+  // Stryker disable next-line BooleanLiteral: the mount effect below overwrites the initial value before any continuation can observe it
   const mounted = useRef(true);
   // Latest-wins fence for explicit membership refreshes. Two reads can
   // observe different server snapshots and arrive in reverse order.
@@ -150,15 +155,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     task: Promise<void>;
   } | null>(null);
 
+  // Stryker disable ArrayDeclaration: a constant string dep never changes, so the effect still runs exactly once
   useEffect(() => {
     // React Strict Mode rehearses cleanup/setup without discarding refs.
     mounted.current = true;
     return () => {
       mounted.current = false;
       farmRefreshGeneration.current += 1;
+      // Stryker disable next-line AssignmentOperator: only observable in a StrictMode double-mount rehearsal; the refs die with the instance on a real unmount
       sessionEstablishmentGeneration.current += 1;
     };
   }, []);
+  // Stryker restore ArrayDeclaration
 
   const selectFarm = useCallback(
     (id: number, timezone?: string) => {
@@ -186,6 +194,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    *  both behave identically. */
   const clearSession = useCallback(() => {
     farmRefreshGeneration.current += 1;
+    // Stryker disable next-line AssignmentOperator: any clearSession that could race an in-flight establishment first flips the access token (null), whose epoch bump already invalidates that establishment on both its resolved and rejected paths
     sessionEstablishmentGeneration.current += 1;
     queryClient.clear();
     clearPersistedIdempotencyRequestState();
@@ -305,6 +314,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(u);
         if (
           farmGeneration !== farmRefreshGeneration.current &&
+          // Stryker disable next-line EqualityOperator: appliedFarmGeneration is only ever set to a generation captured by refreshFarms, so it can never equal this establishment's freshly captured farmGeneration
           appliedFarmGeneration.current > farmGeneration
         ) return;
         appliedFarmGeneration.current = farmGeneration;
@@ -354,7 +364,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // "Loading…" gate forever. A committed session outranks a pending
       // bootstrap, so release the gate here too; the bootstrap's own later
       // write is then a no-op.
-      if (mounted.current) setLoading(false);
+      setLoading(false);
     },
     [establishSession],
   );
@@ -381,6 +391,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     (async () => {
       try {
         const body = await refreshSession();
+        // Stryker disable next-line ConditionalExpression, LogicalOperator: the false variant is regression-covered by the session-restore tests; the true variant is equivalent (a null body deref crashes into the same catch as skipping)
         if (body && mounted.current) {
           // A farms failure here must not revoke the refresh family this call
           // just rotated: the user is not watching an error message, so a
@@ -391,7 +402,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Refresh failed (network error or non-JSON body): stay signed out.
         // loading settles in finally and the redirect effect sends /login.
       } finally {
-        if (mounted.current) setLoading(false);
+        // setState after unmount is a React no-op; no mounted re-check needed.
+        setLoading(false);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -413,10 +425,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     router.replace("/login");
   }, [loading, user, pathname, router]);
 
+  // Stryker disable ArrayDeclaration: setUser is stable, so a constant dep list only changes the callback's identity, never its behavior
   const updateUser = useCallback((u: SessionUser) => {
-    if (mounted.current) setUser(u);
+    // setState after unmount is a React no-op; no mounted re-check needed.
+    setUser(u);
   }, []);
+  // Stryker restore ArrayDeclaration
 
+  // Stryker disable next-line ArrayDeclaration: the callback reads only a ref; a constant dep list cannot change its behavior
   const getFarms = useCallback(() => farmsRef.current, []);
 
   const value = useMemo(

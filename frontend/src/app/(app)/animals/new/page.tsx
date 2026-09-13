@@ -13,6 +13,7 @@ function AnimalsNewRedirectContent() {
   const searchParams = useSearchParams();
   const redirectStarted = useRef(false);
 
+  // Stryker disable ArrayDeclaration: the redirectStarted ref latch makes repeat runs inert, so a constant dep list cannot change the one-time redirect
   useEffect(() => {
     // React Strict Mode replays mount effects in development. Dispatch this
     // query-param redirect once per mounted shim so two identical Next
@@ -24,8 +25,11 @@ function AnimalsNewRedirectContent() {
     const params = new URLSearchParams(searchParams.toString());
     params.set("new", "1");
     const query = params.toString();
+    // Stryker disable next-line StringLiteral: params always carries new=1, so the bare-path fallback arm is unreachable
     router.replace(query ? `/animals?${query}` : "/animals");
+    // Stryker restore StringLiteral
   }, [router, searchParams]);
+  // Stryker restore ArrayDeclaration
 
   // A redirect has no page structure to mirror — the shared inline spinner
   // beats a bare "Loading…" paragraph.
@@ -41,4 +45,3 @@ export default function AnimalsNewRedirect() {
     </Suspense>
   );
 }
-

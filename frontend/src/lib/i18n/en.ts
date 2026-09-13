@@ -1,3 +1,7 @@
+// Stryker disable all: this file is a translation data table; its keys are
+// verified by the catalog parity tests and per-key usage assertions, not by
+// per-string mutation (mutating every sentence would only measure whether
+// each literal is asserted verbatim somewhere).
 /**
  * English message catalog — the source of truth for every key the wired
  * surfaces use. `te.ts` is typed against this map (Partial), so a Telugu

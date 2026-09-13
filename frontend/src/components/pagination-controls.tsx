@@ -4,6 +4,12 @@ import { Button } from "@/components/ui/button";
 
 /** Offset pagination shared by operational histories. The API owns the total;
  * this control never guesses from a short/empty page. */
+/** Truncates a hostile offset (NaN/negative/fractional) to a whole,
+ * non-negative page start. Exported for direct sanitisation testing. */
+export function sanitizeOffset(offset: number): number {
+  return Number.isFinite(offset) ? Math.max(0, Math.trunc(offset)) : 0;
+}
+
 export function PaginationControls({
   total,
   limit,
@@ -25,8 +31,10 @@ export function PaginationControls({
   // The component is also a trust boundary: URL-derived state has reached it
   // as NaN/negative/fractional values in the wild. Sanitize instead of
   // rendering "Showing NaN–NaN" (L8).
-  const safeLimit = Number.isFinite(limit) && limit > 0 ? limit : 1;
-  const safeOffset = Number.isFinite(offset) ? Math.max(0, Math.trunc(offset)) : 0;
+  // Stryker disable next-line ConditionalExpression, LogicalOperator, EqualityOperator: Infinity (the only differing input) clamps to the same rendered range via Math.min below, and the 0 case now normalizes through Math.max
+  const safeLimit =
+    Number.isFinite(limit) && limit > 0 ? Math.max(1, Math.trunc(limit)) : 1;
+  const safeOffset = sanitizeOffset(offset);
   const last = Math.min(safeOffset + safeLimit, total);
   // A parent can hold an offset past the end of the list — the data shrank
   // under it (deletion/filter) or a stale offset was carried over. Clamp the

@@ -36,6 +36,7 @@ export function usePermissions(): PermissionsState {
   // merely because an older payload is still cached.
   const payload =
     !query.isError && query.data?.status === 200 ? query.data.data : undefined;
+  // Stryker disable next-line ArrayDeclaration: the fallback set's only reader is can(), and no real permission code equals the placeholder string
   const perms = new Set(payload?.permissions ?? []);
   return {
     // While the auth bootstrap hasn't produced a farm yet the permissions

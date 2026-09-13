@@ -24,7 +24,8 @@ import { addDays, farmToday, formatDate } from "@/lib/format";
 import { ALL_PERMISSIONS, permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
-import KiddingPage from "./page";
+import KiddingPage, { kiddingSchema } from "./page";
+import { farmVocabulary } from "@/lib/farm-vocabulary";
 
 const { navState, toastMock } = vi.hoisted(() => ({
   navState: { search: "" },
@@ -710,4 +711,35 @@ describe("KiddingPage mutation hardening", () => {
 
 afterAll(() => {
   vi.restoreAllMocks();
+});
+
+
+describe("kiddingSchema — regex and message anchors", () => {
+  const schema = kiddingSchema(farmVocabulary);
+  const kid = { tag: "", sex: "F" as const, birth_weight: 2.5, status: "ALIVE" as const, mortality_reported_at: "" };
+  const base = { date: "2026-07-20", ease: "NORMAL" as const, notes: "", kids: [kid] };
+
+  it("rejects trailing garbage behind a valid date prefix", () => {
+    expect(schema.safeParse({ ...base, date: "2026-07-20x" }).success).toBe(false);
+  });
+
+  it("carries the litter bounds as operator-readable messages", () => {
+    const empty = schema.safeParse({ ...base, kids: [] });
+    expect(empty.success).toBe(false);
+    if (!empty.success) {
+      expect(empty.error.issues.map((i) => i.message)).toContain(
+        `At least one ${farmVocabulary.young}`,
+      );
+    }
+    const big = schema.safeParse({
+      ...base,
+      kids: Array.from({ length: farmVocabulary.facts.maxLitterSize + 1 }, () => kid),
+    });
+    expect(big.success).toBe(false);
+    if (!big.success) {
+      expect(big.error.issues.map((i) => i.message)).toContain(
+        `A ${farmVocabulary.parturition} delivers at most ${farmVocabulary.facts.maxLitterSize} ${farmVocabulary.youngPlural} on this farm`,
+      );
+    }
+  });
 });

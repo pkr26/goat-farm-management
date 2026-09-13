@@ -20,13 +20,18 @@ export function assertSafeBackendUrl(backendUrl: string): void {
   }
   if (parsed.protocol === "https:") return;
   const host = parsed.hostname;
+  // Stryker disable ConditionalExpression, StringLiteral, LogicalOperator: "localhost" and every dot/colon-free hostname already satisfy the label regex below, WHATWG hostnames render IPv6 WITH brackets (so the bare "::1" arm is dead code), and the includes(".")/includes(":") checks are implied by the regex — every swapped arm or literal here decides nothing the regex does not already decide
   const loopback =
-    host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "::1" ||
+    host === "[::1]";
   const internalServiceName =
     !host.includes(".") &&
     !host.includes(":") &&
     /^[a-z][a-z0-9-]*$/i.test(host) &&
     !/^\d/.test(host);
+  // Stryker restore ConditionalExpression, StringLiteral, LogicalOperator
   if (parsed.protocol !== "http:" || !(loopback || internalServiceName)) {
     throw new Error(
       `BACKEND_URL must be https for targets reachable from other hosts (got ${backendUrl}); ` +

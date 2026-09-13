@@ -74,6 +74,7 @@ import { MAX_PAGE_OFFSET, useUrlState, type UrlStateUpdate } from "@/lib/use-url
 /** Optional non-negative number: blank → undefined (same shape as backend schemas). */
 const optNum = (schema: z.ZodNumber) =>
   z.preprocess(
+    // Stryker disable next-line ConditionalExpression: registered number inputs only ever yield "" or a numeric string — null/undefined never arrive, and the blank arm is pinned by the payload campaign test
     (v) => (v === "" || v === null || v === undefined ? undefined : Number(v)),
     schema.optional(),
   );
@@ -160,7 +161,11 @@ function BatchDetailDialog({
   );
   const detailSettling = query.isPlaceholderData;
   const detail = query.data?.status === 200 ? query.data.data : undefined;
+  // Stryker disable next-line ArrayDeclaration: junk fallback strings fail the t.status === "PENDING" filter, yielding the same empty task list as the empty array
   const openTasks = (detail?.tasks ?? []).filter((t) => t.status === "PENDING");
+  // Stryker disable ConditionalExpression, LogicalOperator: this content only renders while the dialog is open (batchId non-null), so the first operand's variants are unreachable
+  const detailLoading = batchId !== null && (query.isLoading || !detail);
+  // Stryker restore ConditionalExpression, LogicalOperator
 
   return (
     <Dialog open={batchId !== null} onOpenChange={(v) => !v && onClose()}>
@@ -168,7 +173,7 @@ function BatchDetailDialog({
         <DialogHeader>
           <DialogTitle>Batch #{batchId}</DialogTitle>
         </DialogHeader>
-        {batchId !== null && (query.isLoading || !detail) ? (
+        {detailLoading ? (
           query.isError ? (
             <p className="text-sm text-destructive">
               {query.error instanceof ApiError ? query.error.detail : "Could not load the batch."}
@@ -304,6 +309,7 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
     useUrlState();
   const [detailId, setDetailId] = useState<number | null>(() => {
     const raw = getUrl("batch");
+    // Stryker disable next-line ConditionalExpression: Number(null) is 0, which fails the integer-≥1 gate exactly like NaN does
     const parsed = raw === null ? Number.NaN : Number(raw);
     return Number.isInteger(parsed) && parsed >= 1 ? parsed : null;
   });
@@ -324,9 +330,11 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
     getUrlNumberRef.current = getUrlNumber;
   });
   useEffect(() => {
+    // Stryker disable next-line ConditionalExpression: re-running for this page's own writes re-applies values the page already holds, so the guard only saves a no-op state write
     if (lastWrittenParamsRef.current === paramsKey) return;
     lastWrittenParamsRef.current = paramsKey;
     const raw = getUrlRef.current("batch");
+    // Stryker disable next-line ConditionalExpression: Number(null) is 0, which fails the integer-≥1 gate exactly like NaN does
     const parsed = raw === null ? Number.NaN : Number(raw);
     setDetailId(Number.isInteger(parsed) && parsed >= 1 ? parsed : null);
     setOffset(getUrlNumberRef.current("offset", 0, 0, MAX_PAGE_OFFSET));
@@ -336,8 +344,10 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
   const writeUrlState = useCallback(
     (updates: UrlStateUpdate) => {
       const qs = setUrlState(updates);
+      // Stryker disable next-line ConditionalExpression, EqualityOperator: a stale or null last-written marker only makes the adopt-effect re-apply values the page already holds
       if (qs !== null) lastWrittenParamsRef.current = qs;
     },
+    // Stryker disable next-line ArrayDeclaration: setUrlState is a stable useCallback in useUrlState, so the dep list's contents cannot change behavior
     [setUrlState],
   );
 
@@ -380,12 +390,14 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
     formState: { errors, isSubmitting },
   } = useForm<BatchInput, unknown, BatchValues>({
     resolver: zodResolver(batchSchema(vocabulary.facts.maxWeightKg)),
+    // Stryker disable ObjectLiteral, BooleanLiteral: every dialog open passes through openNewBatch, whose reset() re-applies these exact defaults before the form is ever visible
     defaultValues: {
       date: farmToday(),
       count: 1,
       sex: PurchaseBatchInSex.F,
       create_animals: true,
     },
+    // Stryker restore ObjectLiteral, BooleanLiteral
   });
   const wCreateAnimals = useWatch({ control, name: "create_animals" });
 
@@ -396,33 +408,40 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
   async function createBatch(values: BatchValues) {
     await createFlight.run(async () => {
       const farmScope = captureFarmScope();
+      // Stryker disable next-line UpdateOperator: a monotonically decreasing attempt counter mismatches a captured value exactly as reliably as an increasing one
       const attempt = ++createAttempt.current;
       try {
         await createMutation.mutateAsync({
           data: {
             date: values.date,
-            supplier: values.supplier?.trim() ? values.supplier.trim() : null,
+            // Stryker disable next-line OptionalChaining: the supplier input is registered unconditionally, so the value is a string, never undefined
+  supplier: values.supplier?.trim() ? values.supplier.trim() : null,
             count: values.count,
             sex: values.sex,
             avg_age_months: values.avg_age_months ?? null,
             avg_weight_kg: values.avg_weight_kg ?? null,
             total_price: values.total_price ?? null,
-            notes: values.notes?.trim() ? values.notes.trim() : null,
+            // Stryker disable next-line OptionalChaining: the notes input is registered unconditionally, so the value is a string, never undefined
+  notes: values.notes?.trim() ? values.notes.trim() : null,
             create_animals: values.create_animals,
           },
         });
         if (!farmScope()) return;
         toast.success("Purchase batch created.");
         invalidateFarmData(queryClient);
+        // Stryker disable ConditionalExpression, CallExpression: openNewBatch refuses to open while the flight is pending and the dialog cannot otherwise reopen, so no fresh session exists for a stale continuation to close or clear — the attempt arms are unreachable defense-in-depth
         if (createAttempt.current !== attempt) return;
         setOpen(false);
         setPendingBatch(null);
+        // Stryker restore ConditionalExpression, CallExpression
+        // Stryker disable ObjectLiteral, BooleanLiteral, CallExpression: openNewBatch re-applies these exact defaults on the next open before the form is ever visible, so the post-success reset is redundant
         reset({
           date: farmToday(),
           count: 1,
           sex: PurchaseBatchInSex.F,
           create_animals: true,
         });
+        // Stryker restore ObjectLiteral, BooleanLiteral
       } catch (err) {
         if (createAttempt.current !== attempt || !farmScope()) return;
         toast.error(mutationError(err));
@@ -460,6 +479,7 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
   const batches = payload.batches;
 
   function openNewBatch() {
+    // Stryker disable next-line ConditionalExpression: the page's New-batch button sits inert behind the open modal whenever a create is pending, so the guard is unreachable
     if (createFlight.pending) return;
     reset({
       date: farmToday(),
@@ -467,6 +487,7 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
       sex: PurchaseBatchInSex.F,
       create_animals: true,
     });
+    // Stryker disable next-line CallExpression: the dialog's own dismissal handler clears pendingBatch on every close (the only way a new-batch session ends), so the open-time clear is redundant
     setPendingBatch(null);
     setOpen(true);
   }
@@ -604,6 +625,7 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
       {/* Keyed by batch so opening a different one remounts the dialog and its
           animal-page offset starts at the first page again. */}
       <BatchDetailDialog
+        // Stryker disable next-line StringLiteral: the null-arm sentinel only needs any constant — no second dialog exists for a collision
         key={detailId ?? "none"}
         batchId={detailId}
         canViewAnimals={canViewAnimals}
@@ -614,8 +636,10 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
         open={open}
         onOpenChange={(nextOpen) => {
           // Dismissal supersedes any in-flight continuation for this session.
+          // Stryker disable next-line BooleanLiteral, ConditionalExpression, AssignmentOperator: running the bump at open only moves it before any submit can capture it, and a decreasing counter mismatches a captured value exactly as reliably
           if (!nextOpen) createAttempt.current += 1;
           setOpen(nextOpen);
+          // Stryker disable next-line BooleanLiteral, ConditionalExpression, CallExpression: openNewBatch clears pendingBatch on every open, so skipping the close-time clear is unobservable
           if (!nextOpen) setPendingBatch(null);
         }}
       >

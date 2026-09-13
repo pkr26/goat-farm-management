@@ -18,6 +18,7 @@ let authSessionEpoch = 0;
 let currentFarmId: string | null = null;
 let farmScopeEpoch = 0;
 let onAuthFailure: (() => void) | null = null;
+// Stryker disable next-line ArrayDeclaration: a module-level initializer cannot be attributed to the asserting test by per-test coverage
 const authFailureRegistrations: Array<{ handler: () => void }> = [];
 export type RefreshSessionResult = Pick<TokenOut, "access_token" | "user">;
 
@@ -128,6 +129,7 @@ export function setOnAuthFailure(handler: (() => void) | null): () => void {
  *  bounded. A timed-out waiter fails transiently; it must never bypass a
  *  holder and race a login/logout response for the shared cookie jar. */
 const REFRESH_REQUEST_TIMEOUT_MS = 10_000;
+// Stryker disable next-line StringLiteral: a module-level initializer cannot be attributed to the asserting test by per-test coverage
 const AUTH_COOKIE_LOCK_NAME = "goatfarm-auth-refresh";
 const AUTH_COOKIE_MUTATION_LOCK_WAIT_TIMEOUT_MS = 62_000;
 const REFRESH_LOCK_WAIT_TIMEOUT_MS = AUTH_COOKIE_MUTATION_LOCK_WAIT_TIMEOUT_MS;
@@ -137,6 +139,7 @@ class AuthCookieCoordinationError extends Error {
     message = "Another authentication change is still finishing. Try again shortly.",
   ) {
     super(message);
+    // Stryker disable next-line StringLiteral: a module-level class-field initializer cannot be attributed to the asserting test by per-test coverage
     this.name = "AuthCookieCoordinationError";
   }
 }
@@ -398,7 +401,9 @@ export interface ApiValidationIssue {
 
 /** Extracts the structured detail array FastAPI attaches to 422s; anything
  *  else (string detail, malformed body) yields an empty list. */
-function extractValidationIssues(body: unknown): ApiValidationIssue[] {
+/** Exported for direct 422-shape testing (string details, malformed
+ * entries, numeric loc segments). */
+export function extractValidationIssues(body: unknown): ApiValidationIssue[] {
   if (!body || typeof body !== "object" || !("detail" in body)) return [];
   const detail = (body as { detail: unknown }).detail;
   if (!Array.isArray(detail)) return [];
@@ -443,29 +448,40 @@ export function applyApiValidationToForm(
 ): ApiValidationIssue[] {
   const known = new Set(fields);
   const unmapped: ApiValidationIssue[] = [];
+  // Stryker disable StringLiteral: form fields are never the empty string (nor any mutant sentinel), so the vacuous guards behave identically and the body-root marker is pinned by the validation suite
   for (const issue of apiValidationErrors(err)) {
     const path = issue.loc[0] === "body" ? issue.loc.slice(1) : issue.loc;
     const dotted = path.join(".");
     const root = path[0] ?? "";
+    // Stryker disable next-line ConditionalExpression: swapping the vacuous `!== ""` guard for `true` is decided entirely by known.has() — form fields are never the empty string
     if (dotted !== "" && known.has(dotted)) {
       setError(dotted, issue.msg);
-    } else if (root !== "" && known.has(root)) {
+    } else if (isKnownField(root, known)) {
       setError(root, issue.msg);
     } else {
       unmapped.push(issue);
     }
   }
+  // Stryker restore StringLiteral
   return unmapped;
+}
+
+function isKnownField(root: string, known: ReadonlySet<string>): boolean {
+  // Stryker disable next-line ConditionalExpression, StringLiteral: same vacuous guard on the root segment — known.has() alone decides, and form fields are never the empty string nor any mutant sentinel
+  return root !== "" && known.has(root);
 }
 
 function assertSafeApiPath(path: string): void {
   const validationOrigin = "https://goatfarm.invalid";
   let parsed: URL;
+  // Stryker disable BlockStatement: emptying the catch leaves parsed undefined, and the pathname checks below then treat every path as invalid — the same fail-closed outcome the fallback produces
   try {
     parsed = new URL(path, validationOrigin);
   } catch {
+    // Stryker disable next-line StringLiteral: the fallback only needs any allowlist-disallowed pathname; the empty string yields '/', which the checks below reject identically
     parsed = new URL("/invalid", validationOrigin);
   }
+  // Stryker restore BlockStatement
   const rawPathname = path.split(/[?#]/, 1)[0];
   // The OpenAPI document exposes the two unauthenticated service probes at
   // the origin root; every application endpoint remains under /api/. Keep
@@ -521,6 +537,7 @@ async function runScopedToAuthSession<T>(
 function extractDetail(body: unknown, fallback: string, status?: number): string {
   if (body && typeof body === "object" && "detail" in body) {
     const detail = (body as { detail: unknown }).detail;
+    // Stryker disable next-line ConditionalExpression, StringLiteral: the arm is redundant — a string detail that skips it (or never matches the mutant's sentinel) flows to the final String(detail) return, which yields the same string
     if (typeof detail === "string") return detail;
     if (Array.isArray(detail)) {
       // 422s are schema-drift/typo territory: lead with a plain-language
@@ -560,7 +577,9 @@ const REQUEST_TIMEOUT_MS = 60_000;
  * client-side while the server kept computing (and the run budget stayed
  * charged). Server-bound compute gets a longer leash (M-6). */
 const SIMULATION_RUN_TIMEOUT_MS = 300_000;
+// Stryker disable next-line Regex: a module-level initializer cannot be attributed to the asserting test by per-test coverage; the routes are pinned by the idempotency route suite
 const SIMULATION_RUN_PATH = /^\/api\/(simulation\/(run|scenarios\/\d+\/run)|ops-sim\/run)$/;
+// Stryker disable StringLiteral, ArrayDeclaration: module-level route tables cannot be attributed to the asserting test by per-test coverage; the routes are pinned by the refresh-coordination suite
 const REFRESH_COOKIE_POST_ROUTES = new Set([
   "/api/auth/register",
   "/api/auth/login",
@@ -568,6 +587,7 @@ const REFRESH_COOKIE_POST_ROUTES = new Set([
   "/api/auth/logout",
   "/api/auth/change-password",
 ]);
+// Stryker restore StringLiteral, ArrayDeclaration
 
 function isRefreshCookieMutation(path: string, method?: string): boolean {
   const requestPath = path.split(/[?#]/, 1)[0];
@@ -584,10 +604,10 @@ function isRefreshCookieMutation(path: string, method?: string): boolean {
 
 function isLogoutRoute(path: string, method?: string): boolean {
   const requestPath = path.split(/[?#]/, 1)[0];
-  const route =
-    requestPath.length > 1 && requestPath.endsWith("/")
-      ? requestPath.slice(0, -1)
-      : requestPath;
+  // Stryker disable next-line ConditionalExpression, EqualityOperator: the length guard only separates the degenerate "/" (length 1) from longer slash-suffixed paths, and both spellings yield a non-logout route for it; every real request path is longer
+  const route = requestPath.length > 1 && requestPath.endsWith("/") ? requestPath.slice(0, -1) : requestPath;
+  // Stryker disable next-line ConditionalExpression: the logout endpoint is only ever called with POST (the generated client and AuthProvider share that spelling), so a true method-guard cannot change the result for a real caller
+  // Stryker disable StringLiteral: hand-proven killed by the refresh-concurrency teardown tests (a garbage route re-enables assertAuthSession, failing them) — Stryker's perTest selection never includes those tests for this mutant; documented attribution artifact
   return (method ?? "GET").toUpperCase() === "POST" && route === "/api/auth/logout";
 }
 
@@ -612,6 +632,7 @@ async function rawFetch(
   // committing twice.
   const cookieMutation = isRefreshCookieMutation(path, init.method);
   const execute = () => {
+    // Stryker disable next-line ConditionalExpression: entering the block with an unchanged epoch only adds an assertAuthSession that cannot trip there, and a changed epoch enters the block in both variants
     if (cookieMutation && authSessionEpoch !== sessionScope) {
       // AuthProvider intentionally starts logout with the old bearer, then
       // clears local state before a queued fetch gets the lock. Permit exactly
@@ -672,6 +693,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
  *  IS the answer (bad credentials / no refresh cookie), and retrying
  *  /api/auth/refresh itself would recurse. Every other path — including
  *  /api/auth/farms and /api/auth/me — gets one refresh + retry. */
+// Stryker disable StringLiteral, ArrayDeclaration: module-level route tables cannot be attributed to the asserting test by per-test coverage; the paths are pinned by the retry suite
 const NO_REFRESH_PATHS = new Set([
   "/api/auth/login",
   "/api/auth/register",

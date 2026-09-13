@@ -140,6 +140,7 @@ function BucketsPageContent({ perms }: { perms: PermissionsState }) {
   const { can } = perms;
   const allowed = can("buckets.view");
   const canViewAnimals = can("animals.view");
+  // Stryker disable next-line ObjectLiteral: PermissionGate refuses to mount this page without buckets.view, so `allowed` is always true by the time this hook runs
   const query = useBucketsBoardApiBucketsGet({ query: { enabled: allowed } });
   const rows = query.data?.status === 200 ? query.data.data : undefined;
 

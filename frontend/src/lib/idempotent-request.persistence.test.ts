@@ -266,6 +266,75 @@ describe("idempotency persistence and signature branches", () => {
     expect(keys[1]).not.toBe(keys[0]);
   });
 
+  it("drops a persisted record whose expiry is not a number", async () => {
+    const execute = vi.fn(async () => {
+      throw { status: 503 };
+    });
+    await rejectionOf(runProtected(execute));
+    await Promise.resolve();
+    const [retained] = storedRecords();
+
+    window.sessionStorage.setItem(
+      IDEMPOTENCY_SESSION_STORAGE_KEY,
+      JSON.stringify([{ ...retained, expiresAt: "soon" }]),
+    );
+    clearIdempotencyRequestState();
+    const retry = vi.fn(async () => ({ ok: true }));
+    await expect(runProtected(retry)).resolves.toEqual({ ok: true });
+
+    // The malformed record must not survive the read: the retry draws a
+    // fresh key instead of recovering under a junk expiry.
+    const keys = storedRecords().map((record) => record.key);
+    expect(keys).not.toContain(retained.key);
+  });
+
+  it("does not recover a persisted key that is not a UUID v4", async () => {
+    const keys: Array<string | null> = [];
+    const execute = vi.fn(async (init: RequestInit) => {
+      keys.push(sentKey(init));
+      throw { status: 503 };
+    });
+    await rejectionOf(runProtected(execute));
+    await Promise.resolve();
+    const [retained] = storedRecords();
+
+    window.sessionStorage.setItem(
+      IDEMPOTENCY_SESSION_STORAGE_KEY,
+      JSON.stringify([{ ...retained, key: "not-a-uuid" }]),
+    );
+    clearIdempotencyRequestState();
+    const succeed = vi.fn(async (init: RequestInit) => {
+      keys.push(sentKey(init));
+      return { ok: true };
+    });
+
+    await expect(runProtected(succeed)).resolves.toEqual({ ok: true });
+
+    // The malformed key must never reach the wire: a fresh UUID is drawn.
+    expect(keys[1]).toMatch(UUID_PATTERN);
+    expect(keys[1]).not.toBe("not-a-uuid");
+  });
+
+  it("still serves a protected mutation when sessionStorage itself is unreachable", async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(window, "sessionStorage")!;
+    Object.defineProperty(window, "sessionStorage", {
+      configurable: true,
+      get() {
+        throw new Error("SecurityError: storage denied");
+      },
+    });
+    try {
+      const succeed = vi.fn(async () => ({ ok: true }));
+      // actorScope forces the digest/loadPersistedKey path, whose storage
+      // guard is exactly what keeps this from crashing.
+      await expect(runProtected(succeed)).resolves.toEqual({ ok: true });
+      const retry = vi.fn(async () => ({ ok: true }));
+      await expect(runProtected(retry)).resolves.toEqual({ ok: true });
+    } finally {
+      Object.defineProperty(window, "sessionStorage", descriptor);
+    }
+  });
+
   it("does not rewrite a persisted container that is already canonical", async () => {
     const canonical = JSON.stringify([
       { version: 1, digest: OTHER_DIGEST, key: OTHER_KEY, expiresAt: NOW + 30_000 },

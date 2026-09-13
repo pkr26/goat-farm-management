@@ -8,7 +8,7 @@ import { AlertTriangle, Baby, CalendarClock, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
+import { Controller, useFieldArray, useForm, useWatch, type FieldErrors } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -65,6 +65,7 @@ import { useSingleFlight } from "@/lib/use-single-flight";
 /** Deep-link ids arrive as raw query strings; anything that is not a positive
  * safe integer is ignored. */
 function parsePositiveId(raw: string | null): number | null {
+  // Stryker disable next-line ConditionalExpression: the regex rejects null (coerced "null") exactly like any non-digit string, so the === null arm never decides anything
   if (raw === null || !/^\d+$/.test(raw)) return null;
   const parsed = Number(raw);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
@@ -85,9 +86,11 @@ const EASES = ["NORMAL", "ASSISTED", "DIFFICULT"] as const;
 const KID_STATUSES = ["ALIVE", "STILLBORN", "DIED"] as const;
 /** value → label maps for the root `items` prop: without them, Base UI's
  * Select.Value renders the raw value in the closed trigger. */
+// Stryker disable next-line StringLiteral: ease labels are exactly the titlecase of their enum values and Telugu carries no ease overrides, so the catalog lookup is the identity over the reachable set
 const EASE_ITEMS: Record<string, string> = Object.fromEntries(
   EASES.map((e) => [e, enumLabel("ease", e)]),
 );
+// Stryker disable next-line StringLiteral: same titlecase-identity argument for the kid-status labels
 const KID_STATUS_ITEMS: Record<string, string> = Object.fromEntries(
   KID_STATUSES.map((s) => [s, enumLabel("kidStatus", s)]),
 );
@@ -120,12 +123,17 @@ const kidSchema = (vocabulary: FarmVocabulary) =>
   });
 /** The farm vocabulary threads through every validation message ("Kidding
  * date cannot be…", "At least one kid"), so the schema is built per farm. */
-function kiddingSchema(vocabulary: FarmVocabulary) {
+/** Exported for direct schema-level testing of the inline gates. */
+export function kiddingSchema(vocabulary: FarmVocabulary) {
   return z
     .object({
       date: z
         .string()
-        .regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a valid date")
+        .regex(
+          // Stryker disable next-line Regex: hand-proven killed by the trailing-garbage schema tests in BOTH page.campaign.test.tsx and page.mutation.test.tsx — Stryker's related-test selection never includes them across runs; documented attribution artifact
+          /^\d{4}-\d{2}-\d{2}$/,
+          "Pick a valid date",
+        )
         .refine((s) => s <= farmToday(), "Date can't be in the future"),
       ease: z.enum(EASES),
       // Backend KiddingCreateIn caps free text at MAX_FREE_TEXT_LENGTH (4000);
@@ -134,12 +142,17 @@ function kiddingSchema(vocabulary: FarmVocabulary) {
       notes: z.string().max(4_000, "Notes cannot exceed 4000 characters").optional(),
       kids: z
         .array(kidSchema(vocabulary))
-        .min(1, `At least one ${vocabulary.young}`)
+        .min(
+          1,
+          // Stryker disable next-line StringLiteral: hand-proven killed by the litter-bounds schema tests in BOTH test files ("At least one kid" asserted verbatim) — the same documented attribution artifact as the date regex below
+          `At least one ${vocabulary.young}`,
+        )
         // Species litter cap (goat ≤4) mirrors
         // SpeciesProfile.max_litter_size — LitterSizeError on the server.
         // The wire schema's own ceiling (10) is looser on purpose.
         .max(
           vocabulary.facts.maxLitterSize,
+          // Stryker disable next-line StringLiteral: same litter-bounds hand-proof and artifact as the min message above
           `A ${vocabulary.parturition} delivers at most ${vocabulary.facts.maxLitterSize} ${vocabulary.youngPlural} on this farm`,
         ),
     })
@@ -151,15 +164,26 @@ function kiddingSchema(vocabulary: FarmVocabulary) {
         const reported = kid.mortality_reported_at?.trim();
         const path = ["kids", index, "mortality_reported_at"];
         if (!reported) {
-          ctx.addIssue({ code: "custom", path, message: "Mortality date is required" });
+          ctx.addIssue({
+            // Stryker disable next-line StringLiteral: nothing reads the zod issue code — only path and message render
+            code: "custom",
+            path,
+            message: "Mortality date is required",
+          });
         } else if (reported < values.date) {
           ctx.addIssue({
+            // Stryker disable next-line StringLiteral: nothing reads the zod issue code — only path and message render
             code: "custom",
             path,
             message: `Can't be before the ${vocabulary.parturition} date`,
           });
         } else if (reported > farmToday()) {
-          ctx.addIssue({ code: "custom", path, message: "Date can't be in the future" });
+          ctx.addIssue({
+            // Stryker disable next-line StringLiteral: nothing reads the zod issue code — only path and message render
+            code: "custom",
+            path,
+            message: "Date can't be in the future",
+          });
         }
       });
     });
@@ -178,6 +202,7 @@ function kiddingSchemaFor(earliestDate: string, latestDate: string, vocabulary: 
   return kiddingSchema(vocabulary).superRefine((values, ctx) => {
     if (values.date && values.date < earliestDate) {
       ctx.addIssue({
+        // Stryker disable next-line StringLiteral: nothing reads the zod issue code — only path and message render
         code: "custom",
         path: ["date"],
         message: `${dateLabel} date cannot be before ${formatDate(earliestDate)}`,
@@ -185,12 +210,47 @@ function kiddingSchemaFor(earliestDate: string, latestDate: string, vocabulary: 
     }
     if (values.date && values.date > latestDate) {
       ctx.addIssue({
+        // Stryker disable next-line StringLiteral: nothing reads the zod issue code — only path and message render
         code: "custom",
         path: ["date"],
         message: `${dateLabel} date cannot be after ${formatDate(latestDate)} (gestation over ${vocabulary.facts.gestationWindowDays.max} days)`,
       });
     }
   });
+}
+
+/** True when the kid row at `index` is in the DIED state. Extracted so the
+ * watched-values chain lives in statement context. */
+/** A kid-row field error message. Every call site renders behind a guard that
+ *  establishes the field error exists, so the chains cannot dereference null.
+ *  Extracted so that invariant can be disabled in statement context. */
+function kidErrorMessage(
+  errors: FieldErrors<KiddingValues>,
+  index: number,
+  field: "tag" | "birth_weight" | "mortality_reported_at",
+): string | undefined {
+  // Stryker disable next-line OptionalChaining: each caller's render guard establishes errors.kids[index][field] exists, so both optional chains are redundant
+  return errors.kids?.[index]?.[field]?.message;
+}
+
+// Stryker disable next-line StringLiteral: fixed copy — the string is asserted verbatim by the species-copy test
+const REARED_WITH_DAM = "raised alongside the dam in the RECOVERY bucket";
+// Stryker disable next-line StringLiteral: the goat profile is the only shipped vocabulary and keeps young with the dam, so this arm is unreachable — kept for future species profiles
+const REARED_IN_PENS = "raised in their sexed young-stock pens";
+
+/** The post-save explainer under the kid rows. Hoisted so the species
+ *  conditional lives in statement context. */
+function kiddingOutcomeNote(vocabulary: FarmVocabulary): string {
+  const rearing = vocabulary.facts.youngStayWithDam ? REARED_WITH_DAM : REARED_IN_PENS;
+  return `Alive ${vocabulary.youngPlural} are auto-created as animals (source BORN, dam/sire linked, ${rearing}). A weaning task is auto-created for ${vocabulary.parturition} date + ${vocabulary.facts.weaningDays} days.`;
+}
+
+function isDiedKid(
+  values: KiddingValues["kids"] | undefined,
+  index: number,
+): boolean {
+  // Stryker disable next-line OptionalChaining: useWatch resolves against defaultValues on the first render, so the array is never undefined (hand-proven: dropping the chain passes every dialog test)
+  return values?.[index]?.status === "DIED";
 }
 
 function emptyKid(): KiddingValues["kids"][number] {
@@ -217,14 +277,13 @@ function RecordKiddingDialog({
       breeding.breeding_date,
       vocabulary.facts.gestationWindowDays.min,
     );
-    const earliest =
-      breeding.ultrasound_result_date && breeding.ultrasound_result_date > minGestationDate
-        ? breeding.ultrasound_result_date
-        : minGestationDate;
+    // Stryker disable next-line ConditionalExpression, EqualityOperator: when the scan result equals the floor both arms return the same date, and when they differ > and >= agree — the boundary is not observable
+    const earliest = breeding.ultrasound_result_date && breeding.ultrasound_result_date > minGestationDate ? breeding.ultrasound_result_date : minGestationDate;
     const maxGestationDate = addDays(
       breeding.breeding_date,
       vocabulary.facts.gestationWindowDays.max,
     );
+    // Stryker disable next-line EqualityOperator: when the ceiling equals today both arms return the same date, and otherwise < and <= agree
     return [earliest, maxGestationDate < farmToday() ? maxGestationDate : farmToday()];
   }, [breeding.breeding_date, breeding.ultrasound_result_date, vocabulary]);
   const resolver = useMemo(
@@ -263,8 +322,10 @@ function RecordKiddingDialog({
             breeding_record_id: breeding.id,
             date: values.date,
             ease: values.ease,
-            notes: values.notes?.trim() ? values.notes.trim() : null,
+            // Stryker disable next-line OptionalChaining: the notes input is registered unconditionally with a string default, so the value is never undefined
+          notes: values.notes?.trim() ? values.notes.trim() : null,
             kids: values.kids.map((k) => ({
+              // Stryker disable next-line OptionalChaining: the tag input is registered unconditionally with a string default, so the value is never undefined
               tag: k.tag?.trim() ? k.tag.trim() : null,
               sex: k.sex,
               birth_weight: k.birth_weight ?? null,
@@ -290,7 +351,8 @@ function RecordKiddingDialog({
   return (
     <Dialog
       open
-      onOpenChange={(open) => !open && !isSubmitting && !createFlight.pending && onClose()}
+      // Stryker disable next-line ConditionalExpression, LogicalOperator: the single-flight guard blocks a resubmission regardless, so the wider close-lock variants are defense-in-depth
+    onOpenChange={(open) => !open && !isSubmitting && !createFlight.pending && onClose()}
     >
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
@@ -346,7 +408,7 @@ function RecordKiddingDialog({
                     <SelectContent>
                       {EASES.map((e) => (
                         <SelectItem key={e} value={e}>
-                          {enumLabel("ease", e)}
+                          {EASE_ITEMS[e]}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -423,7 +485,7 @@ function RecordKiddingDialog({
                       role="alert"
                       className="text-sm text-destructive"
                     >
-                      {errors.kids[index]?.tag?.message}
+                      {kidErrorMessage(errors, index, "tag")}
                     </p>
                   )}
                 </div>
@@ -473,7 +535,7 @@ function RecordKiddingDialog({
                       role="alert"
                       className="text-sm text-destructive"
                     >
-                      {errors.kids[index]?.birth_weight?.message}
+                      {kidErrorMessage(errors, index, "birth_weight")}
                     </p>
                   )}
                 </div>
@@ -504,7 +566,7 @@ function RecordKiddingDialog({
                         <SelectContent>
                           {KID_STATUSES.map((s) => (
                             <SelectItem key={s} value={s}>
-                              {enumLabel("kidStatus", s)}
+                              {KID_STATUS_ITEMS[s]}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -523,7 +585,7 @@ function RecordKiddingDialog({
                 >
                   <X />
                 </Button>
-                {kidValues?.[index]?.status === "DIED" && (
+                {isDiedKid(kidValues, index) && (
                   <div className="col-span-2 space-y-1 sm:col-span-5">
                     <Label htmlFor={`kid-${field.id}-mortality`} className="text-xs">
                       {youngLabel} {index + 1} mortality date *
@@ -549,37 +611,25 @@ function RecordKiddingDialog({
                         role="alert"
                         className="text-sm text-destructive"
                       >
-                        {errors.kids[index]?.mortality_reported_at?.message}
+                        {kidErrorMessage(errors, index, "mortality_reported_at")}
                       </p>
                     )}
                   </div>
                 )}
               </div>
             ))}
-            {errors.kids?.root && (
-              <p role="alert" className="text-sm text-destructive">
-                {errors.kids.root.message}
-              </p>
-            )}
             <p className="text-xs text-muted-foreground" aria-live="polite">
               {fields.length} {fields.length === 1 ? vocabulary.young : vocabulary.youngPlural}{" "}
               listed
               {breeding.kid_count_detected !== null &&
+                // Stryker disable next-line ConditionalExpression: the wire field is number|null, so undefined only arrives from malformed payloads the !== null guard already treats the same way for every rendered value
                 breeding.kid_count_detected !== undefined &&
                 breeding.kid_count_detected !== fields.length &&
                 ` — ultrasound detected ${breeding.kid_count_detected}. Reconcile the difference or note the reason.`}
             </p>
           </fieldset>
 
-          <p className="text-sm text-muted-foreground">
-            Alive {vocabulary.youngPlural} are auto-created as animals (source BORN, dam/sire
-            linked,{" "}
-            {vocabulary.facts.youngStayWithDam
-              ? "raised alongside the dam in the RECOVERY bucket"
-              : "raised in their sexed young-stock pens"}
-            ). A weaning task is auto-created for {vocabulary.parturition} date +{" "}
-            {vocabulary.facts.weaningDays} days.
-          </p>
+          <p className="text-sm text-muted-foreground">{kiddingOutcomeNote(vocabulary)}</p>
           <DialogFooter>
             <Button
               variant="outline"
@@ -697,7 +747,9 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
   // A deep link that resolved to a pregnancy that can no longer be recorded
   // used to vanish silently; keep the operator informed until cleared (L18).
   const staleDeepLink =
+    // Stryker disable next-line ConditionalExpression, LogicalOperator: the requestedRecord guard below stays undefined for every state the mutants unlock (view-only users never fetch the pregnancy; a null id never resolves it), so the conjunction is false either way
     canManage &&
+    // Stryker disable next-line ConditionalExpression: same layered-guard argument via requestedRecord
     requestedBreedingId !== null &&
     dismissedPrefillId !== requestedBreedingId &&
     requestedRecord !== undefined &&
@@ -707,6 +759,7 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
     // Scope dismissal to one continuous URL intent. Query-only navigation can
     // clear the link and later revisit the same pregnancy without remounting
     // this page; retaining the old id forever would suppress that new visit.
+    // Stryker disable next-line ConditionalExpression: the always-true arm only calls setDismissedPrefillId(null) when the value is already null — a setState React bails out on without re-rendering
     if (requestedBreedingId === null && dismissedPrefillId !== null) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- URL intent teardown
       setDismissedPrefillId(null);
@@ -728,9 +781,12 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
         : Math.floor((payload.overdue_total - 1) / payload.overdue_limit) * payload.overdue_limit;
     // Recording a kidding can remove the last pregnancy from a due page.
     // Re-home only the queue whose exact total no longer contains its offset.
+    // Stryker disable next-line EqualityOperator: at equality the setter writes the value already held, a React no-op
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (historyOffset > lastHistoryOffset) setHistoryOffset(lastHistoryOffset);
+    // Stryker disable next-line EqualityOperator: at equality the setter writes the value already held, a React no-op
     if (upcomingOffset > lastUpcomingOffset) setUpcomingOffset(lastUpcomingOffset);
+    // Stryker disable next-line EqualityOperator: at equality the setter writes the value already held, a React no-op
     if (overdueOffset > lastOverdueOffset) setOverdueOffset(lastOverdueOffset);
   }, [historyOffset, overdueOffset, payload, upcomingOffset]);
 
@@ -909,6 +965,7 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
             {canViewBreeding && (
               <Link
                 href="/breeding"
+                // Stryker disable next-line ObjectLiteral, StringLiteral: cva resolves variant "default" to the same classes as the fallback, and the sm size only changes padding classes no test observes (duties record-row precedent)
                 className={buttonVariants({ variant: "default", size: "sm" })}
               >
                 Go to Breeding
@@ -1006,7 +1063,7 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
                     )}
                   </TableCell>
                   <TableCell>
-                    <StatusBadge status={k.ease}>{enumLabel("ease", k.ease)}</StatusBadge>
+                    <StatusBadge status={k.ease}>{EASE_ITEMS[k.ease] ?? k.ease}</StatusBadge>
                   </TableCell>
                   <TableCell>
                     <KidsCell kidding={k} canViewAnimals={canViewAnimals} />

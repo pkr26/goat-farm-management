@@ -117,3 +117,112 @@ describe("customInstance", () => {
     );
   });
 });
+
+function flushMacrotasks(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+describe("customInstance — null query stripping", () => {
+  const fetchMock = vi.fn<typeof fetch>();
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockResolvedValue(jsonResponse(200, { ok: true }));
+    setAccessToken("session-token");
+    setCurrentFarmId("1");
+  });
+
+  afterEach(async () => {
+    setAccessToken(null);
+    setCurrentFarmId(null);
+    fetchMock.mockReset();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    await flushMacrotasks();
+  });
+
+  it("strips literal null params everywhere except the free-text q param", async () => {
+    await customInstance("/api/animals?bucket=null&q=null&name=Asha&tag=null");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const calledUrl = String(fetchMock.mock.calls[0]![0]);
+    expect(calledUrl).toBe("/api/animals?q=null&name=Asha");
+
+    // The kept param must remain a genuine query pair: any mangling of the
+    // question-mark split (whole-url or off-by-one parsing) re-encodes it.
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, []));
+    await customInstance("/api/animals?name=Asha&tag=null");
+    expect(String(fetchMock.mock.calls[1]![0])).toBe("/api/animals?name=Asha");
+  });
+
+  it("preserves percent-encoded query characters byte-for-byte", async () => {
+    await customInstance("/api/animals?name=Asha%20Devi");
+
+    // URLSearchParams.toString() would re-encode the space as '+': only the
+    // untouched fast path keeps the original bytes.
+    expect(String(fetchMock.mock.calls[0]![0])).toBe("/api/animals?name=Asha%20Devi");
+  });
+
+  it("leaves a clean query string untouched, down to the exact characters", async () => {
+    await customInstance("/api/animals?name=Asha&page=2");
+
+    expect(String(fetchMock.mock.calls[0]![0])).toBe("/api/animals?name=Asha&page=2");
+  });
+
+  it("passes a path without a query straight through", async () => {
+    await customInstance("/api/animals");
+
+    expect(String(fetchMock.mock.calls[0]![0])).toBe("/api/animals");
+  });
+});
+
+describe("customInstance — error detail extraction", () => {
+  const detailFetch = vi.fn<typeof fetch>();
+  beforeEach(() => {
+    vi.stubGlobal("fetch", detailFetch);
+  });
+
+  it("surfaces a plain string detail verbatim", async () => {
+    detailFetch.mockResolvedValueOnce(jsonResponse(500, { detail: "Database is upgrading" }));
+    const error = await rejectionOf(customInstance("/api/animals"));
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).detail).toBe("Database is upgrading");
+  });
+
+  it("renders a 422 issue whose loc is not an array without a location prefix", async () => {
+    detailFetch.mockResolvedValueOnce(
+      jsonResponse(422, { detail: [{ loc: "unexpected", msg: "Unlocatable issue." }] }),
+    );
+    const error = await rejectionOf(customInstance("/api/animals"));
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).detail).toBe(
+      "The server rejected these values (Unlocatable issue.). Check the entered data and try again.",
+    );
+  });
+});
+
+async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
+  try {
+    await promise;
+  } catch (error) {
+    return error;
+  }
+  throw new Error("Expected the request to reject");
+}
+
+describe("customInstance — issue extraction is 422-only", () => {
+  const detailFetch = vi.fn<typeof fetch>();
+  beforeEach(() => {
+    vi.stubGlobal("fetch", detailFetch);
+  });
+
+  it("keeps ApiError.issues empty for a non-422 with an array detail", async () => {
+    detailFetch.mockResolvedValueOnce(
+      jsonResponse(500, { detail: [{ loc: ["body", "dose"], msg: "Dose is required." }] }),
+    );
+    const error = (await rejectionOf(customInstance("/api/animals"))) as ApiError;
+    expect(error.status).toBe(500);
+    // The per-field array is a 422 contract; a 500's body is detail text only.
+    expect(error.validationIssues).toEqual([]);
+  });
+});

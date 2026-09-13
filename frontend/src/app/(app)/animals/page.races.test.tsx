@@ -198,3 +198,62 @@ describe("AnimalsPage — create dialog lifecycle", () => {
     expect(createCalls).toBe(1);
   });
 });
+
+describe("AnimalsPage — rows stay inert until a dispatched URL commits", () => {
+  beforeEach(() => {
+    nav.state.search = "";
+    nav.push.mockClear();
+    nav.replace.mockClear();
+  });
+
+  /** Park router.replace so a dispatched URL never commits until released. */
+  function holdCommits() {
+    nav.replace.mockImplementation(() => undefined);
+  }
+
+  function releaseCommits() {
+    nav.replace.mockImplementation((url: string) => {
+      nav.state.search = url.includes("?") ? url.slice(url.indexOf("?") + 1) : "";
+    });
+  }
+
+  it("drops the search guard once the input settles back onto the committed term", async () => {
+    server.use(
+      http.get("/api/animals", () =>
+        HttpResponse.json({ animals: [animal(1)], total: 1 }),
+      ),
+    );
+    holdCommits();
+    const user = userEvent.setup();
+    renderWithProviders(<AnimalsPage />);
+    const search = await screen.findByRole("searchbox", {
+      name: "Search animals by tag",
+    });
+    await screen.findAllByText("G-001");
+
+    // Dispatch a search URL and keep it uncommitted: the guard is raised and
+    // one pending navigation is recorded.
+    await user.type(search, "G77");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 450));
+    });
+    expect(screen.getByText("Loading animals…")).toBeInTheDocument();
+
+    // The dispatched URL commits while the operator has already cleared the
+    // box: the params-sync effect preserves their edit and keeps the guard
+    // raised via hasNewerSearchEdit (no pending entries left). Settle the
+    // input back onto exactly the committed term inside one debounce window
+    // — the one spelling whose debounce must CLEAR that stale guard.
+    nav.state.search = "q=G77";
+    await user.clear(search);
+    await user.type(search, "G77");
+    releaseCommits();
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    });
+    // The guard dropped: rows are interactive content again, not a spinner.
+    expect(screen.queryByText("Loading animals…")).not.toBeInTheDocument();
+    expect(screen.getAllByText("G-001").length).toBeGreaterThan(0);
+  });
+});
