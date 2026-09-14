@@ -12,6 +12,7 @@ import hashlib
 import ipaddress
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -2102,6 +2103,57 @@ def test_compose_production_edge_requires_an_asserted_https_terminator() -> None
 
     public = _render_compose_network(edge_bind_host="0.0.0.0", public_scheme="https")
     assert public["services"]["edge"]["ports"] == ["0.0.0.0:3000:3000"]
+
+
+def test_edge_auth_flood_zone_is_scoped_and_explicit() -> None:
+    """RT-R-1: the nginx auth flood shaping must stay scoped and explicit.
+
+    The zone keys on the edge's own view of the client, applies only to the
+    unauthenticated password endpoints, and answers 429 (nginx's default
+    limit_req_status is 503, which clients and dashboards misread).
+    """
+    compose = _render_compose_network()
+    proxy_conf = compose["configs"]["edge_proxy"]["content"].replace("$$", "$")
+
+    assert "limit_req_zone $binary_remote_addr zone=auth_flood:10m rate=5r/s;" in proxy_conf
+
+    # Extract each location block and require exactly one throttled one.
+    locations = re.findall(r"location (\S+) \{", proxy_conf)
+    assert "/api/auth/" in locations
+    auth_block = re.search(r"location /api/auth/ \{(.*?)\n\s*\}", proxy_conf, re.DOTALL)
+    assert auth_block is not None
+    assert "limit_req zone=auth_flood burst=20 nodelay;" in auth_block.group(1)
+    assert "limit_req_status 429;" in auth_block.group(1)
+    # No other location may throttle: shaping the whole API would couple
+    # normal traffic to the login-flood budget.
+    for name in locations:
+        if name == "/api/auth/":
+            continue
+        other_block = re.search(
+            rf"location {re.escape(name)} \{{(.*?)\n\s*\}}", proxy_conf, re.DOTALL
+        )
+        assert other_block is not None
+        assert "limit_req " not in other_block.group(1), name
+
+
+def test_edge_refuses_dev_public_bind_with_escape_hatch() -> None:
+    """RT-R-4: a non-loopback bind outside production refuses with exit 2.
+
+    The refusal names both remediations and honours the explicit
+    GOATFARM_ALLOW_DEV_PUBLIC_BIND=true opt-out for firewalled staging boxes.
+    """
+    compose = _render_compose_network()
+    command = "\n".join(compose["services"]["edge"]["command"])
+
+    # Loopback spellings pass the case-list without triggering the guard
+    # (the renderer resolves the bind-host interpolation to its default).
+    assert "127.0.0.1|localhost|::1) ;;" in command
+    # The guard itself: production-exempt, opt-out-aware, exit 2, loud.
+    assert '"$$GOATFARM_ENVIRONMENT" != "production"' in command
+    assert '"$${GOATFARM_ALLOW_DEV_PUBLIC_BIND:-false}" != "true"' in command
+    assert "Refusing to bind the edge" in command
+    assert "GOATFARM_ALLOW_DEV_PUBLIC_BIND=true" in command
+    assert "exit 2" in command
 
 
 def test_compose_network_override_avoids_collision_without_weakening_proxy_trust() -> None:

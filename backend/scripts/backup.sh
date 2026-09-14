@@ -310,8 +310,13 @@ if ! "${PYTHON_BIN}" "${SCRIPT_DIR}/backup_legacy_lock.py" \
     move-verified "${LEGACY_CLAIM_DIR}" "${LEGACY_LOCK_DIR}" \
     "${LEGACY_CLAIM_SNAPSHOT}"; then
     if [[ -n "${legacy_stale_dir}" ]]; then
-        "${PYTHON_BIN}" "${SCRIPT_DIR}/backup_legacy_lock.py" \
-            delete-verified "${legacy_stale_dir}" "${legacy_stale_snapshot}" || true
+        # Losing the claim race stays the authoritative exit; a failed
+        # quarantine cleanup must still name the leftover so an operator
+        # can remove it (it is never silently swallowed).
+        if ! "${PYTHON_BIN}" "${SCRIPT_DIR}/backup_legacy_lock.py" \
+            delete-verified "${legacy_stale_dir}" "${legacy_stale_snapshot}"; then
+            echo "WARNING: failed to clean stale legacy lock ${legacy_stale_dir}; remove it manually" >&2
+        fi
     fi
     echo "Backup already running (legacy lock claim was won concurrently)" >&2
     exit 3

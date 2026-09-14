@@ -453,7 +453,10 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
   hop terminates public TLS: Compose refuses to serve when `production` is
   configured with its HTTP default. Keep `GOATFARM_EDGE_BIND_HOST=127.0.0.1`
   unless a deliberate TLS topology requires another binding; never expose this
-  raw HTTP listener directly. If the documented default conflicts with a host, VPN,
+  raw HTTP listener directly. Outside `production`, the edge refuses to start
+  (exit 2) if `GOATFARM_EDGE_BIND_HOST` names a non-loopback address — an
+  isolated, firewalled staging box can opt in explicitly with
+  `GOATFARM_ALLOW_DEV_PUBLIC_BIND=true`. If the documented default conflicts with a host, VPN,
   or cloud route, override the subnet and an address inside it in `.env`; no
   Compose-file edit is required — but note that changing the subnet or edge
   IP of an **already-created** stack (including upgrading across a release

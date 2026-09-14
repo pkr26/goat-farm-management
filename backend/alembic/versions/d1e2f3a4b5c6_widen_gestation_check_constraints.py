@@ -21,8 +21,9 @@ Revision ID: d1e2f3a4b5c6
 Revises: f8a2c4e6b1d9
 """
 
-from alembic import context, op
 from sqlalchemy import text
+
+from alembic import context, op
 
 revision = "d1e2f3a4b5c6"
 down_revision = "f8a2c4e6b1d9"

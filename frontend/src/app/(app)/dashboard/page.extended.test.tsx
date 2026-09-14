@@ -496,7 +496,7 @@ describe("DashboardPage — withheld sections vs. real counts", () => {
     expect(screen.getByText("Ready to move")).toBeInTheDocument();
     expect(screen.queryByText("Ready to move (2)")).not.toBeInTheDocument();
     expect(screen.queryByText("G-077 · Lakshmi")).not.toBeInTheDocument();
-    expect(screen.getByText("Weight records require animal access.")).toBeInTheDocument();
+    expect(screen.getByText("Weight records require animals access.")).toBeInTheDocument();
   });
 
   it("never leaks a bounded suggestion count into the withheld notice", async () => {

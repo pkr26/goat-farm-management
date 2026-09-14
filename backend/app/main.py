@@ -6,6 +6,7 @@ import math
 import os
 import re
 import time
+import unicodedata
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
@@ -50,7 +51,11 @@ from .schemas.ops import HealthStatusOut, ReadinessStatusOut, ReadinessUnavailab
 from .security import PasswordWorkCapacityError, prime_dummy_password_hash, validate_jwt_keypair
 from .seed import repair_legacy_data_batch, seed_startup
 from .services.animals import skip_inactive_animal_tasks_batch
-from .services.idempotency import purge_expired_idempotency_records
+from .services.idempotency import (
+    IDEMPOTENCY_KEY_PATTERN,
+    MAX_IDEMPOTENCY_KEY_LENGTH,
+    purge_expired_idempotency_records,
+)
 
 logger = logging.getLogger("goatfarm")
 
@@ -67,6 +72,11 @@ CORS_EXPOSE_HEADERS = ["Idempotency-Replayed", "X-Request-ID", "Retry-After"]
 # Canonical verbs for the bounded metrics method label (RT-M-3); anything
 # else collapses to a single "OTHER" series instead of per-spelling series.
 _KNOWN_HTTP_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"})
+
+# Mnemonic spellings for the control characters most likely to appear in a
+# percent-decoded path; every other control char becomes a \uXXXX escape in
+# _log_safe_path (RT-M-4).
+_LOG_CONTROL_ESCAPES = {"\r": "\\r", "\n": "\\n", "\t": "\\t"}
 
 # Request ID of the in-flight request, bound into every log record by
 # _RequestIdFilter so a user report can be correlated with server logs.
@@ -323,6 +333,54 @@ async def _deleted_membership_cleanup_loop(
         await asyncio.sleep(interval_seconds)
 
 
+def _enforce_production_private_key_mode() -> None:
+    """RT-A-3: refuse to boot when the production private key is shared.
+
+    A world-readable mounted private key boots cleanly through
+    ``validate_jwt_keypair`` but hands the RS256 signing capability to every
+    local account on the host. ``os.stat`` follows the K8s-secret symlink
+    deliberately kept legal for key reads; the pinned-fd in-read replacement
+    check in security.py covers swap-in races. No-op outside production.
+    """
+    if get_settings().environment != "production":
+        return
+    private_key_path = Path(get_settings().jwt_private_key_path)
+    key_mode = os.stat(private_key_path).st_mode
+    if key_mode & 0o077:
+        raise RuntimeError(
+            f"Refusing to boot: JWT private key {private_key_path} is "
+            f"group/other accessible (mode {oct(key_mode & 0o777)}) — "
+            "chmod 600 it (mount secrets with restricted permissions)"
+        )
+
+
+def _metrics_method(request: Request) -> str:
+    """Canonical verb for the metrics label (RT-M-3).
+
+    The raw method token is attacker-chosen; free-range values give the
+    label unbounded cardinality (one Prometheus time series per spelling).
+    Map anything outside the standard verbs to a single OTHER bucket.
+    """
+    return request.method if request.method in _KNOWN_HTTP_METHODS else "OTHER"
+
+
+def _log_safe_path(path: str) -> str:
+    """Single-line, control-free path for request logs (RT-M-4).
+
+    The logged path is percent-decoded upstream, so %0A/%0D inject
+    newlines into the log line. Escape every control character (C0, DEL,
+    C1) plus the Unicode line/paragraph separators so one request cannot
+    forge subsequent log records or smuggle terminal escapes into log
+    viewers. \r/\n/\t keep mnemonic spellings for grep-friendliness.
+    """
+    return "".join(
+        _LOG_CONTROL_ESCAPES.get(char, f"\\u{ord(char):04x}")
+        if unicodedata.category(char) == "Cc" or char in "\u2028\u2029"
+        else char
+        for char in path
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # Schema is owned by Alembic (alembic upgrade head). Before readiness we
@@ -348,20 +406,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # are missing, malformed, weak, duplicate, unreadable, or when the active
     # pair does not match. Development may generate its active pair here.
     validate_jwt_keypair()
-    if get_settings().environment == "production":
-        # RT-A-3: a world-readable mounted private key boots cleanly through
-        # validate_jwt_keypair but hands the RS256 signing capability to every
-        # local account on the host. os.stat follows the K8s-secret symlink
-        # deliberately kept legal for key reads; the pinned-fd in-read
-        # replacement check in security.py covers swap-in races.
-        private_key_path = Path(get_settings().jwt_private_key_path)
-        key_mode = os.stat(private_key_path).st_mode
-        if key_mode & 0o077:
-            raise RuntimeError(
-                f"Refusing to boot: JWT private key {private_key_path} is "
-                f"group/other accessible (mode {oct(key_mode & 0o777)}) — "
-                "chmod 600 it (mount secrets with restricted permissions)"
-            )
+    _enforce_production_private_key_mode()
     # Warm the timing-equalization dummy hash so the first unknown-email
     # login pays no cold-start cost.
     prime_dummy_password_hash()
@@ -584,6 +629,18 @@ def _publish_required_idempotency_headers(app: FastAPI) -> None:
             for parameter in schema["paths"][path][method]["parameters"]:
                 if parameter.get("name") == "Idempotency-Key" and parameter.get("in") == "header":
                     parameter["required"] = True
+                    # FastAPI derives the parameter schema from the Optional
+                    # dependency default, leaving ``anyOf: [string, null]``
+                    # even though a missing key is a 422 on these routes.
+                    # Drop the null arm (keeping the validated bounds) so
+                    # generated clients type the header as the mandatory
+                    # string it is.
+                    parameter["schema"] = {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": MAX_IDEMPOTENCY_KEY_LENGTH,
+                        "pattern": IDEMPOTENCY_KEY_PATTERN,
+                    }
         return schema
 
     app.openapi = openapi_with_required_headers  # type: ignore[method-assign]
@@ -645,24 +702,6 @@ def create_app() -> FastAPI:
         route = request.scope.get("route")
         path = getattr(route, "path", None)
         return path if isinstance(path, str) and path else "unmatched"
-
-    def _metrics_method(request: Request) -> str:
-        """Canonical verb for the metrics label (RT-M-3).
-
-        The raw method token is attacker-chosen; free-range values give the
-        label unbounded cardinality (one Prometheus time series per spelling).
-        Map anything outside the standard verbs to a single OTHER bucket.
-        """
-        return request.method if request.method in _KNOWN_HTTP_METHODS else "OTHER"
-
-    def _log_safe_path(path: str) -> str:
-        """Single-line path for request logs (RT-M-4).
-
-        The logged path is percent-decoded upstream, so %0A/%0D inject
-        newlines into the log line. Escape every control character so one
-        request cannot forge subsequent log records.
-        """
-        return path.replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t")
 
     @app.middleware("http")
     async def request_id_middleware(

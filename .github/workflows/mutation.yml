@@ -31,7 +31,7 @@ jobs:
       # stray DB-bound test slipping through is a hung worker, not a clean
       # failure — so provide the same PostgreSQL service as the CI job.
       postgres:
-        image: postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
+        image: postgres:16@sha256:f1c3376c26f2609ab9f29f71f824103fe2fcd8ee0346485cb6122a4f93df6f94
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_HOST_AUTH_METHOD: trust

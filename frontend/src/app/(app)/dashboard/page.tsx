@@ -341,18 +341,18 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
       <div className="order-6 grid grid-cols-2 gap-3 [&>*:nth-child(5)]:col-span-2 sm:grid-cols-3 sm:[&>*:nth-child(5)]:col-span-1 md:order-none lg:grid-cols-5">
         <StatCard
           label="Active animals"
-          value={activeStat ?? <WithheldStat permission="animal" />}
+          value={activeStat ?? <WithheldStat permission="animals" />}
           icon={PawPrint}
           tint="success"
         />
         <StatCard
           label="Females"
-          value={femaleStat ?? <WithheldStat permission="animal" />}
+          value={femaleStat ?? <WithheldStat permission="animals" />}
           icon={Venus}
         />
         <StatCard
           label="Males"
-          value={maleStat ?? <WithheldStat permission="animal" />}
+          value={maleStat ?? <WithheldStat permission="animals" />}
           icon={Mars}
         />
         <StatCard
@@ -794,7 +794,7 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
         {animalsWithheld || bucketCounts === null ? (
           <EmptyState
             icon={Boxes}
-            title="Bucket counts require animal access."
+            title="Bucket counts require animals access."
             description="Ask an admin to grant animals.view to see the herd by bucket here."
           />
         ) : (
@@ -858,7 +858,7 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
         {payload.recent_weights_total === null ? (
           <EmptyState
             icon={Scale}
-            title="Weight records require animal access."
+            title="Weight records require animals access."
             description="Ask an admin to grant animals.view to see recent weight records here."
           />
         ) : recentWeights.length === 0 ? (

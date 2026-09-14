@@ -32,6 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .assumptions import (
     MAX_HEAD,
+    MAX_PLAN_EVENTS,
     HerdEventAssumptions,
     MortalityAssumptions,
     SimulationAssumptions,
@@ -75,14 +76,15 @@ _CLASS_MAX_AGE = {"kid": 2, "weaner": 5}
 # Age (months) at which an animal enters each class: kid 0, weaner 3, grower 6.
 _CLASS_ENTRY_AGE = {"kid": 0, "weaner": 3, "grower": 6}
 
-# The schema caps a whole document's event list at 500 entries
-# (``HerdEvents.events`` max_length). That budget is shared by the caller's
-# own purchase events, the planner's generated purchases and one sale event
-# per target — so the planner must count its chunks BEFORE building them: a
-# tiny ``conception_rate`` scales ``needed`` head up trillions-fold, and
-# materializing even a fraction of those chunks OOMs the single worker long
-# before the post-hoc validation guard can fire (red-team RT-L8-1).
-MAX_PLAN_EVENTS = 500
+# The schema caps a whole document's event list at MAX_PLAN_EVENTS entries
+# (``SimulationAssumptions.events`` max_length; the constant lives in
+# assumptions.py so the schema bound and this arithmetic cannot drift).
+# That budget is shared by the caller's own purchase events, the planner's
+# generated purchases and one sale event per target — so the planner must
+# count its chunks BEFORE building them: a tiny ``conception_rate`` scales
+# ``needed`` head up trillions-fold, and materializing even a fraction of
+# those chunks OOMs the single worker long before the post-hoc validation
+# guard can fire (red-team RT-L8-1).
 # Backstop inside the chunking loop itself. The arithmetic pre-checks above
 # always fire first; this cap exists so an arithmetic regression (e.g. float
 # absorption making ``remaining -= chunk`` a no-op at huge counts) can never
@@ -458,6 +460,15 @@ def close_gaps(
     def _impossible(target: SaleTarget) -> bool:
         return target.month < _earliest_supply_month(target.animal_class)
 
+    # Loop-invariant slice of the event budget: the caller's kept purchase
+    # events plus one sale event per target. Computed once so the in-loop
+    # pre-check and the final materialization below enforce the SAME
+    # reserved-inclusive budget (a final call with reserved=0 would rely on
+    # the dict being untouched since the last loop check).
+    reserved_events = sum(1 for event in assumptions.events if event.kind == "purchase") + len(
+        targets
+    )
+
     for _ in range(max_iterations):
         if evaluation.all_met:
             break
@@ -502,15 +513,12 @@ def close_gaps(
         # per target + the chunks below, all countable by pure arithmetic. A
         # demand that cannot fit must fail as this cheap ValueError (mapped to
         # 422 by the API), never as an OOM after half a billion objects exist.
-        reserved_events = sum(1 for event in assumptions.events if event.kind == "purchase") + len(
-            targets
-        )
         _check_purchase_event_budget(purchases_by_month, reserved=reserved_events)
-        purchases = _purchases_from(purchases_by_month)
+        purchases = _purchases_from(purchases_by_month, reserved=reserved_events)
         evaluation = _evaluate(assumptions, targets, purchases)
 
     return (
-        _purchases_from(purchases_by_month),
+        _purchases_from(purchases_by_month, reserved=reserved_events),
         evaluation,
         evaluation.all_met,
         notes,
@@ -536,13 +544,18 @@ def _check_purchase_event_budget(by_month: dict[int, float], *, reserved: int = 
     """
     projected = _projected_purchase_events(by_month)
     if reserved + projected > MAX_PLAN_EVENTS:
+        reserved_note = (
+            f" ({reserved} events are already reserved by the plan's kept purchase/sale events)"
+            if reserved
+            else ""
+        )
         raise ValueError(
             f"plan requires {projected} purchase events; cap is {MAX_PLAN_EVENTS} "
-            "— raise conception_rate or lower the shortfall"
+            f"— raise conception_rate or lower the shortfall{reserved_note}"
         )
 
 
-def _purchases_from(by_month: dict[int, float]) -> list[HerdEventAssumptions]:
+def _purchases_from(by_month: dict[int, float], *, reserved: int = 0) -> list[HerdEventAssumptions]:
     """Chunked per-month purchase events, each inside the schema's head cap.
 
     A huge shortfall can demand more than ``MAX_HEAD`` head in one month; a
@@ -550,9 +563,11 @@ def _purchases_from(by_month: dict[int, float]) -> list[HerdEventAssumptions]:
     from the API). Splitting keeps every event legal; a plan whose chunks
     would exceed the event cap is rejected here by arithmetic, before a
     single event is built — materializing the chunk list inside the priced
-    budget was an OOM vector, not a validation error (RT-L8-1).
+    budget was an OOM vector, not a validation error (RT-L8-1). ``reserved``
+    is the headroom the rest of the plan document already consumes, so this
+    self-contained check enforces the same budget close_gaps pre-checked.
     """
-    _check_purchase_event_budget(by_month)
+    _check_purchase_event_budget(by_month, reserved=reserved)
     events: list[HerdEventAssumptions] = []
     for month, count in sorted(by_month.items()):
         remaining = count

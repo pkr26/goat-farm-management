@@ -20,7 +20,7 @@ x-default-logging: &default-logging
 
 services:
   db:
-    image: postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
+    image: postgres:16@sha256:f1c3376c26f2609ab9f29f71f824103fe2fcd8ee0346485cb6122a4f93df6f94
     restart: unless-stopped
     # Least privilege: the official image's bootstrap needs exactly these
     # capabilities — CHOWN/DAC_OVERRIDE/FSETID for initdb on the data volume,
@@ -264,6 +264,11 @@ configs:
       # slots. 5 r/s with burst 20 per client address is far above human
       # login/refresh cadence (and refreshes carry no Argon2 cost) while
       # capping an attacker at ~1/6th of the measured rejection throughput.
+      # Caveat for the outer-TLS-terminator topology: this edge sees the
+      # terminator's address as $binary_remote_addr, so the zone's 5 r/s is
+      # AGGREGATE across all clients in that deployment. The backend's own
+      # X-Forwarded-For-keyed limiter remains per-client there; this zone is
+      # coarse flood shaping only.
       limit_req_zone $binary_remote_addr zone=auth_flood:10m rate=5r/s;
       server {
           listen 3000;

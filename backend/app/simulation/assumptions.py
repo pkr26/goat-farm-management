@@ -20,6 +20,12 @@ FiniteFloat = Annotated[float, Field(strict=True, allow_inf_nan=False)]
 # any real farm, small enough that cohort arithmetic can't overflow float64.
 MAX_HEAD = 100_000
 
+# Event-document ceiling shared by the schema bound on SimulationAssumptions
+# and the planner's purchase-chunk budget arithmetic (RT-L8-1): one constant
+# so the planner can never reject plans the schema admits, or over-admit
+# plans the schema would refuse after materialization.
+MAX_PLAN_EVENTS = 500
+
 # Ceiling for the labour-scaling divisor only: float-exact (< 2**53) so the
 # engine's ``total_herd / threshold`` stays finite, huge so stored scenarios
 # that predate any bound keep revalidating. See CostsAssumptions.
@@ -890,7 +896,7 @@ class SimulationAssumptions(_Group):
     optimization: OptimizationAssumptions = Field(default_factory=OptimizationAssumptions)
     # Bounded like every other list input: an unbounded events payload is an
     # unbounded work/payload vector.
-    events: list[HerdEventAssumptions] = Field(default_factory=list, max_length=500)
+    events: list[HerdEventAssumptions] = Field(default_factory=list, max_length=MAX_PLAN_EVENTS)
 
     @model_validator(mode="after")
     def _events_within_horizon(self) -> "SimulationAssumptions":

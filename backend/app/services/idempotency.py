@@ -29,6 +29,10 @@ from ..utils import utcnow
 MAX_IDEMPOTENCY_KEY_LENGTH = 128
 SENSITIVE_IDEMPOTENCY_OPERATIONS = frozenset({"team.workers.create"})
 
+# Printable, non-whitespace ASCII; shared by the header contract and the
+# OpenAPI parameter schema published for the required-key routes.
+IDEMPOTENCY_KEY_PATTERN = r"^[\x21-\x7e]+$"
+
 # Keep keys opaque but bounded and safe for HTTP/logging infrastructure:
 # printable, non-whitespace ASCII. The raw value is hashed before persistence.
 _IdempotencyHeader = Annotated[
@@ -37,7 +41,7 @@ _IdempotencyHeader = Annotated[
         alias="Idempotency-Key",
         min_length=1,
         max_length=MAX_IDEMPOTENCY_KEY_LENGTH,
-        pattern=r"^[\x21-\x7e]+$",
+        pattern=IDEMPOTENCY_KEY_PATTERN,
     ),
 ]
 

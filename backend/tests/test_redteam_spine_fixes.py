@@ -23,13 +23,19 @@ audit_reports/2026-09-13/01..17 + 18_REMEDIATION_LOG.md):
 """
 
 from datetime import date, timedelta
+from pathlib import Path
 
 import httpx
 import pytest
 from fastapi import FastAPI
 
 from app.core.config import Settings, get_settings
-from app.main import create_app
+from app.main import (
+    _enforce_production_private_key_mode,
+    _log_safe_path,
+    _metrics_method,
+    create_app,
+)
 from app.ratelimit import auth_limiter
 from tests.conftest import login, owner_with_farm, register
 
@@ -350,6 +356,42 @@ async def test_override_quarantine_release_requires_pristine_protocol(
     assert plain.status_code == 409, plain.text
     assert "guarded batch task" in plain.text
 
+    # The exploit shape the FOUNDATION-only fence missed: a mid-protocol
+    # batch animal side-stepping biosecurity to a non-FOUNDATION bucket
+    # (BREEDING) by owner override must 409 exactly like a release would.
+    resp = await client.post(
+        "/api/animals",
+        json={
+            "tag_number": "PRIS-Q-3",
+            "sex": "F",
+            "source": "PURCHASED",
+            "current_bucket": "QUARANTINE",
+            "purchase_date": date.today().isoformat(),
+            "purchase_price": 1500,
+        },
+        headers=owner | {"Idempotency-Key": "spine-pris-q3"},
+    )
+    assert resp.status_code == 201, resp.text
+    animal3 = resp.json()["id"]
+    purchases = await client.get("/api/purchases", headers=owner)
+    assert purchases.status_code == 200, purchases.text
+    batch_id = max(batch["id"] for batch in purchases.json()["batches"])
+    detail = await client.get(f"/api/purchases/{batch_id}", headers=owner)
+    assert detail.status_code == 200, detail.text
+    first_task = detail.json()["tasks"][0]["id"]
+    completed = await client.post(f"/api/tasks/{first_task}/complete", headers=owner)
+    assert completed.status_code == 200, completed.text
+    side_step = await client.post(
+        f"/api/animals/{animal3}/move",
+        json={"to_bucket": "BREEDING", "reason": "owner correction", "history_override": True},
+        headers=owner,
+    )
+    assert side_step.status_code == 409, side_step.text
+    assert side_step.json()["detail"] == (
+        "This animal cannot leave quarantine by override because its "
+        "purchase-batch protocol has started, ended, or is incomplete."
+    )
+
 
 # ---------------------------------------------------------------------------
 # RT-DE-1 / RT-C-5: overrides cannot strand an open pregnancy
@@ -523,3 +565,78 @@ async def test_dispense_date_cannot_predate_farm(client: httpx.AsyncClient) -> N
     )
     assert resp.status_code == 422, resp.text
     assert "before the farm was created" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# RT-A-3 / RT-M-3 / RT-M-4: production key mode + log label hygiene
+# ---------------------------------------------------------------------------
+
+
+def test_production_refuses_group_readable_private_key(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    key = tmp_path / "jwt_private.pem"
+    key.write_text("placeholder — the mode check runs before any parsing")
+    key.chmod(0o640)
+    _production_env(monkeypatch)
+    monkeypatch.setenv("GOATFARM_JWT_PRIVATE_KEY_PATH", str(key))
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(RuntimeError, match="group/other accessible"):
+            _enforce_production_private_key_mode()
+    finally:
+        get_settings.cache_clear()
+
+
+def test_production_accepts_owner_only_private_key(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    key = tmp_path / "jwt_private.pem"
+    key.write_text("placeholder — the mode check runs before any parsing")
+    key.chmod(0o600)
+    _production_env(monkeypatch)
+    monkeypatch.setenv("GOATFARM_JWT_PRIVATE_KEY_PATH", str(key))
+    get_settings.cache_clear()
+    try:
+        _enforce_production_private_key_mode()  # must not raise
+    finally:
+        get_settings.cache_clear()
+
+
+def test_development_skips_private_key_mode_check(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    key = tmp_path / "jwt_private.pem"
+    key.write_text("placeholder — the mode check runs before any parsing")
+    key.chmod(0o666)
+    monkeypatch.setenv("GOATFARM_JWT_PRIVATE_KEY_PATH", str(key))
+    get_settings.cache_clear()
+    try:
+        _enforce_production_private_key_mode()  # must not raise
+    finally:
+        get_settings.cache_clear()
+
+
+def test_log_safe_path_escapes_every_control_character() -> None:
+    # RT-M-4: line forgery via \r/\n AND terminal-escape smuggling via
+    # C1/DEL/ESC must both be impossible in request logs; the mnemonic
+    # spellings stay grep-friendly.
+    escaped = _log_safe_path("/api/x\x1b[31my\r\nz\u2028w\u007f")
+    assert "\r" not in escaped and "\n" not in escaped
+    assert "\x1b" not in escaped and "\u2028" not in escaped and "\x7f" not in escaped
+    assert "\\r" in escaped and "\\n" in escaped
+    assert "\\u001b" in escaped and "\\u2028" in escaped and "\\u007f" in escaped
+
+
+def test_metrics_method_allowlists_standard_verbs() -> None:
+    # RT-M-3: an attacker-chosen method token must collapse to one OTHER
+    # label, never mint a new Prometheus series per spelling.
+
+    class _MethodRequest:
+        def __init__(self, method: str) -> None:
+            self.method = method
+
+    for verb in ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"):
+        assert _metrics_method(_MethodRequest(verb)) == verb
+    assert _metrics_method(_MethodRequest("FROB")) == "OTHER"
+    assert _metrics_method(_MethodRequest("get")) == "OTHER"

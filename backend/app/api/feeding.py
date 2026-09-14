@@ -153,8 +153,12 @@ async def dispense(
         if record_date < farm.created_at.date():
             # Hardening floor (RT-HIJ-4): a dispensing record cannot predate
             # the farm itself. created_at is UTC while record_date is the
-            # farm-local business date, so comparing against the UTC date can
-            # only loosen the floor by a day — never reject a legit entry.
+            # farm-local business date, so the comparison is exact for UTC
+            # farms and off by one day for others: east-of-UTC farms see the
+            # floor loosened by a day (harmless — it only admits records from
+            # the farm's true first local day), west-of-UTC farms see it one
+            # day stricter for the first hours of farm life (fail-closed; use
+            # tomorrow's local date for the very first dispense).
             raise HTTPException(
                 status_code=422,
                 detail="Dispensing date cannot be before the farm was created.",

@@ -266,6 +266,8 @@ async def test_capacity_busy_429_carries_retry_after(client: httpx.AsyncClient) 
         )
         assert resp.status_code == 429, resp.text
         assert "busy" in resp.json()["detail"]
-        assert int(resp.headers["Retry-After"]) >= 1
+        # Pin the exact documented hint: 5 s clears the per-farm run lock's
+        # hold window, so an operator-facing client can schedule the retry.
+        assert resp.headers["Retry-After"] == "5"
     finally:
         lock.release()

@@ -670,7 +670,7 @@ describe("DashboardPage — recent weights withheld vs. empty", () => {
     renderWithProviders(<DashboardPage />);
 
     expect(
-      await screen.findByText("Weight records require animal access."),
+      await screen.findByText("Weight records require animals access."),
     ).toBeInTheDocument();
     expect(screen.queryByText(/No weight records yet/)).not.toBeInTheDocument();
   });
@@ -681,7 +681,7 @@ describe("DashboardPage — recent weights withheld vs. empty", () => {
 
     expect(await screen.findByText(/No weight records yet/)).toBeInTheDocument();
     expect(
-      screen.queryByText("Weight records require animal access."),
+      screen.queryByText("Weight records require animals access."),
     ).not.toBeInTheDocument();
   });
 });
@@ -733,9 +733,9 @@ describe("DashboardPage — withheld task sections (null sentinels)", () => {
     renderWithProviders(<DashboardPage />);
 
     expect(
-      await screen.findByText("Bucket counts require animal access."),
+      await screen.findByText("Bucket counts require animals access."),
     ).toBeInTheDocument();
-    expect(screen.getAllByText("Requires animal access")).toHaveLength(3);
+    expect(screen.getAllByText("Requires animals access")).toHaveLength(3);
     expect(screen.queryByRole("img", { name: /^Distribution:/ })).not.toBeInTheDocument();
     // status_totals is a lifetime aggregate the API still sends un-nullled.
     expect(screen.getByText("Sold (all time)")).toBeInTheDocument();
@@ -849,8 +849,8 @@ describe("DashboardPage — loading, error and permission states", () => {
     expect(screen.getByText("Requires tasks access")).toBeInTheDocument();
     // The bucket/animal aggregates are withheld without animals.view: markers,
     // never a factual 0 or a hollow donut.
-    expect(screen.getAllByText("Requires animal access")).toHaveLength(3);
-    expect(screen.getByText("Bucket counts require animal access.")).toBeInTheDocument();
+    expect(screen.getAllByText("Requires animals access")).toHaveLength(3);
+    expect(screen.getByText("Bucket counts require animals access.")).toBeInTheDocument();
     expect(screen.queryByRole("img", { name: /^Distribution:/ })).not.toBeInTheDocument();
   });
 });

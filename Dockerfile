@@ -9,14 +9,24 @@
 # GOATFARM_CORS_ORIGINS, GOATFARM_DB_SSLMODE=verify-full and
 # GOATFARM_MIN_PASSWORD_LENGTH>=12 for real deployments. Production also
 # requires a stable RS256 keypair mounted at /app/keys (or configured paths).
+#
+# The key paths are pinned to /app/keys by ENV: the non-root goatfarm user
+# has no writable home, so the app's development fallback
+# (~/.cache/goatfarm/keys) would crash at boot with PermissionError. With
+# the ENV, an empty /app/keys (dev/smoke runs) gets the generated dev
+# keypair inside the 0700 goatfarm-owned directory, while a production mount
+# at /app/keys is picked up as-is and explicit GOATFARM_JWT_*_PATH
+# overrides keep winning.
 
-FROM python:3.13-slim@sha256:9662417aace5ae7b8e2609cce472b72a8958e134ba372808abe9cc1a0c0125e6
+FROM python:3.13-slim@sha256:9d2e5553305c7c7b0097999bb17187c69b921ccd6bc9d40e4bb5ebe652c00285
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
-    PATH="/app/.venv/bin:$PATH"
+    PATH="/app/.venv/bin:$PATH" \
+    GOATFARM_JWT_PRIVATE_KEY_PATH=/app/keys/jwt_private.pem \
+    GOATFARM_JWT_PUBLIC_KEY_PATH=/app/keys/jwt_public.pem
 
 WORKDIR /app
 

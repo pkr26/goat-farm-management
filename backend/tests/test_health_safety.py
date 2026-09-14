@@ -578,8 +578,8 @@ async def test_batch_animal_cannot_reenter_after_recorded_protocol_facts(
     )
     assert after_rejection.status_code == 409, after_rejection.text
     assert after_rejection.json()["detail"] == (
-        "This animal cannot re-enter quarantine because its purchase-batch "
-        "protocol has started, ended, or is incomplete."
+        "This animal cannot leave quarantine by override because its "
+        "purchase-batch protocol has started, ended, or is incomplete."
     )
 
     async with get_sessionmaker()() as db:
@@ -604,8 +604,8 @@ async def test_batch_animal_cannot_reenter_after_recorded_protocol_facts(
     )
     assert after_completion.status_code == 409, after_completion.text
     assert after_completion.json()["detail"] == (
-        "This animal cannot re-enter quarantine because its purchase-batch "
-        "protocol has started, ended, or is incomplete."
+        "This animal cannot leave quarantine by override because its "
+        "purchase-batch protocol has started, ended, or is incomplete."
     )
 
     stored = await client.get(f"/api/animals/{animal['id']}", headers=owner)
@@ -729,8 +729,8 @@ async def test_batch_reentry_refusal_states_both_halves_of_its_reason(
     )
     assert refused.status_code == 409, refused.text
     assert refused.json()["detail"] == (
-        "This animal cannot re-enter quarantine because its purchase-batch "
-        "protocol has started, ended, or is incomplete."
+        "This animal cannot leave quarantine by override because its "
+        "purchase-batch protocol has started, ended, or is incomplete."
     )
 
 

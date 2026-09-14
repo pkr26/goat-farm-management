@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 60
     services:
       postgres:
-        image: postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
+        image: postgres:16@sha256:f1c3376c26f2609ab9f29f71f824103fe2fcd8ee0346485cb6122a4f93df6f94
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_HOST_AUTH_METHOD: trust
@@ -137,8 +137,11 @@ jobs:
   frontend:
     runs-on: ubuntu-latest
     # Headroom for the coverage-instrumented Vitest run plus the production
-    # build, which are the two slow steps in this job.
-    timeout-minutes: 25
+    # build, which are the two slow steps in this job. A fast workstation
+    # finishes the instrumented suite in ~6 min, but the 2-core shared CI
+    # runners need 4-6x that; 25 min was measured to be too tight (the job
+    # was killed mid-suite), so budget for the slow-runner worst case.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -179,9 +182,10 @@ jobs:
         # test:coverage = `vitest run --coverage`; without --coverage the
         # thresholds configured in vitest.config.ts (85/80/85/85
         # statements/branches/functions/lines) were never evaluated, so a
-        # coverage regression could not fail this job. Measured locally with
-        # two workers the instrumented run takes ~6 minutes (vs ~5 without
-        # coverage); still comfortably inside the job timeout below.
+        # coverage regression could not fail this job. ~6 minutes locally
+        # with two workers, but 4-6x slower on the 2-core shared runners —
+        # the reason the job timeout above is 45 minutes. vitest.config.ts
+        # raises the per-test/hook timeouts under CI for the same reason.
         run: pnpm test:coverage
 
       - name: Upload frontend coverage report
@@ -213,7 +217,7 @@ jobs:
         browser: [chromium, firefox, webkit]
     services:
       postgres:
-        image: postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
+        image: postgres:16@sha256:f1c3376c26f2609ab9f29f71f824103fe2fcd8ee0346485cb6122a4f93df6f94
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_HOST_AUTH_METHOD: trust
@@ -305,7 +309,7 @@ jobs:
     timeout-minutes: 15
     services:
       postgres:
-        image: postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
+        image: postgres:16@sha256:f1c3376c26f2609ab9f29f71f824103fe2fcd8ee0346485cb6122a4f93df6f94
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_HOST_AUTH_METHOD: trust

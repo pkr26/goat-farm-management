@@ -1,0 +1,19 @@
+# Gitleaks configuration (https://github.com/gitleaks/gitleaks).
+#
+# Extends the built-in rule set unchanged; the only addition is a global
+# allowlist for Idempotency-Key header fixtures in tests and e2e specs.
+# Idempotency keys are client-generated per-request identifiers, not
+# credentials: the backend stores only their HMAC digest, and the e2e suite
+# replays literal fixture keys on purpose to pin request-dedup semantics.
+# Without this allowlist gitleaks' generic-api-key entropy heuristic flags
+# those literals and fails the secret-scan gate.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Idempotency-Key header values are request identifiers, never secrets"
+regexTarget = "line"
+regexes = [
+  '''(?i)["']?idempotency-key["']?\s*[:=]\s*["'][^"']+["']''',
+]

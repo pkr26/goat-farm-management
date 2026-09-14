@@ -2254,8 +2254,16 @@ def test_openapi_declares_bounded_idempotency_header_on_all_routes() -> None:
         )
         assert header["in"] == "header"
         assert header["required"] is ((path, method) in required_routes)
-        string_variant = next(
-            variant for variant in header["schema"]["anyOf"] if variant.get("type") == "string"
-        )
+        if (path, method) in required_routes:
+            # The publisher replaces the Optional-derived anyOf with a flat
+            # mandatory string schema: a null arm next to required=true
+            # makes generated clients type the header as optional.
+            string_variant = header["schema"]
+            assert "anyOf" not in string_variant
+            assert "null" not in string_variant
+        else:
+            string_variant = next(
+                variant for variant in header["schema"]["anyOf"] if variant.get("type") == "string"
+            )
         assert string_variant["minLength"] == 1
         assert string_variant["maxLength"] == 128

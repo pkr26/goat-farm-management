@@ -247,9 +247,14 @@ def _login_block_reason(request: Request, email: str) -> str | None:
         reason = "email"
     else:
         return None
-    # Security audit trail: throttling must be observable.
-    logger.info("login throttled (ip=%s, scope=%s)", _client_key(request), reason)
-    metrics.record_auth_rate_limit_rejection("login")
+    if reason in ("composite", "ip"):
+        # Security audit trail: throttling must be observable — but the
+        # metric counts decisions to ANSWER 429, and only the hard scopes
+        # pre-empt that answer. The soft email scope trips on observations
+        # that may still end in a successful login; its 429s are counted
+        # where they are actually raised (in the failed-password branch).
+        logger.info("login throttled (ip=%s, scope=%s)", _client_key(request), reason)
+        metrics.record_auth_rate_limit_rejection("login")
     return reason
 
 
@@ -852,7 +857,11 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
             _record_login_failure(request, payload.email)
             if _login_email_locked(request, payload.email):
                 # Soft per-email ceiling (RT-A-1): the wrong password answers
-                # the block; the right one proceeds to success below.
+                # the block; the right one proceeds to success below. This is
+                # the only place the email scope becomes a 429, so its audit
+                # trail and rejection metric belong here.
+                logger.info("login throttled (ip=%s, scope=email)", _client_key(request))
+                metrics.record_auth_rate_limit_rejection("login")
                 raise _too_many_attempts()
             raise invalid
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import unicodedata
 from collections.abc import Iterable
 from datetime import date, timedelta
 from typing import TYPE_CHECKING, TypedDict
@@ -81,16 +82,20 @@ class QuarantineTaskSpec(TypedDict):
 
 
 def no_control_characters(value: str) -> str:
-    """Reject embedded tab/LF/CR in identifier fields (tags, names).
+    """Reject control characters in identifier fields (tags, names).
 
     ``PostgresText`` whitelists ``\\t\\n\\r`` because narrative fields
     legitimately carry multi-line text; identifiers render on the task
     board, in pickers and in line-oriented exports, where embedded line
     breaks only produce visually confusable values. Other C0 controls and
     unpaired surrogates are already rejected by ``PostgresText`` itself.
+    DEL (0x7F) and the C1 range (U+0080–U+009F) are not ``< " "`` so
+    ``PostgresText`` lets them through; in identifiers they serve only
+    terminal-escape/confusable-value attacks, so reject the whole Cc class
+    here on top of the tab/LF/CR case.
     """
-    if any(char in "\t\n\r" for char in value):
-        raise ValueError("cannot contain tabs or line breaks")
+    if any(char in "\t\n\r" or unicodedata.category(char) == "Cc" for char in value):
+        raise ValueError("cannot contain tabs, line breaks, or control characters")
     return value
 
 

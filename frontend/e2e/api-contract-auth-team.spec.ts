@@ -205,7 +205,8 @@ async function createFarm(
   });
   const response = await request.post("/api/auth/farms", {
     data: payload,
-    headers: { Authorization: `Bearer ${owner.token}` },
+    // Farm creation requires an Idempotency-Key (RT-M-1).
+    headers: { Authorization: `Bearer ${owner.token}`, "Idempotency-Key": crypto.randomUUID() },
   });
   const farm = await jsonResponse<FarmOut>(response, "/api/auth/farms", 201);
   expectPrivateResponse(response);

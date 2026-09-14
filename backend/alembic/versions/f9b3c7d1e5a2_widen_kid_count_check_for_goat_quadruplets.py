@@ -16,8 +16,9 @@ Revision ID: f9b3c7d1e5a2
 Revises: b5d7f9a1c3e5
 """
 
-from alembic import context, op
 from sqlalchemy import text
+
+from alembic import context, op
 
 revision = "f9b3c7d1e5a2"
 down_revision = "b5d7f9a1c3e5"
@@ -39,8 +40,7 @@ def downgrade() -> None:
     # would violate the narrowed CHECK instead of aborting mid-walk with a
     # raw CheckViolation that names only the constraint, not the rows.
     incompatible_sql = (
-        "SELECT id FROM breeding_records WHERE kid_count_detected > 3 "
-        "ORDER BY id LIMIT 1"
+        "SELECT id FROM breeding_records WHERE kid_count_detected > 3 ORDER BY id LIMIT 1"
     )
     if context.is_offline_mode():
         op.execute(

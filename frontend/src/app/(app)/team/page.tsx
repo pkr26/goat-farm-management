@@ -495,19 +495,26 @@ function AddWorkerDialog({
     });
   }
 
+  // Every dismissal path (Esc, backdrop, X, Cancel) funnels through here so
+  // the form AND any stale error banner are cleared alike: the dialog stays
+  // mounted for owners, and a half-typed password must not survive into the
+  // next open (RT-P2-1).
+  const dismiss = () => {
+    if (isSubmitting || createFlight.pending) return;
+    setFormError(null);
+    reset();
+    onOpenChange(false);
+  };
+
   return (
     <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
-        if (!nextOpen && (isSubmitting || createFlight.pending)) return;
-        if (!nextOpen) {
-          setFormError(null);
-          // Dismissal (Esc/backdrop) must clear the form exactly like the
-          // Cancel button: the dialog stays mounted for owners, and a
-          // half-typed password must not survive into the next open (RT-P2-1).
-          reset();
+        if (nextOpen) {
+          onOpenChange(true);
+          return;
         }
-        onOpenChange(nextOpen);
+        dismiss();
       }}
     >
       <DialogContent className="sm:max-w-lg">
@@ -618,11 +625,7 @@ function AddWorkerDialog({
               variant="outline"
               disabled={isSubmitting || createFlight.pending}
               onClick={() => {
-                // Cancel must also clear the form: the dialog stays mounted
-                // for owners, and a half-typed password should not survive
-                // into the next open.
-                reset();
-                onOpenChange(false);
+                dismiss();
               }}
             >
               Cancel

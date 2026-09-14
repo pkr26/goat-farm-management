@@ -1,5 +1,6 @@
 """Animals module: list/filters, create, profile, bucket moves, weights, status."""
 
+import re
 from datetime import date
 from typing import Annotated, Literal, cast
 
@@ -144,6 +145,23 @@ async def _animal_out(
     )
 
 
+_QUARANTINE_TITLE_PREFIX = re.compile(r"^\[[^\]]*\]\s*")
+
+
+def _quarantine_title_phrase(title: str) -> str:
+    """Title without its bracketed batch/supplier prefix.
+
+    The pristine-protocol shape check compares expected schedule titles with
+    stored rows; titles built since RT-HIJ-3 carry ``[Batch #id]`` while
+    legacy rows may still carry ``[<supplier> #id]``. Comparing the phrase
+    (everything after the first bracketed prefix — mirroring the frontend
+    task-prefill parser) keeps the check meaningful for both generations
+    without weakening it: due dates, categories, count and all completion
+    metadata must still match exactly.
+    """
+    return _QUARANTINE_TITLE_PREFIX.sub("", title, count=1)
+
+
 async def _lock_pristine_batch_protocol_for_quarantine_reentry(
     db: AsyncSession, farm_id: int, purchase_batch_id: int
 ) -> None:
@@ -195,9 +213,12 @@ async def _lock_pristine_batch_protocol_for_quarantine_reentry(
         ).scalars()
     )
     expected_shape = sorted(
-        (item["due_date"], item["category"], item["title"]) for item in expected
+        (item["due_date"], item["category"], _quarantine_title_phrase(item["title"]))
+        for item in expected
     )
-    actual_shape = sorted((task.due_date, task.category, task.title) for task in tasks)
+    actual_shape = sorted(
+        (task.due_date, task.category, _quarantine_title_phrase(task.title)) for task in tasks
+    )
     pristine = actual_shape == expected_shape and all(
         task.auto_generated
         and task.animal_id is None
@@ -221,8 +242,8 @@ async def _lock_pristine_batch_protocol_for_quarantine_reentry(
         raise HTTPException(
             status_code=409,
             detail=(
-                "This animal cannot re-enter quarantine because its purchase-batch "
-                "protocol has started, ended, or is incomplete."
+                "This animal cannot leave quarantine by override because its "
+                "purchase-batch protocol has started, ended, or is incomplete."
             ),
         )
 
@@ -795,19 +816,22 @@ async def move_bucket(
     )
     if (
         animal.current_bucket == Bucket.QUARANTINE.value
-        and payload.to_bucket == Bucket.FOUNDATION.value
+        and payload.to_bucket != Bucket.QUARANTINE.value
         and animal.purchase_batch_id is not None
     ):
         # RT-C-3: an owner override no longer skips biosecurity sequencing
-        # outright — it may release a batch animal early only while the
-        # protocol is still pristine (no work started); otherwise the guarded
-        # day-45 batch task remains the only exit. The check locks Batch ->
-        # Tasks under the animal lock already held here.
+        # outright — it may move a batch animal out of quarantine only while
+        # the protocol is still pristine (no work started); otherwise the
+        # guarded day-45 batch task remains the only exit. The fence covers
+        # every destination bucket: releasing to FOUNDATION and side-stepping
+        # to BREEDING/KIDS/RESTING are the same biosecurity bypass. The check
+        # locks Batch -> Tasks under the animal lock already held here.
         if not payload.history_override:
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    "Purchased quarantine animals must be released through the guarded batch task"
+                    "Purchased quarantine animals must leave quarantine through "
+                    "the guarded batch task"
                 ),
             )
         await _lock_pristine_batch_protocol_for_quarantine_reentry(
