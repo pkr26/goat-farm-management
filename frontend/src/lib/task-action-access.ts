@@ -25,10 +25,18 @@ export interface TaskActionState {
  *   covers the pregnancy→DELIVERY move, which is legitimately skippable, but
  *   TaskOut carries no bucket state to tell the two flavors apart, and a
  *   guaranteed-409 dead click on the RECOVERY flavor is worse than graying out
- *   the rarer DELIVERY one, so both categories fail closed here. */
+ *   the rarer DELIVERY one, so both categories fail closed here.
+ * - A generated animal-linked ULTRASOUND duty closes an open breeding service:
+ *   while the linked service's outcome is still PENDING the skip can only 409
+ *   (the doe would idle in the breeding pen with no prompt to resolve her),
+ *   and the ultrasound form accepts a backdated result, so recording the scan
+ *   is always available. TaskOut carries no breeding outcome, so an
+ *   animal-linked generated row fails closed even though a terminal service
+ *   would be skippable server-side — the same approximation BUCKET_MOVE uses. */
 export function taskSkipUnavailable(task: TaskActionState): boolean {
   if (!task.auto_generated) return false;
   if (task.purchase_batch_id !== null) return true;
+  if (task.category === "ULTRASOUND" && task.animal_id !== null) return true;
   return (
     (task.category === "WEANING" || task.category === "BUCKET_MOVE") && task.animal_id !== null
   );

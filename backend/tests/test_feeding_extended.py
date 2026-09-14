@@ -25,7 +25,7 @@ from decimal import Decimal
 
 import httpx
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.db import get_sessionmaker
 from app.main import create_app
@@ -968,10 +968,18 @@ async def test_settings_huge_finite_accepted(client: httpx.AsyncClient) -> None:
         json={"bucket": "BREEDING", "daily_kg_per_head": 1e6},
         headers=headers,
     )
+    # RT-HIJ-5: ration overrides carry a 50 kg/head/day domain cap; the
+    # generic 1e6 kg quantity ceiling no longer applies to this field.
+    assert resp.status_code == 422, resp.text
+    resp = await client.post(
+        "/api/feeding/settings",
+        json={"bucket": "BREEDING", "daily_kg_per_head": 50},
+        headers=headers,
+    )
     assert resp.status_code == 204, resp.text
     line = (await get_plan(client, headers))["lines"][0]
-    assert line["kg_per_head"] == pytest.approx(1e6)
-    assert line["daily_kg"] == pytest.approx(1e6)
+    assert line["kg_per_head"] == pytest.approx(50)
+    assert line["daily_kg"] == pytest.approx(50)
 
 
 async def test_settings_shift_rounding_is_deterministic(client: httpx.AsyncClient) -> None:
@@ -1090,10 +1098,15 @@ def test_dispense_contract_declares_the_recipe_required() -> None:
 async def test_dispense_explicit_today_and_past_dates(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     await stock_dry_roughage(client, headers, 15.0)
-    for d in (today(), today() - timedelta(days=1), date(2000, 1, 1)):
+    resp = await dispense(client, headers, date=today().isoformat())
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["date"] == today().isoformat()
+    # RT-HIJ-4: the farm was created moments ago, so pre-creation dates are
+    # hardening-floor rejections, not accepted backdates.
+    for d in (today() - timedelta(days=1), date(2000, 1, 1)):
         resp = await dispense(client, headers, date=d.isoformat())
-        assert resp.status_code == 201, d
-        assert resp.json()["date"] == d.isoformat()
+        assert resp.status_code == 422, d
+        assert "before the farm was created" in resp.text
 
 
 async def test_dispense_future_date_rejected(client: httpx.AsyncClient) -> None:
@@ -1219,6 +1232,14 @@ async def test_dispense_backdated_record_not_in_todays_log(client: httpx.AsyncCl
     but not listed."""
     headers = await owner_with_farm(client)
     await stock_dry_roughage(client, headers, 5.0)
+    # The dispensing floor forbids dates before the farm existed, so age the
+    # farm a few days for this backdating fixture.
+    async with get_sessionmaker()() as db:
+        await db.execute(
+            text("UPDATE farms SET created_at = now() - interval '5 days' WHERE id = :fid"),
+            {"fid": int(headers["X-Farm-Id"])},
+        )
+        await db.commit()
     yesterday = (today() - timedelta(days=1)).isoformat()
     resp = await dispense(client, headers, date=yesterday)
     assert resp.status_code == 201, resp.text

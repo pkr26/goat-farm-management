@@ -5,6 +5,14 @@
  * OpenAPI spec version: 2.0.0
  */
 
+/**
+ * Rejection returns a duty to its worker — the note is the only
+ * explanation they ever see, so it is required (non-blank, <= 255 chars).
+ */
 export interface TaskRejectIn {
-  note?: string | null;
+  /**
+     * @minLength 1
+     * @maxLength 255
+     */
+  note: string;
 }

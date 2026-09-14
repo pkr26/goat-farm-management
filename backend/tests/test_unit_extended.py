@@ -103,7 +103,7 @@ from app.schemas.finance import TransactionIn
 from app.schemas.health import HealthEventIn
 from app.schemas.kidding import KiddingCreateIn, KidIn
 from app.schemas.purchases import PurchaseBatchIn
-from app.schemas.tasks import TaskCreateIn, TaskRejectIn
+from app.schemas.tasks import TaskCreateIn, TaskRejectIn, TaskSkipIn
 from app.schemas.team import PasswordResetIn, RoleIn, WorkerCreateIn
 from app.services import move_animal, recipe_for_animal
 from app.utils import add_months, allocate_money, business_date, money, today, utcnow
@@ -956,38 +956,32 @@ def test_quarantine_schedule_protocol_steps(index: int, day_offset: int, categor
     assert item["category"] == category
 
 
-def test_quarantine_schedule_supplier_and_batch_in_title() -> None:
+def test_quarantine_schedule_titles_reference_only_the_batch_id() -> None:
+    """RT-HIJ-3: supplier identity is procurement data gated behind
+    purchases.view, while titles surface on the task board to every protocol
+    role — so only the opaque batch id may travel in the title."""
     schedule = quarantine_schedule(_batch(supplier="Kurnool Traders"))
-    assert all("[Kurnool Traders #7]" in str(item["title"]) for item in schedule)
+    assert all(str(item["title"]).startswith("[Batch #7] ") for item in schedule)
+    assert all("Kurnool Traders" not in str(item["title"]) for item in schedule)
 
 
-def test_quarantine_schedule_missing_supplier_falls_back() -> None:
+def test_quarantine_schedule_missing_supplier_matches_the_same_format() -> None:
     schedule = quarantine_schedule(_batch(supplier=None))
-    assert all("[Purchase #7]" in str(item["title"]) for item in schedule)
+    assert all(str(item["title"]).startswith("[Batch #7] ") for item in schedule)
 
 
-def test_quarantine_schedule_blank_supplier_falls_back() -> None:
-    """A whitespace-only supplier collapses to the same 'Purchase' label, cased exactly."""
+def test_quarantine_schedule_blank_supplier_matches_the_same_format() -> None:
     schedule = quarantine_schedule(_batch(supplier="   "))
-    assert all(str(item["title"]).startswith("[Purchase #7] ") for item in schedule)
+    assert all(str(item["title"]).startswith("[Batch #7] ") for item in schedule)
 
 
-def test_quarantine_schedule_truncates_only_supplier_to_task_title_capacity() -> None:
+def test_quarantine_schedule_titles_fit_the_task_title_capacity() -> None:
     batch = _batch(supplier="S" * 120)
     batch.id = 2_147_483_647
     schedule = quarantine_schedule(batch)
     assert all(len(item["title"]) <= 200 for item in schedule)
-    assert all(f"#{batch.id}]" in item["title"] for item in schedule)
+    assert all(item["title"].startswith(f"[Batch #{batch.id}] ") for item in schedule)
     assert schedule[0]["title"].endswith(QUARANTINE_PROTOCOL[0][2])
-
-
-def test_quarantine_schedule_truncated_supplier_keeps_no_trailing_space() -> None:
-    """Cutting a 120-char supplier at a space must not leave it before the batch id."""
-    batch = _batch(supplier="A" * 112 + " " + "B" * 7)
-    batch.id = 2_147_483_647
-    schedule = quarantine_schedule(batch)
-    assert schedule[0]["title"].startswith(f"[{'A' * 112} #2147483647] ")
-    assert all(f"  #{batch.id}]" not in item["title"] for item in schedule)
 
 
 def test_quarantine_schedule_final_step_releases_to_foundation() -> None:
@@ -2101,14 +2095,45 @@ def test_task_create_defaults_category_other() -> None:
     assert TaskCreateIn(**VALID_TASK).category == "OTHER"
 
 
-@pytest.mark.parametrize("note", [None, "Not swept behind the feeders", "N" * 255])
-def test_task_reject_valid(note: str | None) -> None:
+@pytest.mark.parametrize("note", ["Not swept behind the feeders", "N" * 255])
+def test_task_reject_valid(note: str) -> None:
     TaskRejectIn(note=note)
+
+
+def test_task_reject_note_is_required() -> None:
+    """RT-FG-5: an omitted or blank rejection note is a validation error."""
+    with pytest.raises(ValidationError):
+        TaskRejectIn(note=None)  # type: ignore[arg-type]
+    with pytest.raises(ValidationError):
+        TaskRejectIn()
+    with pytest.raises(ValidationError):
+        TaskRejectIn(note="   ")
 
 
 def test_task_reject_note_too_long() -> None:
     with pytest.raises(ValidationError):
         TaskRejectIn(note="N" * 256)
+
+
+@pytest.mark.parametrize("reason", ["Area under repair", "R" * 255])
+def test_task_skip_valid(reason: str) -> None:
+    task = TaskSkipIn(reason=reason)
+    assert task.reason == reason
+
+
+def test_task_skip_reason_is_required() -> None:
+    """RT-FG-4: a skip without a non-blank reason is a validation error."""
+    with pytest.raises(ValidationError):
+        TaskSkipIn(reason=None)  # type: ignore[arg-type]
+    with pytest.raises(ValidationError):
+        TaskSkipIn()
+    with pytest.raises(ValidationError):
+        TaskSkipIn(reason="   ")
+
+
+def test_task_skip_reason_too_long() -> None:
+    with pytest.raises(ValidationError):
+        TaskSkipIn(reason="R" * 256)
 
 
 # ---------------------------------------------------------------------------

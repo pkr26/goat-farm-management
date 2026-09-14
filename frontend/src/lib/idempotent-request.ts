@@ -143,13 +143,48 @@ function persistKey(digest: string | null, key: string, now: number): void {
   const records = readPersistedRecords(storage, now).filter(
     (record) => record.digest !== digest,
   );
-  records.unshift({
-    version: PERSISTENCE_VERSION,
-    digest,
-    key,
-    expiresAt: now + RETRY_KEY_TTL_MS,
-  });
-  writePersistedRecords(storage, records.slice(0, MAX_LOGICAL_REQUESTS));
+  // RT-Q-2: a flood of distinct protected mutations used to trim the bounded
+  // store purely by expiry, which could push out the recovery digest of a send
+  // whose outcome is still unresolved. Mirror the in-memory makeRoom policy
+  // instead: a record whose logical request is still live in this realm (in
+  // flight, or retained for explicit retry after an ambiguous failure) is
+  // never evicted — only orphaned records (from a prior page load, or one
+  // makeRoom has already dropped from realm memory) may go, oldest expiry
+  // first. In-flight capacity stays bounded because makeRoom throws at 128
+  // live entries, so protected records can never exceed the cap on their own
+  // and the container stays within its storage budget.
+  const liveDigests = new Set<string>();
+  for (const entry of logicalRequests.values()) {
+    if (entry.persistedDigest !== null) liveDigests.add(entry.persistedDigest);
+  }
+  const protectedCount = records.reduce(
+    (count, record) => count + (liveDigests.has(record.digest) ? 1 : 0),
+    0,
+  );
+  const evictableRoom = Math.max(MAX_LOGICAL_REQUESTS - 1 - protectedCount, 0);
+  const evictable = records
+    .filter((record) => !liveDigests.has(record.digest))
+    .sort((left, right) => right.expiresAt - left.expiresAt)
+    .slice(0, evictableRoom);
+  const evictableKept = new Set(evictable.map((record) => record.digest));
+  const bounded = records.filter(
+    (record) => liveDigests.has(record.digest) || evictableKept.has(record.digest),
+  );
+  writePersistedRecords(
+    storage,
+    [
+      {
+        version: PERSISTENCE_VERSION,
+        digest,
+        key,
+        expiresAt: now + RETRY_KEY_TTL_MS,
+      },
+      // Last-resort bound: unreachable while makeRoom caps live entries, but
+      // the container is never allowed past the cap even for a hand-crafted
+      // in-memory state — keep the newest records, drop the oldest.
+      ...bounded.slice(0, Math.max(MAX_LOGICAL_REQUESTS - 1, 0)),
+    ],
+  );
 }
 
 function removePersistedKey(digest: string | null): void {
@@ -330,11 +365,18 @@ function hasHttpStatus(error: unknown): error is { status: number } {
 }
 
 function isAbortError(error: unknown): boolean {
+  // AbortSignal.timeout() rejects with a "TimeoutError" DOMException, not an
+  // "AbortError". Both are locally-owned cancellations of the transport, and
+  // neither may trigger the automatic network replay: an internally-owned
+  // timeout must only ever leave the retained logical key for an explicit
+  // user retry. Caller-owned aborts (TanStack unmount/farm-switch signals)
+  // reject with a genuine "AbortError" and are likewise never retried.
   return (
     typeof error === "object" &&
     error !== null &&
     "name" in error &&
-    (error as { name?: unknown }).name === "AbortError"
+    ((error as { name?: unknown }).name === "AbortError" ||
+      (error as { name?: unknown }).name === "TimeoutError")
   );
 }
 
@@ -494,7 +536,10 @@ export async function runIdempotencyProtectedRequest<T>({
   return cloneResult ? cloneResult(result) : result;
 }
 
-/** Clears realm memory only; session storage intentionally survives reloads. */
+/** Clears realm memory only; session storage intentionally survives reloads.
+ * Production teardown uses clearPersistedIdempotencyRequestState below; this
+ * realm-only variant has no production call site and is exported for the
+ * persistence suites, which use it to simulate a same-tab reload. */
 export function clearIdempotencyRequestState(): void {
   logicalRequests.clear();
 }

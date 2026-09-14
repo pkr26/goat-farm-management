@@ -24,6 +24,7 @@ const FARM_DATA_ROOTS = [
   "/api/purchases",
   "/api/dashboard",
   "/api/team",
+  "/api/planner/plans",
 ];
 
 /** Seeds one cache entry per key and reports which ones came back invalidated. */
@@ -52,6 +53,8 @@ describe("invalidateFarmData", () => {
       // A role rename or worker reassignment must bust /api/tasks and
       // /api/dashboard caches, which embed role/worker display names.
       ["/api/team/roles/3"],
+      // The saved-plans list (and one plan detail read) refresh too.
+      ["/api/planner/plans/7"],
     ];
 
     expect(invalidatedAfterMutation(keys)).toEqual(

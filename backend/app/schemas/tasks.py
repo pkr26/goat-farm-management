@@ -92,11 +92,21 @@ class TaskOut(BaseModel):
 
 
 class TaskRejectIn(StrictInputModel):
-    note: PostgresText | None = Field(default=None, max_length=255)
+    """Rejection returns a duty to its worker — the note is the only
+    explanation they ever see, so it is required (non-blank, <= 255 chars)."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    note: PostgresText = Field(min_length=1, max_length=255)
 
 
 class TaskSkipIn(StrictInputModel):
-    reason: PostgresText | None = Field(default=None, max_length=255)
+    """A skip is an auditable exception to scheduled work; the reason is the
+    audit trail, so it is required (non-blank, <= 255 chars)."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    reason: PostgresText = Field(min_length=1, max_length=255)
 
 
 class TaskTabsOut(BaseModel):

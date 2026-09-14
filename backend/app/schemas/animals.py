@@ -1,11 +1,12 @@
 """Pydantic schemas for the animals module."""
 
 from datetime import date, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 from ..models.constants import HISTORY_OVERRIDE_REASON_PREFIX, MAX_ANIMAL_TAG_LENGTH
+from ..models.helpers import no_control_characters
 from .common import (
     MAX_FREE_TEXT_LENGTH,
     NonNegativeMoneyFloat,
@@ -36,11 +37,17 @@ BucketStr = Literal[
 ]
 
 
+# Tags and names are identifiers, not narrative: embedded tab/LF/CR makes
+# them visually confusable on the task board/pickers and breaks
+# line-oriented exports (PostgresText keeps \t\n\r only for prose fields).
+IdentifierText = Annotated[PostgresText, AfterValidator(no_control_characters)]
+
+
 class AnimalCreateIn(StrictInputModel):
-    tag_number: PostgresText | None = Field(
+    tag_number: IdentifierText | None = Field(
         default=None, min_length=1, max_length=MAX_ANIMAL_TAG_LENGTH
     )
-    name: PostgresText | None = Field(default=None, max_length=80)
+    name: IdentifierText | None = Field(default=None, max_length=80)
     sex: Sex
     source: AnimalSourceStr
     current_bucket: BucketStr

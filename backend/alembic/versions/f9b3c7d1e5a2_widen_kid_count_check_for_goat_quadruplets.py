@@ -16,7 +16,8 @@ Revision ID: f9b3c7d1e5a2
 Revises: b5d7f9a1c3e5
 """
 
-from alembic import op
+from alembic import context, op
+from sqlalchemy import text
 
 revision = "f9b3c7d1e5a2"
 down_revision = "b5d7f9a1c3e5"
@@ -34,6 +35,30 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # House preflight (see e6f8a0b2c4d7): refuse while live quadruplet rows
+    # would violate the narrowed CHECK instead of aborting mid-walk with a
+    # raw CheckViolation that names only the constraint, not the rows.
+    incompatible_sql = (
+        "SELECT id FROM breeding_records WHERE kid_count_detected > 3 "
+        "ORDER BY id LIMIT 1"
+    )
+    if context.is_offline_mode():
+        op.execute(
+            "DO $$ DECLARE incompatible_id bigint; BEGIN "
+            f"SELECT id INTO incompatible_id FROM ({incompatible_sql}) AS incompatible; "
+            "IF incompatible_id IS NOT NULL THEN "
+            "RAISE EXCEPTION 'Cannot restore the triplet kid_count maximum while "
+            "breeding record % detected a quadruplet litter', incompatible_id; "
+            "END IF; END $$"
+        )
+    else:
+        incompatible_id = op.get_bind().execute(text(incompatible_sql)).scalar_one_or_none()
+        if incompatible_id is not None:
+            raise RuntimeError(
+                "Cannot restore the triplet kid_count maximum while breeding record "
+                f"{incompatible_id} detected a quadruplet litter; reconcile that "
+                "record before downgrading"
+            )
     op.drop_constraint("ck_breeding_records_kid_count", "breeding_records", type_="check")
     op.create_check_constraint(
         "ck_breeding_records_kid_count",

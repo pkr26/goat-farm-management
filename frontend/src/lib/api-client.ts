@@ -230,10 +230,12 @@ async function withAuthCookieLock<T>(
  *  expired, revoked, replayed, or describes a different actor — and is the
  *  only outcome that may destroy local session state. "unavailable" means we
  *  never got that answer (transport failure, timeout, 5xx during a rolling
- *  deploy). Collapsing the two logged the operator out of a session the
- *  server still considers valid for the rest of the refresh cookie's 14-day
- *  life, discarding the query cache, the farm selection and any unsaved
- *  dialog state — on one dropped request. */
+ *  deploy, or a newer local session superseded this refresh mid-flight — a
+ *  destructive reaction there belongs to the newer session's owner, so the
+ *  verdict must stay distinguishable from the server's). Collapsing the two
+ *  logged the operator out of a session the server still considers valid for
+ *  the rest of the refresh cookie's 14-day life, discarding the query cache,
+ *  the farm selection and any unsaved dialog state — on one dropped request. */
 type RefreshOutcome =
   | { kind: "session"; body: RefreshSessionResult }
   | { kind: "rejected" }
@@ -249,7 +251,11 @@ async function performRefresh(
   expectedEpoch: number,
   expectedActorScope: string | null,
 ): Promise<RefreshOutcome> {
-  if (authSessionEpoch !== expectedEpoch) return { kind: "rejected" };
+  // A purely local supersession (new sign-in / clearSession landed mid-flight)
+  // is not the server's answer. Report "unavailable" so "rejected" stays
+  // exclusively authoritative and no consumer can mistake a newer session's
+  // takeover for a verdict it may destroy state on.
+  if (authSessionEpoch !== expectedEpoch) return { kind: "unavailable" };
   const requestTimeout = new AbortController();
   const requestTimer = setTimeout(
     () => requestTimeout.abort(),
@@ -268,7 +274,9 @@ async function performRefresh(
     }
     const body = parseRefreshSessionResult(await resp.json());
     if (!body) return { kind: "rejected" };
-    if (authSessionEpoch !== expectedEpoch) return { kind: "rejected" };
+    // Same local-supersession rule as above, re-checked now that the body has
+    // landed: the rotated token answers a session this caller no longer owns.
+    if (authSessionEpoch !== expectedEpoch) return { kind: "unavailable" };
     const tokenScope = tokenActorScope(body.access_token);
     const userScope = String(body.user.id);
     if (tokenScope !== null && tokenScope !== userScope) {

@@ -1001,7 +1001,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "anyOf": [
                 {
@@ -5157,18 +5157,11 @@
           }
         ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/TaskSkipIn"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Payload"
+                "$ref": "#/components/schemas/TaskSkipIn"
               }
             }
           }
@@ -6267,7 +6260,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "anyOf": [
                 {
@@ -6525,7 +6518,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "anyOf": [
                 {
@@ -7289,7 +7282,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "anyOf": [
                 {
@@ -7547,7 +7540,7 @@
           "dashboard"
         ],
         "summary": "Dashboard",
-        "description": "Exact herd counts plus deterministic, bounded operational previews.\n\nEach ``*_total`` is calculated in the same SQL statement as its list.\nOperational lists contain at most ``preview_limit`` rows; recent weights\nuse ``recent_weights_limit``. The dedicated tasks, breeding and animals\npages remain the full paginated/history views.\n\nSections carrying a breeding-programme judgement \u2014 kiddings due, cull\ncandidates and the suggestions derived from breeding readiness or an open\npregnancy \u2014 need ``breeding.view``, the same permission that governs\n``cull_candidate`` / ``is_breeding_ready`` / ``is_currently_pregnant`` in\n``animal_out``. A caller without it gets empty lists and zero totals rather\nthan a 403, so the page still renders for e.g. the cleaner preset.\n\nRecent weights are per-animal weight/BCS rows with the animal's identity,\nso they need ``animals.view`` \u2014 the permission that guards weight history\non the animal pages \u2014 and are withheld (empty list, null total) without it.",
+        "description": "Exact herd counts plus deterministic, bounded operational previews.\n\nEach ``*_total`` is calculated in the same SQL statement as its list.\nOperational lists contain at most ``preview_limit`` rows; recent weights\nuse ``recent_weights_limit``. The dedicated tasks, breeding and animals\npages remain the full paginated/history views.\n\nSections carrying a breeding-programme judgement \u2014 kiddings due, cull\ncandidates and the suggestions derived from breeding readiness or an open\npregnancy \u2014 need ``breeding.view`` (suggestions additionally\n``animals.view``, since every one names the animal and its exact weight),\nthe same permissions that govern ``cull_candidate`` / ``is_breeding_ready``\n/ ``is_currently_pregnant`` in ``animal_out``. A caller without a section's\ngate gets an empty list and a null total rather than a 403, so the page\nstill renders for e.g. the cleaner preset.\n\nThe herd-summary block \u2014 bucket occupancy (the breeding-programme buckets\namong them), the active total and the sex split \u2014 restate animal-register\nfacts the animals pages hold behind ``animals.view``, so it is withheld\nthe same way (null fields, not zeros) without that permission.\n\nRecent weights are per-animal weight/BCS rows with the animal's identity,\nso they need ``animals.view`` \u2014 the permission that guards weight history\non the animal pages \u2014 and are withheld (empty list, null total) without it.",
         "operationId": "dashboard_api_dashboard_get",
         "security": [
           {
@@ -7655,7 +7648,7 @@
           "dashboard"
         ],
         "summary": "Reports",
-        "description": "Herd summary, breeding performance, mortality \u2014 all aggregated in SQL;\nonly a 100-row purpose-specific cull preview is hydrated as ORM rows and\nits exact count is returned separately.",
+        "description": "Herd summary, breeding performance, mortality \u2014 all aggregated in SQL;\nonly a 100-row purpose-specific cull preview is hydrated as ORM rows and\nits exact count is returned separately.\n\nThe herd-summary block \u2014 per-bucket occupancy (the breeding-programme\nbuckets among them) plus per-bucket mean live weights, the active total\nand the sex split \u2014 restate bucket-board / animal-register facts:\n``avg_weight`` is an animals.view-derived aggregate and the occupancy it\nsits beside is what the bucket board gates. The dashboard endpoint\nwithholds exactly these figures without ``animals.view``; returning them\nhere would hand them straight back through the other endpoint, so the\nsame None withheld convention applies.",
         "operationId": "reports_api_dashboard_reports_get",
         "security": [
           {
@@ -13936,21 +13929,42 @@
       "DashboardOut": {
         "properties": {
           "buckets": {
-            "items": {
-              "$ref": "#/components/schemas/BucketCountOut"
-            },
-            "type": "array",
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/BucketCountOut"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Buckets"
           },
           "total_active": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Total Active"
           },
           "sex_counts": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "type": "object",
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Sex Counts"
           },
           "status_totals": {
@@ -13968,7 +13982,14 @@
             "title": "Todays Tasks"
           },
           "todays_tasks_total": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Todays Tasks Total"
           },
           "overdue_tasks": {
@@ -13979,7 +14000,14 @@
             "title": "Overdue Tasks"
           },
           "overdue_tasks_total": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Overdue Tasks Total"
           },
           "ultrasounds_due": {
@@ -13990,7 +14018,14 @@
             "title": "Ultrasounds Due"
           },
           "ultrasounds_due_total": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Ultrasounds Due Total"
           },
           "kiddings_due": {
@@ -14001,7 +14036,14 @@
             "title": "Kiddings Due"
           },
           "kiddings_due_total": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Kiddings Due Total"
           },
           "cull_candidates": {
@@ -14030,7 +14072,14 @@
             "title": "Suggestions"
           },
           "suggestions_total": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Suggestions Total"
           },
           "restricted_animals": {
@@ -14709,7 +14758,7 @@
           "fodder_yield_t_dm_per_acre_year": {
             "type": "number",
             "maximum": 1000.0,
-            "exclusiveMinimum": 0.0,
+            "minimum": 0.01,
             "title": "Fodder Yield T Dm Per Acre Year",
             "default": 6.0
           },
@@ -14962,8 +15011,9 @@
           },
           "daily_kg_per_head": {
             "type": "number",
-            "title": "Daily Kg Per Head",
-            "le": 1000000
+            "maximum": 50.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Daily Kg Per Head"
           }
         },
         "additionalProperties": false,
@@ -19852,21 +19902,42 @@
       "ReportsOut": {
         "properties": {
           "bucket_rows": {
-            "items": {
-              "$ref": "#/components/schemas/BucketReportRow"
-            },
-            "type": "array",
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/BucketReportRow"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Bucket Rows"
           },
           "total_active": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Total Active"
           },
           "sex_counts": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "type": "object",
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Sex Counts"
           },
           "status_counts": {
@@ -22082,40 +22153,36 @@
       "TaskRejectIn": {
         "properties": {
           "note": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 255
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
             "title": "Note"
           }
         },
         "additionalProperties": false,
         "type": "object",
-        "title": "TaskRejectIn"
+        "required": [
+          "note"
+        ],
+        "title": "TaskRejectIn",
+        "description": "Rejection returns a duty to its worker \u2014 the note is the only\nexplanation they ever see, so it is required (non-blank, <= 255 chars)."
       },
       "TaskSkipIn": {
         "properties": {
           "reason": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 255
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
             "title": "Reason"
           }
         },
         "additionalProperties": false,
         "type": "object",
-        "title": "TaskSkipIn"
+        "required": [
+          "reason"
+        ],
+        "title": "TaskSkipIn",
+        "description": "A skip is an auditable exception to scheduled work; the reason is the\naudit trail, so it is required (non-blank, <= 255 chars)."
       },
       "TaskTabsOut": {
         "properties": {

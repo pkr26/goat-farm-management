@@ -530,6 +530,19 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
   reason about. Roll back by repinning the previous tag and re-running
   `docker compose pull && docker compose up -d` (after checking the migration
   notes above for downgrades, which are not always reversible).
+- **Deployment notes.** Alembic downgrade walks below `f7d8c9b0a1e2` and
+  `b6d8f0a2c4e6` drop the tenant-guard composite foreign keys, so a rollback
+  window on a live database loses DB-level cross-farm guards until the walk
+  completes — quiesce app writers for the whole walk (the runbook protocol)
+  and prefer stopping production rollbacks at the last tenant-guard revision
+  rather than downgrading to base. The frontend's `BACKEND_URL` is a
+  **build-time** argument baked into its `routes-manifest.json`; a runtime
+  `-e BACKEND_URL=…` override silently no-ops, so rebuild the frontend image
+  whenever the backend address or port changes. Base-image digest pins are
+  refreshed incident-driven: the weekly security workflow scans the pinned
+  digests and fails when a fixable HIGH/CRITICAL exists in a lagging base,
+  which is the trigger to re-pin deliberately across the Dockerfiles,
+  compose, and workflow mirrors.
 
 **Zero-downtime JWT key rotation:** every newly issued token carries a
 deterministic `kid` (the base64url SHA-256 fingerprint of its RSA public key).

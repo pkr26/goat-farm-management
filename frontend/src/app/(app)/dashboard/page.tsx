@@ -4,6 +4,7 @@
 
 import {
   Baby,
+  Boxes,
   CircleCheckBig,
   HandCoins,
   ListChecks,
@@ -19,7 +20,12 @@ import {
 import Link from "next/link";
 
 import { useDashboardApiDashboardGet } from "@/api/generated/endpoints";
-import type { AnimalIdentityOut, TaskOut } from "@/api/generated/models";
+import type {
+  AnimalIdentityOut,
+  BucketCountOut,
+  DashboardOutSexCounts,
+  TaskOut,
+} from "@/api/generated/models";
 import { Donut } from "@/components/charts";
 import { PageSkeleton } from "@/components/skeletons";
 import { DataTableCard } from "@/components/data-table-card";
@@ -57,6 +63,17 @@ import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 /** v1's Animal.display_name: tag plus optional name. */
 function animalName(a: AnimalIdentityOut): string {
   return a.tag_number + (a.name ? ` · ${a.name}` : "");
+}
+
+/** A withheld figure in a stat slot: neither 0 (a wrong number) nor blank
+ * (reads as a load failure) — name the access it needs, the same sentence
+ * the section markers below use (RT-P7-1). */
+function WithheldStat({ permission }: { permission: string }) {
+  return (
+    <span className="text-sm font-normal text-muted-foreground">
+      Requires {permission} access
+    </span>
+  );
 }
 
 
@@ -130,6 +147,7 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
   const allowed = can("dashboard.view");
   const canViewAnimals = can("animals.view");
   const canViewBreeding = can("breeding.view");
+  const canViewTasks = can("tasks.view");
   const query = useDashboardApiDashboardGet({ query: { enabled: allowed } });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
   // `can(...)` comes from /api/auth/permissions — a DIFFERENT query, which
@@ -141,6 +159,14 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
   // sentinel alone would render stale privileged rows after a revocation.
   const breedingWithheld = payload?.cull_candidates_total === null || !canViewBreeding;
   const animalsWithheld = payload?.recent_weights_total === null || !canViewAnimals;
+  // The task previews/totals (and, without animals.view, the bucket/animal
+  // aggregates read further down) arrive as the same null sentinels; the
+  // generated client types lag the contract, so widen the read before
+  // comparing. The API nulls the task sections without tasks.view — a
+  // withheld register must never read as "Tasks due + overdue 0" /
+  // "Nothing due today." (RT-P7-1).
+  const tasksWithheld =
+    (payload?.todays_tasks_total as number | null) === null || !canViewTasks;
   // The contract withholds suggestions (derived from breeding readiness or an
   // open pregnancy) without breeding.view — the same sentence that governs
   // kiddings and cull candidates — AND without animals.view (identity +
@@ -178,21 +204,46 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
   // Comparisons against server due dates use the active farm's calendar day
   // (farmToday), not the browser's local date.
   const today = farmToday();
-  const taskTotal = payload.todays_tasks_total + payload.overdue_tasks_total;
-  const maxBucketCount = Math.max(1, ...payload.buckets.map((b) => b.count));
+  // Withheld-sentinel reads (RT-P7-1): the API nulls the task sections
+  // without tasks.view and the bucket/animal aggregates without animals.view.
+  // The generated client still types them as always-present, so read through
+  // these widened locals — the casts become no-ops once orval regenerates.
+  const todaysTasks = (payload.todays_tasks as TaskOut[] | null) ?? [];
+  const overdueTasks = (payload.overdue_tasks as TaskOut[] | null) ?? [];
+  const ultrasoundsDue = (payload.ultrasounds_due as TaskOut[] | null) ?? [];
+  const todaysTasksTotal = payload.todays_tasks_total as number | null;
+  const overdueTasksTotal = payload.overdue_tasks_total as number | null;
+  const ultrasoundsDueTotal = payload.ultrasounds_due_total as number | null;
+  const bucketCounts = payload.buckets as BucketCountOut[] | null;
+  const totalActive = payload.total_active as number | null;
+  const sexCounts = payload.sex_counts as DashboardOutSexCounts | null;
+  const taskTotal =
+    todaysTasksTotal !== null && overdueTasksTotal !== null
+      ? todaysTasksTotal + overdueTasksTotal
+      : null;
+  // Stat values: a withheld aggregate renders the access marker, never a
+  // factual 0 (a null sentinel means "not allowed to know", and the stale
+  // permission cache must not resurrect a revoked figure either).
+  const taskStat = tasksWithheld || taskTotal === null ? null : taskTotal;
+  const activeStat = animalsWithheld || totalActive === null ? null : totalActive;
+  const femaleStat = animalsWithheld || sexCounts === null ? null : (sexCounts.F ?? 0);
+  const maleStat = animalsWithheld || sexCounts === null ? null : (sexCounts.M ?? 0);
+  const maxBucketCount = Math.max(1, ...(bucketCounts ?? []).map((b) => b.count));
   const recentWeights = payload.recent_weights;
   // A wall of identical red rows reads as alarm fatigue on the phone — cap
   // the preview; the register link carries the full list.
   const OVERDUE_PREVIEW_ROWS = 5;
-  const overdueShown = payload.overdue_tasks.slice(0, OVERDUE_PREVIEW_ROWS);
+  const overdueShown = overdueTasks.slice(0, OVERDUE_PREVIEW_ROWS);
+  // A null total is "withheld", not "everything shown": each arm must fall
+  // through as false rather than imply a bounded preview of a hidden count.
   const hasBoundedPreview =
-    payload.todays_tasks.length < payload.todays_tasks_total ||
-    payload.overdue_tasks.length < payload.overdue_tasks_total ||
-    payload.ultrasounds_due.length < payload.ultrasounds_due_total ||
-    payload.kiddings_due.length < payload.kiddings_due_total ||
-    payload.cull_candidates.length < (payload.cull_candidates_total ?? 0) ||
-    payload.suggestions.length < payload.suggestions_total ||
-    payload.recent_weights.length < (payload.recent_weights_total ?? 0);
+    todaysTasks.length < (todaysTasksTotal ?? todaysTasks.length) ||
+    overdueTasks.length < (overdueTasksTotal ?? overdueTasks.length) ||
+    ultrasoundsDue.length < (ultrasoundsDueTotal ?? ultrasoundsDue.length) ||
+    payload.kiddings_due.length < (payload.kiddings_due_total ?? 0) ||
+    payload.cull_candidates.length < (payload.cull_candidates_total ?? payload.cull_candidates.length) ||
+    payload.suggestions.length < (payload.suggestions_total ?? 0) ||
+    recentWeights.length < (payload.recent_weights_total ?? recentWeights.length);
 
   return (
     // Mobile-first ordering with flex order: actionable cards (overdue, then
@@ -290,12 +341,20 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
       <div className="order-6 grid grid-cols-2 gap-3 [&>*:nth-child(5)]:col-span-2 sm:grid-cols-3 sm:[&>*:nth-child(5)]:col-span-1 md:order-none lg:grid-cols-5">
         <StatCard
           label="Active animals"
-          value={payload.total_active}
+          value={activeStat ?? <WithheldStat permission="animal" />}
           icon={PawPrint}
           tint="success"
         />
-        <StatCard label="Females" value={payload.sex_counts.F ?? 0} icon={Venus} />
-        <StatCard label="Males" value={payload.sex_counts.M ?? 0} icon={Mars} />
+        <StatCard
+          label="Females"
+          value={femaleStat ?? <WithheldStat permission="animal" />}
+          icon={Venus}
+        />
+        <StatCard
+          label="Males"
+          value={maleStat ?? <WithheldStat permission="animal" />}
+          icon={Mars}
+        />
         <StatCard
           label="Sold (all time)"
           value={payload.status_totals.SOLD ?? 0}
@@ -303,21 +362,25 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
         />
         <StatCard
           label="Tasks due + overdue"
-          value={taskTotal}
+          value={taskStat ?? <WithheldStat permission="tasks" />}
           icon={ListChecks}
           tint={
-            payload.overdue_tasks_total > 0 ? "destructive" : taskTotal > 0 ? "warning" : "default"
+            taskStat !== null && (overdueTasksTotal ?? 0) > 0
+              ? "destructive"
+              : (taskStat ?? 0) > 0
+                ? "warning"
+                : "default"
           }
         />
       </div>
 
-      {payload.overdue_tasks_total > 0 && (
+      {!tasksWithheld && (overdueTasksTotal ?? 0) > 0 && (
         <DataTableCard
           className="order-4 ring-destructive/30 md:order-none"
           title={
             <span className="flex items-center gap-2 text-destructive">
               <TriangleAlert className="size-4" aria-hidden="true" />
-              Overdue tasks ({payload.overdue_tasks_total})
+              Overdue tasks ({overdueTasksTotal})
             </span>
           }
         >
@@ -349,10 +412,10 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
               ))}
             </TableBody>
           </Table>
-          {overdueShown.length < payload.overdue_tasks_total && (
+          {overdueShown.length < (overdueTasksTotal ?? overdueShown.length) && (
             <p className="pt-3 text-sm text-muted-foreground">
-              Showing {overdueShown.length} of {payload.overdue_tasks_total}.{" "}
-              {can("tasks.view") && (
+              Showing {overdueShown.length} of {overdueTasksTotal}.{" "}
+              {canViewTasks && (
                 <Link href="/tasks?tab=overdue" className="text-primary underline">
                   View all overdue tasks
                 </Link>
@@ -364,8 +427,12 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
 
       <div className="order-5 grid gap-4 md:order-none lg:grid-cols-2">
         <DataTableCard
-          title={`Today's tasks (${payload.todays_tasks_total})`}
-          actions={can("tasks.view") ? (
+          title={
+            !tasksWithheld
+              ? `Today's tasks (${todaysTasksTotal ?? 0})`
+              : "Today's tasks"
+          }
+          actions={canViewTasks ? (
             <Link
               href="/tasks?tab=today"
               className={buttonVariants({ variant: "ghost", size: "sm" })}
@@ -374,7 +441,16 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
             </Link>
           ) : undefined}
         >
-          {payload.todays_tasks.length === 0 ? (
+          {tasksWithheld ? (
+            /* The API withholds the task register without tasks.view — say so
+                instead of asserting "Nothing due today." over live duties
+                (RT-P7-1). */
+            <EmptyState
+              icon={ListChecks}
+              title="Today's tasks require tasks access."
+              description="Ask an admin to grant tasks.view to see today's duties here."
+            />
+          ) : todaysTasks.length === 0 ? (
             <EmptyState
               icon={CircleCheckBig}
               title="Nothing due today."
@@ -386,7 +462,7 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
                 <TableRow><th scope="col">Task</th><th scope="col">Open</th></TableRow>
               </TableHeader>
               <TableBody>
-                {payload.todays_tasks.map((t) => (
+                {todaysTasks.map((t) => (
                   <TableRow key={t.id}>
                     <TableCell>
                       <span className="block max-w-56 truncate sm:max-w-none">{t.title}</span>
@@ -404,9 +480,10 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
               </TableBody>
             </Table>
           )}
-          {payload.todays_tasks.length < payload.todays_tasks_total && (
+          {!tasksWithheld &&
+            todaysTasks.length < (todaysTasksTotal ?? todaysTasks.length) && (
             <p className="pt-3 text-sm text-muted-foreground">
-              Showing {payload.todays_tasks.length} of {payload.todays_tasks_total}.
+              Showing {todaysTasks.length} of {todaysTasksTotal}.
             </p>
           )}
         </DataTableCard>
@@ -487,7 +564,7 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
               </TableBody>
             </Table>
           )}
-          {payload.kiddings_due.length < payload.kiddings_due_total && (
+          {payload.kiddings_due.length < (payload.kiddings_due_total ?? 0) && (
             <p className="pt-3 text-sm text-muted-foreground">
               Showing {payload.kiddings_due.length} of {payload.kiddings_due_total}.{" "}
               {can("kidding.view") && (
@@ -500,7 +577,11 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
         </DataTableCard>
 
         <DataTableCard
-          title={`Ultrasounds due in 7 days (${payload.ultrasounds_due_total})`}
+          title={
+            !tasksWithheld
+              ? `Ultrasounds due in 7 days (${ultrasoundsDueTotal ?? 0})`
+              : "Ultrasounds due in 7 days"
+          }
           actions={can("breeding.view") ? (
             <Link
               href="/breeding"
@@ -510,7 +591,16 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
             </Link>
           ) : undefined}
         >
-          {payload.ultrasounds_due.length === 0 ? (
+          {tasksWithheld ? (
+            /* Ultrasound duties come from the task register, so they are
+                withheld with it — never "No ultrasounds due." over live
+                pregnancy checks (RT-P7-1). */
+            <EmptyState
+              icon={ScanLine}
+              title="Ultrasounds require tasks access."
+              description="Ask an admin to grant tasks.view to see pregnancy-check scans due here."
+            />
+          ) : ultrasoundsDue.length === 0 ? (
             <EmptyState icon={ScanLine} title="No ultrasounds due." description="Pregnancy-check scans scheduled in the next 7 days appear here." className="py-8" />
           ) : (
             <Table>
@@ -518,7 +608,7 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
                 <TableRow><th scope="col">Due</th><th scope="col">Task</th><th scope="col">Record result</th></TableRow>
               </TableHeader>
               <TableBody>
-                {payload.ultrasounds_due.map((t) => (
+                {ultrasoundsDue.map((t) => (
                   <TableRow key={t.id}>
                     <TableCell>
                       {formatDate(t.due_date)}
@@ -544,9 +634,10 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
               </TableBody>
             </Table>
           )}
-          {payload.ultrasounds_due.length < payload.ultrasounds_due_total && (
+          {!tasksWithheld &&
+            ultrasoundsDue.length < (ultrasoundsDueTotal ?? ultrasoundsDue.length) && (
             <p className="pt-3 text-sm text-muted-foreground">
-              Showing {payload.ultrasounds_due.length} of {payload.ultrasounds_due_total}.
+              Showing {ultrasoundsDue.length} of {ultrasoundsDueTotal}.
             </p>
           )}
         </DataTableCard>
@@ -609,7 +700,7 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
               </TableBody>
             </Table>
           )}
-          {!suggestionsWithheld && payload.suggestions.length < payload.suggestions_total && (
+          {!suggestionsWithheld && payload.suggestions.length < (payload.suggestions_total ?? 0) && (
             <p className="text-sm text-muted-foreground">
               Showing {payload.suggestions.length} of {payload.suggestions_total} move suggestions.
             </p>
@@ -698,56 +789,66 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
 
       <section className="order-7 space-y-3 md:order-none">
         <h2 className="font-heading text-lg font-semibold">Herd by bucket</h2>
-        <Card>
-          <CardContent className="grid gap-6 lg:grid-cols-2 lg:items-center">
-            <Donut
-              slices={payload.buckets.map((b) => ({ label: b.name, value: b.count }))}
-              centerValue={payload.total_active}
-              centerLabel="active animals"
-              showLegend={false}
-            />
-            <ul className="space-y-1">
-              {payload.buckets.map((b) => {
-                const row = (
-                  <>
-                    <span className="min-w-0 flex-1 truncate text-sm">{b.name}</span>
-                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[0.65rem] font-medium text-muted-foreground">
-                      {b.code}
-                    </span>
-                    <span
-                      aria-hidden="true"
-                      className="hidden h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-muted sm:block"
-                    >
+        {/* null = withheld (no animals access): say so rather than painting an
+            empty herd around a hollow donut (RT-P7-1). */}
+        {animalsWithheld || bucketCounts === null ? (
+          <EmptyState
+            icon={Boxes}
+            title="Bucket counts require animal access."
+            description="Ask an admin to grant animals.view to see the herd by bucket here."
+          />
+        ) : (
+          <Card>
+            <CardContent className="grid gap-6 lg:grid-cols-2 lg:items-center">
+              <Donut
+                slices={bucketCounts.map((b) => ({ label: b.name, value: b.count }))}
+                centerValue={totalActive ?? 0}
+                centerLabel="active animals"
+                showLegend={false}
+              />
+              <ul className="space-y-1">
+                {bucketCounts.map((b) => {
+                  const row = (
+                    <>
+                      <span className="min-w-0 flex-1 truncate text-sm">{b.name}</span>
+                      <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[0.65rem] font-medium text-muted-foreground">
+                        {b.code}
+                      </span>
                       <span
-                        className="block h-full rounded-full bg-primary"
-                        style={{
-                          width: `${Math.round((b.count / maxBucketCount) * 100)}%`,
-                        }}
-                      />
-                    </span>
-                    <span className="table-numeric w-8 shrink-0 text-right text-sm font-semibold">
-                      {b.count}
-                    </span>
-                  </>
-                );
-                return (
-                  <li key={b.code}>
-                    {canViewAnimals ? (
-                      <Link
-                        href={`/animals?bucket=${encodeURIComponent(b.code)}&status=ACTIVE`}
-                        className="flex items-center gap-3 rounded-lg px-2 py-1.5 transition hover:bg-muted/60"
+                        aria-hidden="true"
+                        className="hidden h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-muted sm:block"
                       >
-                        {row}
-                      </Link>
-                    ) : (
-                      <div className="flex items-center gap-3 px-2 py-1.5">{row}</div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </CardContent>
-        </Card>
+                        <span
+                          className="block h-full rounded-full bg-primary"
+                          style={{
+                            width: `${Math.round((b.count / maxBucketCount) * 100)}%`,
+                          }}
+                        />
+                      </span>
+                      <span className="table-numeric w-8 shrink-0 text-right text-sm font-semibold">
+                        {b.count}
+                      </span>
+                    </>
+                  );
+                  return (
+                    <li key={b.code}>
+                      {canViewAnimals ? (
+                        <Link
+                          href={`/animals?bucket=${encodeURIComponent(b.code)}&status=ACTIVE`}
+                          className="flex items-center gap-3 rounded-lg px-2 py-1.5 transition hover:bg-muted/60"
+                        >
+                          {row}
+                        </Link>
+                      ) : (
+                        <div className="flex items-center gap-3 px-2 py-1.5">{row}</div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
       </section>
 
       <section className="order-8 space-y-3 md:order-none">

@@ -621,10 +621,11 @@ describe("PlannerPage — campaign kills", () => {
 
     const nameInput = screen.getByLabelText("Plan name") as HTMLInputElement;
     await userEvent.clear(nameInput);
-    await userEvent.click(screen.getByRole("button", { name: "Update “Diwali sale push”" }));
-    await waitFor(() =>
-      expect(toastMocks.error).toHaveBeenCalledWith("Give the plan a name before updating it."),
-    );
+    // RT-P2-6: the cleared name disables Update outright (mirroring Save) —
+    // a disabled button cannot submit, so no PATCH leaves the page.
+    expect(
+      screen.getByRole("button", { name: "Update “Diwali sale push”" }),
+    ).toBeDisabled();
     expect(patches).toBe(0);
   });
 

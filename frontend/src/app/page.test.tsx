@@ -155,7 +155,10 @@ describe("RootPage redirect hub", () => {
     expect(localStorage.getItem("goatfarm.farmId")).toBe("2");
   });
 
-  it("falls back to the first farm when the stored selection no longer exists", async () => {
+  it("sends a revoked stored selection to the farm picker instead of entering an unchosen farm", async () => {
+    // RT-O-3: farm 999 is no longer in the membership list. The hub must not
+    // silently auto-select list[0]; farmId stays null and the dispatcher
+    // routes to /farm-select for an explicit choice.
     localStorage.setItem("goatfarm.farmId", "999");
     server.use(
       http.post("/api/auth/refresh", () =>
@@ -165,8 +168,8 @@ describe("RootPage redirect hub", () => {
 
     renderWithProviders(<RootPage />);
 
-    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/dashboard"));
-    expect(localStorage.getItem("goatfarm.farmId")).toBe(String(TEST_FARMS[0].id));
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/farm-select"));
+    expect(localStorage.getItem("goatfarm.farmId")).toBeNull();
   });
 
   it("dispatches no destination other than /login for a signed-out visitor", async () => {

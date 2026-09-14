@@ -242,8 +242,11 @@ async def test_f4_purges_only_sensitive_rows_and_is_irreversible_roundtrip(
         await _alembic("upgrade", "head")
         connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
         try:
+            # The actor's farm-creation claim (now required-keyed) is setup
+            # residue, not part of the fingerprint-style fixture below.
             operations = await connection.fetch(
-                "SELECT operation FROM idempotency_records WHERE actor_id = $1",
+                "SELECT operation FROM idempotency_records "
+                "WHERE actor_id = $1 AND operation <> 'auth.farms.create'",
                 actor_id,
             )
         finally:
@@ -272,7 +275,7 @@ async def test_f4_purges_only_sensitive_rows_and_is_irreversible_roundtrip(
                     """
                     SELECT operation, count(*)
                     FROM idempotency_records
-                    WHERE actor_id = $1
+                    WHERE actor_id = $1 AND operation <> 'auth.farms.create'
                     GROUP BY operation
                     """,
                     actor_id,
@@ -299,6 +302,13 @@ async def test_f3_refuses_invalid_and_duplicate_null_scopes_then_recovers(
         ).scalar_one()
 
     await get_engine().dispose()
+    # Farm creation (setup above) persisted NULL-farm idempotency claims that
+    # f3's downgrade guard refuses to carry across the downgrade.
+    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    try:
+        await connection.execute("DELETE FROM idempotency_records WHERE farm_id IS NULL")
+    finally:
+        await connection.close()
     await _alembic("downgrade", F2_REVISION)
     connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
     try:
@@ -462,6 +472,13 @@ async def test_f3_task_repair_rejects_cross_farm_and_tombstoned_roles_then_recov
         task_ids.append(int(response.json()["id"]))
 
     await get_engine().dispose()
+    # Farm creation (setup above) persisted NULL-farm idempotency claims that
+    # f3's downgrade guard refuses to carry across the downgrade.
+    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    try:
+        await connection.execute("DELETE FROM idempotency_records WHERE farm_id IS NULL")
+    finally:
+        await connection.close()
     await _alembic("downgrade", F2_REVISION)
     connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
     try:

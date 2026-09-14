@@ -16,19 +16,16 @@ from pathlib import Path
 from typing import NoReturn
 from urllib.parse import parse_qsl, quote, unquote, urlsplit, urlunsplit
 
-SENSITIVE_QUERY_KEYS = {
-    "dbname",
-    "host",
-    "hostaddr",
-    "passfile",
-    "password",
-    "port",
-    "service",
-    "servicefile",
-    "sslmode",
-    "sslpassword",
-    "user",
-}
+# Allowlist, not a denylist: libpq keeps adding TLS-trust and connection
+# identity parameters (sslrootcert, sslcert, sslkey, sslcrl, sslcrldir,
+# gssencmode, channel_binding, sslnegotiation, krbsrvname, requirepeer,
+# passfile, service, ...), and a URL query parameter overrides the
+# operator-exported PGSSLMODE/PGPASSFILE environment.  A URL that smuggled
+# e.g. sslrootcert could make the enforced verify-full gate verify against
+# an attacker-chosen CA.  Only parameters that cannot alter where libpq
+# connects or how trustingly it authenticates the server may ride in the
+# query; everything else is rejected loudly.
+ALLOWED_QUERY_KEYS = frozenset({"application_name", "connect_timeout"})
 
 
 def fail(message: str) -> NoReturn:
@@ -96,8 +93,11 @@ def main() -> None:
         reject_controls(label, value)
 
     for key, _value in parse_qsl(parts.query, keep_blank_values=True):
-        if key.lower() in SENSITIVE_QUERY_KEYS:
-            fail(f"query parameter {key!r} may not override connection identity")
+        if key.lower() not in ALLOWED_QUERY_KEYS:
+            fail(
+                f"query parameter {key!r} is not permitted; only "
+                f"{', '.join(sorted(ALLOWED_QUERY_KEYS))} may appear in the URL query"
+            )
 
     rendered_host = f"[{host}]" if ":" in host else host
     rendered_user = f"{quote(username, safe='')}@" if username else ""

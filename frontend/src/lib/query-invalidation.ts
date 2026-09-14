@@ -23,6 +23,11 @@ const FARM_DATA_PATHS = [
   "/api/purchases",
   "/api/dashboard",
   "/api/team",
+  // Saved planner plans are listed per farm; the list refreshes with the
+  // rest of the farm views (the planner page's own writes invalidate it too).
+  // Plan DOCUMENTS are revision-guarded server-side (409 stale-plan flow),
+  // and the page's edit draft is local component state, never query-backed.
+  "/api/planner/plans",
 ] as const;
 
 function isFarmDataQuery(query: Query): boolean {

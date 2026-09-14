@@ -444,13 +444,15 @@ async def test_mix_batch_bounds(client: httpx.AsyncClient) -> None:
 async def test_feed_setting_daily_kg_bounds(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     base = {"bucket": "BREEDING"}
-    for bad in (1e308, 1e309, QTY_KG_CAP + 1, float("nan")):
+    # RT-HIJ-5: ration overrides carry a 50 kg/head/day domain cap (not the
+    # generic 1e6 kg quantity ceiling, which only produced absurd plans).
+    for bad in (1e308, 1e309, QTY_KG_CAP + 1, 50.5, float("nan")):
         resp = await post_raw_json(
             client, "/api/feeding/settings", base | {"daily_kg_per_head": bad}, owner
         )
         assert resp.status_code == 422, bad
     resp = await client.post(
-        "/api/feeding/settings", json=base | {"daily_kg_per_head": QTY_KG_CAP}, headers=owner
+        "/api/feeding/settings", json=base | {"daily_kg_per_head": 50}, headers=owner
     )
     assert resp.status_code == 204, resp.text
 

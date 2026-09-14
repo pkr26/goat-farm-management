@@ -94,6 +94,28 @@ describe("BucketsPage — mutation targets", () => {
     );
   });
 
+  it("falls back to the plain filter when the safe path leaves the animals module", async () => {
+    // RT-P6-1: safeAppPath alone accepts ANY same-origin absolute path, so a
+    // (hypothetical buggy) generator value pointing at another module must
+    // not become the register link — even for a caller who can view that
+    // other module (the default owner here holds every permission).
+    server.use(
+      boardHandler([
+        boardRow({
+          animals: [{ id: 1, tag_number: "G-001" }],
+          animals_total: 4,
+          animals_page_path: "/finance",
+        }),
+      ]),
+    );
+    await renderLoaded();
+
+    expect(screen.getByRole("link", { name: "View the full bucket register" })).toHaveAttribute(
+      "href",
+      "/animals?bucket=PREGNANCY_EARLY",
+    );
+  });
+
   it("retries the board load from the error state", async () => {
     let calls = 0;
     server.use(

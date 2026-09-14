@@ -7,6 +7,10 @@ field-level authorization". The recent_weights section used to ship
 weight_kg/BCS and the animal's identity to callers without animals.view (only
 the free-text notes were gated); it is now withheld entirely for them — empty
 list, null total — following the cull_candidates withheld-preview convention.
+The same convention now covers the herd-summary block (buckets /
+total_active / sex_counts) and every withheld section total: null means
+"requires permission", 0 always means "genuinely none" (see
+test_dashboard_redteam.py for the RT-KL-1/RT-KL-4 pins).
 """
 
 from datetime import timedelta
@@ -58,8 +62,10 @@ async def test_recent_weights_withheld_without_animals_view(
     # null, not 0: a withheld section must be distinguishable from a genuinely
     # empty weight history, or the UI presents the gate as fact.
     assert cleaner_dash["recent_weights_total"] is None
-    # Withheld section, not a 403 — the cleaner's own page still works.
-    assert cleaner_dash["total_active"] == owner_dash["total_active"]
+    # Withheld section, not a 403 — the cleaner's own page still renders the
+    # sections it is entitled to (its herd counts are now animals.view-gated
+    # too; pinned in test_dashboard_redteam.py).
+    assert isinstance(cleaner_dash["todays_tasks_total"], int)
 
 
 # Companion pin: the gate is animals.view itself — the permission guarding
@@ -221,7 +227,8 @@ async def test_move_suggestions_withheld_without_animals_view(
     cleaner = await worker_headers(client, owner, cleaner_role, "move-gate@farm.in")
     cleaner_dash = await get_dashboard(client, cleaner)
     assert cleaner_dash["suggestions"] == []
-    assert cleaner_dash["suggestions_total"] == 0
+    # null, not 0: the withheld total must not render as "nothing to move".
+    assert cleaner_dash["suggestions_total"] is None
     # Neither the tag nor the exact weight leaks through the reason strings.
     assert "MOVE-GATE" not in str(cleaner_dash["suggestions"])
 

@@ -75,7 +75,7 @@ from ..security import (
     verify_password_with_work_async,
 )
 from ..seed import seed_new_farm
-from ..services.idempotency import IdempotencyKey, execute_idempotent
+from ..services.idempotency import RequiredIdempotencyKey, execute_idempotent
 from ..utils import utcnow
 
 router = APIRouter(prefix="/api/auth", tags=["auth"], responses=COMMON_ERROR_RESPONSES)
@@ -221,26 +221,56 @@ def _login_key(request: Request, email: str) -> str:
     return f"{_client_key(request)}|{email}"
 
 
-def _login_blocked(request: Request, email: str) -> bool:
-    """Composite (IP, email) ceiling plus the 0-3 counters: per-email
-    (IP-agnostic, against distributed brute force) and per-IP
-    (email-agnostic, against spraying)."""
+def _login_block_reason(request: Request, email: str) -> str | None:
+    """Which login throttle is tripped: ``"composite"``/``"ip"`` are hard
+    blocks; ``"email"`` is the distributed-brute-force ceiling.
+
+    The per-email ceiling is deliberately SOFT (RT-A-1): a request from a
+    blocked email still pays the full Argon2 verification and a *correct*
+    password logs in — only failed passwords get the 429. Without this,
+    three rotating source addresses could keep a victim's correct-password
+    logins locked out indefinitely with no self-service unlock, while the
+    attacker's guessing cost would be unchanged (every guess still pays
+    Argon2 and still fails).
+    """
+    s = get_settings()
+    if not s.auth_rate_limit_enabled:
+        return None
+    attempts, window = s.auth_rate_limit_max_attempts, s.auth_rate_limit_window_seconds
+    if auth_limiter.is_blocked("login", _login_key(request, email), attempts, window):
+        reason = "composite"
+    elif auth_limiter.is_blocked(
+        "login-ip", _client_key(request), attempts * IP_LIMIT_MULTIPLIER, window
+    ):
+        reason = "ip"
+    elif auth_limiter.is_blocked("login-email", email, attempts * EMAIL_LIMIT_MULTIPLIER, window):
+        reason = "email"
+    else:
+        return None
+    # Security audit trail: throttling must be observable.
+    logger.info("login throttled (ip=%s, scope=%s)", _client_key(request), reason)
+    metrics.record_auth_rate_limit_rejection("login")
+    return reason
+
+
+def _login_hard_blocked(request: Request, email: str) -> bool:
+    return _login_block_reason(request, email) in ("composite", "ip")
+
+
+def _login_email_locked(request: Request, email: str) -> bool:
+    """Direct per-email bucket query — never derived from
+    ``_login_block_reason``: when several scopes trip at once (e.g. low test
+    ceilings), the reason function's composite-first ordering would shadow
+    the email scope and silently downgrade the soft block to a plain 401."""
     s = get_settings()
     if not s.auth_rate_limit_enabled:
         return False
-    attempts, window = s.auth_rate_limit_max_attempts, s.auth_rate_limit_window_seconds
-    blocked = (
-        auth_limiter.is_blocked("login", _login_key(request, email), attempts, window)
-        or auth_limiter.is_blocked("login-email", email, attempts * EMAIL_LIMIT_MULTIPLIER, window)
-        or auth_limiter.is_blocked(
-            "login-ip", _client_key(request), attempts * IP_LIMIT_MULTIPLIER, window
-        )
+    return auth_limiter.is_blocked(
+        "login-email",
+        email,
+        s.auth_rate_limit_max_attempts * EMAIL_LIMIT_MULTIPLIER,
+        s.auth_rate_limit_window_seconds,
     )
-    if blocked:
-        # Security audit trail: throttling must be observable.
-        logger.info("login throttled (ip=%s)", _client_key(request))
-        metrics.record_auth_rate_limit_rejection("login")
-    return blocked
 
 
 def _record_login_failure(request: Request, email: str) -> None:
@@ -668,6 +698,15 @@ def _raise_invalid_refresh(request: Request, token: str | None = None) -> NoRetu
         limit = settings.auth_rate_limit_max_attempts
         window = settings.auth_rate_limit_window_seconds
         ip_limit = _refresh_preverification_limit(limit)
+        # Per-IP gate BEFORE the per-cookie record (RT-M-5): once the address
+        # is already throttled, appending yet another unique per-cookie key
+        # only pressures the limiter's key ceiling — it cannot change this
+        # request's outcome.
+        if auth_limiter.is_blocked("refresh-invalid", rate_key, ip_limit, window):
+            auth_limiter.record("refresh-invalid", rate_key, window, max_attempts=ip_limit)
+            logger.info("refresh-invalid throttled (key=%s)", rate_key)
+            metrics.record_auth_rate_limit_rejection("refresh-invalid")
+            raise _too_many_attempts()
         auth_limiter.record(
             REFRESH_PREVERIFY_SCOPE,
             _refresh_token_key(token),
@@ -701,7 +740,13 @@ async def register(
     # email already exists: enumerating live account names is the attack,
     # and charging fresh-address attempts would let an IP-rotating attacker
     # lock a legitimate registrant out of their own address.
-    pw_hash = await hash_password_async(payload.password)
+    #
+    # The probe bucket's is_blocked gate runs BEFORE the hash (RT-A-2): an
+    # already-blocked prober gets the 429 without spending one of the two
+    # shared Argon2 pool slots per request. This leaks nothing — existence is
+    # already disclosed by the explicit 400, is_blocked allocates nothing for
+    # unseen keys, and every still-admissible request (the timing-equalized
+    # path) hashes exactly as before.
     email_probe_key = f"register-email:{payload.email.lower()}"
     s_limits = get_settings()
 
@@ -722,6 +767,7 @@ async def register(
     ):
         logger.info("register-email throttled (key=%s)", email_probe_key)
         raise _too_many_attempts()
+    pw_hash = await hash_password_async(payload.password)
     existing = await db.execute(select(User).where(User.email == payload.email))
     if existing.scalar_one_or_none() is not None:
         _charge_email_probe()
@@ -749,7 +795,7 @@ async def register(
 
 @router.post("/login")
 async def login(payload: LoginIn, request: Request, response: Response, db: DbSession) -> TokenOut:
-    if _login_blocked(request, payload.email):
+    if _login_hard_blocked(request, payload.email):
         raise _too_many_attempts()
     reservation_scope = "login-password-work"
     reservation = _reserve_password_work(reservation_scope, payload.email)
@@ -759,7 +805,9 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
         # Re-check after the atomic admission reservation. A preceding request
         # may have recorded the threshold immediately before releasing its
         # slot; no expensive work starts from a stale limiter observation.
-        if _login_blocked(request, payload.email):
+        # Only the hard scopes pre-reject: a soft per-email block still pays
+        # the verification below (RT-A-1).
+        if _login_hard_blocked(request, payload.email):
             raise _too_many_attempts()
 
         # Snapshot immutable scalar values, then end the read transaction so
@@ -802,6 +850,10 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
                 # padding fidelity under overload is the lesser harm.
                 pass
             _record_login_failure(request, payload.email)
+            if _login_email_locked(request, payload.email):
+                # Soft per-email ceiling (RT-A-1): the wrong password answers
+                # the block; the right one proceeds to success below.
+                raise _too_many_attempts()
             raise invalid
 
         # From this point cancellation is no longer an invalid-credential CPU
@@ -1490,7 +1542,7 @@ async def create_farm(
     response: Response,
     db: DbSession,
     user: CurrentUser,
-    idempotency_key: IdempotencyKey = None,
+    idempotency_key: RequiredIdempotencyKey,
 ) -> FarmOut:
     # Snapshot before the first await: the locked populate-existing query below
     # refreshes the same User object. This closes reset/logout -> stale

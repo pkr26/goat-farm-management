@@ -1496,6 +1496,9 @@ async def test_reactivation_wins_before_personal_task_fallback_action(
             duty_action = asyncio.create_task(
                 action_client.post(
                     f"/api/tasks/{created.json()['id']}/{action}",
+                    # The skip arm needs its (now required) reason to reach
+                    # the lock instead of failing validation up front.
+                    json={"reason": "lock-order fixture"} if action == "skip" else None,
                     headers=peer,
                 )
             )
@@ -1577,6 +1580,9 @@ async def test_personal_fallback_action_and_lifecycle_use_membership_then_user_o
             duty_action = asyncio.create_task(
                 action_client.post(
                     f"/api/tasks/{created.json()['id']}/{action}",
+                    # The skip arm needs its (now required) reason to reach
+                    # the lock instead of failing validation up front.
+                    json={"reason": "lock-order fixture"} if action == "skip" else None,
                     headers=peer,
                 )
             )

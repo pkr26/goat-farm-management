@@ -38,6 +38,49 @@ DEVELOPMENT_IDEMPOTENCY_HMAC_SECRET = "development-only-idempotency-hmac-secret-
 HOST_LABEL_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 COOKIE_NAME_PATTERN = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
 DEVELOPMENT_REFRESH_COOKIE_NAME = "goatfarm_refresh"
+
+# GOATFARM_* process-env names that are deliberately NOT application
+# settings: the backup/restore scripts and the compose edge read them from a
+# descriptor-pinned .env snapshot of their own, and the test suite's database
+# selector. They may legitimately coexist in the API process environment.
+NON_APP_ENV_VARS = frozenset(
+    {
+        "GOATFARM_TEST_DB",
+        # backup.sh / restore.sh / backup_env.sh
+        "GOATFARM_BACKUP_KEEP",
+        "GOATFARM_BACKUP_GPG_RECIPIENT",
+        "GOATFARM_BACKUP_GPG_SIGNER_FINGERPRINT",
+        "GOATFARM_BACKUP_S3_URI",
+        "GOATFARM_RESTORE_DATABASE_URL",
+        "GOATFARM_RESTORE_GPG_SIGNER_FINGERPRINT",
+        "GOATFARM_RESTORE_CONFIRM",
+        # docker-compose edge service
+        "GOATFARM_EDGE_BIND_HOST",
+        "GOATFARM_EDGE_PUBLIC_SCHEME",
+        "GOATFARM_EDGE_PROXY_IP",
+        "GOATFARM_DOCKER_SUBNET",
+        "GOATFARM_DOCKER_DATA_SUBNET",
+        "GOATFARM_ALLOW_DEV_PUBLIC_BIND",
+    }
+)
+
+
+def unknown_goatfarm_env_vars(known_fields: frozenset[str] | set[str] | None = None) -> set[str]:
+    """GOATFARM_* process-env names that are neither Settings fields nor
+    known script/edge-only variables (RT-M2-1).
+
+    ``extra="forbid"`` only rejects unknown keys inside ``backend/.env`` and
+    direct construction — production injects config through process
+    environment variables, where a typo silently reverts the knob to its
+    default. This scan closes that gap.
+    """
+    if known_fields is None:
+        return set()
+    known = {f"GOATFARM_{name.upper()}" for name in known_fields}
+    known |= NON_APP_ENV_VARS
+    return {name for name in os.environ if name.startswith("GOATFARM_")} - known
+
+
 PRODUCTION_REFRESH_COOKIE_NAME = "__Host-goatfarm_refresh"
 
 # asyncpg `ssl` connect-arg values (same names as libpq's sslmode).
@@ -503,6 +546,16 @@ class Settings(BaseSettings):
                 "GOATFARM_COOKIE_SECURE must be true when GOATFARM_REFRESH_COOKIE_NAME "
                 "uses the '__Host-' prefix"
             )
+        # RT-M2-1: refuse unknown GOATFARM_* process-env variables in every
+        # environment. A misspelled knob here silently reverts to its default
+        # — the exact failure extra=forbid exists to prevent for .env keys.
+        unknown_env = unknown_goatfarm_env_vars(frozenset(type(self).model_fields))
+        if unknown_env:
+            raise ValueError(
+                "Refusing to boot: unknown GOATFARM_* environment variable(s): "
+                f"{', '.join(sorted(unknown_env))} — check the spelling against "
+                "backend/.env.example"
+            )
         if self.environment != "production":
             return self
         problems: list[str] = []
@@ -619,8 +672,34 @@ class Settings(BaseSettings):
                 f"GOATFARM_DB_SSLMODE={self.db_sslmode!r} is unsafe in production — "
                 "use 'verify-full' so both the certificate chain and database hostname are verified"
             )
+        # RT-M-6: every in-memory control (auth rate limiter, simulation CPU
+        # budget, worker-idempotency gates) is per-process. A multi-worker
+        # production launch silently multiplies every one of those budgets —
+        # refuse instead of warning (the compose image pins --workers 1).
+        for worker_env in ("UVICORN_WORKERS", "WEB_CONCURRENCY"):
+            raw_value = os.environ.get(worker_env)
+            if raw_value is None:
+                continue
+            try:
+                workers = int(raw_value)
+            except ValueError:
+                continue
+            if workers > 1:
+                problems.append(
+                    f"{worker_env}={workers} is unsupported: the in-memory auth rate "
+                    "limiter and CPU budgets are per-process — run exactly one "
+                    "uvicorn worker per deployment"
+                )
         if problems:
             raise ValueError("Refusing to boot: " + "; ".join(problems))
+        # RT-M2-2: the unauthenticated /metrics endpoint is force-disabled in
+        # production, mirroring /docs and /openapi.json. The compose topology
+        # keeps it unreachable publicly, but any port/edge misdeployment the
+        # validator family exists to catch would otherwise expose route and
+        # throttle telemetry. (Set metrics_enabled=false in every production
+        # deployment; there is no opt-in until metrics gains authentication.)
+        if self.metrics_enabled:
+            self.metrics_enabled = False
         return self
 
 

@@ -180,25 +180,41 @@ async def test_run_rejects_seed_out_of_bounds(client: httpx.AsyncClient) -> None
     assert resp.json()["result"]["seed"] == 2**62
 
 
-async def test_run_ledger_rejects_oversized_runs(client: httpx.AsyncClient) -> None:
-    """The Markdown ledger is capped by run size: 150 head × 365 days =
-    54,750 head-days > the 50,000 cap → 422 before any engine work; the same
-    herd without the ledger runs fine."""
+async def test_run_rejects_oversized_result_payloads(client: httpx.AsyncClient) -> None:
+    """The head-day cap bounds the RESULT payload (days + journeys), not just
+    the opt-in ledger: 150 head × 365 days = 54,750 head-days > the 50,000
+    cap → 422 before any engine work or budget charge, with or without the
+    ledger; a herd under the cap still runs and can carry the ledger
+    (red-team RT-KL-2)."""
+    from app.api.ops_simulation import MAX_RESULT_HEAD_DAYS
+
     headers = await owner_with_farm(client, email="ledgercap@ops-sim.in")
     animals = [
         {"tag": f"D{i}", "sex": "F", "bucket": "FEMALE_KIDS", "age_months": 9}
         for i in range(1, 151)
     ]
     document = _run_document(horizon_days=365, animals=animals)
+    for include_ledger in (True, False):
+        resp = await client.post(
+            "/api/ops-sim/run",
+            json=_run_document(**{**document, "include_ledger": include_ledger}),
+            headers=headers,
+        )
+        assert resp.status_code == 422, resp.text
+        assert "head-days" in resp.json()["detail"]
+    assert MAX_RESULT_HEAD_DAYS == 50_000
+    # Below the cap the run completes — and the ledger remains available.
     resp = await client.post(
         "/api/ops-sim/run",
-        json=_run_document(**{**document, "include_ledger": True}),
+        json=_run_document(
+            horizon_days=365,
+            animals=animals[:100],  # 100 × 365 = 36,500 head-days ≤ 50,000
+            include_ledger=True,
+        ),
         headers=headers,
     )
-    assert resp.status_code == 422, resp.text
-    assert "head-days" in resp.json()["detail"]
-    resp = await client.post("/api/ops-sim/run", json=document, headers=headers)
     assert resp.status_code == 200, resp.text
+    assert resp.json()["ledger"] is not None
 
 
 async def test_run_limiter_429_while_run_in_flight(client: httpx.AsyncClient) -> None:
@@ -223,17 +239,48 @@ async def test_run_limiter_429_while_run_in_flight(client: httpx.AsyncClient) ->
 async def test_run_priced_by_herd_size_against_the_cpu_budget(
     client: httpx.AsyncClient,
 ) -> None:
-    """A run costs horizon_days × (1 + head // 10): pre-charging the farm's
-    budget to just under that price must 429 the run, proving the herd-size
-    factor (per-day-only pricing would let it through)."""
+    """A run costs horizon_days × (1 + head // 10) × (1 + birth-amplification
+    factor): pre-charging the farm's budget to just under that price must 429
+    the run, proving both the herd-size factor (per-day-only pricing would let
+    it through) and the fertility multiplier (initial-head-only pricing would
+    let it through too — red-team RT-L8-3)."""
     from app.api._run_limits import _RUN_BUDGET_UNITS, _run_budget
+    from app.api.ops_simulation import _BIRTH_AMPLIFICATION_FACTOR
 
     headers = await owner_with_farm(client, email="priced@ops-sim.in")
     farm_id = int(headers["X-Farm-Id"])
-    document = _run_document()  # 30 days × 4 head → cost 30 × 1 = 30
-    cost = document["horizon_days"] * (1 + len(document["animals"]) // 10)
-    assert cost == 30
+    document = _run_document()  # 30 days × 4 head → 30 × 1 × 11 = 330
+    cost = (
+        document["horizon_days"]
+        * (1 + len(document["animals"]) // 10)
+        * (1 + _BIRTH_AMPLIFICATION_FACTOR)
+    )
+    assert cost == 330
     _run_budget.charge("farm", farm_id, _RUN_BUDGET_UNITS - cost + 1)
+    try:
+        resp = await client.post("/api/ops-sim/run", json=document, headers=headers)
+        assert resp.status_code == 429, resp.text
+        assert "budget" in resp.json()["detail"]
+    finally:
+        _run_budget.clear()
+
+
+async def test_run_budget_charges_the_birth_amplification_factor(
+    client: httpx.AsyncClient,
+) -> None:
+    """The fertility factor is charged on its own: a budget with room for the
+    old initial-head price (horizon × (1 + head//10)) but not for the
+    amplified price must still 429 — maxed-fertility runs grow the herd up to
+    ~10× the starters the old formula saw (red-team RT-L8-3)."""
+    from app.api._run_limits import _RUN_BUDGET_UNITS, _run_budget
+    from app.api.ops_simulation import _BIRTH_AMPLIFICATION_FACTOR
+
+    assert _BIRTH_AMPLIFICATION_FACTOR == 10
+    headers = await owner_with_farm(client, email="amplified@ops-sim.in")
+    farm_id = int(headers["X-Farm-Id"])
+    document = _run_document()  # old price 30, amplified price 330
+    old_price = document["horizon_days"] * (1 + len(document["animals"]) // 10)
+    _run_budget.charge("farm", farm_id, _RUN_BUDGET_UNITS - old_price)
     try:
         resp = await client.post("/api/ops-sim/run", json=document, headers=headers)
         assert resp.status_code == 429, resp.text

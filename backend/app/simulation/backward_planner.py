@@ -266,11 +266,31 @@ def _requirement_chain(
     )
     survival = _survival_to_event_age(mort, window.typical_age)
     per_birth_of_sex = r.litter_size * (1.0 - r.stillbirth_rate) * sex_share
+    if per_birth_of_sex <= 0.0:
+        # sex_ratio_female is schema-valid at exactly 0 and 1, and the matching
+        # share is then exactly zero — an all-one-sex birth policy cannot
+        # produce the target's sex at all. Refuse as a 422 with the cause and
+        # the fix, not as an opaque ZeroDivisionError 500 (red-team RT-L8-2).
+        raise ValueError(
+            f"sex_ratio_female={r.sex_ratio_female:g} means no "
+            f"{target.animal_class.replace('_', ' ')} can ever be born, so this "
+            "target's requirement chain cannot be worked backward. Move "
+            "sex_ratio_female strictly between 0 and 1, or target the other sex."
+        )
     kids_of_sex_needed = math.ceil(target.count / survival)
     total_kids_needed = math.ceil(kids_of_sex_needed / per_birth_of_sex)
     kids_per_doe = r.litter_size * (1.0 - r.stillbirth_rate)
     does_kidded = math.ceil(total_kids_needed / kids_per_doe)
     conception, service_note = _effective_conception(assumptions)
+    if conception <= 0.0:
+        # conception_rate=0.0 is schema-valid and makes the within-cap
+        # conception probability exactly zero (no retry policy can rescue a
+        # certain miss) — dividing does_kidded by it was a 500 (RT-L8-2).
+        raise ValueError(
+            "conception_rate=0.0 means no bred doe ever conceives, so this "
+            "target's requirement chain cannot be worked backward. Set "
+            "conception_rate above 0 to plan breeding."
+        )
     does_bred = math.ceil(does_kidded / conception)
 
     steps = [

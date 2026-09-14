@@ -50,11 +50,19 @@ cleanup() {
     trap - EXIT
 
     if (( status != 0 && REMOTE_COMPLETE == 0 )); then
+        # Best-effort removal must not be silent: a failed cleanup leaves an
+        # orphaned remote object with no sidecar forever, so name the keys the
+        # operator has to remove (or cover with an S3 lifecycle rule).  The
+        # original failure status stays authoritative; cleanup failures only log.
         if (( REMOTE_CHECKSUM_UPLOADED == 1 )); then
-            aws s3 rm "${REMOTE_CHECKSUM}" >/dev/null 2>&1 || true
+            if ! aws s3 rm "${REMOTE_CHECKSUM}" >/dev/null 2>&1; then
+                echo "WARNING: failed to remove partially published remote object ${REMOTE_CHECKSUM}; remove it manually" >&2
+            fi
         fi
         if (( REMOTE_ARCHIVE_UPLOADED == 1 )); then
-            aws s3 rm "${REMOTE_ARCHIVE}" >/dev/null 2>&1 || true
+            if ! aws s3 rm "${REMOTE_ARCHIVE}" >/dev/null 2>&1; then
+                echo "WARNING: failed to remove partially published remote object ${REMOTE_ARCHIVE}; remove it manually" >&2
+            fi
         fi
     fi
     if (( status != 0 && PUBLISH_STARTED == 1 && LOCAL_PUBLISHED == 0 )); then

@@ -275,7 +275,9 @@ describe("AnimalsPage — campaign kills", () => {
   });
 
   it("hides the BORN import option from non-owners entirely", async () => {
-    server.use(permissionsHandler(["animals.view", "animals.create"]));
+    server.use(
+      permissionsHandler(["animals.view", "animals.create", "purchases.manage"]),
+    );
     const user = userEvent.setup();
     renderWithProviders(<AnimalsPage />);
     await screen.findAllByText("G-001");

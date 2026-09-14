@@ -579,6 +579,25 @@ describe("TeamPage add-worker dialog", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
+  // RT-P2-1: only the Cancel button used to clear the form, so a password
+  // typed before an Esc (or backdrop) dismissal survived into the next open
+  // of the still-mounted dialog.
+  it("clears a half-typed password when the dialog is dismissed with Escape", async () => {
+    const { user, dialog } = await openDialog();
+    await user.type(within(dialog).getByLabelText(/Email/), "new@example.com");
+    await user.type(within(dialog).getByLabelText(/Password/), "leftover-secret");
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "Add worker" }));
+    const reopened = await screen.findByRole("dialog");
+    expect(within(reopened).getByLabelText(/Password/)).toHaveValue("");
+    expect(within(reopened).getByLabelText(/Email/)).toHaveValue("");
+    // The dismissed attempt never reached the API.
+    expect(postCalls).toBe(0);
+  });
+
   it("rejects an invalid email", async () => {
     const { user, dialog } = await openDialog();
 

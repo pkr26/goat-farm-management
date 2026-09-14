@@ -155,7 +155,7 @@ describe("AppLayout — header", () => {
     );
   });
 
-  it("remounts page state when a membership refresh replaces the active farm", async () => {
+  it("purges page state and routes to the picker when a membership refresh revokes the active farm", async () => {
     let membershipChanged = false;
     server.use(
       http.get("/api/auth/farms", () =>
@@ -202,8 +202,14 @@ describe("AppLayout — header", () => {
     membershipChanged = true;
     await user.click(screen.getByRole("button", { name: "refresh memberships" }));
 
-    await screen.findByText("Replacement Farm");
-    expect(screen.getByLabelText("Farm-scoped draft")).toHaveValue("");
+    // RT-O-3: the refresh revoked farm 1 and offers only farm 2. The shell
+    // must not silently enter the unchosen replacement: farm-scoped page
+    // state is torn out with the farmless gate and the operator is routed
+    // to /farm-select to make the next choice explicitly.
+    await waitFor(() =>
+      expect(screen.queryByLabelText("Farm-scoped draft")).not.toBeInTheDocument(),
+    );
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/farm-select"));
   });
 
   it("falls back to the email when the user has no name", async () => {

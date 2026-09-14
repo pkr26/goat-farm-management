@@ -438,6 +438,62 @@ describe("idempotency persistence and signature branches", () => {
     expect(storedRecords()).toEqual([other]);
   });
 
+  it("does not evict an unresolved send's recovery digest under a flood of distinct mutations", async () => {
+    // RT-Q-2: ≥128 distinct protected mutations inside the TTL window used
+    // to trim the bounded store purely by expiry, which could push out the
+    // recovery digest of a request whose response never arrived. The digest
+    // of any logical request that is still live in this realm (in flight, or
+    // retained after an ambiguous failure) must survive the flood, and a
+    // reload-and-retry must recover the exact same key.
+    const sentKeys: Array<string | null> = [];
+    let releaseAmbiguous!: () => void;
+    const ambiguousExecute = vi.fn(
+      (init: RequestInit) =>
+        new Promise<{ ok: true }>((resolve) => {
+          sentKeys.push(sentKey(init));
+          releaseAmbiguous = () => resolve({ ok: true });
+        }),
+    );
+    const ambiguousUrl = "/api/finance/new?line=ambiguous";
+    const ambiguous = runProtected(ambiguousExecute, { url: ambiguousUrl });
+    await vi.waitFor(() => expect(sentKeys).toHaveLength(1));
+    const ambiguousKey = sentKeys[0];
+
+    // The flood: distinct protected mutations that each fail ambiguously and
+    // are retained, cycling the realm registry past its 128-entry bound.
+    for (let flood = 0; flood < 140; flood += 1) {
+      await rejectionOf(
+        runProtected(vi.fn().mockRejectedValue({ status: 503 }), {
+          url: `/api/finance/new?flood=${flood}`,
+          init: { method: "POST", body: JSON.stringify({ line: flood }) },
+        }),
+      );
+      await Promise.resolve();
+    }
+
+    // The container stays bounded, but never at the unresolved send's cost.
+    const records = storedRecords();
+    expect(records.length).toBeLessThanOrEqual(MAX_RECORDS);
+    expect(records.map((record) => record.key)).toContain(ambiguousKey);
+
+    // Reload (realm memory gone) and retry the same logical submission: the
+    // original key must be recovered, not re-randomized.
+    clearIdempotencyRequestState();
+    const retryExecute = vi.fn(async (init: RequestInit) => {
+      sentKeys.push(sentKey(init));
+      return { ok: true };
+    });
+    await expect(
+      runProtected(retryExecute, { url: ambiguousUrl }),
+    ).resolves.toEqual({ ok: true });
+
+    expect(sentKeys[1]).toBe(ambiguousKey);
+
+    // Release the parked original so the test leaves nothing dangling.
+    releaseAmbiguous();
+    await expect(ambiguous).resolves.toEqual({ ok: true });
+  });
+
   it("classifies a protected route by its resolved path, not its URL form", () => {
     expect(
       isIdempotencyProtectedMutation("https://goatfarm.example/api/finance/new", "POST"),

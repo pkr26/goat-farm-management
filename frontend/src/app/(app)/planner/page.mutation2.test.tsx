@@ -1093,11 +1093,10 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
     const state = await renderLoaded2({ savedPlans: [savedPlanRow()] });
     await user.click(await screen.findByRole("button", { name: "Open" }));
 
+    // RT-P2-6: an empty name disables Update outright (mirroring Save) —
+    // a disabled button cannot submit, so no PATCH leaves the page.
     await user.clear(screen.getByLabelText("Plan name"));
-    await user.click(screen.getByRole("button", { name: /Update “Festival plan”/ }));
-    await waitFor(() =>
-      expect(toastMocks.error).toHaveBeenCalledWith("Give the plan a name before updating it."),
-    );
+    expect(screen.getByRole("button", { name: /Update “Festival plan”/ })).toBeDisabled();
     expect(state.updatedBodies).toHaveLength(0);
 
     await user.type(screen.getByLabelText("Plan name"), "  Renamed plan  ");

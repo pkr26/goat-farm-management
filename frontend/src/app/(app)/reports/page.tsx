@@ -6,7 +6,11 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { useReportsApiDashboardReportsGet } from "@/api/generated/endpoints";
-import type { AnimalIdentityOut } from "@/api/generated/models";
+import type {
+  AnimalIdentityOut,
+  BucketReportRow,
+  ReportsOutSexCounts,
+} from "@/api/generated/models";
 import { Button } from "@/components/ui/button";
 import { DataTableCard } from "@/components/data-table-card";
 import { PageHeader } from "@/components/page-header";
@@ -125,6 +129,12 @@ function ReportsPageContent({ perms }: { perms: PermissionsState }) {
   }
 
   const { breeding, mortality } = payload;
+  // Withheld-sentinel reads: the API nulls the bucket/animal aggregates
+  // without animals.view (the generated client types lag the contract, so
+  // widen before comparing — the casts become no-ops once orval regenerates).
+  const bucketRows = payload.bucket_rows as BucketReportRow[] | null;
+  const totalActive = payload.total_active as number | null;
+  const sexCounts = payload.sex_counts as ReportsOutSexCounts | null;
   // `can(...)` reads /api/auth/permissions, a different query that
   // invalidateFarmData deliberately excludes, so it can disagree with the
   // report payload for as long as staleTime allows. Trust either source
@@ -133,6 +143,7 @@ function ReportsPageContent({ perms }: { perms: PermissionsState }) {
   // render as the factual "No deaths recorded."
   const healthWithheld = mortality.total_deaths === null || !canViewHealth;
   const breedingWithheld = breeding.cull_candidates_total === null || !canViewBreeding;
+  const animalsWithheld = totalActive === null || !canViewAnimals;
 
   return (
     <div className="space-y-6">
@@ -148,7 +159,9 @@ function ReportsPageContent({ perms }: { perms: PermissionsState }) {
       />
 
       <DataTableCard
-        title={`Herd summary (${payload.total_active} active)`}
+        title={
+          animalsWithheld ? "Herd summary" : `Herd summary (${totalActive} active)`
+        }
         description="Headcount and average weight per bucket, plus sex and status totals."
         contentClassName="grid gap-4 lg:grid-cols-2"
       >
@@ -161,24 +174,44 @@ function ReportsPageContent({ perms }: { perms: PermissionsState }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {payload.bucket_rows.map((row) => (
-              <TableRow key={row.code}>
-                <TableCell>
-                  {row.name}{" "}
-                  <span className="text-xs text-muted-foreground">{row.code}</span>
-                </TableCell>
-                <TableCell className="text-right tabular-nums">{row.count}</TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {row.avg_weight !== null ? `${row.avg_weight.toFixed(1)} kg` : "—"}
+            {/* null = withheld (no animals access): the bucket rows must name
+                the withholding instead of rendering an empty register. */}
+            {animalsWithheld || bucketRows === null ? (
+              <TableRow>
+                <TableCell colSpan={3} className="text-muted-foreground">
+                  <Withheld permission="animals" />
                 </TableCell>
               </TableRow>
-            ))}
+            ) : (
+              bucketRows.map((row) => (
+                <TableRow key={row.code}>
+                  <TableCell>
+                    {row.name}{" "}
+                    <span className="text-xs text-muted-foreground">{row.code}</span>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">{row.count}</TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {row.avg_weight !== null ? `${row.avg_weight.toFixed(1)} kg` : "—"}
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
         <Table>
           <TableBody>
-            <SummaryRow label="Females (active)" value={payload.sex_counts.F ?? 0} />
-            <SummaryRow label="Males (active)" value={payload.sex_counts.M ?? 0} />
+            <SummaryRow
+              label="Females (active)"
+              value={
+                !animalsWithheld && sexCounts !== null ? (sexCounts.F ?? 0) : <Withheld permission="animals" />
+              }
+            />
+            <SummaryRow
+              label="Males (active)"
+              value={
+                !animalsWithheld && sexCounts !== null ? (sexCounts.M ?? 0) : <Withheld permission="animals" />
+              }
+            />
             {Object.entries(payload.status_counts).map(([status, count]) => (
               <SummaryRow
                   key={status}
@@ -231,7 +264,11 @@ function ReportsPageContent({ perms }: { perms: PermissionsState }) {
             <SummaryRow
               label={`Alive ${vocabulary.youngPlural} per ${vocabulary.parturition}`}
               value={
-                canViewBreeding
+                /* The same OR as its siblings: the sentinel alone (stale
+                   permission cache) or the revoked permission alone (stale
+                   payload) must both read as withheld, never as the
+                   not-enough-data "—" (RT-P2-2). */
+                !breedingWithheld
                   ? (breeding.kids_per_kidding ?? "—")
                   : <Withheld permission="breeding" />
               }

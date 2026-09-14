@@ -166,7 +166,11 @@ describe("AuthProvider bootstrap — valid session", () => {
     expect(localStorage.getItem(FARM_STORAGE_KEY)).toBe("2");
   });
 
-  it("falls back to the first farm when the stored id is no longer valid", async () => {
+  it("clears the stored selection instead of entering an unchosen farm when the persisted id is revoked", async () => {
+    // RT-O-3: the persisted farm (99) is no longer in the membership list.
+    // Silently selecting list[0] would land the operator in a farm they never
+    // chose; farmId must stay null so the app shell redirects to
+    // /farm-select, with the membership list still rendered for the pick.
     localStorage.setItem(FARM_STORAGE_KEY, "99");
     server.use(
       http.get("/api/auth/farms", () =>
@@ -180,8 +184,9 @@ describe("AuthProvider bootstrap — valid session", () => {
     renderWithProviders(<Probe />);
 
     await expectLoaded();
-    expect(screen.getByTestId("farmId")).toHaveTextContent("1");
-    expect(localStorage.getItem(FARM_STORAGE_KEY)).toBe("1");
+    expect(screen.getByTestId("farmId")).toHaveTextContent("none");
+    expect(localStorage.getItem(FARM_STORAGE_KEY)).toBeNull();
+    expect(screen.getByTestId("farms")).toHaveTextContent("1,2");
   });
 
   it("leaves farmId null when the user has no farms", async () => {
@@ -435,7 +440,30 @@ describe("AuthProvider actions", () => {
     });
   });
 
-  it("refreshFarms re-fetches the list and applies membership changes", async () => {
+  it("refreshFarms re-fetches the list while the selected farm stays valid", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Probe />);
+    await expectLoaded();
+    expect(screen.getByTestId("farmId")).toHaveTextContent("1");
+
+    // Membership changed server-side: farm 3 joined, farm 1 is still valid.
+    server.use(
+      http.get("/api/auth/farms", () =>
+        HttpResponse.json([
+          { id: 3, name: "New Farm", location: null, role: null },
+          { id: 1, name: "Farm One", location: null, role: null },
+        ]),
+      ),
+    );
+
+    await user.click(screen.getByRole("button", { name: "refresh-farms" }));
+
+    await waitFor(() => expect(screen.getByTestId("farms")).toHaveTextContent("3,1"));
+    expect(screen.getByTestId("farmId")).toHaveTextContent("1");
+    expect(localStorage.getItem(FARM_STORAGE_KEY)).toBe("1");
+  });
+
+  it("refreshFarms clears the revoked selection instead of silently switching farms", async () => {
     const user = userEvent.setup();
     renderWithProviders(<Probe />);
     await expectLoaded();
@@ -453,10 +481,11 @@ describe("AuthProvider actions", () => {
     await user.click(screen.getByRole("button", { name: "refresh-farms" }));
 
     await waitFor(() =>
-      expect(screen.getByTestId("farmId")).toHaveTextContent("3"),
+      expect(screen.getByTestId("farmId")).toHaveTextContent("none"),
     );
+    // The list itself survives so /farm-select offers the explicit choice.
     expect(screen.getByTestId("farms")).toHaveTextContent("3");
-    expect(localStorage.getItem(FARM_STORAGE_KEY)).toBe("3");
+    expect(localStorage.getItem(FARM_STORAGE_KEY)).toBeNull();
   });
 
   it("clears the token and redirects when a later API call fails auth", async () => {

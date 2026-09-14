@@ -350,6 +350,30 @@ async def clear_movement_restriction(
         )
     if not animal.movement_restricted and not animal.suspected_scheduled_disease:
         raise HTTPException(status_code=409, detail="Animal has no active movement restriction")
+    if animal.suspected_scheduled_disease:
+        # Two-person rule for statutory holds (mirroring duty verification,
+        # with the same owner exemption): the worker who recorded the
+        # suspicion cannot also supply the clearance reference that releases
+        # it. The episode's PLACED action is the durable attribution; a
+        # missing row (manual DB damage only) fails open to the route's
+        # normal permission gate rather than freezing the hold forever.
+        placed_by_id = (
+            await db.execute(
+                select(MovementRestrictionAction.acted_by_id)
+                .where(
+                    MovementRestrictionAction.farm_id == farm.id,
+                    MovementRestrictionAction.animal_id == animal.id,
+                    MovementRestrictionAction.restriction_version == animal.restriction_version,
+                    MovementRestrictionAction.action == "PLACED",
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if placed_by_id == user.id and farm.owner_id != user.id:
+            raise HTTPException(
+                status_code=409,
+                detail="Someone else must clear this scheduled-disease hold",
+            )
     cleared_at = utcnow()
     db.add(
         MovementRestrictionAction(

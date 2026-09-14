@@ -65,8 +65,9 @@ def protocol_phrase_of(title: str) -> str:
     """The operator-free portion of an auto-generated health-duty title.
 
     Generated titles wrap user text around a fixed protocol phrase: the
-    quarantine schedule prefixes ``[{supplier} #{batch id}] `` and the
-    pre-kidding duty appends ``: {tag number}``. A supplier or tag naming
+    quarantine schedule prefixes ``[Batch #{batch id}] `` (legacy rows may
+    still carry a supplier-bearing ``[{supplier} #{batch id}] `` prefix) and
+    the pre-kidding duty appends ``: {tag number}``. A supplier or tag naming
     another disease ("PPR Traders", a doe tagged "PPR-01") must never decide
     which programme item the duty belongs to, so both wrappers are removed
     before any alias scan.
@@ -206,6 +207,14 @@ def place_movement_restriction(
     animal.suspected_disease = target
     animal.movement_restricted = True
     animal.restriction_reason = restriction_reason
+    # Like the clearance route's own episode-scoping, these three columns
+    # describe the CURRENT episode only: leaving a previous episode's
+    # clearance attached to a freshly placed hold would present an active
+    # restriction as already authoritatively cleared. The historical fact is
+    # preserved on the CLEARED action row for that episode.
+    animal.restriction_cleared_at = None
+    animal.restriction_cleared_by_id = None
+    animal.restriction_clearance_reference = None
     action = MovementRestrictionAction(
         farm_id=animal.farm_id,
         animal_id=animal.id,

@@ -222,39 +222,60 @@ async def dashboard(
 
     Sections carrying a breeding-programme judgement — kiddings due, cull
     candidates and the suggestions derived from breeding readiness or an open
-    pregnancy — need ``breeding.view``, the same permission that governs
-    ``cull_candidate`` / ``is_breeding_ready`` / ``is_currently_pregnant`` in
-    ``animal_out``. A caller without it gets empty lists and zero totals rather
-    than a 403, so the page still renders for e.g. the cleaner preset.
+    pregnancy — need ``breeding.view`` (suggestions additionally
+    ``animals.view``, since every one names the animal and its exact weight),
+    the same permissions that govern ``cull_candidate`` / ``is_breeding_ready``
+    / ``is_currently_pregnant`` in ``animal_out``. A caller without a section's
+    gate gets an empty list and a null total rather than a 403, so the page
+    still renders for e.g. the cleaner preset.
+
+    The herd-summary block — bucket occupancy (the breeding-programme buckets
+    among them), the active total and the sex split — restate animal-register
+    facts the animals pages hold behind ``animals.view``, so it is withheld
+    the same way (null fields, not zeros) without that permission.
 
     Recent weights are per-animal weight/BCS rows with the animal's identity,
     so they need ``animals.view`` — the permission that guards weight history
     on the animal pages — and are withheld (empty list, null total) without it.
     """
-    defs = list(
-        (await db.execute(select(BucketDefinition).order_by(BucketDefinition.sort_order))).scalars()
-    )
-    counts: dict[str, int] = {d.code: 0 for d in defs}
-    sex_counts: dict[str, int] = {"M": 0, "F": 0}
-    active_count_rows = (
-        await db.execute(
-            select(Animal.current_bucket, Animal.sex, func.count())
-            .where(Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value)
-            .group_by(Animal.current_bucket, Animal.sex)
+    can_view_animals = "animals.view" in perms
+    buckets: list[BucketCountOut] | None = None
+    total_active: int | None = None
+    sex_counts: dict[str, int] | None = None
+    if can_view_animals:
+        defs = list(
+            (
+                await db.execute(select(BucketDefinition).order_by(BucketDefinition.sort_order))
+            ).scalars()
         )
-    ).all()
-    for bucket, sex, count in active_count_rows:
-        counts[str(bucket)] = counts.get(str(bucket), 0) + int(count)
-        sex_counts[str(sex)] = sex_counts.get(str(sex), 0) + int(count)
-    total_active = sum(counts.values())
+        counts: dict[str, int] = {d.code: 0 for d in defs}
+        sexes: dict[str, int] = {"M": 0, "F": 0}
+        active_count_rows = (
+            await db.execute(
+                select(Animal.current_bucket, Animal.sex, func.count())
+                .where(Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value)
+                .group_by(Animal.current_bucket, Animal.sex)
+            )
+        ).all()
+        for bucket, sex, count in active_count_rows:
+            counts[str(bucket)] = counts.get(str(bucket), 0) + int(count)
+            sexes[str(sex)] = sexes.get(str(sex), 0) + int(count)
+        buckets = [
+            BucketCountOut(code=d.code, name=d.name, count=counts.get(d.code, 0)) for d in defs
+        ]
+        total_active = sum(counts.values())
+        sex_counts = sexes
 
     now = today(farm.timezone)
     todays_tasks: list[Task] = []
     overdue_tasks: list[Task] = []
     ultrasounds_due: list[Task] = []
-    todays_tasks_total = 0
-    overdue_tasks_total = 0
-    ultrasounds_due_total = 0
+    # None (not 0) when the section is withheld — rendering a permission gate
+    # as a factual zero would let herd decisions ride on truncated data (see
+    # cull_candidates below).
+    todays_tasks_total: int | None = None
+    overdue_tasks_total: int | None = None
+    ultrasounds_due_total: int | None = None
     if "tasks.view" in perms:
         pending = (await task_scope(db, farm, user)).where(actionable_pending_task_predicate())
         todays_tasks, todays_tasks_total = await _task_preview(
@@ -281,7 +302,8 @@ async def dashboard(
 
     can_view_breeding = "breeding.view" in perms
     kiddings_due: list[DashboardKiddingDueOut] = []
-    kiddings_due_total = 0
+    # None (not 0) when withheld — same convention as the task totals above.
+    kiddings_due_total: int | None = None
     cull_candidates: list[Animal] = []
     # None (not 0) when the section is withheld: rendering a permission gate
     # as a factual zero would let herd decisions ride on truncated data.
@@ -296,8 +318,9 @@ async def dashboard(
     # animals.view (permissions.PERMISSION_DEPENDENCIES), so a caller without
     # it could never use these rows anyway.
     suggestions: list[dict[str, object]] = []
-    suggestions_total = 0
-    if "animals.view" in perms:
+    # None (not 0) when withheld — same convention as the task totals above.
+    suggestions_total: int | None = None
+    if can_view_animals:
         suggestions, suggestions_total = await ready_to_move_suggestions(
             db, farm, limit=DASHBOARD_PREVIEW_LIMIT, include_breeding=can_view_breeding
         )
@@ -309,7 +332,7 @@ async def dashboard(
     # total (not 0), following the cull_candidates convention above.
     recent_weight_rows: Sequence[Any] = []
     recent_weights_total: int | None = None
-    if "animals.view" in perms:
+    if can_view_animals:
         recent_weights_stmt = (
             select(WeightRecord, Animal)
             .join(Animal, WeightRecord.animal_id == Animal.id)
@@ -346,7 +369,7 @@ async def dashboard(
     # behind health.view exactly like restriction_reason on the profile.
     restricted_animals: list[RestrictedAnimalOut] = []
     restricted_animals_total: int | None = None
-    if "animals.view" in perms:
+    if can_view_animals:
         held = select(Animal).where(
             Animal.farm_id == farm.id,
             Animal.status == AnimalStatus.ACTIVE.value,
@@ -395,9 +418,7 @@ async def dashboard(
         ]
 
     return DashboardOut(
-        buckets=[
-            BucketCountOut(code=d.code, name=d.name, count=counts.get(d.code, 0)) for d in defs
-        ],
+        buckets=buckets,
         total_active=total_active,
         sex_counts=sex_counts,
         # DEAD/CULLED are clinical outcomes, not inventory facts. `reports`
@@ -421,7 +442,7 @@ async def dashboard(
         ultrasounds_due=[task_out(t) for t in ultrasounds_due],
         ultrasounds_due_total=ultrasounds_due_total,
         kiddings_due=kiddings_due,
-        kiddings_due_total=int(kiddings_due_total),
+        kiddings_due_total=kiddings_due_total,
         cull_candidates=[_animal_identity_out(a) for a in cull_candidates],
         cull_candidates_total=cull_candidates_total,
         suggestions=[MoveSuggestionOut.model_validate(s) for s in suggestions],
@@ -435,7 +456,7 @@ async def dashboard(
                 weight_kg=row[0].weight_kg,
                 bcs=row[0].bcs,
                 animal=_animal_identity_out(row[1]),
-                notes=(row[0].notes if "animals.view" in perms and can_view_health else None),
+                notes=(row[0].notes if can_view_animals and can_view_health else None),
             )
             for row in recent_weight_rows
         ],
@@ -449,63 +470,92 @@ async def dashboard(
 async def reports(db: DbSession, farm: CurrentFarm, perms: REPORTS_PERM) -> ReportsOut:
     """Herd summary, breeding performance, mortality — all aggregated in SQL;
     only a 100-row purpose-specific cull preview is hydrated as ORM rows and
-    its exact count is returned separately."""
+    its exact count is returned separately.
+
+    The herd-summary block — per-bucket occupancy (the breeding-programme
+    buckets among them) plus per-bucket mean live weights, the active total
+    and the sex split — restate bucket-board / animal-register facts:
+    ``avg_weight`` is an animals.view-derived aggregate and the occupancy it
+    sits beside is what the bucket board gates. The dashboard endpoint
+    withholds exactly these figures without ``animals.view``; returning them
+    here would hand them straight back through the other endpoint, so the
+    same None withheld convention applies.
+    """
 
     # --- herd summary -------------------------------------------------------
-    defs = list(
-        (await db.execute(select(BucketDefinition).order_by(BucketDefinition.sort_order))).scalars()
-    )
-    # Latest weight record per animal (date, then id — same key as
-    # Animal.latest_weight), falling back to birth_weight like the property.
-    latest_weight = (
-        select(WeightRecord.weight_kg)
-        .where(WeightRecord.animal_id == Animal.id)
-        .order_by(WeightRecord.date.desc(), WeightRecord.id.desc())
-        # Scalar subquery must return at most one row per animal — without the
-        # LIMIT, a second weight record raises CardinalityViolationError (500).
-        .limit(1)
-        .correlate(Animal)
-        .scalar_subquery()
-    )
-    # Project the correlated weight lookup once, then aggregate over that
-    # column. Naming the same expression three times inside one aggregate made
-    # PostgreSQL build a separate SubPlan per occurrence, running the
-    # weight_records lookup three times for every active animal. avg() already
-    # ignores NULLs, so the is_not(None) predicate was redundant as well.
-    weighted_animals = (
-        select(
-            Animal.current_bucket.label("bucket"),
-            func.coalesce(latest_weight, Animal.birth_weight).label("effective_weight"),
+    can_view_animals = "animals.view" in perms
+    bucket_rows: list[BucketReportRow] | None = None
+    total_active: int | None = None
+    sex_counts: dict[str, int] | None = None
+    if can_view_animals:
+        defs = list(
+            (
+                await db.execute(select(BucketDefinition).order_by(BucketDefinition.sort_order))
+            ).scalars()
         )
-        .where(Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value)
-        .subquery()
-    )
-    bucket_stats = (
-        await db.execute(
+        # Latest weight record per animal (date, then id — same key as
+        # Animal.latest_weight), falling back to birth_weight like the property.
+        latest_weight = (
+            select(WeightRecord.weight_kg)
+            .where(WeightRecord.animal_id == Animal.id)
+            .order_by(WeightRecord.date.desc(), WeightRecord.id.desc())
+            # Scalar subquery must return at most one row per animal — without
+            # the LIMIT, a second weight record raises
+            # CardinalityViolationError (500).
+            .limit(1)
+            .correlate(Animal)
+            .scalar_subquery()
+        )
+        # Project the correlated weight lookup once, then aggregate over that
+        # column. Naming the same expression three times inside one aggregate
+        # made PostgreSQL build a separate SubPlan per occurrence, running the
+        # weight_records lookup three times for every active animal. avg()
+        # already ignores NULLs, so the is_not(None) predicate was redundant
+        # as well.
+        weighted_animals = (
             select(
-                weighted_animals.c.bucket,
-                func.count(),
-                # avg over animals with a usable weight only (the old Python
-                # version skipped None and 0.0 weights).
-                func.avg(weighted_animals.c.effective_weight).filter(
-                    weighted_animals.c.effective_weight != 0
-                ),
-            ).group_by(weighted_animals.c.bucket)
-        )
-    ).all()
-    per_bucket = {code: (int(count), avg) for code, count, avg in bucket_stats}
-    bucket_rows: list[BucketReportRow] = []
-    for d in defs:
-        count, avg = per_bucket.get(d.code, (0, None))
-        bucket_rows.append(
-            BucketReportRow(
-                name=d.name,
-                code=d.code,
-                count=count,
-                avg_weight=round(float(avg), 1) if avg is not None else None,
+                Animal.current_bucket.label("bucket"),
+                func.coalesce(latest_weight, Animal.birth_weight).label("effective_weight"),
             )
+            .where(Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value)
+            .subquery()
         )
-    total_active = sum(count for count, _ in per_bucket.values())
+        bucket_stats = (
+            await db.execute(
+                select(
+                    weighted_animals.c.bucket,
+                    func.count(),
+                    # avg over animals with a usable weight only (the old
+                    # Python version skipped None and 0.0 weights).
+                    func.avg(weighted_animals.c.effective_weight).filter(
+                        weighted_animals.c.effective_weight != 0
+                    ),
+                ).group_by(weighted_animals.c.bucket)
+            )
+        ).all()
+        per_bucket = {code: (int(count), avg) for code, count, avg in bucket_stats}
+        bucket_rows = []
+        for d in defs:
+            count, avg = per_bucket.get(d.code, (0, None))
+            bucket_rows.append(
+                BucketReportRow(
+                    name=d.name,
+                    code=d.code,
+                    count=count,
+                    avg_weight=round(float(avg), 1) if avg is not None else None,
+                )
+            )
+        total_active = sum(count for count, _ in per_bucket.values())
+        sex_rows = (
+            await db.execute(
+                select(Animal.sex, func.count())
+                .where(Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value)
+                .group_by(Animal.sex)
+            )
+        ).all()
+        sex_counts = {"M": 0, "F": 0}
+        for sex, count in sex_rows:
+            sex_counts[str(sex)] = int(count)
 
     status_rows = (
         await db.execute(
@@ -518,16 +568,6 @@ async def reports(db: DbSession, farm: CurrentFarm, perms: REPORTS_PERM) -> Repo
         )
     ).all()
     status_counts = {str(status): int(count) for status, count in status_rows}
-    sex_rows = (
-        await db.execute(
-            select(Animal.sex, func.count())
-            .where(Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value)
-            .group_by(Animal.sex)
-        )
-    ).all()
-    sex_counts: dict[str, int] = {"M": 0, "F": 0}
-    for sex, count in sex_rows:
-        sex_counts[str(sex)] = int(count)
 
     # --- breeding performance ----------------------------------------------
     # Mirrors models.helpers.conception_rate — same predicates, same result.

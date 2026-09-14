@@ -345,7 +345,9 @@ describe("AnimalsPage extended", () => {
     });
 
     it("hides historical born-on-farm import from non-owners", async () => {
-      server.use(permissionsHandler(["animals.view", "animals.create"]));
+      server.use(
+        permissionsHandler(["animals.view", "animals.create", "purchases.manage"]),
+      );
       const user = userEvent.setup();
       renderWithProviders(<AnimalsPage />);
       await screen.findByText("1 animal(s)");
@@ -356,6 +358,30 @@ describe("AnimalsPage extended", () => {
       expect(
         screen.queryByRole("option", { name: "Historical born-on-farm import" }),
       ).not.toBeInTheDocument();
+      // The listbox renders asynchronously after the trigger click.
+      expect(await screen.findByRole("option", { name: "Purchased" })).toBeInTheDocument();
+    });
+
+    // The managed-purchase cascade books a purchase behind the animal, so
+    // the API gates source=PURCHASED on purchases.manage (owners always hold
+    // it). BORN stays owner-only, so a creator holding neither grant has no
+    // creatable source — the dialog must say so instead of offering a submit
+    // the server would reject.
+    it("hides the PURCHASED source without purchases.manage and refuses the submit", async () => {
+      server.use(permissionsHandler(["animals.view", "animals.create"]));
+      const user = userEvent.setup();
+      renderWithProviders(<AnimalsPage />);
+      await screen.findByText("1 animal(s)");
+      const dialog = await openCreateDialog(user);
+      await user.click(within(dialog).getAllByRole("combobox")[1]);
+      expect(screen.queryByRole("option", { name: "Purchased" })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("option", { name: "Historical born-on-farm import" }),
+      ).not.toBeInTheDocument();
+      expect(
+        within(dialog).getByText(/You cannot create animals directly/),
+      ).toBeInTheDocument();
+      expect(within(dialog).getByRole("button", { name: "Save animal" })).toBeDisabled();
     });
 
     it("shows a loading indicator while permissions resolve", async () => {

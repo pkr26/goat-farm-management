@@ -7,7 +7,13 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from ..models.feed_rules import DRY_ROUGHAGE  # single source of truth for the sentinel
 from .animals import BucketStr
-from .common import NonNegativeMoneyFloat, PastOrTodayDate, QuantityKgFloat, StrictInputModel
+from .common import (
+    NonNegativeMoneyFloat,
+    PastOrTodayDate,
+    QuantityKgFloat,
+    StrictInputModel,
+    _quantity_kg_precision,
+)
 
 ShiftStr = Literal["MORNING", "AFTERNOON", "NIGHT"]
 # Mirrors models.IngredientCategory (green / dry / concentrate).
@@ -70,7 +76,11 @@ class StockAddIn(StrictInputModel):
 
 class FeedSettingIn(StrictInputModel):
     bucket: BucketStr
-    daily_kg_per_head: QuantityKgFloat
+    # Domain cap (RT-HIJ-5) on top of the shared whole-gram quantization:
+    # real ration overrides sit far below 50 kg per head per day; the generic
+    # 1e6 kg quantity ceiling only turned fat-fingered input into absurd plan
+    # totals.
+    daily_kg_per_head: Annotated[float, Field(gt=0, le=50), AfterValidator(_quantity_kg_precision)]
 
 
 class FeedInventoryOut(BaseModel):

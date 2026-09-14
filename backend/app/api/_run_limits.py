@@ -127,6 +127,12 @@ _native_run_completions: ContextVar[list[asyncio.Future[None]] | None] = Context
 _RUN_BUDGET_WINDOW_SECONDS = 300
 _RUN_BUDGET_UNITS = 650_000
 _RUN_BUDGET_MAX_KEYS = 50_000  # cardinality ceiling, mirroring app.ratelimit
+# The busy 429 means a run is in flight right now (worst case ~25 s). A short
+# hint stops naive immediate-retry loops from re-429ing in a tight circle,
+# without parking the client for a whole budget window like the budget 429
+# does; still-busy retries just get a fresh 429 with a fresh header
+# (red-team RT-KL-5).
+_BUSY_RETRY_AFTER_SECONDS = 5
 
 
 class _RunCostWindow:
@@ -371,6 +377,7 @@ async def _with_run_limits[RunResult](
             raise HTTPException(
                 status_code=429,
                 detail="Simulation capacity is busy; wait for the current run to finish.",
+                headers={"Retry-After": str(_BUSY_RETRY_AFTER_SECONDS)},
             )
         await user_lock.acquire()
         acquired_user = True

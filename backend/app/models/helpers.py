@@ -6,7 +6,6 @@ from collections.abc import Iterable
 from datetime import date, timedelta
 from typing import TYPE_CHECKING, TypedDict
 
-from .constants import MAX_TASK_TITLE_LENGTH
 from .enums import BreedingOutcome, TaskCategory
 from .species import GOAT_PROFILE
 
@@ -81,23 +80,39 @@ class QuarantineTaskSpec(TypedDict):
     title: str
 
 
+def no_control_characters(value: str) -> str:
+    """Reject embedded tab/LF/CR in identifier fields (tags, names).
+
+    ``PostgresText`` whitelists ``\\t\\n\\r`` because narrative fields
+    legitimately carry multi-line text; identifiers render on the task
+    board, in pickers and in line-oriented exports, where embedded line
+    breaks only produce visually confusable values. Other C0 controls and
+    unpaired surrogates are already rejected by ``PostgresText`` itself.
+    """
+    if any(char in "\t\n\r" for char in value):
+        raise ValueError("cannot contain tabs or line breaks")
+    return value
+
+
 def quarantine_schedule(batch: PurchaseBatch) -> list[QuarantineTaskSpec]:
-    """Due-dated quarantine task definitions for a purchase batch."""
+    """Due-dated quarantine task definitions for a purchase batch.
+
+    Titles reference the batch by its opaque id only. They surface on the
+    task board to every role covering the protocol categories, while the
+    supplier name is procurement data gated behind ``purchases.view`` — so
+    it must not travel inside the title. (Legacy rows may still carry the
+    old ``[<supplier> #id]`` prefix; title parsers strip any bracketed
+    prefix.)
+    """
     schedule: list[QuarantineTaskSpec] = []
-    supplier = (batch.supplier or "Purchase").strip() or "Purchase"
     protocol = QUARANTINE_PROTOCOL
+    prefix = f"[Batch #{batch.id}] "
     for day_offset, category, protocol_title in protocol:
-        # Supplier accepts 120 characters while Task.title is 200. Preserve
-        # the operational protocol and stable batch id in full, truncating
-        # only the display label so purchase creation cannot overflow midway.
-        suffix = f" #{batch.id}] {protocol_title}"
-        supplier_budget = MAX_TASK_TITLE_LENGTH - len("[") - len(suffix)
-        safe_supplier = supplier[: max(0, supplier_budget)].rstrip()
         schedule.append(
             {
                 "due_date": batch.date + timedelta(days=day_offset - 1),
                 "category": category.value,
-                "title": f"[{safe_supplier}{suffix}",
+                "title": f"{prefix}{protocol_title}",
             }
         )
     return schedule

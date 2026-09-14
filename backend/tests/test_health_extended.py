@@ -2133,24 +2133,28 @@ async def test_quarantine_tasks_match_spec_schedule(client: httpx.AsyncClient) -
         assert task["auto_generated"] is True
 
 
-async def test_quarantine_task_titles_include_supplier_and_batch(
+async def test_quarantine_task_titles_carry_the_batch_not_the_supplier(
     client: httpx.AsyncClient,
 ) -> None:
+    """RT-HIJ-3: titles surface on the task board to every protocol role, so
+    only the opaque batch id travels in them — supplier identity stays behind
+    purchases.view."""
     headers = await owner_with_farm(client)
     batch = await make_batch(client, headers, count=1, supplier="Nanded Livestock")
     detail = await get_batch(client, headers, batch["id"])
     for task in detail["tasks"]:
-        assert f"[Nanded Livestock #{batch['id']}]" in task["title"]
+        assert task["title"].startswith(f"[Batch #{batch['id']}] ")
+        assert "Nanded Livestock" not in task["title"]
 
 
-async def test_quarantine_task_titles_fallback_without_supplier(
+async def test_quarantine_task_titles_without_supplier_share_the_same_format(
     client: httpx.AsyncClient,
 ) -> None:
     headers = await owner_with_farm(client)
     batch = await make_batch(client, headers, count=1, supplier=None)
     detail = await get_batch(client, headers, batch["id"])
     for task in detail["tasks"]:
-        assert task["title"].startswith(f"[Purchase #{batch['id']}]")
+        assert task["title"].startswith(f"[Batch #{batch['id']}] ")
 
 
 async def test_day45_completion_releases_animals_to_foundation(client: httpx.AsyncClient) -> None:
@@ -3109,7 +3113,7 @@ async def test_supplier_name_cannot_hijack_the_quarantine_vaccine_template(
     et_task = next(t for t in detail["tasks"] if "ET + Tetanus" in t["title"])
     pox_task = next(t for t in detail["tasks"] if "Goat Pox" in t["title"])
     fmd_task = next(t for t in detail["tasks"] if "FMD" in t["title"])
-    assert et_task["title"].startswith("[PPR Traders #")
+    assert et_task["title"].startswith("[Batch #")
 
     # This is one combined duty: recording ET alone must not silently close
     # the missing Tetanus half merely because the storage template is ET.

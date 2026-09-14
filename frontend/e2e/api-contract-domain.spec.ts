@@ -140,7 +140,7 @@ test.describe.serial("frontend proxy domain API contracts", () => {
     const farm = await jsonResponse<FarmOut>(
       await request.post("/api/auth/farms", {
         data: { name: farmName, location: "Proxy contract", timezone: FARM_TIMEZONE },
-        headers: authHeaders,
+        headers: { ...authHeaders, "Idempotency-Key": crypto.randomUUID() },
       }),
       201,
     );
@@ -340,7 +340,8 @@ test.describe.serial("frontend proxy domain API contracts", () => {
     const purchased = await jsonResponse<AnimalOut>(
       await request.post("/api/animals", {
         data: purchasedPayload,
-        headers: farmHeaders,
+        // Source PURCHASED books money, so the backend requires the key (RT-C-4).
+        headers: { ...farmHeaders, "Idempotency-Key": crypto.randomUUID() },
       }),
       201,
     );
@@ -612,7 +613,7 @@ test.describe.serial("frontend proxy domain API contracts", () => {
       const stocked = await jsonResponse<FeedInventoryOut>(
         await request.post(`/api/feeding/inventory/${item!.id}/add`, {
           data: restock,
-          headers: farmHeaders,
+          headers: { ...farmHeaders, "Idempotency-Key": crypto.randomUUID() },
         }),
         200,
       );
@@ -628,7 +629,7 @@ test.describe.serial("frontend proxy domain API contracts", () => {
     const mixed = await jsonResponse<FeedRecipeOut>(
       await request.post("/api/feeding/mix", {
         data: { recipe_code: recipe!.code, batch_kg: batchKg },
-        headers: farmHeaders,
+        headers: { ...farmHeaders, "Idempotency-Key": crypto.randomUUID() },
       }),
       200,
     );

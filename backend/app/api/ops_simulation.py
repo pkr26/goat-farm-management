@@ -42,6 +42,28 @@ router = APIRouter(prefix="/api/ops-sim", tags=["ops-simulation"], responses=COM
 
 SimView = Annotated[set[str], Depends(require_perm("simulation.view"))]
 
+# The day-by-day RESULT (one DayRecord per day with per-building feeding and
+# occupancy, plus a journey per starting animal and per birth) scales with
+# head-days exactly like the Markdown ledger does, so the ledger's ceiling
+# must bound the whole payload: with the cap on the ledger alone, a maximal
+# 500-head 365-day run (182,500 head-days) serialized tens of MB on the event
+# loop whenever the caller simply omitted the ledger flag (red-team RT-KL-2).
+MAX_RESULT_HEAD_DAYS = MAX_LEDGER_HEAD_DAYS
+
+# In-sim births multiply the herd the pricing formula never saw: measured
+# worst case (MAX_START_HEAD does at delivery, fertility params maxed) grew
+# 500 starters to 4,300 animals — 8.5× the initial-head price. The growth is
+# biologically bounded: at most ~2 kiddings/doe/year (150-day gestation plus
+# the weaning/VWP cycle) x litter <= 4, and daughters cannot clear the
+# 10-month breeding gate inside the 365-day horizon, so total head stays
+# under ~10x the starters. Charging x(1 + 10) covers the honest worst-case
+# pass (365 x (1 + 4_300//10) = 157,315 priced units of real CPU) while the
+# head-day result cap above keeps the largest admissible run (~50,000
+# head-days -> 365 x (1 + 136//10) x 11 = 56,210 units) far inside the
+# 650,000 budget, so a legitimate maximal run stays admissible and sustained
+# maxed-fertility abuse spends its window ~11x sooner (red-team RT-L8-3).
+_BIRTH_AMPLIFICATION_FACTOR = 10
+
 
 @router.post("/run", response_model=DailyOpsRunOut)
 async def run_daily_ops_simulation(
@@ -78,22 +100,27 @@ async def run_daily_ops_simulation(
         ]
         raise HTTPException(status_code=422, detail=errors[:3]) from exc
 
-    if payload.include_ledger:
-        head_days = payload.horizon_days * len(payload.animals)
-        if head_days > MAX_LEDGER_HEAD_DAYS:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"The day-by-day ledger is available for runs up to "
-                    f"{MAX_LEDGER_HEAD_DAYS:,} head-days; this run is {head_days:,}. "
-                    "Re-run without the ledger or narrow the herd or horizon."
-                ),
-            )
+    head_days = payload.horizon_days * len(payload.animals)
+    if head_days > MAX_RESULT_HEAD_DAYS:
+        # Bounded before any budget charge or engine work, ledger or not: the
+        # primary result is at least as large as the ledger derived from it.
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"The day-by-day result (days, journeys and the optional ledger) "
+                f"is available for runs up to {MAX_RESULT_HEAD_DAYS:,} head-days; "
+                f"this run is {head_days:,}. Narrow the herd or the horizon."
+            ),
+        )
 
-    # Priced by simulated days × herd size: engine work, result size and (with
-    # the ledger) response size all grow with both, so a per-day-only price let
-    # one 500-head year cost the same budget as a single-animal run.
-    cost = payload.horizon_days * (1 + len(payload.animals) // 10)
+    # Priced by simulated days × herd size × birth amplification: engine work,
+    # result size and (with the ledger) response size all grow with both, so a
+    # per-day-only price let one 500-head year cost the same budget as a
+    # single-animal run — and in-sim births grew the herd far beyond the
+    # initial head the formula charged (see _BIRTH_AMPLIFICATION_FACTOR).
+    cost = (
+        payload.horizon_days * (1 + len(payload.animals) // 10) * (1 + _BIRTH_AMPLIFICATION_FACTOR)
+    )
 
     def work() -> DailyOpsRunOut:
         result = run_daily_ops(daily_input)

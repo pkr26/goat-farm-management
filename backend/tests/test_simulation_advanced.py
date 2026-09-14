@@ -25,6 +25,7 @@ from app.simulation import (
 )
 from app.simulation.assumptions import (
     MAX_MONEY,
+    MIN_FODDER_YIELD_T,
     CostsAssumptions,
     FeedAssumptions,
     HerdAssumptions,
@@ -636,13 +637,15 @@ def test_apply_draws_scales_every_risk_control_in_the_documented_direction() -> 
 
 def test_apply_draws_preserves_the_smallest_positive_fodder_yield() -> None:
     assumptions = SimulationAssumptions()
-    assumptions.feed.fodder_yield_t_dm_per_acre_year = 5e-324
+    assumptions.feed.fodder_yield_t_dm_per_acre_year = MIN_FODDER_YIELD_T
     draws = dict.fromkeys(_DRAW_ORDER, 1.0)
     draws["fodder_yield"] = 0.5
 
     variant = _apply_draws(assumptions, draws)
 
-    assert variant.feed.fodder_yield_t_dm_per_acre_year == 5e-324
+    # RT-L8-4: the clamp floor is the schema floor (0.01), not a denormal —
+    # a downside draw clamps back to validity instead of under it.
+    assert variant.feed.fodder_yield_t_dm_per_acre_year == MIN_FODDER_YIELD_T
 
 
 @pytest.mark.parametrize("uniform", [0.1, 0.25, 0.5, 0.8])

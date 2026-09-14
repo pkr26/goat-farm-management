@@ -99,6 +99,7 @@ async def test_password_reset_winning_rejects_stale_create_farm_principal(
                 Response(),
                 stale_request_db,
                 stale_principal,
+                idempotency_key="stale-create-farm-key",
             )
         assert exc_info.value.status_code == 401
         assert exc_info.value.detail == "Session is no longer valid"

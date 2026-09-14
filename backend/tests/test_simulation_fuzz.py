@@ -234,8 +234,20 @@ async def test_derived_overflow_is_a_clean_422_never_500(client: httpx.AsyncClie
     resp = await client.post(
         "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
     )
+    # RT-L8-4: the sub-floor yield is rejected by the schema floor itself.
     assert resp.status_code == 422, resp.text
-    assert "non-finite" in resp.json()["detail"]
+    assert "greater than or equal to 0.01" in resp.text
+    # The derived-overflow defense still holds for a floor-valid yield driven
+    # to overflow by the rest of the inputs: 422, never a serialization 500.
+    assumptions = await default_assumptions(client, headers)
+    assumptions["feed"]["fodder_yield_t_dm_per_acre_year"] = 0.01
+    assumptions["herd"]["does"] = 100000
+    resp = await client.post(
+        "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
+    )
+    assert resp.status_code in (200, 422), resp.text
+    if resp.status_code == 422:
+        assert "non-finite" in resp.text
 
 
 # ---------------------------------------------------------------------------

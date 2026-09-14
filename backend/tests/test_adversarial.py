@@ -1140,7 +1140,9 @@ async def test_recur_days_cap_and_skip_spawns_next(client: httpx.AsyncClient) ->
         headers=owner,
     )
     task_id = resp.json()["id"]
-    resp = await client.post(f"/api/tasks/{task_id}/skip", headers=owner)
+    resp = await client.post(
+        f"/api/tasks/{task_id}/skip", json={"reason": "seasonal standdown"}, headers=owner
+    )
     assert resp.status_code == 200, resp.text
     tabs = await task_tabs(client, owner)
     original = find_tasks(tabs, id=task_id)[0]

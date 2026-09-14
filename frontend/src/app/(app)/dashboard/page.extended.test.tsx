@@ -417,7 +417,11 @@ describe("DashboardPage — truncated previews", () => {
     ).toHaveAttribute("href", "/tasks?tab=overdue");
   });
 
-  it("keeps the overdue count but drops its link without tasks.view", async () => {
+  it("withholds the whole task register without tasks.view, count included", async () => {
+    // RT-P7-1: a stale privileged payload (rows and totals still cached)
+    // paired with a revoked tasks.view must fail closed like the kiddings
+    // card does — no overdue card, no counted title, no truncation notice,
+    // and the today's/ultrasound cards name the missing access.
     server.use(
       permissionsHandler(["dashboard.view"]),
       dashboardHandler(makePayload({ ...COMPLETE, overdue_tasks_total: 5 })),
@@ -425,10 +429,14 @@ describe("DashboardPage — truncated previews", () => {
     renderWithProviders(<DashboardPage />);
     await screen.findByRole("heading", { name: /— Dashboard/ });
 
-    expect(screen.getByText(/Showing 1 of 5\./)).toBeInTheDocument();
-    expect(
-      screen.queryByRole("link", { name: "View all overdue tasks" }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Overdue tasks/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Showing 1 of 5\./)).not.toBeInTheDocument();
+    expect(screen.queryByText(/View all overdue tasks/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Deworm batch 4")).not.toBeInTheDocument();
+    expect(screen.getByText("Today's tasks require tasks access.")).toBeInTheDocument();
+    expect(screen.queryByText("Today's tasks (2)")).not.toBeInTheDocument();
+    expect(screen.queryByText("Vaccinate kids")).not.toBeInTheDocument();
+    expect(screen.getByText("Ultrasounds require tasks access.")).toBeInTheDocument();
   });
 
   it("links the kidding notice to the kidding register", async () => {

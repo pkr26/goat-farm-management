@@ -415,6 +415,28 @@ async def derived_heat_cycle_number(db: AsyncSession, farm_id: int, doe_id: int)
     return min(failed_streak + 1, MAX_HEAT_CYCLE_NUMBER)
 
 
+async def _grandparent_ids(db: AsyncSession, farm_id: int, parent_ids: set[int]) -> set[int]:
+    """Grandparent ids of an animal via its parents' sire_id/dam_id columns.
+
+    Bounded to the (at most two) parent rows; an empty parent set
+    short-circuits so animals of unknown ancestry cost no query.
+    """
+    if not parent_ids:
+        return set()
+    rows = await db.execute(
+        select(Animal.sire_id, Animal.dam_id).where(
+            Animal.farm_id == farm_id,
+            Animal.id.in_(parent_ids),
+        )
+    )
+    return {
+        ancestor_id
+        for sire_id, dam_id in rows.all()
+        for ancestor_id in (sire_id, dam_id)
+        if ancestor_id is not None
+    }
+
+
 async def create_breeding_record(
     db: AsyncSession,
     farm: Farm,
@@ -447,24 +469,43 @@ async def create_breeding_record(
     else:
         buck = None  # an AI service never credits a herd sire row
     if buck is not None:
-        # Inbreeding fence (buck rotation promise): parent-offspring and
-        # full-sibling pairings corrupt the lineage graph that kidding
+        # Inbreeding fence (buck rotation promise): parent-offspring,
+        # full-sibling, grandparent-grandchild and avuncular
+        # (sibling-of-parent) pairings corrupt the lineage graph that kidding
         # writes (sire_id/dam_id) and every downstream retention decision
         # inherits. Half-sibling pairings remain permitted, matching common
-        # livestock practice.
-        buck_is_doe_parent = buck.id in {doe.sire_id, doe.dam_id}
-        doe_is_buck_parent = doe.id in {buck.sire_id, buck.dam_id}
+        # livestock practice. Ancestry walks exactly two generations over the
+        # sire_id/dam_id columns the fence itself maintains.
+        doe_parent_ids = {p for p in (doe.sire_id, doe.dam_id) if p is not None}
+        buck_parent_ids = {p for p in (buck.sire_id, buck.dam_id) if p is not None}
+        buck_is_doe_parent = buck.id in doe_parent_ids
+        doe_is_buck_parent = doe.id in buck_parent_ids
         full_siblings = (
             doe.sire_id is not None
             and doe.sire_id == buck.sire_id
             and doe.dam_id is not None
             and doe.dam_id == buck.dam_id
         )
-        if buck_is_doe_parent or doe_is_buck_parent or full_siblings:
+        doe_grandparents = await _grandparent_ids(db, farm.id, doe_parent_ids)
+        buck_grandparents = await _grandparent_ids(db, farm.id, buck_parent_ids)
+        # A parent of one partner being a grandparent of the other is exactly
+        # an uncle-niece (avuncular) pairing, in either direction.
+        avuncular = bool(
+            (buck_parent_ids & doe_grandparents) or (doe_parent_ids & buck_grandparents)
+        )
+        if (
+            buck_is_doe_parent
+            or doe_is_buck_parent
+            or full_siblings
+            or buck.id in doe_grandparents
+            or doe.id in buck_grandparents
+            or avuncular
+        ):
             raise ValueError(
                 f"{buck.tag_number} and {doe.tag_number} are close kin "
-                "(parent-offspring or full siblings) — the mating policy "
-                "rejects inbreeding; use another sire"
+                "(parent-offspring, full siblings, grandparent-grandchild "
+                "or avunculate) — the mating policy rejects inbreeding; "
+                "use another sire"
             )
     for animal, role in participants:
         if animal.effective_dob and breeding_date < animal.effective_dob:

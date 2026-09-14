@@ -285,7 +285,7 @@ function RowActions({
       try {
         await skipMutation.mutateAsync({
           taskId: task.id,
-          data: { reason: skipReason.trim() || null },
+          data: { reason: skipReason.trim() },
         });
         if (!farmScope()) return;
         toast.success(t("tasks.toast.skipped"));
@@ -467,7 +467,7 @@ function RowActions({
               <Button
                 type="button"
                 variant="destructive"
-                disabled={actionFlight.pending}
+                disabled={actionFlight.pending || !skipReason.trim()}
                 onClick={() => void skipTask()}
               >
                 {actionFlight.pending

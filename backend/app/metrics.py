@@ -70,6 +70,18 @@ REFRESH_SESSIONS_PURGED = Counter(
     "Expired refresh_sessions rows deleted by the maintenance loop.",
     registry=REGISTRY,
 )
+MAINTENANCE_BATCHES = Counter(
+    "goatfarm_maintenance_loop_batches",
+    "Background maintenance batches executed, by loop.",
+    labelnames=("loop",),
+    registry=REGISTRY,
+)
+MAINTENANCE_ROWS = Counter(
+    "goatfarm_maintenance_loop_rows",
+    "Rows written by background maintenance loops, by loop.",
+    labelnames=("loop",),
+    registry=REGISTRY,
+)
 
 
 def enabled() -> bool:
@@ -109,6 +121,19 @@ def record_refresh_session_purge_batch(purged_rows: int) -> None:
             REFRESH_SESSIONS_PURGED.inc(purged_rows)
 
 
+def record_maintenance_batch(loop: str, rows: int) -> None:
+    """One maintenance-loop batch and its row count (RT-M2-3).
+
+    ``loop`` is one of the fixed loop names in ``app.main``; a loop that dies
+    silently stops advancing its counter, which is exactly the alerting gap
+    this closes.
+    """
+    if enabled():
+        MAINTENANCE_BATCHES.labels(loop=loop).inc()
+        if rows:
+            MAINTENANCE_ROWS.labels(loop=loop).inc(rows)
+
+
 def render() -> bytes:
     """Prometheus text exposition of every collector above."""
     return generate_latest(REGISTRY)
@@ -120,6 +145,8 @@ __all__ = [
     "HTTP_REQUESTS",
     "HTTP_REQUEST_DURATION",
     "IDEMPOTENCY_REPLAYS",
+    "MAINTENANCE_BATCHES",
+    "MAINTENANCE_ROWS",
     "REFRESH_SESSIONS_PURGED",
     "REFRESH_SESSION_PURGE_BATCHES",
     "REGISTRY",
@@ -128,6 +155,7 @@ __all__ = [
     "observe_http_request",
     "record_auth_rate_limit_rejection",
     "record_idempotency_replay",
+    "record_maintenance_batch",
     "record_refresh_session_purge_batch",
     "record_simulation_admission_rejection",
     "render",

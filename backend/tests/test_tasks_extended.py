@@ -672,7 +672,9 @@ async def test_legacy_impossible_recurrence_returns_409_without_successor(
     # In normal present-day requests the stricter future-recurring guard rejects
     # this row first, so model the day on which the occurrence is actually due.
     monkeypatch.setattr("app.api.tasks.today", lambda _timezone=None: date.max)
-    response = await client.post(f"/api/tasks/{task_id}/{action}", headers=owner)
+    response = await client.post(
+        f"/api/tasks/{task_id}/{action}", json={"reason": "seasonal standdown"}, headers=owner
+    )
     assert response.status_code == 409, response.text
     assert response.json()["detail"] == "Recurring duty cannot schedule a representable next date"
     async with get_sessionmaker()() as db:
@@ -964,7 +966,9 @@ async def test_cross_farm_task_skip_404(client: httpx.AsyncClient) -> None:
     owner_a = await owner_with_farm(client, email="a@farm.in", farm_name="Alpha Farm")
     owner_b = await owner_with_farm(client, email="b@farm.in", farm_name="Beta Farm")
     duty = await make_duty(client, owner_a, "Farm A duty")
-    resp = await client.post(f"/api/tasks/{duty['id']}/skip", headers=owner_b)
+    resp = await client.post(
+        f"/api/tasks/{duty['id']}/skip", json={"reason": "seasonal standdown"}, headers=owner_b
+    )
     assert resp.status_code == 404
 
 
@@ -1053,7 +1057,9 @@ async def test_view_only_role_cannot_skip(client: httpx.AsyncClient) -> None:
     await add_worker(client, owner, rid, "viewer@farm.in")
     headers, _ = await login_user(client, "viewer@farm.in")
     headers |= {"X-Farm-Id": owner["X-Farm-Id"]}
-    resp = await client.post(f"/api/tasks/{duty['id']}/skip", headers=headers)
+    resp = await client.post(
+        f"/api/tasks/{duty['id']}/skip", json={"reason": "seasonal standdown"}, headers=headers
+    )
     assert resp.status_code == 403
 
 
@@ -1226,7 +1232,9 @@ async def test_verified_duty_in_completed_not_awaiting(client: httpx.AsyncClient
 async def test_skipped_duty_lands_in_completed_tab(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     duty = await make_duty(client, owner, "Skip me")
-    resp = await client.post(f"/api/tasks/{duty['id']}/skip", headers=owner)
+    resp = await client.post(
+        f"/api/tasks/{duty['id']}/skip", json={"reason": "seasonal standdown"}, headers=owner
+    )
     assert resp.status_code == 200, resp.text
     tabs = await get_tabs(client, owner)
     entry = next(t for t in tabs["completed"] if t["id"] == duty["id"])
@@ -1382,7 +1390,9 @@ async def test_inactive_animal_pending_task_is_hidden_and_cannot_complete_or_ski
     assert tabs["today_total"] == tabs["overdue_total"] == tabs["upcoming_total"] == 0
     completed = await client.post(f"/api/tasks/{task_id}/complete", headers=owner)
     assert completed.status_code == 409, completed.text
-    skipped = await client.post(f"/api/tasks/{task_id}/skip", headers=owner)
+    skipped = await client.post(
+        f"/api/tasks/{task_id}/skip", json={"reason": "seasonal standdown"}, headers=owner
+    )
     assert skipped.status_code == 409, skipped.text
     async with get_sessionmaker()() as db:
         retained = (
@@ -1598,7 +1608,9 @@ async def test_complete_verified_duty_400(client: httpx.AsyncClient) -> None:
 async def test_complete_skipped_duty_400(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     duty = await make_duty(client, owner, "Job")
-    resp = await client.post(f"/api/tasks/{duty['id']}/skip", headers=owner)
+    resp = await client.post(
+        f"/api/tasks/{duty['id']}/skip", json={"reason": "seasonal standdown"}, headers=owner
+    )
     assert resp.status_code == 200, resp.text
     resp = await complete_duty(client, owner, duty["id"])
     assert resp.status_code == 400
@@ -1777,7 +1789,9 @@ async def test_recomplete_after_reject_clears_note(client: httpx.AsyncClient) ->
 async def test_skip_happy_path(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     duty = await make_duty(client, owner, "Skip me")
-    resp = await client.post(f"/api/tasks/{duty['id']}/skip", headers=owner)
+    resp = await client.post(
+        f"/api/tasks/{duty['id']}/skip", json={"reason": "seasonal standdown"}, headers=owner
+    )
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == "SKIPPED"
 
@@ -1785,7 +1799,9 @@ async def test_skip_happy_path(client: httpx.AsyncClient) -> None:
 async def test_skip_leaves_no_attribution(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     duty = await make_duty(client, owner, "Skip me")
-    resp = await client.post(f"/api/tasks/{duty['id']}/skip", headers=owner)
+    resp = await client.post(
+        f"/api/tasks/{duty['id']}/skip", json={"reason": "seasonal standdown"}, headers=owner
+    )
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["completed_by_id"] is None
@@ -1796,7 +1812,9 @@ async def test_skip_done_duty_400(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     duty = await make_duty(client, owner, "Job")
     assert (await complete_duty(client, owner, duty["id"])).status_code == 200
-    resp = await client.post(f"/api/tasks/{duty['id']}/skip", headers=owner)
+    resp = await client.post(
+        f"/api/tasks/{duty['id']}/skip", json={"reason": "seasonal standdown"}, headers=owner
+    )
     assert resp.status_code == 400
     assert resp.json()["detail"] == "Task is not pending"
 
@@ -1804,15 +1822,21 @@ async def test_skip_done_duty_400(client: httpx.AsyncClient) -> None:
 async def test_skip_skipped_duty_400(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     duty = await make_duty(client, owner, "Job")
-    resp = await client.post(f"/api/tasks/{duty['id']}/skip", headers=owner)
+    resp = await client.post(
+        f"/api/tasks/{duty['id']}/skip", json={"reason": "seasonal standdown"}, headers=owner
+    )
     assert resp.status_code == 200, resp.text
-    resp = await client.post(f"/api/tasks/{duty['id']}/skip", headers=owner)
+    resp = await client.post(
+        f"/api/tasks/{duty['id']}/skip", json={"reason": "seasonal standdown"}, headers=owner
+    )
     assert resp.status_code == 400
 
 
 async def test_skip_nonexistent_404(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    resp = await client.post("/api/tasks/424242/skip", headers=owner)
+    resp = await client.post(
+        "/api/tasks/424242/skip", json={"reason": "seasonal standdown"}, headers=owner
+    )
     assert resp.status_code == 404
 
 
@@ -1821,7 +1845,9 @@ async def test_skip_other_roles_duty_403(client: httpx.AsyncClient) -> None:
     mover, _ = await worker_headers(client, owner, "MOVER", "mover@farm.in")
     rid = await role_id(client, owner, "CLEANER")
     duty = await make_duty(client, owner, "Scrub", category="CLEANING", assigned_role_id=rid)
-    resp = await client.post(f"/api/tasks/{duty['id']}/skip", headers=mover)
+    resp = await client.post(
+        f"/api/tasks/{duty['id']}/skip", json={"reason": "seasonal standdown"}, headers=mover
+    )
     assert resp.status_code == 403
     tabs = await get_tabs(client, owner)
     assert find_task(tabs, duty["id"])["status"] == "PENDING"
@@ -1862,7 +1888,9 @@ async def test_quarantine_protocol_tasks_cannot_be_skipped_into_release_deadlock
 async def test_skipped_cleaning_needs_no_verification(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     duty = await make_duty(client, owner, "Scrub", category="CLEANING")
-    resp = await client.post(f"/api/tasks/{duty['id']}/skip", headers=owner)
+    resp = await client.post(
+        f"/api/tasks/{duty['id']}/skip", json={"reason": "seasonal standdown"}, headers=owner
+    )
     assert resp.status_code == 200, resp.text
     tabs = await get_tabs(client, owner)
     assert duty["id"] in {t["id"] for t in tabs["completed"]}
@@ -1879,14 +1907,18 @@ async def test_skip_form_linked_duty_allowed(client: httpx.AsyncClient) -> None:
     await make_pregnancy(client, owner, today() - timedelta(days=120))
     tabs = await get_tabs(client, owner)
     vaccine = next(t for t in all_tasks(tabs) if t["category"] == "VACCINE")
-    resp = await client.post(f"/api/tasks/{vaccine['id']}/skip", headers=owner)
+    resp = await client.post(
+        f"/api/tasks/{vaccine['id']}/skip", json={"reason": "seasonal standdown"}, headers=owner
+    )
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == "SKIPPED"
 
     doe2 = await make_doe(client, owner, tag="D-SKIP2")
     await make_breeding(client, owner, doe2, buck, today() - timedelta(days=40))
     us = next(t for t in all_tasks(await get_tabs(client, owner)) if t["category"] == "ULTRASOUND")
-    refused = await client.post(f"/api/tasks/{us['id']}/skip", headers=owner)
+    refused = await client.post(
+        f"/api/tasks/{us['id']}/skip", json={"reason": "seasonal standdown"}, headers=owner
+    )
     assert refused.status_code == 409, refused.text
     assert "pregnancy check" in refused.json()["detail"].lower()
 
@@ -1898,7 +1930,9 @@ async def test_skip_auto_future_duty_allowed(client: httpx.AsyncClient) -> None:
     tabs = await get_tabs(client, owner)
     move = next(t for t in all_tasks(tabs) if t["category"] == "BUCKET_MOVE")
     assert move["due_date"] > iso(today())
-    resp = await client.post(f"/api/tasks/{move['id']}/skip", headers=owner)
+    resp = await client.post(
+        f"/api/tasks/{move['id']}/skip", json={"reason": "seasonal standdown"}, headers=owner
+    )
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == "SKIPPED"
 
@@ -1987,7 +2021,11 @@ async def test_future_recurring_occurrence_cannot_be_completed_or_skipped(
     )
 
     for action in ("complete", "skip"):
-        response = await client.post(f"/api/tasks/{successor['id']}/{action}", headers=owner)
+        response = await client.post(
+            f"/api/tasks/{successor['id']}/{action}",
+            json={"reason": "seasonal standdown"},
+            headers=owner,
+        )
         assert response.status_code == 409, response.text
         assert response.json()["detail"] == "This duty is not due yet"
 
@@ -2177,7 +2215,9 @@ async def test_legacy_personal_recurrence_resolves_retained_role_before_spawn(
             headers=owner,
         )
         assert deactivated.status_code == 200, deactivated.text
-        response = await client.post(f"/api/tasks/{duty['id']}/{action}", headers=peer)
+        response = await client.post(
+            f"/api/tasks/{duty['id']}/{action}", json={"reason": "seasonal standdown"}, headers=peer
+        )
         assert response.status_code == 200, response.text
         async with get_sessionmaker()() as db:
             rows = list(
@@ -2232,7 +2272,9 @@ async def test_skip_recurring_spawns_next_occurrence(client: httpx.AsyncClient) 
     """A skipped occurrence must not kill the series."""
     owner = await owner_with_farm(client)
     duty = await make_duty(client, owner, "Daily", recur_days=1)
-    resp = await client.post(f"/api/tasks/{duty['id']}/skip", headers=owner)
+    resp = await client.post(
+        f"/api/tasks/{duty['id']}/skip", json={"reason": "seasonal standdown"}, headers=owner
+    )
     assert resp.status_code == 200, resp.text
     tabs = await get_tabs(client, owner)
     nxt = next(t for t in tabs["upcoming"] if t["title"] == "Daily")
@@ -2478,19 +2520,22 @@ async def test_recurring_successor_carries_no_rejection_trail(client: httpx.Asyn
     assert successor["verification_note"] is None
 
 
-async def test_reject_without_note(client: httpx.AsyncClient) -> None:
+async def test_reject_without_note_is_rejected(client: httpx.AsyncClient) -> None:
+    """RT-FG-5: the note is the only explanation a rejected worker ever
+    sees, so an omitted note is a 422 rather than a silent NULL."""
     owner = await owner_with_farm(client)
     manager, _ = await worker_headers(client, owner, "CLEANER_MANAGER", "cm@farm.in")
     duty = await make_duty(client, owner, "Scrub", category="CLEANING")
     assert (await complete_duty(client, owner, duty["id"])).status_code == 200
     resp = await client.post(f"/api/tasks/{duty['id']}/reject", json={}, headers=manager)
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["status"] == "PENDING"
-    assert body["verification_note"] is None
+    assert resp.status_code == 422, resp.text
+    # The failed rejection leaves the duty awaiting verification.
+    tabs = await get_tabs(client, manager)
+    assert find_task(tabs, duty["id"])["status"] == "DONE"
 
 
-async def test_reject_whitespace_note_stored_as_null(client: httpx.AsyncClient) -> None:
+async def test_reject_whitespace_note_is_rejected(client: httpx.AsyncClient) -> None:
+    """A whitespace-only note carries no explanation either — same 422."""
     owner = await owner_with_farm(client)
     manager, _ = await worker_headers(client, owner, "CLEANER_MANAGER", "cm@farm.in")
     duty = await make_duty(client, owner, "Scrub", category="CLEANING")
@@ -2498,8 +2543,7 @@ async def test_reject_whitespace_note_stored_as_null(client: httpx.AsyncClient) 
     resp = await client.post(
         f"/api/tasks/{duty['id']}/reject", json={"note": "   "}, headers=manager
     )
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["verification_note"] is None
+    assert resp.status_code == 422, resp.text
 
 
 async def test_reject_note_255_chars_ok(client: httpx.AsyncClient) -> None:
@@ -2984,7 +3028,11 @@ async def test_completed_tab_interleaves_skipped_duties_by_their_finish_instant(
     skipped = await make_duty(client, owner, "B skipped second")
     last = await make_duty(client, owner, "C completed last")
     assert (await complete_duty(client, owner, first["id"])).status_code == 200
-    assert (await client.post(f"/api/tasks/{skipped['id']}/skip", headers=owner)).status_code == 200
+    assert (
+        await client.post(
+            f"/api/tasks/{skipped['id']}/skip", json={"reason": "seasonal standdown"}, headers=owner
+        )
+    ).status_code == 200
     assert (await complete_duty(client, owner, last["id"])).status_code == 200
 
     tabs = await get_tabs(client, owner)
@@ -3048,7 +3096,9 @@ async def test_postpartum_move_duty_cannot_be_skipped_while_the_doe_is_in_recove
     postpartum = next(
         t for t in all_tasks(tabs) if t["category"] == "BUCKET_MOVE" and t["status"] == "PENDING"
     )
-    refused = await client.post(f"/api/tasks/{postpartum['id']}/skip", headers=owner)
+    refused = await client.post(
+        f"/api/tasks/{postpartum['id']}/skip", json={"reason": "seasonal standdown"}, headers=owner
+    )
     assert refused.status_code == 409, refused.text
     assert "postpartum recovery" in refused.json()["detail"]
 
@@ -3061,7 +3111,9 @@ async def test_pregnancy_delivery_move_duty_is_still_skippable(
     _doe, _br = await make_pregnancy(client, owner, today() - timedelta(days=140))
     tabs = await get_tabs(client, owner)
     move = next(t for t in all_tasks(tabs) if t["category"] == "BUCKET_MOVE")
-    skipped = await client.post(f"/api/tasks/{move['id']}/skip", headers=owner)
+    skipped = await client.post(
+        f"/api/tasks/{move['id']}/skip", json={"reason": "seasonal standdown"}, headers=owner
+    )
     assert skipped.status_code == 200, skipped.text
     assert skipped.json()["status"] == "SKIPPED"
 
@@ -3075,7 +3127,9 @@ async def test_quarantine_duty_is_skippable_only_once_the_batch_has_no_active_an
     await make_batch(client, owner, today() - timedelta(days=50))
     tabs = await get_tabs(client, owner)
     vaccine = next(t for t in all_tasks(tabs) if t["category"] == "VACCINE" and t["auto_generated"])
-    blocked = await client.post(f"/api/tasks/{vaccine['id']}/skip", headers=owner)
+    blocked = await client.post(
+        f"/api/tasks/{vaccine['id']}/skip", json={"reason": "seasonal standdown"}, headers=owner
+    )
     assert blocked.status_code == 409, blocked.text
     assert "cannot be skipped" in blocked.json()["detail"]
 

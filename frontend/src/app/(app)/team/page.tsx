@@ -500,7 +500,13 @@ function AddWorkerDialog({
       open={open}
       onOpenChange={(nextOpen) => {
         if (!nextOpen && (isSubmitting || createFlight.pending)) return;
-        if (!nextOpen) setFormError(null);
+        if (!nextOpen) {
+          setFormError(null);
+          // Dismissal (Esc/backdrop) must clear the form exactly like the
+          // Cancel button: the dialog stays mounted for owners, and a
+          // half-typed password must not survive into the next open (RT-P2-1).
+          reset();
+        }
         onOpenChange(nextOpen);
       }}
     >

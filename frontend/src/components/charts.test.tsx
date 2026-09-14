@@ -50,6 +50,29 @@ describe("Donut", () => {
     render(<Donut slices={[{ label: "None", value: 0 }]} />);
     expect(screen.getByRole("img").getAttribute("aria-label")).toBe("No data");
   });
+
+  it("ignores non-finite slices instead of rendering NaN dash arrays", () => {
+    // RT-Q-3: ±Infinity (or NaN) in one slice must not poison the total —
+    // Infinity/Infinity yields NaN fractions and an invalid strokeDasharray.
+    // Unreachable via the JSON API; guards future derived-math callers.
+    const { container } = render(
+      <Donut
+        slices={[
+          { label: "Broken", value: Number.POSITIVE_INFINITY },
+          { label: "Also broken", value: Number.NEGATIVE_INFINITY },
+          { label: "Real", value: 4 },
+        ]}
+      />,
+    );
+    const segments = Array.from(container.querySelectorAll("circle[stroke-dasharray]"));
+    expect(segments).toHaveLength(1);
+    expect(segments[0].getAttribute("stroke-dasharray")).not.toContain("NaN");
+    expect(screen.getByRole("img").getAttribute("aria-label")).toBe(
+      "Distribution: Real 4",
+    );
+    expect(screen.queryByText("Broken")).not.toBeInTheDocument();
+    expect(screen.getByText("Real")).toBeInTheDocument();
+  });
 });
 
 describe("Sparkline", () => {

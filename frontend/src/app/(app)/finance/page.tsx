@@ -115,8 +115,11 @@ function txTypeLabel(value: string): string {
  * a shared link can never wedge the ledger into a filter the API rejects. */
 function monthFromParams(params: URLSearchParams): string {
   const raw = params.get("month");
+  // The same strict grammar the typing handler enforces: URL adoption must
+  // not accept month shapes (2026-99, 2026-00) the input itself can never
+  // produce, or a crafted link persists an invalid filter (RT-P11-1).
   // Stryker disable next-line ConditionalExpression: the regex rejects null (coerced "null") exactly like any malformed string, so the !== null arm never decides anything
-  return raw !== null && /^\d{4}-\d{2}$/.test(raw) ? raw : "";
+  return raw !== null && /^\d{4}-(0[1-9]|1[0-2])$/.test(raw) ? raw : "";
 }
 
 function typeFromParams(params: URLSearchParams): typeof ALL | TransactionInType {

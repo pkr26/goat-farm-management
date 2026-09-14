@@ -387,11 +387,15 @@ function paramsKeyFromUrl(url: string): string {
 function CreateAnimalDialog({
   onCreated,
   isOwner,
+  canManagePurchases,
   // Stryker disable next-line BooleanLiteral: the sole call site passes an explicit boolean (openFromUrl), so this parameter default never evaluates
   startOpen = false,
 }: {
   onCreated: () => void;
   isOwner: boolean;
+  /** Creating a PURCHASED animal books its purchase cascade, which the API
+   * gates on purchases.manage (owners always hold it). */
+  canManagePurchases: boolean;
   startOpen?: boolean;
 }) {
   const [open, setOpen] = useState(startOpen);
@@ -569,6 +573,17 @@ function CreateAnimalDialog({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="animal-source">Source *</Label>
+              {/* The managed-purchase cascade makes PURCHASED a
+                  purchases.manage action (BORN stays owner-only), so a
+                  caller holding neither grant has no creatable source and the
+                  form explains itself instead of offering a dead submit. */}
+              {!canManagePurchases && !isOwner && (
+                <p role="alert" className="text-sm text-destructive">
+                  You cannot create animals directly: purchased entries need
+                  purchases.manage, and the historical born-on-farm import is
+                  owner-only. Ask the farm owner to record the purchase batch.
+                </p>
+              )}
               <Controller
                 control={control}
                 name="source"
@@ -578,7 +593,9 @@ function CreateAnimalDialog({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={AnimalCreateInSource.PURCHASED}>Purchased</SelectItem>
+                      {canManagePurchases && (
+                        <SelectItem value={AnimalCreateInSource.PURCHASED}>Purchased</SelectItem>
+                      )}
                       {isOwner && (
                         <SelectItem value={AnimalCreateInSource.BORN}>
                           Historical born-on-farm import
@@ -852,7 +869,10 @@ function CreateAnimalDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting || createFlight.pending}>
+            <Button
+              type="submit"
+              disabled={isSubmitting || createFlight.pending || (!canManagePurchases && !isOwner)}
+            >
               {isSubmitting || createFlight.pending ? "Saving…" : "Save animal"}
             </Button>
           </DialogFooter>
@@ -1283,6 +1303,7 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
             <CreateAnimalDialog
               onCreated={refresh}
               isOwner={isOwner}
+              canManagePurchases={can("purchases.manage")}
               startOpen={openFromUrl}
             />
           )

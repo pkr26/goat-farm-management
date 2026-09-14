@@ -305,25 +305,41 @@ async def test_animal_creator_cannot_squat_predictable_next_batch_tags(
     worker, _worker_id = await login_user(client, "batch-tag-squatter@example.com")
     worker["X-Farm-Id"] = owner["X-Farm-Id"]
 
-    # This managed one-head purchase consumes batch id 1. The worker can then
-    # squat the formerly predictable first tag for the owner's next batch.
+    # RT-C-1: the managed-purchase branch now requires purchases.manage, so
+    # the animal creator cannot even reach the batch/tag machinery — the
+    # squatting vector is closed at the permission boundary.
     response = await client.post(
         "/api/animals",
         json={
             "tag_number": "B2-001",
             "sex": "F",
             "source": "PURCHASED",
-            "current_bucket": "FOUNDATION",
+            "current_bucket": "QUARANTINE",
         },
         headers=worker,
     )
-    assert response.status_code == 201, response.text
+    assert response.status_code == 403, response.text
     denied = await client.post(
         "/api/purchases/new",
         json={"date": today().isoformat(), "count": 1},
         headers=worker,
     )
     assert denied.status_code == 403, denied.text
+
+    # The nonce defense itself is unchanged: an owner-driven explicit-tag
+    # squat of the formerly predictable "B2-001" still cannot collide with
+    # batch 2's secure tags.
+    squatted = await client.post(
+        "/api/animals",
+        json={
+            "tag_number": "B2-001",
+            "sex": "F",
+            "source": "PURCHASED",
+            "current_bucket": "QUARANTINE",
+        },
+        headers=owner | {"Idempotency-Key": "squat-b2-001"},
+    )
+    assert squatted.status_code == 201, squatted.text
 
     response = await client.post(
         "/api/purchases/new",

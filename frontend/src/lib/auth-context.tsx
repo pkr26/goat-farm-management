@@ -251,20 +251,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     farmsRef.current = list;
     setFarms(list);
     const preferred = farmIdRef.current ?? readStoredFarmId();
-    const valid = list.find((f) => f.id === preferred) ?? list[0];
-    if (valid) selectFarm(valid.id, valid.timezone);
-    else {
-      // Losing the final membership is a farm transition too. Abort and drop
-      // URL-only query keys before an old-farm response can repopulate them,
-      // and remove the now-invalid persisted selection.
-      queryClient.cancelQueries();
-      queryClient.clear();
-      farmIdRef.current = null;
-      setFarmIdState(null);
-      setCurrentFarmId(null);
-      setActiveFarmTimezone(null);
-      clearStoredFarmId();
+    if (preferred === null && list.length > 0) {
+      // No choice exists anywhere (first sign-in on this device): the
+      // server's ordering is the only signal, so auto-select list[0] and let
+      // single-farm operators skip the picker entirely.
+      const [first] = list;
+      selectFarm(first.id, first.timezone);
+      return;
     }
+    const valid = preferred === null ? undefined : list.find((f) => f.id === preferred);
+    if (valid) {
+      selectFarm(valid.id, valid.timezone);
+      return;
+    }
+    // The preferred farm was revoked (or the list emptied entirely). A farm
+    // transition is still happening: abort and drop URL-only query keys
+    // before an old-farm response can repopulate them, and remove the
+    // now-invalid persisted selection. Deliberately do NOT fall back to
+    // list[0] — silently landing the operator in a farm they never chose
+    // invites acting on the wrong herd's data. farmId stays null, so the
+    // app shell redirects to /farm-select and the membership list rendered
+    // above makes the choice an explicit one.
+    queryClient.cancelQueries();
+    queryClient.clear();
+    farmIdRef.current = null;
+    setFarmIdState(null);
+    setCurrentFarmId(null);
+    setActiveFarmTimezone(null);
+    clearStoredFarmId();
   }, [queryClient, selectFarm]);
 
   const refreshFarms = useCallback(async () => {

@@ -295,6 +295,31 @@ describe("AccountDialog branches", () => {
     click.mockRestore();
   });
 
+  it("does not fire the export success toast after the dialog closed mid-download", async () => {
+    // RT-O-8: the download itself was user-initiated and may finish, but the
+    // completion toast belongs to the dialog lifecycle — closing the dialog
+    // bumps dialogEpoch, so a late success must not surface a stale toast.
+    let resolveExport: ((payload: unknown) => void) | undefined;
+    mocks.apiFetch.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveExport = resolve;
+        }),
+    );
+    const user = userEvent.setup();
+    render(<AccountDialog name="Owner" email="owner@example.test" />);
+    const dialog = await openAccount(user);
+    await user.click(within(dialog).getByRole("button", { name: "Download my data" }));
+
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await act(async () => resolveExport?.({ account: { id: 1 } }));
+
+    expect(mocks.toastSuccess).not.toHaveBeenCalledWith(
+      "Your account data export was downloaded.",
+    );
+  });
+
   it("clears a password error when the dialog is reopened", async () => {
     mocks.mutateAsync.mockRejectedValue(new ApiError(400, "The current password is incorrect."));
     const user = userEvent.setup();

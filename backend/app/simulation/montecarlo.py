@@ -13,7 +13,13 @@ import statistics
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
-from .assumptions import MAX_FODDER_YIELD_T, MAX_MONEY, RiskVariable, SimulationAssumptions
+from .assumptions import (
+    MAX_FODDER_YIELD_T,
+    MAX_MONEY,
+    MIN_FODDER_YIELD_T,
+    RiskVariable,
+    SimulationAssumptions,
+)
 from .engine import _run_core
 from .results import MonteCarloResult, PercentileBand, SensitivityItem
 from .shocks import MonthlyShockPath
@@ -234,11 +240,12 @@ def _apply_draws(a: SimulationAssumptions, draws: dict[str, float]) -> Simulatio
     variant.reproduction.conception_rate = min(
         1.0, variant.reproduction.conception_rate * draws["conception_rate"]
     )
-    # Two-sided, like the litter-size clamp above: the field is gt=0.0, and a
-    # near-denormal base multiplied by a draw below 1 rounds to exactly 0.0,
-    # which fails revalidation and 500s from inside the Monte Carlo loop.
+    # Two-sided, like the litter-size clamp above: a base at the schema floor
+    # multiplied by a draw below 1 rounds under it, which fails revalidation
+    # and 500s from inside the Monte Carlo loop. Clamp to the schema floor
+    # (RT-L8-4), not a denormal, so the perturbed variant stays valid.
     variant.feed.fodder_yield_t_dm_per_acre_year = max(
-        5e-324,
+        MIN_FODDER_YIELD_T,
         min(
             MAX_FODDER_YIELD_T,
             variant.feed.fodder_yield_t_dm_per_acre_year * draws["fodder_yield"],

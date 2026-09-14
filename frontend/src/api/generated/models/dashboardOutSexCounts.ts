@@ -5,4 +5,4 @@
  * OpenAPI spec version: 2.0.0
  */
 
-export type DashboardOutSexCounts = {[key: string]: number};
+export type DashboardOutSexCounts = {[key: string]: number} | null;

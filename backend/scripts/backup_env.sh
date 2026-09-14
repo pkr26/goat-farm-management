@@ -13,6 +13,12 @@
 #
 # Requires SCRIPT_DIR and PYTHON_BIN to be set by the sourcing script.
 
+_missing_env_file_classification() {
+    echo "backend/.env is missing while GOATFARM_ENVIRONMENT/GOATFARM_DB_SSLMODE are unset;" >&2
+    echo "export both explicitly to classify this run (production or development)" >&2
+    exit 2
+}
+
 # Resolve the two settings that jointly decide whether plaintext transport or
 # an unsigned artifact is allowed. They must come from one .env snapshot: two
 # independent helper calls could observe an atomic file replacement/removal in
@@ -29,10 +35,22 @@ load_app_safety_settings() {
         return 0
     fi
 
+    # An absent backend/.env must not silently classify the run as
+    # development (plaintext local backups, no GPG, sslmode disable).  The
+    # descriptor-pinned snapshot defends against split reads, not absence,
+    # and a cron-run backup job never imports the application to notice the
+    # missing file.  Require the operator to classify the run explicitly;
+    # a present file that simply omits a key still falls back to the
+    # documented defaults exactly like config.py does.  The sentinel default
+    # catches a removal between the existence check and the pinned read.
+    if [[ ! -f "${env_file}" ]]; then
+        _missing_env_file_classification
+    fi
+
     snapshot="$(
         "${PYTHON_BIN}" "${SCRIPT_DIR}/dotenv_value.py" "${env_file}" \
-            --snapshot GOATFARM_DB_SSLMODE disable \
-            GOATFARM_ENVIRONMENT development
+            --snapshot GOATFARM_DB_SSLMODE __ENV_FILE_ABSENT__ \
+            GOATFARM_ENVIRONMENT __ENV_FILE_ABSENT__
     )" || status=$?
     if (( status != 0 )); then
         echo "Cannot safely load deployment settings from backend/.env" >&2
@@ -49,6 +67,25 @@ load_app_safety_settings() {
         exit 2
     fi
     file_environment="${remainder}"
+
+    # A sentinel means either the file vanished between the existence check
+    # and this pinned read (fail closed) or a present file that legitimately
+    # omits the key (keep the documented config.py defaults). Distinguish by
+    # the file's presence now; a vanished file must never default to
+    # development. Per-key fallback keeps a file that classifies only one of
+    # the two settings honest.
+    if [[ "${file_sslmode}" == __ENV_FILE_ABSENT__ ]]; then
+        if [[ ! -f "${env_file}" ]]; then
+            _missing_env_file_classification
+        fi
+        file_sslmode="disable"
+    fi
+    if [[ "${file_environment}" == __ENV_FILE_ABSENT__ ]]; then
+        if [[ ! -f "${env_file}" ]]; then
+            _missing_env_file_classification
+        fi
+        file_environment="development"
+    fi
 
     DB_SSLMODE="${GOATFARM_DB_SSLMODE:-${file_sslmode}}"
     ENVIRONMENT="${GOATFARM_ENVIRONMENT:-${file_environment}}"

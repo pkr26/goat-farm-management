@@ -451,6 +451,30 @@ describe("protected mutation idempotency transport", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("does not turn an internally owned timeout into an automatic replay", async () => {
+    // AbortSignal.timeout() rejects with a TimeoutError DOMException, not an
+    // AbortError (RT-O-1). The design contract says timeouts must NOT trigger
+    // the one automatic network replay; the retained logical key stays
+    // available for an explicit user retry instead.
+    const keys: string[] = [];
+    fetchMock.mockImplementation(async (_input, init) => {
+      keys.push(requestKey(init)!);
+      if (keys.length === 1) throw new DOMException("Signal timed out", "TimeoutError");
+      return jsonResponse(201, { id: 1 });
+    });
+
+    const error = await catchError(
+      apiFetch("/api/finance/new", { method: "POST", body: "{}" }),
+    );
+
+    expect((error as Error).name).toBe("TimeoutError");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // The explicit retry after the timeout still reuses the same key.
+    await apiFetch("/api/finance/new", { method: "POST", body: "{}" });
+    expect(keys).toHaveLength(2);
+    expect(keys[1]).toBe(keys[0]);
+  });
+
   it("retains the key for an explicit retry after an ambiguous network failure", async () => {
     const keys: string[] = [];
     fetchMock.mockImplementation(async (_input, init) => {

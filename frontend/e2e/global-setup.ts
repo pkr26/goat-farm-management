@@ -41,7 +41,11 @@ export default async function globalSetup(): Promise<void> {
     const { access_token } = (await reg.json()) as { access_token: string };
     const farm = await ctx.post("/api/auth/farms", {
       data: { name: state.farmName, location: null },
-      headers: { Authorization: `Bearer ${access_token}` },
+      headers: {
+        Authorization: `Bearer ${access_token}`,
+        // Farm creation requires an Idempotency-Key (RT-M-1).
+        "Idempotency-Key": crypto.randomUUID(),
+      },
     });
     if (!farm.ok()) {
       throw new Error(`e2e global setup: farm create failed ${farm.status()}: ${await farm.text()}`);

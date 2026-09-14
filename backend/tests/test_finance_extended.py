@@ -3112,7 +3112,7 @@ async def test_dashboard_kidding_due_uses_minimum_display_context(
     # withholds as is_currently_pregnant without breeding.view.
     cleaner_dashboard = await get_dashboard(client, cleaner)
     assert cleaner_dashboard["kiddings_due"] == []
-    assert cleaner_dashboard["kiddings_due_total"] == 0
+    assert cleaner_dashboard["kiddings_due_total"] is None
 
 
 async def test_dashboard_view_alone_reveals_no_breeding_programme(
@@ -3169,7 +3169,7 @@ async def test_dashboard_view_alone_reveals_no_breeding_programme(
     cleaner = await worker_headers(client, owner, cleaner_role, "gate-cleaner@farm.in")
     cleaner_dash = await get_dashboard(client, cleaner)
     assert cleaner_dash["kiddings_due"] == []
-    assert cleaner_dash["kiddings_due_total"] == 0
+    assert cleaner_dash["kiddings_due_total"] is None
     assert cleaner_dash["cull_candidates"] == []
     # null marks the section as withheld rather than genuinely empty.
     assert cleaner_dash["cull_candidates_total"] is None
@@ -3180,11 +3180,13 @@ async def test_dashboard_view_alone_reveals_no_breeding_programme(
     # and acting on one needs animals.move (which depends on animals.view).
     # A CLEANER holds neither, so the section is withheld from it entirely.
     assert cleaner_dash["suggestions"] == []
-    assert cleaner_dash["suggestions_total"] == 0
+    assert cleaner_dash["suggestions_total"] is None
     assert "GATE-MARKET" not in str(cleaner_dash["suggestions"])
     # Empty sections, not a 403: the page must still render its herd counts.
-    assert cleaner_dash["total_active"] == owner_dash["total_active"]
-    assert cleaner_dash["buckets"] == owner_dash["buckets"]
+    # Since RT-KL-1 the herd counts are animals.view-gated: a cleaner sees
+    # the None sentinels, not the owner's live figures.
+    assert cleaner_dash["total_active"] is None
+    assert cleaner_dash["buckets"] is None
 
     # The gate is breeding.view specifically — nothing about being a worker.
     # animals.view is included so this role isolates the breeding gate alone:

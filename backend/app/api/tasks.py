@@ -62,6 +62,21 @@ CREATE = Annotated[set[str], Depends(require_perm("tasks.create"))]
 COMPLETE = Annotated[set[str], Depends(require_perm("tasks.complete"))]
 VERIFY = Annotated[set[str], Depends(require_perm("tasks.verify"))]
 
+# The categories whose completion means recording clinical/reproductive data —
+# the exact mapping ``task_action_url`` in `._shared` builds form links for.
+# Every auto-generated duty in one of these categories must close through its
+# linked form, whether or not its linkage columns are populated: the generators
+# that create them always populate the linkage, so a linkage-less row is legacy
+# or out-of-process damage, and completing it bare would record zero data.
+FORM_LINKED_TASK_CATEGORIES = frozenset(
+    {
+        TaskCategory.ULTRASOUND.value,
+        TaskCategory.KIDDING_DUE.value,
+        TaskCategory.VACCINE.value,
+        TaskCategory.DEWORMING.value,
+    }
+)
+
 # Display enrichment loads (TASK_LOADS), task_action_url, task_out and
 # visible_to live in `._shared` — single source of truth shared
 # with the dashboard/breeding/kidding/health routers.
@@ -587,8 +602,13 @@ async def complete(
         raise HTTPException(status_code=403, detail="This duty is not assigned to you")
     # Form-linked duties (see task_action_url) must be closed via their
     # form — a bare call would skip recording the ultrasound/kidding/health
-    # data.
-    if task_action_url(task) is not None:
+    # data. The linkage-derived fence (action URL present) covers every
+    # well-formed row; the category fence below is the data-invariant
+    # belt-and-braces for legacy/unlinked generated rows, whose bare
+    # completion would silently close a data-capture duty with no data.
+    if task_action_url(task) is not None or (
+        task.auto_generated and task.category in FORM_LINKED_TASK_CATEGORIES
+    ):
         raise HTTPException(status_code=409, detail="Use the linked form to complete this duty")
     # Auto-generated duties (quarantine release, weaning, ...) and every
     # recurring occurrence unlock on their due date. A one-off manual duty may
@@ -621,7 +641,7 @@ async def skip(
     farm: CurrentFarm,
     membership: CurrentMembership,
     perms: COMPLETE,
-    payload: TaskSkipIn | None = None,
+    payload: TaskSkipIn,
 ) -> TaskOut:
     # A recurring skip inserts its successor and therefore starts with FARM and
     # takes FK KEY SHARE on the linked animal. Match completion/status ordering
@@ -710,7 +730,7 @@ async def skip(
                     ),
                 )
     try:
-        await skip_task(db, task, user, payload.reason if payload else None)
+        await skip_task(db, task, user, payload.reason)
     except ValueError as exc:
         await db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from None
@@ -803,6 +823,6 @@ async def reject(
         raise HTTPException(status_code=409, detail=str(exc)) from None
     if not task.auto_generated:
         await _guard_manual_task_capacity_locked(db, farm)
-    await reject_task(db, task, user, (payload.note or "").strip())
+    await reject_task(db, task, user, payload.note)
     await db.commit()
     return task_out(task)

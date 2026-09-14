@@ -148,6 +148,13 @@ describe("FinancePage month URL param sanitisation", () => {
     "2026-0111",
     "x2026-01",
     "2026-01x",
+    // RT-P11-1: two-digit months the old \d{4}-\d{2} grammar accepted but
+    // the typing handler never produces — a crafted link must not persist
+    // an invalid month the API cannot filter on.
+    "2026-99",
+    "2026-00",
+    "2026-13",
+    "0000-13",
   ])("ignores a malformed month (%s) instead of filtering on it", async (bad) => {
     urlParams = new URLSearchParams(`month=${encodeURIComponent(bad)}`);
     server.use(useFinancePayload());

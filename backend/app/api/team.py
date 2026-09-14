@@ -55,6 +55,33 @@ from ..utils import utcnow
 router = APIRouter(prefix="/api/team", tags=["team"], responses=COMMON_ERROR_RESPONSES)
 logger = logging.getLogger("goatfarm.team")
 
+# Security-event trail for team administration (RT-B-3): one info line per
+# successful mutation, attributed to the acting principal, so credential
+# resets, role rewrites and deactivations leave a durable log record even
+# before an append-only DB table exists. Never log secret material — only
+# ids and the action summary.
+audit_log = logging.getLogger("goatfarm.audit")
+
+
+def _audit_event(
+    event: str,
+    *,
+    farm_id: int,
+    actor_id: int,
+    summary: str,
+    targets: dict[str, int | str | bool | None],
+) -> None:
+    fields = " ".join(f"{name}={value!r}" for name, value in targets.items())
+    audit_log.info(
+        "security_event event=%r farm_id=%r actor_id=%r %s — %s",
+        event,
+        farm_id,
+        actor_id,
+        fields,
+        summary,
+    )
+
+
 TEAM_PERM = Annotated[set[str], Depends(require_perm("team.manage"))]
 
 # Generic refusal for any pre-existing account in create_worker. Until an
@@ -572,7 +599,7 @@ async def _locked_membership(
     """The one lock bundle every worker-lifecycle mutation runs under.
 
     FOR NO KEY UPDATE membership lock → self-service guard → Membership→User
-    pin → conditional Membership→Role pin → peer-manager re-guard. change_role
+    pin → Membership→Role pin → peer-manager re-guard. change_role
     and set_worker_status repeat this sequence verbatim; reset_password runs
     the owner-only variant (no self guard — an owner is never a member — and
     ``pin_user=False`` because it takes the stronger FOR UPDATE User row lock
@@ -596,8 +623,12 @@ async def _locked_membership(
         raise HTTPException(status_code=400, detail=self_service_detail)
     if pin_user:
         await _pin_membership_user(db, membership)
-    if user.id != farm.owner_id:
-        await _pin_membership_role(db, farm, membership)
+    # The role re-pin runs for owners too: the owner path skips the
+    # peer-manager/scope guards but must still fail closed (404) on a
+    # membership whose role was tombstoned instead of reactivating a zombie
+    # roster row. Owners hold no membership row themselves, so the
+    # Membership → User → Role order stays acyclic for them.
+    await _pin_membership_role(db, farm, membership)
     _guard_peer_manager(membership, user, farm)
     return membership
 
@@ -946,7 +977,7 @@ async def _create_worker_after_idempotency_gate(
     # raw password nor its Argon hash enters the idempotency record/response.
     # PostgreSQL still arbitrates a cross-process race after preparation.
     await _lock_farm_provisioning(db, farm)
-    return await execute_idempotent(
+    created = await execute_idempotent(
         db,
         http_response=response,
         key=idempotency_key,
@@ -959,6 +990,18 @@ async def _create_worker_after_idempotency_gate(
         response_type=MembershipOut,
         mutate=mutate,
     )
+    _audit_event(
+        "team.worker.create",
+        farm_id=farm.id,
+        actor_id=user.id,
+        summary="provisioned worker account with must-change credential",
+        targets={
+            "membership_id": created.id,
+            "user_id": created.user_id,
+            "role_id": created.role_id,
+        },
+    )
+    return created
 
 
 @router.post("/workers/{membership_id}/role")
@@ -1002,8 +1045,21 @@ async def change_role(
     _guard_manager_role(role, user, farm)
     _guard_role_scope(membership.role, perms, user, farm)
     _guard_role_scope(role, perms, user, farm)
+    previous_role_id = membership.role_id
     membership.role = role
     await db.commit()
+    _audit_event(
+        "team.worker.role_change",
+        farm_id=farm.id,
+        actor_id=user.id,
+        summary="reassigned worker role",
+        targets={
+            "membership_id": membership.id,
+            "user_id": membership.user_id,
+            "from_role_id": previous_role_id,
+            "to_role_id": role.id,
+        },
+    )
     return _membership_out(
         membership,
         await _reset_password_policy_for_membership(db, membership),
@@ -1054,6 +1110,7 @@ async def set_worker_status(
         self_service_detail="You cannot deactivate your own membership.",
     )
     _guard_role_scope(membership.role, perms, user, farm)
+    was_active = membership.is_active
     membership.is_active = payload.is_active
     # This is a farm-local authorization change, not an account security
     # event. Every personal Task already retains its role fallback, so no
@@ -1061,6 +1118,18 @@ async def set_worker_status(
     # while this membership is inactive. Assigning the requested value makes
     # transport/application retries a no-op instead of a second inversion.
     await db.commit()
+    _audit_event(
+        "team.worker.status_change",
+        farm_id=farm.id,
+        actor_id=user.id,
+        summary="set worker membership active flag",
+        targets={
+            "membership_id": membership.id,
+            "user_id": membership.user_id,
+            "from_is_active": was_active,
+            "to_is_active": membership.is_active,
+        },
+    )
     return _membership_out(
         membership,
         await _reset_password_policy_for_membership(db, membership),
@@ -1116,6 +1185,16 @@ async def reset_password(
     locked_user.must_change_password = True
     await revoke_user_sessions(db, membership.user_id)
     await db.commit()
+    _audit_event(
+        "team.worker.password_reset",
+        farm_id=farm.id,
+        actor_id=user.id,
+        summary="reset provisioned worker credential and revoked sessions",
+        targets={
+            "membership_id": membership.id,
+            "user_id": membership.user_id,
+        },
+    )
     return _membership_out(membership, reset_policy, user, farm)
 
 
@@ -1170,6 +1249,13 @@ async def create_role(
         raise HTTPException(
             status_code=400, detail="A role with that name already exists."
         ) from None
+    _audit_event(
+        "team.role.create",
+        farm_id=farm.id,
+        actor_id=user.id,
+        summary="created custom role",
+        targets={"role_id": role.id, "role_name": role.name},
+    )
     return _role_out(role, 0)
 
 
@@ -1224,6 +1310,13 @@ async def update_role(
         raise HTTPException(
             status_code=400, detail="Name is required and must be unique on this farm."
         ) from None
+    _audit_event(
+        "team.role.update",
+        farm_id=farm.id,
+        actor_id=user.id,
+        summary="updated role name/description/permissions",
+        targets={"role_id": role.id, "role_name": role.name, "revision": role.revision},
+    )
     return _role_out(role, await _member_count(db, role.id))
 
 
@@ -1273,4 +1366,11 @@ async def delete_role(
         )
     role.deleted_at = utcnow()
     await db.commit()
+    _audit_event(
+        "team.role.delete",
+        farm_id=farm.id,
+        actor_id=user.id,
+        summary="tombstoned custom role",
+        targets={"role_id": role.id, "role_name": role.name},
+    )
     return Response(status_code=204)

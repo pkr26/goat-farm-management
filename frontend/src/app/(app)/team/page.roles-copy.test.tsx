@@ -502,7 +502,7 @@ describe("TeamPage add-worker dialog copy", () => {
     expect(within(reopened).getByRole("combobox")).not.toHaveTextContent("Night Watch");
   });
 
-  it("keeps an in-progress worker draft when the dialog is dismissed and reopened", async () => {
+  it("clears an in-progress worker draft when the dialog is dismissed and reopened", async () => {
     const user = userEvent.setup();
     await renderLoaded();
     const dialog = await openWorkerDialog(user);
@@ -514,12 +514,13 @@ describe("TeamPage add-worker dialog copy", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     const reopened = await openWorkerDialog(user);
 
-    // Nothing was submitted, so the half-filled form survives — including the
-    // role, which the select must read back from the form rather than from its
-    // own discarded state.
-    expect(within(reopened).getByLabelText("Name")).toHaveValue("Meena Kale");
-    expect(within(reopened).getByLabelText(/Email/)).toHaveValue("meena@example.com");
-    expect(within(reopened).getByRole("combobox")).toHaveTextContent("Night Watch");
+    // RT-P2-1: dismissal now clears the form exactly like the Cancel button
+    // (the dialog stays mounted, and a half-typed password must not survive
+    // into the next open) — including the role, whose trigger must not keep
+    // advertising a value the reset form no longer holds.
+    expect(within(reopened).getByLabelText("Name")).toHaveValue("");
+    expect(within(reopened).getByLabelText(/Email/)).toHaveValue("");
+    expect(within(reopened).getByRole("combobox")).not.toHaveTextContent("Night Watch");
   });
 
   it("toasts a rejected worker and forgets the error once the dialog is dismissed", async () => {

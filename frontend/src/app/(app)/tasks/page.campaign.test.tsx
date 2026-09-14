@@ -426,8 +426,10 @@ describe("TasksPage — campaign kills", () => {
 
     await user.click(within(mobileCardList()).getByRole("button", { name: buttonName }));
     if (action === "skip") {
-      // Skip is dialog-mediated: confirm to put the write on the wire.
+      // Skip is dialog-mediated: give the (now required) reason, then confirm
+      // to put the write on the wire.
       const dialog = await screen.findByRole("dialog");
+      await user.type(within(dialog).getByLabelText(t("tasks.skip.reason")), "not needed");
       await user.click(within(dialog).getByRole("button", { name: t("tasks.skip.confirm") }));
     }
     await waitFor(() => expect(releaseAction).toBeDefined());
@@ -1174,6 +1176,7 @@ describe("TasksPage dialogs — campaign kills", () => {
     expect(within(dialog).getByText(t("tasks.skip.title"))).toBeInTheDocument();
     expect(within(dialog).getByText(t("tasks.skip.body"))).toBeInTheDocument();
 
+    await user.type(within(dialog).getByLabelText(t("tasks.skip.reason")), "not needed");
     await user.click(within(dialog).getByRole("button", { name: t("tasks.skip.confirm") }));
     expect(await within(dialog).findByText(t("tasks.skip.inFlight"))).toBeInTheDocument();
     // Dismissal is locked while the write is in flight.

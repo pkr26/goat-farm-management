@@ -32,6 +32,15 @@ EXPECTED_NUMERIC_COLUMNS = {
 }
 
 
+async def _purge_idempotency_for_migration() -> None:
+    """Farm creation now persists an actor-scoped (NULL-farm) idempotency
+    claim; f3d4e5f6a7b8's downgrade refuses to run while such rows exist, and
+    this test downgrades far past that revision."""
+    async with get_sessionmaker()() as db:
+        await db.execute(text("DELETE FROM idempotency_records"))
+        await db.commit()
+
+
 async def _alembic(*args: str, succeeds: bool = True) -> subprocess.CompletedProcess[str]:
     result = await asyncio.to_thread(
         subprocess.run,
@@ -221,6 +230,7 @@ async def test_migration_refuses_dirty_legacy_precision_then_reupgrades_cleanly(
     farm_id = int(owner["X-Farm-Id"])
 
     await get_engine().dispose()
+    await _purge_idempotency_for_migration()
     await _alembic("downgrade", "f1b2c3d4e5f6")
     types_at_parent = await _column_types()
     assert all(data_type == "double precision" for data_type, _, _ in types_at_parent.values())
@@ -280,6 +290,7 @@ async def test_migration_refuses_dirty_legacy_precision_then_reupgrades_cleanly(
     assert canonicalized == "0.300"
 
     await get_engine().dispose()
+    await _purge_idempotency_for_migration()
     await _alembic("downgrade", "f1b2c3d4e5f6")
     connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
     try:

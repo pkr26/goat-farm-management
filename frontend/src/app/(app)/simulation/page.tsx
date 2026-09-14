@@ -1446,6 +1446,10 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
         }
         invalidateScenarios();
       } catch (err) {
+        // Same farm-scope fence as every sibling continuation: a farm switch
+        // during a failing DELETE must not surface in the new farm's UI
+        // (RT-P2-5).
+        if (!farmScope()) return;
         toast.error(errorMessage(err, "Could not delete the scenario."));
       }
     });

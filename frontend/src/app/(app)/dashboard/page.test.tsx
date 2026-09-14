@@ -231,9 +231,36 @@ const POPULATED = makePayload({
   ],
 });
 
-function dashboardHandler(payload: DashboardOut) {
+function dashboardHandler(payload: SentinelCapablePayload) {
   return http.get("/api/dashboard", () => HttpResponse.json(payload));
 }
+
+/** The dashboard API's withheld sentinels (null task sections, and the
+ *  bucket/animal aggregates without animals.view) are wider than the
+ *  generated client's current types; widen locally until orval catches up
+ *  with the contract (RT-P7-1). */
+type SentinelCapablePayload = Omit<
+  DashboardOut,
+  | "todays_tasks"
+  | "todays_tasks_total"
+  | "overdue_tasks"
+  | "overdue_tasks_total"
+  | "ultrasounds_due"
+  | "ultrasounds_due_total"
+  | "buckets"
+  | "total_active"
+  | "sex_counts"
+> & {
+  todays_tasks: TaskOut[] | null;
+  todays_tasks_total: number | null;
+  overdue_tasks: TaskOut[] | null;
+  overdue_tasks_total: number | null;
+  ultrasounds_due: TaskOut[] | null;
+  ultrasounds_due_total: number | null;
+  buckets: DashboardOut["buckets"] | null;
+  total_active: number | null;
+  sex_counts: DashboardOut["sex_counts"] | null;
+};
 
 function rowOf(text: string): HTMLElement {
   const row = screen.getByText(text).closest("tr");
@@ -659,6 +686,62 @@ describe("DashboardPage — recent weights withheld vs. empty", () => {
   });
 });
 
+describe("DashboardPage — withheld task sections (null sentinels)", () => {
+  // RT-P7-1: the API nulls the task previews/totals without tasks.view (and
+  // the bucket/animal aggregates without animals.view). The sentinel alone
+  // must withhold — the permission cache is a separate query and can still
+  // say "allowed" for its staleTime window.
+  const TASKS_WITHHELD: SentinelCapablePayload = {
+    ...POPULATED,
+    todays_tasks: null,
+    todays_tasks_total: null,
+    overdue_tasks: null,
+    overdue_tasks_total: null,
+    ultrasounds_due: null,
+    ultrasounds_due_total: null,
+  };
+
+  it("names the tasks access a null task register requires, never 0/empty", async () => {
+    server.use(dashboardHandler(TASKS_WITHHELD));
+    renderWithProviders(<DashboardPage />);
+
+    expect(
+      await screen.findByText("Today's tasks require tasks access."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Today's tasks")).toBeInTheDocument();
+    expect(screen.queryByText("Today's tasks (2)")).not.toBeInTheDocument();
+    expect(screen.queryByText("Nothing due today.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Vaccinate kids")).not.toBeInTheDocument();
+    expect(screen.getByText("Ultrasounds require tasks access.")).toBeInTheDocument();
+    expect(screen.queryByText("No ultrasounds due.")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Overdue tasks/)).not.toBeInTheDocument();
+    expect(screen.getByText("Requires tasks access")).toBeInTheDocument();
+    // No section may claim a bounded preview of a count it cannot see.
+    expect(screen.queryByText(/operational previews are capped/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Showing/)).not.toBeInTheDocument();
+  });
+
+  it("marks the animal aggregates withheld when the payload nulls them", async () => {
+    server.use(
+      dashboardHandler({
+        ...POPULATED,
+        buckets: null,
+        total_active: null,
+        sex_counts: null,
+      }),
+    );
+    renderWithProviders(<DashboardPage />);
+
+    expect(
+      await screen.findByText("Bucket counts require animal access."),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Requires animal access")).toHaveLength(3);
+    expect(screen.queryByRole("img", { name: /^Distribution:/ })).not.toBeInTheDocument();
+    // status_totals is a lifetime aggregate the API still sends un-nullled.
+    expect(screen.getByText("Sold (all time)")).toBeInTheDocument();
+  });
+});
+
 describe("DashboardPage — loading, error and permission states", () => {
   it("shows 'Loading…' while the dashboard request is in flight", async () => {
     server.use(http.get("/api/dashboard", () => new Promise<Response>(() => {})));
@@ -742,7 +825,6 @@ describe("DashboardPage — loading, error and permission states", () => {
     expect(
       await screen.findByRole("heading", { name: "Test Goat Farm — Dashboard" }),
     ).toBeInTheDocument();
-    expect(screen.getAllByText("Action unavailable").length).toBeGreaterThan(0);
     // Without breeding.view the API returns no kiddings; the card must say so
     // rather than assert an empty herd.
     expect(screen.getByText("Kiddings require breeding access.")).toBeInTheDocument();
@@ -754,5 +836,21 @@ describe("DashboardPage — loading, error and permission states", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText("G-077 · Lakshmi")).not.toBeInTheDocument();
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    // RT-P7-1: the task register is withheld without tasks.view — no task row
+    // (and no "Action unavailable" fallback) may render, and the sections must
+    // name the withholding instead of the factual "Nothing due today." /
+    // "No ultrasounds due." / "Tasks due + overdue 0".
+    expect(screen.getByText("Today's tasks require tasks access.")).toBeInTheDocument();
+    expect(screen.queryByText("Nothing due today.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Vaccinate kids")).not.toBeInTheDocument();
+    expect(screen.getByText("Ultrasounds require tasks access.")).toBeInTheDocument();
+    expect(screen.queryByText("No ultrasounds due.")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Overdue tasks/)).not.toBeInTheDocument();
+    expect(screen.getByText("Requires tasks access")).toBeInTheDocument();
+    // The bucket/animal aggregates are withheld without animals.view: markers,
+    // never a factual 0 or a hollow donut.
+    expect(screen.getAllByText("Requires animal access")).toHaveLength(3);
+    expect(screen.getByText("Bucket counts require animal access.")).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: /^Distribution:/ })).not.toBeInTheDocument();
   });
 });

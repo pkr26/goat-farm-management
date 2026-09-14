@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .animals import Sex
+from .animals import IdentifierText, Sex
 from .breeding import BreedingRecordOut
 from .common import (
     MAX_FREE_TEXT_LENGTH,
@@ -24,7 +24,7 @@ KiddingEaseStr = Literal["NORMAL", "ASSISTED", "DIFFICULT"]
 class KidIn(StrictInputModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    tag: PostgresText | None = Field(default=None, max_length=50)  # blank → auto tag
+    tag: IdentifierText | None = Field(default=None, max_length=50)  # blank → auto tag
     sex: Literal["M", "F"]
     birth_weight: NonNegativeWeightKgFloat | None = None
     status: KidStatusStr = "ALIVE"

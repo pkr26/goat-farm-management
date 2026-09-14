@@ -359,6 +359,28 @@ async def create_animal(
             detail="Only the farm owner may import historical animal lifecycle data",
         )
     managed_purchase = payload.source == "PURCHASED" and not historical_import_reason
+    if managed_purchase:
+        # The managed-purchase cascade books procurement (batch + quarantine
+        # schedule + ANIMAL_PURCHASE expense) — writes that otherwise require
+        # purchases.manage. A role holding only animals.create must not be
+        # able to forge ledger entries through this endpoint (RT-C-1).
+        if "purchases.manage" not in perms:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Recording a purchased animal books a purchase batch and "
+                    "expense and requires the purchase-management permission. "
+                    "Use a historical import or ask the owner."
+                ),
+            )
+        # Money-booking mutation with no natural key: the Idempotency-Key is
+        # mandatory here for the same reason it is on /api/purchases/new —
+        # a keyless retry would double-book the expense (RT-C-4).
+        if idempotency_key is None:
+            raise HTTPException(
+                status_code=422,
+                detail="An Idempotency-Key header is required for purchased-animal creation.",
+            )
     initial_bucket = Bucket.QUARANTINE.value if managed_purchase else payload.current_bucket
     if historical_import_reason:
         # A direct import cannot fabricate a pregnancy, delivery or lactating
@@ -772,14 +794,24 @@ async def move_bucket(
         "history_override" if payload.history_override else "manual"
     )
     if (
-        not payload.history_override
-        and animal.current_bucket == Bucket.QUARANTINE.value
+        animal.current_bucket == Bucket.QUARANTINE.value
         and payload.to_bucket == Bucket.FOUNDATION.value
         and animal.purchase_batch_id is not None
     ):
-        raise HTTPException(
-            status_code=409,
-            detail="Purchased quarantine animals must be released through the guarded batch task",
+        # RT-C-3: an owner override no longer skips biosecurity sequencing
+        # outright — it may release a batch animal early only while the
+        # protocol is still pristine (no work started); otherwise the guarded
+        # day-45 batch task remains the only exit. The check locks Batch ->
+        # Tasks under the animal lock already held here.
+        if not payload.history_override:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Purchased quarantine animals must be released through the guarded batch task"
+                ),
+            )
+        await _lock_pristine_batch_protocol_for_quarantine_reentry(
+            db, farm.id, animal.purchase_batch_id
         )
     if (
         not payload.history_override
@@ -857,6 +889,32 @@ async def move_bucket(
         and not computed.is_currently_pregnant
     ):
         raise HTTPException(status_code=409, detail="Pregnancy movement requires a live pregnancy")
+    if (
+        payload.history_override
+        and animal.sex == "F"
+        and payload.to_bucket
+        not in {
+            Bucket.BREEDING.value,
+            Bucket.PREGNANCY_EARLY.value,
+            Bucket.PREGNANCY_LATE.value,
+            Bucket.DELIVERY.value,
+        }
+        and (computed.is_currently_pregnant or await doe_has_open_breeding(db, farm.id, animal.id))
+    ):
+        # RT-DE-1/RT-C-5: the override deliberately bypasses the transition
+        # matrix, but it must not strand an open service or pregnancy in a
+        # bucket with no kidding/abort/ultrasound exit edge — that deadlock
+        # leaves the doe on the overdue list forever. Resolve the service
+        # first (negative ultrasound, abort, kidding) or sell/cull the doe.
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This doe has an open breeding or pregnancy — a history override "
+                "cannot move her out of the reproductive workflow buckets. Record "
+                "the ultrasound result, abort the pregnancy, record the kidding, "
+                "or exit her from the herd first."
+            ),
+        )
     move_reason = (payload.reason or "").strip()
     if payload.history_override:
         move_reason = f"{HISTORY_OVERRIDE_REASON_PREFIX}{move_reason}"[:255]
@@ -1023,15 +1081,13 @@ async def change_status(
                 ),
             )
         # Meat-sale window: a male kid below the SPEC's minimum sale age
-        # cannot be liquidated as meat stock. Culling remains open
-        # (injury/illness), and the owner can still record the exit through a
-        # cull with notes. Unknown birth dates fall through — age is provable
-        # only when an effective DOB exists.
-        if (
-            animal.sex == "M"
-            and animal.current_bucket == Bucket.MALE_KIDS.value
-            and animal.effective_dob is not None
-        ):
+        # cannot be liquidated as meat stock — regardless of bucket, so an
+        # unweaned kid still riding in RECOVERY with its dam cannot slip the
+        # gate (RT-C-2). Culling remains open (injury/illness), and the owner
+        # can still record the exit through a cull with notes. Unknown birth
+        # dates fall through — age is provable only when an effective DOB
+        # exists.
+        if animal.sex == "M" and animal.effective_dob is not None:
             age_months = animal.age_months_on(status_date)
             if age_months is not None and age_months < MEAT_SALE_AGE_MONTHS[0]:
                 raise HTTPException(

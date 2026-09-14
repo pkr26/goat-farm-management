@@ -28,7 +28,6 @@ vi.mock("next/navigation", () => ({
 }));
 
 const FARM_HEADER_ATTACKS: Array<[string, string | null]> = [
-  ["foreign farm id from another tenant", "42"],
   ["non-numeric garbage", "not-a-number"],
   ["fractional id", "1.5"],
   ["negative id", "-3"],
@@ -80,6 +79,20 @@ describe("ADV E1: a poisoned goatfarm.farmId never selects a foreign tenant", ()
     renderWithProviders(<DashboardPage />);
     await screen.findByText("Herd by bucket");
     await waitFor(() => expect(e1FarmHeader).toBe("1"));
+  });
+
+  it("stored foreign tenant id → cleared for an explicit pick, never silently entered", async () => {
+    // A well-formed but foreign id (42) is not one of this user's memberships.
+    // RT-O-3: the bootstrap treats it as revoked — the poisoned value is
+    // dropped, no farm is auto-entered (the shell routes to /farm-select),
+    // and no dashboard request ever carries the foreign id.
+    window.localStorage.setItem("goatfarm.farmId", "42");
+    renderWithProviders(<DashboardPage />);
+    await waitFor(() =>
+      expect(window.localStorage.getItem("goatfarm.farmId")).toBeNull(),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(e1FarmHeader).toBe("");
   });
 
   it("quota-blocked storage still boots the session", async () => {

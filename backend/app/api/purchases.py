@@ -20,7 +20,7 @@ from ..schemas.purchases import (
 )
 from ..schemas.summaries import PurchaseQuarantineAnimalOut, QuarantineScheduleTaskOut
 from ..services import (
-    IdempotencyKey,
+    RequiredIdempotencyKey,
     create_purchase_batch,
     execute_idempotent,
     require_farm_not_future,
@@ -112,10 +112,21 @@ async def create_batch(
     user: CurrentUser,
     farm: CurrentFarm,
     perms: PurchasesManage,
-    idempotency_key: IdempotencyKey = None,
+    idempotency_key: RequiredIdempotencyKey,
 ) -> PurchaseBatchOut:
     """Create a batch: stub animals into QUARANTINE, generate the 45-day
     quarantine task schedule and book the purchase expense."""
+
+    if payload.create_animals and "animals.create" not in perms:
+        # The cascade writes full Animal rows (plus moves and weights); a
+        # purchases-only role must not gain herd-register write access.
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Creating purchase animals requires the animal-creation "
+                "permission. Untick 'create animals' or ask the owner."
+            ),
+        )
 
     async def mutate() -> PurchaseBatchOut:
         try:
@@ -148,17 +159,34 @@ async def create_batch(
                 created_by_id=user.id,
                 sex=payload.sex,
             )
+            # Inside the try: deferred stub inserts can surface their unique
+            # violations here rather than after the handlers.
+            await db.flush()
         except ValueError as exc:  # backstop — schema re-checks the same invariants
             raise HTTPException(status_code=400, detail=str(exc)) from None
-        except IntegrityError:
-            # A generated batch tag collided with a farm tag despite its
-            # cryptographically random batch nonce. The outer idempotency
-            # transaction rolls the whole batch/claim back.
+        except IntegrityError as exc:
+            # Only a generated-tag collision with the farm's tag unique index
+            # is the retryable 409; any other constraint failure must surface
+            # as itself rather than misdiagnosed retry advice (RT-HIJ-6).
+            # Driver layers disagree about where the constraint name lives
+            # (asyncpg native errors expose it directly; SQLAlchemy's dbapi
+            # adapter does not), so walk the cause chain and fall back to the
+            # DETAIL line, which always carries it.
+            constraint_name: str | None = None
+            linked: BaseException | None = exc
+            while linked is not None and constraint_name is None:
+                constraint_name = getattr(linked, "constraint_name", None)
+                linked = getattr(linked, "orig", None) or linked.__cause__
+            if constraint_name is None and "uq_animal_tag_per_farm" in str(exc):
+                constraint_name = "uq_animal_tag_per_farm"
+            if constraint_name != "uq_animal_tag_per_farm":
+                raise
+            # The outer idempotency transaction rolls the whole batch/claim
+            # back.
             raise HTTPException(
                 status_code=409,
                 detail="A generated animal tag already exists on this farm — please retry.",
             ) from None
-        await db.flush()
         return (await _batch_out(db, [batch]))[0]
 
     return await execute_idempotent(

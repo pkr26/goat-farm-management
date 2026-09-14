@@ -122,7 +122,7 @@ const en = {
   "tasks.skip.title": "Skip this task?",
   "tasks.skip.body":
     "Skipping moves this duty to its audit history. Add a reason so the team can understand why it was not completed.",
-  "tasks.skip.reason": "Reason (optional)",
+  "tasks.skip.reason": "Reason",
   "tasks.skip.confirm": "Skip task",
   "tasks.skip.inFlight": "Skipping…",
   "tasks.skip.retry": "Retry skip",

@@ -995,13 +995,16 @@ async def test_login_per_email_ceiling_across_rotating_ips(
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as proxied:
-        for ip in ("1.1.1.1", "2.2.2.2", "3.3.3.3"):
+        # The failure that exactly reaches the per-email ceiling now answers
+        # 429 (RT-A-1: the soft ceiling announces itself on the trip);
+        # earlier failures from fresh composite keys are plain 401s.
+        for ip, expected in (("1.1.1.1", 401), ("2.2.2.2", 401), ("3.3.3.3", 429)):
             resp = await proxied.post(
                 "/api/auth/login",
                 json={"email": "victim@farm.in", "password": "wrongpass1"},
                 headers={"X-Forwarded-For": ip},
             )
-            assert resp.status_code == 401  # fresh composite key each time
+            assert resp.status_code == expected  # fresh composite key each time
         resp = await proxied.post(
             "/api/auth/login",
             json={"email": "victim@farm.in", "password": "wrongpass1"},
@@ -2151,7 +2154,7 @@ async def test_move_reason_cannot_forge_the_history_override_marker(
             "current_bucket": "BREEDING",
             "date_of_birth": (date.today() - timedelta(days=800)).isoformat(),
         },
-        headers=headers,
+        headers=headers | {"Idempotency-Key": "hardening-forge-1"},
     )
     assert created.status_code == 201, created.text
     animal_id = created.json()["id"]

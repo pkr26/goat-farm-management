@@ -163,7 +163,7 @@ describe("PurchasesPage URL state", () => {
     expect(nav.replace).not.toHaveBeenCalled();
   });
 
-  it.each(["abc", "2.5", "0", "-3", "12x", ""])(
+  it.each(["abc", "2.5", "0", "-3", "12x", "", "1e2", "0x64", " 100 "])(
     "ignores a garbage batch param (%s) and renders the plain list",
     async (garbage) => {
       nav.search = `?batch=${garbage}`;

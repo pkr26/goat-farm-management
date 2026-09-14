@@ -5,6 +5,14 @@
  * OpenAPI spec version: 2.0.0
  */
 
+/**
+ * A skip is an auditable exception to scheduled work; the reason is the
+ * audit trail, so it is required (non-blank, <= 255 chars).
+ */
 export interface TaskSkipIn {
-  reason?: string | null;
+  /**
+     * @minLength 1
+     * @maxLength 255
+     */
+  reason: string;
 }

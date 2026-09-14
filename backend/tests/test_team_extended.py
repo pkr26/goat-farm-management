@@ -2528,7 +2528,9 @@ async def test_delete_custom_role_rejects_pending_assigned_duties(
     assert blocked.json()["detail"] == (
         "Role still has actionable duties — complete, verify, reject, or skip them first."
     )
-    skipped = await client.post(f"/api/tasks/{duty.json()['id']}/skip", headers=owner)
+    skipped = await client.post(
+        f"/api/tasks/{duty.json()['id']}/skip", json={"reason": "seasonal standdown"}, headers=owner
+    )
     assert skipped.status_code == 200, skipped.text
     removed = await client.delete(f"/api/team/roles/{role['id']}", headers=owner)
     assert removed.status_code == 204, removed.text
@@ -2598,7 +2600,9 @@ async def test_delete_role_preserves_historical_duty_attribution(client: httpx.A
     role = await create_custom_role(client, owner, "Helper", ["tasks.view"])
     duty = await create_duty(client, owner, "Odd job", rid=role["id"])
     assert duty["assigned_role_id"] == role["id"]
-    skipped = await client.post(f"/api/tasks/{duty['id']}/skip", headers=owner)
+    skipped = await client.post(
+        f"/api/tasks/{duty['id']}/skip", json={"reason": "seasonal standdown"}, headers=owner
+    )
     assert skipped.status_code == 200, skipped.text
 
     resp = await client.delete(f"/api/team/roles/{role['id']}", headers=owner)
@@ -2952,7 +2956,9 @@ async def test_team_endpoints_require_farm_header(
         ("-7", 400),
         (str(2**62), 400),  # out of range
         ("", 400),
-        (" 3 ", 404),  # parses to a nonexistent farm id
+        # RT-B-4: whitespace-padded spellings are non-canonical integers now,
+        # not a parse-to-3 quirk.
+        (" 3 ", 400),
         ("999999", 404),
     ],
 )

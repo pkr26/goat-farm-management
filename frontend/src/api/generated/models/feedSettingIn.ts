@@ -8,5 +8,9 @@ import type { FeedSettingInBucket } from './feedSettingInBucket';
 
 export interface FeedSettingIn {
   bucket: FeedSettingInBucket;
+  /**
+     * @maximum 50
+     * @exclusiveMinimum 0
+     */
   daily_kg_per_head: number;
 }

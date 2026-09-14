@@ -341,8 +341,8 @@ async def test_red_h3_purchase_without_total_books_flagged_zero_row(
 async def test_red_m3_finance_new_without_key_rejected(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(conftest, "IDEMPOTENCY_REQUIRED_PATHS", set())
     headers = await owner_with_farm(client, email="red-m3@farm.in", farm_name="Key Farm")
+    monkeypatch.setattr(conftest, "IDEMPOTENCY_REQUIRED_PATHS", set())
     resp = await client.post(
         "/api/finance/new",
         json={"type": "EXPENSE", "category": "OTHER", "date": iso(today()), "amount": 100.0},
@@ -355,8 +355,8 @@ async def test_red_m3_finance_new_without_key_rejected(
 async def test_red_m3_dispense_without_key_rejected(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(conftest, "IDEMPOTENCY_REQUIRED_PATHS", set())
     headers = await owner_with_farm(client, email="red-m3b@farm.in", farm_name="Key Farm B")
+    monkeypatch.setattr(conftest, "IDEMPOTENCY_REQUIRED_PATHS", set())
     resp = await client.post(
         "/api/feeding/dispense",
         json={
@@ -687,13 +687,17 @@ async def test_red_l5_task_due_date_band(client: httpx.AsyncClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_red_l14_edge_warns_when_publicly_bound_in_development() -> None:
+def test_red_l14_edge_refuses_public_bind_in_development() -> None:
     compose = (REPO_ROOT / "docker-compose.yml").read_text()
-    assert "WARNING: the edge is bound to" in compose
+    # RT-R-4 hardened the guard from a warning to a refusal (exit 2) unless
+    # the operator explicitly opts in for same-machine testing.
+    assert "Refusing to bind the edge to" in compose
+    assert "GOATFARM_ALLOW_DEV_PUBLIC_BIND" in compose
+    assert "WARNING: the edge is bound to" not in compose
     assert "127.0.0.1|localhost|::1) ;;" in compose
     # Independent-verifier regression: the guard reads the in-container
     # environment, so compose must pass the bind host through — otherwise the
-    # warning can never fire (the guard would always see the loopback default).
+    # refusal can never fire (the guard would always see the loopback default).
     assert "GOATFARM_EDGE_BIND_HOST: ${GOATFARM_EDGE_BIND_HOST:-127.0.0.1}" in compose
 
 

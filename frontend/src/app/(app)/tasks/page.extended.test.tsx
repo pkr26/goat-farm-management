@@ -493,10 +493,16 @@ describe("TasksPage (extended)", () => {
     const user = userEvent.setup();
     await renderLoaded();
     await user.click(within(rowOf("Morning feed count")).getByRole("button", { name: "Skip" }));
-    await user.click(await screen.findByRole("button", { name: "Skip task" }));
+    const dialog = await screen.findByRole("dialog", { name: "Skip this task?" });
+    await user.type(within(dialog).getByLabelText("Reason"), "not needed");
+    await user.click(within(dialog).getByRole("button", { name: "Skip task" }));
 
     await waitFor(() =>
-      expect(actionCalls).toContainEqual({ action: "skip", taskId: "1", body: { reason: null } }),
+      expect(actionCalls).toContainEqual({
+        action: "skip",
+        taskId: "1",
+        body: { reason: "not needed" },
+      }),
     );
     await waitFor(() => expect(listCalls).toBeGreaterThanOrEqual(2));
   });
@@ -518,7 +524,7 @@ describe("TasksPage (extended)", () => {
     await renderLoaded();
     await user.click(within(rowOf("Morning feed count")).getByRole("button", { name: "Skip" }));
     const dialog = await screen.findByRole("dialog", { name: "Skip this task?" });
-    await user.type(within(dialog).getByLabelText("Reason (optional)"), "  feed already issued  ");
+    await user.type(within(dialog).getByLabelText("Reason"), "  feed already issued  ");
     await user.click(within(dialog).getByRole("button", { name: "Skip task" }));
 
     await waitFor(() =>
@@ -541,7 +547,9 @@ describe("TasksPage (extended)", () => {
     const user = userEvent.setup();
     await renderLoaded();
     await user.click(within(rowOf("Morning feed count")).getByRole("button", { name: "Skip" }));
-    await user.click(await screen.findByRole("button", { name: "Skip task" }));
+    const skipDialog = await screen.findByRole("dialog", { name: "Skip this task?" });
+    await user.type(within(skipDialog).getByLabelText("Reason"), "not needed");
+    await user.click(within(skipDialog).getByRole("button", { name: "Skip task" }));
 
     await waitFor(() => expect(failed).toBe(1));
     expect(listCalls).toBe(1);

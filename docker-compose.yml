@@ -50,6 +50,10 @@ services:
       timeout: 3s
       retries: 20
     logging: *default-logging
+    # RT-R-2: the database is reachable only from the backend and the
+    # migration job — never from the frontend or the edge.
+    networks:
+      - goatfarm_data
 
   migrate:
     build: .
@@ -73,6 +77,8 @@ services:
       # configuration into the privileged one-shot container.
       GOATFARM_ENVIRONMENT: ${GOATFARM_ENVIRONMENT:-development}
       GOATFARM_DB_SSLMODE: ${GOATFARM_DB_SSLMODE:-disable}
+    networks:
+      - goatfarm_data
 
   backend:
     build: .
@@ -118,7 +124,7 @@ services:
       GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET: ${GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET:?set a stable idempotency HMAC secret (required — see .env.example)}
       GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS: '${GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS:-[]}'
       # Defaults to exactly the edge container's configurable address (see the
-      # `default` network below) — never the whole bridge range, which would
+      # `goatfarm_app` network below) — never the whole bridge range, which would
       # also cover other containers and let them spoof X-Forwarded-For. The
       # explicit GOATFARM_TRUSTED_PROXY_HOSTS override (README) still wins so
       # topologies with an additional outer proxy/load balancer can trust its
@@ -132,6 +138,11 @@ services:
     # Internal only: the edge below is the sole host-published listener.
     expose:
       - "8000"
+    # RT-R-2: straddles both segments — it must reach the database and serve
+    # the edge/frontend; nothing else crosses.
+    networks:
+      - goatfarm_app
+      - goatfarm_data
 
   frontend:
     build:
@@ -154,6 +165,8 @@ services:
     # the Next container's address for every client on the planet.
     expose:
       - "3000"
+    networks:
+      - goatfarm_app
 
   edge:
     image: nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de
@@ -216,14 +229,20 @@ services:
         case "$${GOATFARM_EDGE_BIND_HOST:-127.0.0.1}" in
           127.0.0.1|localhost|::1) ;;
           *)
-            if [ "$$GOATFARM_ENVIRONMENT" != "production" ]; then
-              echo "WARNING: the edge is bound to $${GOATFARM_EDGE_BIND_HOST} while GOATFARM_ENVIRONMENT is '$$GOATFARM_ENVIRONMENT' — every production gate (Secure cookies, strict CORS, TLS assertion, password floor) is OFF on a publicly reachable listener. Set GOATFARM_ENVIRONMENT=production behind a TLS terminator." >&2
+            # RT-R-4: a publicly reachable listener must not run with every
+            # production gate (Secure cookies, strict CORS, TLS assertion,
+            # password floor, HMAC secret) switched off. Refuse instead of
+            # warning; GOATFARM_ALLOW_DEV_PUBLIC_BIND=true is the explicit
+            # same-machine-testing opt-out.
+            if [ "$$GOATFARM_ENVIRONMENT" != "production" ] && [ "$${GOATFARM_ALLOW_DEV_PUBLIC_BIND:-false}" != "true" ]; then
+              echo "Refusing to bind the edge to $${GOATFARM_EDGE_BIND_HOST} while GOATFARM_ENVIRONMENT is '$$GOATFARM_ENVIRONMENT': every production gate (Secure cookies, strict CORS, TLS assertion, password floor) would be OFF on a publicly reachable listener. Set GOATFARM_ENVIRONMENT=production behind a TLS terminator, or set GOATFARM_ALLOW_DEV_PUBLIC_BIND=true to override for same-machine testing." >&2
+              exit 2
             fi
             ;;
         esac
         exec nginx -g 'daemon off;'
     networks:
-      default:
+      goatfarm_app:
         # Fixed within an operator-selectable subnet so the backend can trust
         # this one peer without pinning every deployment to a collision-prone
         # Docker/AWS range.
@@ -238,6 +257,14 @@ configs:
   edge_proxy:
     # `$$` escapes Compose interpolation; nginx receives single-dollar vars.
     content: |
+      # RT-R-1: first-line flood shaping for the unauthenticated password
+      # endpoints. The backend's per-IP limiter (10 login attempts / 300 s)
+      # already bounds credential guessing; this zone keeps raw request floods
+      # off the single uvicorn worker before they can occupy its two Argon2
+      # slots. 5 r/s with burst 20 per client address is far above human
+      # login/refresh cadence (and refreshes carry no Argon2 cost) while
+      # capping an attacker at ~1/6th of the measured rejection throughput.
+      limit_req_zone $binary_remote_addr zone=auth_flood:10m rate=5r/s;
       server {
           listen 3000;
           server_name _;
@@ -280,6 +307,17 @@ configs:
               return 200 "ok\n";
           }
 
+          location /api/auth/ {
+              # RT-R-1: applies the zone declared above to the auth family.
+              limit_req zone=auth_flood burst=20 nodelay;
+              limit_req_status 429;
+              # A variable in proxy_pass disables nginx's automatic URI
+              # pass-through, so the original URI must be restated;
+              # $request_uri is the unmodified request target including its
+              # query string, which is what the literal form sent.
+              set $$backend_upstream backend;
+              proxy_pass http://$$backend_upstream:8000$$request_uri;
+          }
           location /api/ {
               # A variable in proxy_pass disables nginx's automatic URI
               # pass-through, so the original URI must be restated;
@@ -295,10 +333,18 @@ configs:
       }
 
 networks:
-  default:
+  # RT-R-2: two segments instead of one flat bridge. The edge and frontend
+  # can no longer reach `db:5432`; only the backend (and the migration job)
+  # straddle both. The edge keeps its fixed app-segment address so
+  # GOATFARM_TRUSTED_PROXY_HOSTS keeps pinning exactly one peer.
+  goatfarm_app:
     ipam:
       config:
         - subnet: ${GOATFARM_DOCKER_SUBNET:-198.18.243.0/24}
+  goatfarm_data:
+    ipam:
+      config:
+        - subnet: ${GOATFARM_DOCKER_DATA_SUBNET:-198.18.244.0/24}
 
 volumes:
   pgdata:

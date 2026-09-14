@@ -26,6 +26,7 @@ import {
   TriangleAlert,
   type LucideIcon,
 } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { toast } from "sonner";
 
@@ -684,7 +685,11 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                   !canManage ||
                   updatePlanMutation.isPending ||
                   targets.length === 0 ||
-                  targetErrors.length > 0
+                  targetErrors.length > 0 ||
+                  // Mirrors the Save condition: an empty plan name is caught
+                  // at submit with a toast — don't offer the dead click
+                  // (RT-P2-6).
+                  !planName.trim()
                 }
               >
                 Update “{openPlan.name}”
@@ -903,9 +908,9 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
               "Starting from assumptions calibrated against this farm's own records."}
             {basisSource === "saved" && "Starting from a saved plan's assumptions."}{" "}
             For full control of every assumption (feed, prices, finance), build them in{" "}
-            <a className="underline" href="/simulation">
+            <Link className="underline" href="/simulation">
               Simulation
-            </a>{" "}
+            </Link>{" "}
             and calibrate there first.
           </p>
         </CardContent>

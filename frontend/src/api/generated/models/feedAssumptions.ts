@@ -145,8 +145,8 @@ export interface FeedAssumptions {
      */
   cultivated_fodder_acres?: number;
   /**
+     * @minimum 0.01
      * @maximum 1000
-     * @exclusiveMinimum 0
      */
   fodder_yield_t_dm_per_acre_year?: number;
   /**

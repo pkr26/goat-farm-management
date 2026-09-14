@@ -11,8 +11,8 @@ import type { ReportsOutSexCounts } from './reportsOutSexCounts';
 import type { ReportsOutStatusCounts } from './reportsOutStatusCounts';
 
 export interface ReportsOut {
-  bucket_rows: BucketReportRow[];
-  total_active: number;
+  bucket_rows: BucketReportRow[] | null;
+  total_active: number | null;
   sex_counts: ReportsOutSexCounts;
   status_counts: ReportsOutStatusCounts;
   breeding: BreedingStatsOut;

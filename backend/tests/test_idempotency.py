@@ -32,6 +32,7 @@ import app.api.simulation as simulation_api
 import app.api.tasks as tasks_api
 import app.api.team as team_api
 import app.services.idempotency as idempotency_service
+from app.api.auth import CREATE_FARM_IDEMPOTENCY_OPERATION
 from app.core.config import get_settings
 from app.db import get_sessionmaker
 from app.main import create_app
@@ -401,8 +402,17 @@ async def stock_all_ingredients(
 
 
 async def idempotency_count() -> int:
+    """Farm creation now carries a required (test-auto-injected) key, so its
+    claims would perturb every exact-count assertion below; the farm-create
+    operation has its own dedicated replay tests."""
     async with get_sessionmaker()() as db:
-        return (await db.execute(select(func.count(IdempotencyRecord.id)))).scalar_one()
+        return (
+            await db.execute(
+                select(func.count(IdempotencyRecord.id)).where(
+                    IdempotencyRecord.operation != CREATE_FARM_IDEMPOTENCY_OPERATION
+                )
+            )
+        ).scalar_one()
 
 
 async def test_farm_create_replays_at_quota_and_persists_one_complete_seed_graph(
@@ -790,7 +800,7 @@ async def test_weight_retry_appends_one_record_and_hashes_the_animal_path(
             "current_bucket": "QUARANTINE",
             "purchase_date": today().isoformat(),
         },
-        headers=owner,
+        headers=owner | {"Idempotency-Key": "weight-idemp-animal-1"},
     )
     assert animal.status_code == 201, animal.text
     animal_id = animal.json()["id"]
@@ -1267,7 +1277,11 @@ async def test_expiry_cleanup_is_scheduled_and_strictly_batch_bounded(
     async with get_sessionmaker()() as db:
         ids = list(
             (
-                await db.execute(select(IdempotencyRecord.id).order_by(IdempotencyRecord.id))
+                await db.execute(
+                    select(IdempotencyRecord.id)
+                    .where(IdempotencyRecord.operation != CREATE_FARM_IDEMPOTENCY_OPERATION)
+                    .order_by(IdempotencyRecord.id)
+                )
             ).scalars()
         )
         await db.execute(
@@ -1330,7 +1344,11 @@ async def test_purge_skips_rows_locked_by_a_concurrent_transaction(
     async with get_sessionmaker()() as db:
         ids = list(
             (
-                await db.execute(select(IdempotencyRecord.id).order_by(IdempotencyRecord.id))
+                await db.execute(
+                    select(IdempotencyRecord.id)
+                    .where(IdempotencyRecord.operation != CREATE_FARM_IDEMPOTENCY_OPERATION)
+                    .order_by(IdempotencyRecord.id)
+                )
             ).scalars()
         )
         await db.execute(
@@ -1361,7 +1379,15 @@ async def test_purge_skips_rows_locked_by_a_concurrent_transaction(
 
     assert removed == 1
     async with get_sessionmaker()() as db:
-        remaining = list((await db.execute(select(IdempotencyRecord.id))).scalars())
+        remaining = list(
+            (
+                await db.execute(
+                    select(IdempotencyRecord.id).where(
+                        IdempotencyRecord.operation != CREATE_FARM_IDEMPOTENCY_OPERATION
+                    )
+                )
+            ).scalars()
+        )
     assert remaining == [ids[0]]
 
 
@@ -1382,7 +1408,11 @@ async def test_purge_deletes_the_earliest_expiring_rows_first(
     async with get_sessionmaker()() as db:
         ids = list(
             (
-                await db.execute(select(IdempotencyRecord.id).order_by(IdempotencyRecord.id))
+                await db.execute(
+                    select(IdempotencyRecord.id)
+                    .where(IdempotencyRecord.operation != CREATE_FARM_IDEMPOTENCY_OPERATION)
+                    .order_by(IdempotencyRecord.id)
+                )
             ).scalars()
         )
         # expires_at descends as id ascends, so the two orders disagree.
@@ -1401,7 +1431,15 @@ async def test_purge_deletes_the_earliest_expiring_rows_first(
 
     assert removed == 1
     async with get_sessionmaker()() as db:
-        remaining = set((await db.execute(select(IdempotencyRecord.id))).scalars())
+        remaining = set(
+            (
+                await db.execute(
+                    select(IdempotencyRecord.id).where(
+                        IdempotencyRecord.operation != CREATE_FARM_IDEMPOTENCY_OPERATION
+                    )
+                )
+            ).scalars()
+        )
     assert remaining == {ids[0], ids[1]}
 
 
@@ -1420,7 +1458,11 @@ async def test_purge_removes_a_record_expiring_exactly_now(
 
     boundary = utcnow()
     async with get_sessionmaker()() as db:
-        await db.execute(update(IdempotencyRecord).values(expires_at=boundary))
+        await db.execute(
+            update(IdempotencyRecord)
+            .where(IdempotencyRecord.operation != CREATE_FARM_IDEMPOTENCY_OPERATION)
+            .values(expires_at=boundary)
+        )
         await db.commit()
     monkeypatch.setattr(idempotency_service, "utcnow", lambda: boundary)
 
@@ -1984,7 +2026,11 @@ async def test_pending_manual_task_limit_is_concurrency_safe_and_replay_safe(
     assert replay.json() == winner.json()
     assert replay.headers["Idempotency-Replayed"] == "true"
 
-    skipped = await client.post(f"/api/tasks/{winner.json()['id']}/skip", headers=owner)
+    skipped = await client.post(
+        f"/api/tasks/{winner.json()['id']}/skip",
+        json={"reason": "seasonal standdown"},
+        headers=owner,
+    )
     assert skipped.status_code == 200, skipped.text
     replacement = await client.post(
         "/api/tasks",
@@ -2179,9 +2225,15 @@ def test_openapi_declares_bounded_idempotency_header_on_all_routes() -> None:
     # The two mutations with no DB natural key REJECT keyless requests at
     # runtime, so the published contract must mark their header required —
     # generated clients then send it instead of discovering the 422 live.
-    required_routes = {("/api/finance/new", "post"), ("/api/feeding/dispense", "post")}
-    routes = required_routes | {
+    required_routes = {
+        ("/api/finance/new", "post"),
+        ("/api/feeding/dispense", "post"),
+        ("/api/feeding/mix", "post"),
+        ("/api/feeding/inventory/{item_id}/add", "post"),
+        ("/api/purchases/new", "post"),
         ("/api/auth/farms", "post"),
+    }
+    routes = required_routes | {
         ("/api/finance/transactions/{transaction_id}/correct", "post"),
         ("/api/purchases/new", "post"),
         ("/api/feeding/mix", "post"),

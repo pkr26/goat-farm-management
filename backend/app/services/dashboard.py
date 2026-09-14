@@ -3,7 +3,7 @@
 from datetime import date, timedelta
 from typing import Any
 
-from sqlalchemy import Date, and_, case, cast, func, or_, select
+from sqlalchemy import Date, ScalarSelect, Select, and_, case, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (
@@ -31,6 +31,22 @@ def _age_months(dob: date | None, reference_date: date) -> int | None:
     if reference_date.day < dob.day:
         months -= 1
     return max(months, 0)
+
+
+def _exact_total(base: Select[Any]) -> ScalarSelect[int]:
+    """The preview's full-result count, computed inside the preview statement.
+
+    Same shape as ``api.dashboard._exact_total`` (kept local — the service
+    layer must not import the API layer). ``func.count().over()`` yields the
+    same number, but an unpartitioned window aggregate must drain its whole
+    input before the LIMIT can emit anything, and the
+    ``dashboard_animal_context`` subquery below carries five correlated
+    scalar subqueries per row — every dashboard load would pay them for every
+    ACTIVE animal, not just the bounded preview. An uncorrelated scalar
+    subquery is evaluated once, keeps the total exact and in the same round
+    trip, and leaves the preview itself bounded by its own LIMIT.
+    """
+    return select(func.count()).select_from(base.order_by(None).subquery()).scalar_subquery()
 
 
 async def ready_to_move_suggestions(
@@ -203,10 +219,12 @@ async def ready_to_move_suggestions(
         context.c.suspected_scheduled_disease.is_(False),
         or_(*breeding_rules, market_rule) if include_breeding else market_rule,
     )
-    candidates = select(context, func.count().over().label("suggestions_total")).where(qualifies)
+    candidates = select(context).where(qualifies)
     rows = (
         await db.execute(
-            candidates.order_by(context.c.tag_number, context.c.animal_id).limit(limit)
+            candidates.add_columns(_exact_total(candidates).label("suggestions_total"))
+            .order_by(context.c.tag_number, context.c.animal_id)
+            .limit(limit)
         )
     ).all()
 

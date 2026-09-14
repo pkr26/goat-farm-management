@@ -228,8 +228,9 @@ describe("single-flight refresh slot", () => {
     firstGate.resolve();
 
     // The in-flight answer belongs to the session that just ended; the new one
-    // has to ask for itself rather than inherit it.
-    await expect(first).resolves.toEqual({ kind: "rejected" });
+    // has to ask for itself rather than inherit it. The verdict is a local
+    // supersession, not the server's answer, so it reports "unavailable".
+    await expect(first).resolves.toEqual({ kind: "unavailable" });
     await vi.waitFor(() => expect(refreshCalls).toBe(2));
     secondGate.resolve();
     await expect(second).resolves.toMatchObject({ kind: "session" });
@@ -259,7 +260,8 @@ describe("single-flight refresh slot", () => {
     setAccessToken("token-b", 2);
     const second = refreshSessionDetailed();
     firstGate.resolve();
-    await expect(first).resolves.toEqual({ kind: "rejected" });
+    // Local supersession: "unavailable", never an authoritative "rejected".
+    await expect(first).resolves.toEqual({ kind: "unavailable" });
     // The superseded refresh's own cleanup runs a macrotask later. It owns
     // only its own slot: clearing the newer session's entry would fan a single
     // 401 storm back out into one refresh per caller.

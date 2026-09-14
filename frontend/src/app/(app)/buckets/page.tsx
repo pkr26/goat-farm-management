@@ -34,6 +34,20 @@ import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
  * reported a bucket set to 1.25 kg/head as "1.2". */
 const rationFormat = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 3 });
 
+/** The register link is backend-supplied: safeAppPath rejects foreign
+ * origins, smuggled encodings and canonicalization drift, and this module
+ * check additionally keeps the destination inside the animals register even
+ * if the generator ever emitted another same-origin path — any other value
+ * falls back to the plain bucket filter (RT-P6-1). */
+function animalsRegisterPath(raw: string | null | undefined, bucket: string): string {
+  const safe = safeAppPath(raw);
+  if (safe) {
+    const path = safe.split(/[?#]/, 1)[0];
+    if (path === "/animals" || path.startsWith("/animals/")) return safe;
+  }
+  return `/animals?bucket=${encodeURIComponent(bucket)}`;
+}
+
 function BucketCard({ row, canViewAnimals }: { row: BucketBoardRow; canViewAnimals: boolean }) {
   const truncated = row.animals.length < row.animals_total;
 
@@ -98,19 +112,14 @@ function BucketCard({ row, canViewAnimals }: { row: BucketBoardRow; canViewAnima
             Showing {row.animals.length} of {row.animals_total} animals.{" "}
             {canViewAnimals ? (
               <Link
-                href={
-                  // Backend-supplied path: validate before it reaches a Link
-                  // (defense-in-depth — L11), falling back to the plain filter.
-                  safeAppPath(row.animals_page_path) ??
-                  `/animals?bucket=${encodeURIComponent(row.bucket)}`
-                }
+                href={animalsRegisterPath(row.animals_page_path, row.bucket)}
                 className="text-primary underline"
               >
                 View the full bucket register
               </Link>
             ) : (
-                "The full register requires animal access."
-              )}
+              "The full register requires animal access."
+            )}
             <span className="block text-xs">
               Board preview limit: {row.animals_limit} animals.
             </span>

@@ -75,6 +75,20 @@ _CLASS_MAX_AGE = {"kid": 2, "weaner": 5}
 # Age (months) at which an animal enters each class: kid 0, weaner 3, grower 6.
 _CLASS_ENTRY_AGE = {"kid": 0, "weaner": 3, "grower": 6}
 
+# The schema caps a whole document's event list at 500 entries
+# (``HerdEvents.events`` max_length). That budget is shared by the caller's
+# own purchase events, the planner's generated purchases and one sale event
+# per target — so the planner must count its chunks BEFORE building them: a
+# tiny ``conception_rate`` scales ``needed`` head up trillions-fold, and
+# materializing even a fraction of those chunks OOMs the single worker long
+# before the post-hoc validation guard can fire (red-team RT-L8-1).
+MAX_PLAN_EVENTS = 500
+# Backstop inside the chunking loop itself. The arithmetic pre-checks above
+# always fire first; this cap exists so an arithmetic regression (e.g. float
+# absorption making ``remaining -= chunk`` a no-op at huge counts) can never
+# degrade into an unbounded while-loop.
+_MAX_MATERIALIZED_PURCHASE_EVENTS = 1000
+
 
 def _class_max_age(animal_class: str, sale_age_months: int, first_breeding_months: int) -> int:
     base = animal_class.rsplit("_", maxsplit=1)[-1]
@@ -468,7 +482,13 @@ def close_gaps(
             marginal = _marginal_kids_per_doe(assumptions, target, purchase_month)
             if marginal <= 0.0:
                 continue
-            needed = math.ceil(fill.shortfall / marginal)
+            # A denormal marginal can push the ratio past float range
+            # (``math.ceil`` of inf raises); anything at or beyond the
+            # purchasable ceiling is rejected by the event-cap check below,
+            # so clamp instead of ever materializing it.
+            ratio = fill.shortfall / marginal
+            ceiling = MAX_HEAD * MAX_PLAN_EVENTS
+            needed = min(math.ceil(min(ratio, float(ceiling))), ceiling)
             if needed <= 0:
                 continue
             purchases_by_month[purchase_month] = (
@@ -477,6 +497,15 @@ def close_gaps(
             changed = True
         if not changed:
             break
+        # Bound the materialization BEFORE building anything (RT-L8-1): the
+        # plan's event document = the caller's kept purchases + one sale event
+        # per target + the chunks below, all countable by pure arithmetic. A
+        # demand that cannot fit must fail as this cheap ValueError (mapped to
+        # 422 by the API), never as an OOM after half a billion objects exist.
+        reserved_events = sum(1 for event in assumptions.events if event.kind == "purchase") + len(
+            targets
+        )
+        _check_purchase_event_budget(purchases_by_month, reserved=reserved_events)
         purchases = _purchases_from(purchases_by_month)
         evaluation = _evaluate(assumptions, targets, purchases)
 
@@ -488,18 +517,55 @@ def close_gaps(
     )
 
 
+def _projected_purchase_events(by_month: dict[int, float]) -> int:
+    """Event count ``_purchases_from`` would build, by pure arithmetic.
+
+    No allocation, so an absurd demand (trillions of ``MAX_HEAD`` chunks)
+    is measurable and rejectable before a single event object exists.
+    """
+    return sum(math.ceil(count / MAX_HEAD) for count in by_month.values())
+
+
+def _check_purchase_event_budget(by_month: dict[int, float], *, reserved: int = 0) -> None:
+    """Raise before materialization when the chunked purchases cannot fit.
+
+    ``reserved`` is the event headroom the rest of the plan document already
+    consumes (the caller's kept purchase events plus one sale event per
+    target). The message is actionable on purpose: the usual cause is a
+    near-zero conception rate scaling the doe demand beyond every limit.
+    """
+    projected = _projected_purchase_events(by_month)
+    if reserved + projected > MAX_PLAN_EVENTS:
+        raise ValueError(
+            f"plan requires {projected} purchase events; cap is {MAX_PLAN_EVENTS} "
+            "— raise conception_rate or lower the shortfall"
+        )
+
+
 def _purchases_from(by_month: dict[int, float]) -> list[HerdEventAssumptions]:
     """Chunked per-month purchase events, each inside the schema's head cap.
 
     A huge shortfall can demand more than ``MAX_HEAD`` head in one month; a
     single event would then fail validation mid-iteration (an unhandled 500
-    from the API). Splitting keeps every event legal; a plan so large it
-    exceeds the total event cap still fails validation loudly — by design.
+    from the API). Splitting keeps every event legal; a plan whose chunks
+    would exceed the event cap is rejected here by arithmetic, before a
+    single event is built — materializing the chunk list inside the priced
+    budget was an OOM vector, not a validation error (RT-L8-1).
     """
+    _check_purchase_event_budget(by_month)
     events: list[HerdEventAssumptions] = []
     for month, count in sorted(by_month.items()):
         remaining = count
         while remaining > 0.0:
+            if len(events) >= _MAX_MATERIALIZED_PURCHASE_EVENTS:
+                # Unreachable while the pre-check above holds; kept so the
+                # loop can never run away even if that arithmetic regresses.
+                raise ValueError(
+                    "purchase chunking exceeded the "
+                    f"{_MAX_MATERIALIZED_PURCHASE_EVENTS}-event backstop; "
+                    f"cap is {MAX_PLAN_EVENTS} — raise conception_rate or "
+                    "lower the shortfall"
+                )
             chunk = min(remaining, float(MAX_HEAD))
             events.append(
                 HerdEventAssumptions(month=month, kind="purchase", animal_class="doe", count=chunk)

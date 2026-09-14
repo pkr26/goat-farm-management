@@ -30,7 +30,6 @@ from ..schemas.feeding import (
 )
 from ..services import (
     DRY_ROUGHAGE,
-    IdempotencyKey,
     InsufficientFeedError,
     RequiredIdempotencyKey,
     add_feed_stock,
@@ -151,6 +150,15 @@ async def dispense(
             require_farm_not_future(record_date, farm, "dispensing date")
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
+        if record_date < farm.created_at.date():
+            # Hardening floor (RT-HIJ-4): a dispensing record cannot predate
+            # the farm itself. created_at is UTC while record_date is the
+            # farm-local business date, so comparing against the UTC date can
+            # only loosen the floor by a day — never reject a legit entry.
+            raise HTTPException(
+                status_code=422,
+                detail="Dispensing date cannot be before the farm was created.",
+            )
         # DispenseIn declares the recipe required and trims it: a record
         # without one cannot be reconciled with the ration plan and, more
         # importantly, bypasses finished-feed stock deduction. Dry roughage
@@ -271,7 +279,7 @@ async def mix_batch(
     user: CurrentUser,
     farm: CurrentFarm,
     perms: FeedingManage,
-    idempotency_key: IdempotencyKey = None,
+    idempotency_key: RequiredIdempotencyKey,
 ) -> FeedRecipeOut:
     """Mix a batch of a recipe, decrementing inventory per recipe lines."""
 
@@ -321,7 +329,7 @@ async def add_stock(
     user: CurrentUser,
     farm: CurrentFarm,
     perms: FeedingManage,
-    idempotency_key: IdempotencyKey = None,
+    idempotency_key: RequiredIdempotencyKey,
 ) -> FeedInventoryOut:
     """Purchase stock: bump qty on hand, update last price, book a FEED expense."""
 

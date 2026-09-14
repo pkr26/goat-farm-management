@@ -5994,14 +5994,14 @@ export const getSkipApiTasksTaskIdSkipPostUrl = (taskId: number,) => {
  * @summary Skip
  */
 export const skipApiTasksTaskIdSkipPost = async (taskId: number,
-    taskSkipInNull?: TaskSkipIn | null, options?: Parameters<typeof customInstance>[1]): Promise<skipApiTasksTaskIdSkipPostResponse> => {
+    taskSkipIn: TaskSkipIn, options?: Parameters<typeof customInstance>[1]): Promise<skipApiTasksTaskIdSkipPostResponse> => {
 
   return customInstance<skipApiTasksTaskIdSkipPostResponse>(getSkipApiTasksTaskIdSkipPostUrl(taskId),
   {
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(taskSkipInNull)
+    body: JSON.stringify(taskSkipIn)
   }
 );}
 
@@ -6010,8 +6010,8 @@ export const skipApiTasksTaskIdSkipPost = async (taskId: number,
 
 
 export const getSkipApiTasksTaskIdSkipPostMutationOptions = <TError = ErrorType<ErrorOut | HTTPValidationError>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof skipApiTasksTaskIdSkipPost>>, TError,{taskId: number;data?: TaskSkipIn | null}, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof skipApiTasksTaskIdSkipPost>>, TError,{taskId: number;data?: TaskSkipIn | null}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof skipApiTasksTaskIdSkipPost>>, TError,{taskId: number;data: TaskSkipIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof skipApiTasksTaskIdSkipPost>>, TError,{taskId: number;data: TaskSkipIn}, TContext> => {
 
 const mutationKey = ['skipApiTasksTaskIdSkipPost'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -6023,7 +6023,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof skipApiTasksTaskIdSkipPost>>, {taskId: number;data?: TaskSkipIn | null}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof skipApiTasksTaskIdSkipPost>>, {taskId: number;data: TaskSkipIn}> = (props) => {
           const {taskId,data} = props ?? {};
 
           return  skipApiTasksTaskIdSkipPost(taskId,data,requestOptions)
@@ -6037,18 +6037,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type SkipApiTasksTaskIdSkipPostMutationResult = NonNullable<Awaited<ReturnType<typeof skipApiTasksTaskIdSkipPost>>>
-    export type SkipApiTasksTaskIdSkipPostMutationBody = TaskSkipIn | null | undefined
+    export type SkipApiTasksTaskIdSkipPostMutationBody = TaskSkipIn
     export type SkipApiTasksTaskIdSkipPostMutationError = ErrorType<ErrorOut | HTTPValidationError>
 
     /**
  * @summary Skip
  */
 export const useSkipApiTasksTaskIdSkipPost = <TError = ErrorType<ErrorOut | HTTPValidationError>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof skipApiTasksTaskIdSkipPost>>, TError,{taskId: number;data?: TaskSkipIn | null}, TContext>, request?: SecondParameter<typeof customInstance>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof skipApiTasksTaskIdSkipPost>>, TError,{taskId: number;data: TaskSkipIn}, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof skipApiTasksTaskIdSkipPost>>,
         TError,
-        {taskId: number;data?: TaskSkipIn | null},
+        {taskId: number;data: TaskSkipIn},
         TContext
       > => {
       return useMutation(getSkipApiTasksTaskIdSkipPostMutationOptions(options), queryClient);
@@ -8474,10 +8474,17 @@ export const getDashboardApiDashboardGetUrl = () => {
  *
  * Sections carrying a breeding-programme judgement — kiddings due, cull
  * candidates and the suggestions derived from breeding readiness or an open
- * pregnancy — need ``breeding.view``, the same permission that governs
- * ``cull_candidate`` / ``is_breeding_ready`` / ``is_currently_pregnant`` in
- * ``animal_out``. A caller without it gets empty lists and zero totals rather
- * than a 403, so the page still renders for e.g. the cleaner preset.
+ * pregnancy — need ``breeding.view`` (suggestions additionally
+ * ``animals.view``, since every one names the animal and its exact weight),
+ * the same permissions that govern ``cull_candidate`` / ``is_breeding_ready``
+ * / ``is_currently_pregnant`` in ``animal_out``. A caller without a section's
+ * gate gets an empty list and a null total rather than a 403, so the page
+ * still renders for e.g. the cleaner preset.
+ *
+ * The herd-summary block — bucket occupancy (the breeding-programme buckets
+ * among them), the active total and the sex split — restate animal-register
+ * facts the animals pages hold behind ``animals.view``, so it is withheld
+ * the same way (null fields, not zeros) without that permission.
  *
  * Recent weights are per-animal weight/BCS rows with the animal's identity,
  * so they need ``animals.view`` — the permission that guards weight history
@@ -8635,6 +8642,15 @@ export const getReportsApiDashboardReportsGetUrl = () => {
  * Herd summary, breeding performance, mortality — all aggregated in SQL;
  * only a 100-row purpose-specific cull preview is hydrated as ORM rows and
  * its exact count is returned separately.
+ *
+ * The herd-summary block — per-bucket occupancy (the breeding-programme
+ * buckets among them) plus per-bucket mean live weights, the active total
+ * and the sex split — restate bucket-board / animal-register facts:
+ * ``avg_weight`` is an animals.view-derived aggregate and the occupancy it
+ * sits beside is what the bucket board gates. The dashboard endpoint
+ * withholds exactly these figures without ``animals.view``; returning them
+ * here would hand them straight back through the other endpoint, so the
+ * same None withheld convention applies.
  * @summary Reports
  */
 export const reportsApiDashboardReportsGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<reportsApiDashboardReportsGetResponse> => {

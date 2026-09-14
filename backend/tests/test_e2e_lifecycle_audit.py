@@ -961,7 +961,9 @@ async def test_rbac_move_and_health_permissions(client: httpx.AsyncClient) -> No
     denied_vet = await try_move(client, vet, second["id"], "BREEDING")
     assert denied_vet.status_code == 403, denied_vet.text
 
-    # VET places and clears the movement hold; MOVER cannot clear.
+    # VET places the scheduled-disease hold; MOVER cannot clear (403), and
+    # RT-FG-2's two-person rule means the placing VET cannot clear it alone
+    # either — the owner releases it.
     placed = await health_event(
         client,
         vet,
@@ -978,10 +980,16 @@ async def test_rbac_move_and_health_permissions(client: httpx.AsyncClient) -> No
         headers=mover,
     )
     assert forbidden.status_code == 403, forbidden.text
-    cleared = await client.post(
+    self_clear = await client.post(
         f"/api/health/restrictions/{doe['id']}/clear",
         json={"clearance_reference": "Vet OK", "expected_restriction_version": 1},
         headers=vet,
+    )
+    assert self_clear.status_code == 409, self_clear.text
+    cleared = await client.post(
+        f"/api/health/restrictions/{doe['id']}/clear",
+        json={"clearance_reference": "AHD release", "expected_restriction_version": 1},
+        headers=owner,
     )
     assert cleared.status_code == 204, cleared.text
 

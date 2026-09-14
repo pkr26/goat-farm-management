@@ -3,6 +3,7 @@ and the RBAC authorization layer (membership, permissions, require_perm)."""
 
 import hashlib
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from typing import Annotated
 
@@ -532,10 +533,13 @@ async def current_farm(
     # headers, so never authorize a request under an ambiguous farm identity.
     if len(request.headers.getlist("x-farm-id")) != 1:
         raise HTTPException(status_code=400, detail="X-Farm-Id must be supplied exactly once")
-    try:
-        farm_id = int(x_farm_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="X-Farm-Id must be an integer") from None
+    # Strict ASCII spelling (RT-B-4): Python's int() also accepts Unicode
+    # digits ("٥"), "+5", " 5 " and "5_0" — spellings a WAF or edge validator
+    # may treat as non-numeric, creating proxy/application disagreement on a
+    # security-relevant header. Canonical [0-9]+ only.
+    if not re.fullmatch(r"[0-9]+", x_farm_id):
+        raise HTTPException(status_code=400, detail="X-Farm-Id must be an integer")
+    farm_id = int(x_farm_id)
     if not 0 < farm_id < 2**62:
         raise HTTPException(status_code=400, detail="X-Farm-Id out of range")
     # Above the int4 PK ceiling no farm can exist — 404, never an asyncpg

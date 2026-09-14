@@ -38,6 +38,11 @@ MAX_LACTATION_LITRES = 100_000
 # real fodder cultivation, small enough to keep area × yield products finite.
 MAX_FODDER_ACRES = 1_000_000
 MAX_FODDER_YIELD_T = 1000
+# Agronomic floor (~10 kg DM/acre/yr): a denominator-sized yield turns the
+# land requirement absurd or overflowing (1e-300 → 1e301 acres), so the bound
+# is a floor, not merely > 0 (red-team RT-L8-4). Monte Carlo clamps that
+# perturb this field must revalidate against this same floor.
+MIN_FODDER_YIELD_T = 0.01
 # Monte Carlo spread multipliers: a 100x swing is already absurd.
 MAX_RISK_MULTIPLIER = 100.0
 # Price/yield seasonality is deliberately bounded more tightly than an
@@ -576,7 +581,11 @@ class FeedAssumptions(_Group):
     # and tops up; the old 0-acre default priced every green kilogram at the
     # purchased rate for a decade, which no stall-fed unit with land does.
     cultivated_fodder_acres: FiniteFloat = Field(default=3.0, ge=0.0, le=MAX_FODDER_ACRES)
-    fodder_yield_t_dm_per_acre_year: FiniteFloat = Field(default=6.0, gt=0.0, le=MAX_FODDER_YIELD_T)
+    # Floor via MIN_FODDER_YIELD_T (RT-L8-4): engine division cannot tell a
+    # rounding artifact from an agronomic claim, so the bound must.
+    fodder_yield_t_dm_per_acre_year: FiniteFloat = Field(
+        default=6.0, ge=MIN_FODDER_YIELD_T, le=MAX_FODDER_YIELD_T
+    )
     # Monthly production factors (average 1.0 is a full stated annual yield).
     # They need not sum to 12: the engine normalizes them, so the annual yield
     # remains exactly the user's stated agronomic assumption.

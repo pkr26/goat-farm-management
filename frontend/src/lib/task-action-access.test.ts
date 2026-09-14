@@ -101,10 +101,27 @@ describe("taskSkipUnavailable", () => {
     ).toBe(true);
   });
 
+  it("blocks skip for auto-generated animal-linked ULTRASOUND duties", () => {
+    // RT-Q-1: the pregnancy check closes an open service. While the linked
+    // breeding outcome is still PENDING the backend 409s the skip; TaskOut
+    // carries no outcome, so every generated animal-linked row fails closed.
+    expect(
+      taskSkipUnavailable(
+        makeState({ category: "ULTRASOUND", auto_generated: true, animal_id: 7 }),
+      ),
+    ).toBe(true);
+  });
+
   it("keeps skip for duties the backend can accept", () => {
     // Manual duties are never gated, batch-linked or not.
     expect(taskSkipUnavailable(makeState({ purchase_batch_id: 42 }))).toBe(false);
     expect(taskSkipUnavailable(makeState({ category: "WEANING", animal_id: 7 }))).toBe(false);
+    // A manual ultrasound (or one without a linked doe) has no open service to
+    // strand, so the backend accepts the skip.
+    expect(taskSkipUnavailable(makeState({ category: "ULTRASOUND", animal_id: 7 }))).toBe(false);
+    expect(
+      taskSkipUnavailable(makeState({ category: "ULTRASOUND", auto_generated: true })),
+    ).toBe(false);
     // A generated weaning row without a linked animal has no RECOVERY set to
     // strand, so the backend accepts the skip.
     expect(

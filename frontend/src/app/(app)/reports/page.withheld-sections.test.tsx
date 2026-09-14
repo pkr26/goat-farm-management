@@ -51,9 +51,11 @@ function cullAnimal(overrides: Record<string, unknown> = {}) {
 }
 
 interface ReportsPayload {
-  bucket_rows: { name: string; code: string; count: number; avg_weight: number | null }[];
-  total_active: number;
-  sex_counts: Record<string, number>;
+  // The API nulls the animal aggregates without animals.view; the generated
+  // client types lag the contract, so the fixture widens them (RT-P7-1).
+  bucket_rows: { name: string; code: string; count: number; avg_weight: number | null }[] | null;
+  total_active: number | null;
+  sex_counts: Record<string, number> | null;
   status_counts: Record<string, number>;
   breeding: {
     total_records: number;
@@ -214,6 +216,7 @@ describe("ReportsPage branches", () => {
     const payload = structuredClone(PAYLOAD);
     payload.breeding.cull_candidates = [];
     payload.breeding.cull_candidates_total = null;
+    payload.breeding.kids_per_kidding = null;
     await renderLoaded(payload);
 
     expect(
@@ -222,6 +225,10 @@ describe("ReportsPage branches", () => {
     expect(summaryValue("First-cycle success")).toHaveTextContent("Requires breeding access");
     expect(summaryValue("Twin rate (≥2 kids)")).toHaveTextContent("Requires breeding access");
     expect(summaryValue("Twin rate (≥2 kids)")).not.toHaveTextContent("33%");
+    // RT-P2-2: a withheld kids-per-kidding reads as withheld, never as the
+    // "not enough data" dash the stale-permission window used to show.
+    expect(summaryValue("Alive kids per kidding")).toHaveTextContent("Requires breeding access");
+    expect(summaryValue("Alive kids per kidding")).not.toHaveTextContent("—");
     expect(cullCell()).toHaveTextContent("Requires breeding access");
     // With no total to compare against, there is no cap to report either.
     expect(screen.queryByText(/this report preview is capped at/)).not.toBeInTheDocument();
@@ -237,6 +244,37 @@ describe("ReportsPage branches", () => {
     expect(summaryValue("First-cycle success")).toHaveTextContent("Requires breeding access");
     expect(summaryValue("Twin rate (≥2 kids)")).toHaveTextContent("Requires breeding access");
     expect(summaryValue("Alive kids per kidding")).toHaveTextContent("Requires breeding access");
+  });
+
+  // The animal aggregates (bucket rows, sex split, active total) now carry
+  // the same null sentinels when animals.view is missing (RT-P7-1): the
+  // sentinel alone must withhold even while the permission cache says yes.
+  it("names every animal aggregate the payload withheld, permission or not", async () => {
+    const payload = structuredClone(PAYLOAD);
+    payload.bucket_rows = null;
+    payload.total_active = null;
+    payload.sex_counts = null;
+    await renderLoaded(payload);
+
+    expect(screen.getByText("Herd summary")).toBeInTheDocument();
+    expect(screen.queryByText(/Herd summary \(/)).not.toBeInTheDocument();
+    expect(summaryValue("Females (active)")).toHaveTextContent("Requires animals access");
+    expect(summaryValue("Males (active)")).toHaveTextContent("Requires animals access");
+    // The bucket register names the withholding instead of rendering empty —
+    // the marker sits in the table body the rows would occupy.
+    expect(screen.getAllByText("Requires animals access")).toHaveLength(3);
+    // Status counts are lifetime aggregates the API still sends un-nullled.
+    expect(summaryValue("Sold (all time)")).toHaveTextContent("8");
+  });
+
+  it("keeps withholding the animal aggregates when only the permission is gone", async () => {
+    server.use(permissionsHandler(["reports.view", "breeding.view", "health.view"]));
+    await renderLoaded();
+
+    expect(screen.getByText("Herd summary")).toBeInTheDocument();
+    expect(screen.queryByText(/Herd summary \(/)).not.toBeInTheDocument();
+    expect(summaryValue("Females (active)")).toHaveTextContent("Requires animals access");
+    expect(summaryValue("Males (active)")).toHaveTextContent("Requires animals access");
   });
 
   it("renders the financial summary action as an outline button", async () => {

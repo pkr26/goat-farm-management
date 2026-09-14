@@ -38,24 +38,32 @@ class BucketCountOut(BaseModel):
 
 
 class DashboardOut(BaseModel):
-    buckets: list[BucketCountOut]
-    total_active: int
-    sex_counts: dict[str, int]
+    # Herd counts by bucket (the pregnancy/breeding-programme buckets among
+    # them), the active total and the sex split restate animal-register facts
+    # the animals pages hold behind animals.view. None means the caller lacks
+    # it — the whole herd-summary block was withheld, not empty.
+    buckets: list[BucketCountOut] | None
+    total_active: int | None
+    sex_counts: dict[str, int] | None
     status_totals: dict[str, int]
     todays_tasks: list[TaskOut]
-    todays_tasks_total: int
+    # None means the caller lacks tasks.view — the section was withheld, not
+    # empty. A literal 0 must always mean "genuinely none today".
+    todays_tasks_total: int | None
     overdue_tasks: list[TaskOut]
-    overdue_tasks_total: int
+    overdue_tasks_total: int | None
     ultrasounds_due: list[TaskOut]
-    ultrasounds_due_total: int
+    ultrasounds_due_total: int | None
     kiddings_due: list[DashboardKiddingDueOut]
-    kiddings_due_total: int
+    # None means the caller lacks breeding.view — withheld, not empty.
+    kiddings_due_total: int | None
     cull_candidates: list[AnimalIdentityOut]
     # None means the caller lacks breeding.view — the cull preview was
     # withheld, not empty. A literal 0 must always mean "genuinely none".
     cull_candidates_total: int | None
     suggestions: list[MoveSuggestionOut]
-    suggestions_total: int
+    # None means the caller lacks animals.view — withheld, not empty.
+    suggestions_total: int | None
     # Animals currently under an active movement restriction / disease hold.
     # None means the caller lacks animals.view — the preview was withheld,
     # not empty. A literal 0 must always mean "genuinely none".
@@ -100,9 +108,14 @@ class MortalityOut(BaseModel):
 
 
 class ReportsOut(BaseModel):
-    bucket_rows: list[BucketReportRow]
-    total_active: int
-    sex_counts: dict[str, int]
+    # Per-bucket occupancy (incl. the pregnancy buckets) and the per-bucket
+    # mean live weights restate bucket-board / animal-register facts —
+    # avg_weight is an animals.view-derived aggregate. None means the caller
+    # lacks animals.view — the whole herd-summary block was withheld, the
+    # same convention the dashboard endpoint applies to these figures.
+    bucket_rows: list[BucketReportRow] | None
+    total_active: int | None
+    sex_counts: dict[str, int] | None
     status_counts: dict[str, int]
     breeding: BreedingStatsOut
     mortality: MortalityOut

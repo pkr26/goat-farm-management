@@ -199,6 +199,8 @@ if (
     and any(argument.endswith(".sha256") for argument in sys.argv)
 ):
     raise SystemExit(4)
+if os.environ.get("MOCK_AWS_FAIL_RM") == "1" and "rm" in sys.argv:
+    raise SystemExit(6)
 """,
     )
     return mock_bin
@@ -379,6 +381,76 @@ def test_url_helper_uses_stdin_and_writes_escaped_private_passfile(tmp_path: Pat
     assert "p:ass" not in result.stdout
     assert passfile.read_text() == ("2001\\:db8\\:\\:1:5432:goatfarm:db\\:user:p\\:ass\\\\word\n")
     assert passfile.stat().st_mode & 0o777 == 0o600
+
+
+def test_url_helper_preserves_allowed_query_parameters(tmp_path: Path) -> None:
+    passfile = tmp_path / "pgpass"
+    database_url = (
+        "postgresql://db.invalid/goatfarm?application_name=goatfarm-backup&connect_timeout=15"
+    )
+
+    result = subprocess.run(
+        ["python3", str(URL_HELPER), str(passfile)],
+        input=database_url,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [database_url, "goatfarm"]
+    assert passfile.exists()
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        # libpq TLS-trust material: each of these redirects *what the enforced
+        # verify-full gate verifies against* (RT-N-1) — a denylist missed them.
+        "sslrootcert=/shared/attacker-ca.pem",
+        "sslcert=/shared/client.pem&sslkey=/shared/client.key",
+        "sslpassword=hunter2",
+        "sslcrl=/shared/crl.pem",
+        "sslcrldir=/shared/crls",
+        "gssencmode=require",
+        "channel_binding=require",
+        "sslnegotiation=direct",
+        "krbsrvname=evil",
+        "requirepeer=postgres",
+        # Original denylist members must stay rejected after the inversion.
+        "sslmode=disable",
+        "passfile=/etc/passwd",
+        "service=prod",
+        "servicefile=/etc/service.conf",
+        "host=db.other.invalid",
+        "hostaddr=10.0.0.1",
+        "port=5433",
+        "dbname=goatfarm_prod",
+        "user=postgres",
+        "password=secret",
+        # libpq `options` can smuggle arbitrary -c settings, sslmode included.
+        "options=-c%20sslmode%3Ddisable",
+        # Anything unclassified fails closed rather than passing verbatim.
+        "future_param=value",
+    ],
+)
+def test_url_helper_rejects_every_query_key_outside_the_allowlist(
+    tmp_path: Path, query: str
+) -> None:
+    passfile = tmp_path / "pgpass"
+
+    result = subprocess.run(
+        ["python3", str(URL_HELPER), str(passfile)],
+        input=f"postgresql://user:secret@db.invalid:5432/goatfarm?{query}",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "Invalid PostgreSQL URL" in result.stderr
+    assert "is not permitted" in result.stderr
+    assert not passfile.exists()
 
 
 @pytest.mark.parametrize("failure", ["dump", "archive-list", "gpg"])
@@ -1075,6 +1147,36 @@ def test_failed_second_offsite_upload_removes_remote_partial_only(
     assert log.count('"tool": "aws"') == 4
     assert '"rm"' in log
     assert not (destination / ".goatfarm-backup.lock").exists()
+
+
+def test_failed_offsite_cleanup_names_the_orphaned_object_keys(
+    tmp_path: Path,
+) -> None:
+    """RT-N-2: when the rollback deletion of a half-published remote pair
+    itself fails (e.g. credentials revoked mid-run), the run must say so on
+    stderr with the exact object keys — a silent failure accumulates orphaned
+    archive objects forever with no operator signal."""
+    mock_bin = _install_mock_tools(tmp_path)
+    env = _base_env(tmp_path, mock_bin)
+    env.update(
+        {
+            "GOATFARM_BACKUP_GPG_RECIPIENT": SIGNER_B,
+            "GOATFARM_BACKUP_GPG_SIGNER_FINGERPRINT": SIGNER_A,
+            "GOATFARM_BACKUP_S3_URI": "s3://example/goatfarm",
+            "MOCK_AWS_FAIL_CHECKSUM": "1",
+            "MOCK_AWS_FAIL_RM": "1",
+        }
+    )
+    destination = tmp_path / "backups"
+
+    result = _run_backup(destination, env)
+
+    assert result.returncode != 0
+    # The archive upload succeeded before the checksum upload failed, so the
+    # orphaned object is the remote archive key; it must be named on stderr.
+    assert "failed to remove partially published remote object" in result.stderr
+    assert "s3://example/goatfarm/goatfarm-" in result.stderr
+    assert ".dump.gpg" in result.stderr
 
 
 def test_offsite_backup_refuses_remote_key_collision_without_deleting(
@@ -1786,6 +1888,102 @@ def test_exported_environment_still_wins_over_the_env_file(tmp_path: Path) -> No
     assert result.returncode == 0, result.stderr
 
 
+@pytest.mark.parametrize("operation", ["backup", "restore"])
+def test_absent_env_file_requires_explicit_classification(tmp_path: Path, operation: str) -> None:
+    """RT-N-4: with backend/.env absent and neither classification exported,
+    the run must fail instead of silently declassifying itself to development
+    (plaintext local backups of password hashes, no GPG, sslmode disable)."""
+    mock_bin = _install_mock_tools(tmp_path)
+    env = _base_env(tmp_path, mock_bin)
+    env.pop("GOATFARM_ENVIRONMENT")
+    env.pop("GOATFARM_DB_SSLMODE")
+    staged = _stage_scripts(tmp_path, None)
+
+    if operation == "backup":
+        command = ["bash", str(staged / "backup.sh"), str(tmp_path / "dest")]
+    else:
+        archive = tmp_path / "goatfarm.dump"
+        archive.write_bytes(b"archive")
+        _write_checksum(archive)
+        env["GOATFARM_RESTORE_DATABASE_URL"] = (
+            "postgresql://restore_user:secret@db.invalid:5432/goatfarm_restore_test"
+        )
+        env["GOATFARM_RESTORE_CONFIRM"] = "goatfarm_restore_test"
+        command = ["bash", str(staged / "restore.sh"), str(archive)]
+
+    result = subprocess.run(
+        command,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+
+    assert result.returncode == 2
+    assert "backend/.env is missing" in result.stderr
+    assert _log_text(env) == ""  # never reached a database tool
+
+
+def test_env_file_removed_before_the_pinned_read_fails_closed(tmp_path: Path) -> None:
+    """RT-N-4: the absence guard must not be a check-then-default race.  A
+    file removed between the existence check and the pinned snapshot read
+    resolves to the sentinel default, not to development."""
+    mock_bin = _install_mock_tools(tmp_path)
+    env = _base_env(tmp_path, mock_bin)
+    env.pop("GOATFARM_ENVIRONMENT")
+    env.pop("GOATFARM_DB_SSLMODE")
+    staged = _stage_scripts(tmp_path, "GOATFARM_ENVIRONMENT=production\n")
+    env_file = staged.parent / ".env"
+    env.update({"REAL_PYTHON": sys.executable, "RACE_ENV_FILE": str(env_file)})
+    _write_executable(
+        mock_bin / "python3",
+        """#!/bin/sh
+if [ "${1##*/}" = "dotenv_value.py" ]; then
+    rm -f -- "${RACE_ENV_FILE}"
+fi
+"${REAL_PYTHON}" "$@"
+""",
+    )
+
+    result = subprocess.run(
+        ["bash", str(staged / "backup.sh"), str(tmp_path / "dest")],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+
+    assert result.returncode == 2
+    assert "backend/.env is missing" in result.stderr
+    assert _log_text(env) == ""
+
+
+def test_present_env_file_without_classification_keys_keeps_defaults(
+    tmp_path: Path,
+) -> None:
+    """Only absence fails closed: a present backend/.env that simply omits the
+    classification keys keeps the documented development defaults (mirroring
+    config.py), so ordinary dev boxes with a bare .env keep working."""
+    mock_bin = _install_mock_tools(tmp_path)
+    env = _base_env(tmp_path, mock_bin)
+    env.pop("GOATFARM_ENVIRONMENT")
+    env.pop("GOATFARM_DB_SSLMODE")
+    staged = _stage_scripts(tmp_path, "GOATFARM_DATABASE_URL=postgresql://x@db:5432/dev\n")
+
+    result = subprocess.run(
+        ["bash", str(staged / "backup.sh"), str(tmp_path / "dest")],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
 def _render_compose_network(
     *,
     subnet: str = "198.18.243.0/24",
@@ -1860,11 +2058,24 @@ def test_compose_publishes_only_one_edge_that_forwards_the_real_client_address()
 
     # The backend trusts exactly the edge's fixed address — not the bridge
     # range, which also covers the docker gateway and other containers.
-    edge_address = edge["networks"]["default"]["ipv4_address"]
+    edge_address = edge["networks"]["goatfarm_app"]["ipv4_address"]
     trusted = services["backend"]["environment"]["GOATFARM_TRUSTED_PROXY_HOSTS"]
     assert trusted == edge_address
-    subnet = compose["networks"]["default"]["ipam"]["config"][0]["subnet"]
+    subnet = compose["networks"]["goatfarm_app"]["ipam"]["config"][0]["subnet"]
     assert ipaddress.ip_address(edge_address) in ipaddress.ip_network(subnet)
+
+    # RT-R-2: two segments — the database is reachable only from the backend
+    # and the migration job; the edge and frontend cannot route to it.
+    def _nets(name: str) -> set[str]:
+        attached = services[name]["networks"]
+        return set(attached)
+
+    assert _nets("db") == {"goatfarm_data"}
+    assert _nets("migrate") == {"goatfarm_data"}
+    assert _nets("frontend") == {"goatfarm_app"}
+    assert _nets("edge") == {"goatfarm_app"}
+    assert _nets("backend") == {"goatfarm_app", "goatfarm_data"}
+    assert compose["networks"]["goatfarm_data"]["ipam"]["config"][0]["subnet"] != subnet
     # And the value the compose file ships must satisfy the settings contract.
     assert Settings(trusted_proxy_hosts=edge_address).trusted_proxy_hosts == edge_address
 
@@ -1901,12 +2112,12 @@ def test_compose_network_override_avoids_collision_without_weakening_proxy_trust
     )
 
     default_network = ipaddress.ip_network(
-        default["networks"]["default"]["ipam"]["config"][0]["subnet"]
+        default["networks"]["goatfarm_app"]["ipam"]["config"][0]["subnet"]
     )
     override_network = ipaddress.ip_network(
-        overridden["networks"]["default"]["ipam"]["config"][0]["subnet"]
+        overridden["networks"]["goatfarm_app"]["ipam"]["config"][0]["subnet"]
     )
-    override_edge = overridden["services"]["edge"]["networks"]["default"]["ipv4_address"]
+    override_edge = overridden["services"]["edge"]["networks"]["goatfarm_app"]["ipv4_address"]
     override_trust = overridden["services"]["backend"]["environment"][
         "GOATFARM_TRUSTED_PROXY_HOSTS"
     ]

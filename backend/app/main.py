@@ -11,6 +11,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
 from contextvars import ContextVar
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -62,6 +63,10 @@ CORS_HEADERS = [
     "X-Request-ID",
 ]
 CORS_EXPOSE_HEADERS = ["Idempotency-Replayed", "X-Request-ID", "Retry-After"]
+
+# Canonical verbs for the bounded metrics method label (RT-M-3); anything
+# else collapses to a single "OTHER" series instead of per-spelling series.
+_KNOWN_HTTP_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"})
 
 # Request ID of the in-flight request, bound into every log record by
 # _RequestIdFilter so a user report can be correlated with server logs.
@@ -205,6 +210,7 @@ async def _idempotency_cleanup_loop(
                 async with get_sessionmaker()() as db:
                     removed = await purge_expired_idempotency_records(db, batch_size=batch_size)
                     await db.commit()
+                metrics.record_maintenance_batch("idempotency_purge", removed)
                 removed_total += removed
                 if removed < batch_size:
                     break
@@ -237,6 +243,7 @@ async def _legacy_data_repair_loop(
                     await db.commit()
                 repaired_farms += farms
                 repaired_tasks += tasks_count
+                metrics.record_maintenance_batch("legacy_repair", farms + tasks_count)
                 if farms < farm_batch_size and tasks_count < task_batch_size:
                     break
             if repaired_farms or repaired_tasks:
@@ -268,6 +275,7 @@ async def _inactive_animal_task_cleanup_loop(
                         batch_size=batch_size,
                     )
                     await db.commit()
+                metrics.record_maintenance_batch("inactive_animal_tasks", removed)
                 removed_total += removed
                 if removed < batch_size:
                     break
@@ -299,6 +307,7 @@ async def _deleted_membership_cleanup_loop(
                         batch_size=batch_size,
                     )
                     await db.commit()
+                metrics.record_maintenance_batch("deleted_memberships", deactivated)
                 deactivated_total += deactivated
                 if deactivated < batch_size:
                     break
@@ -339,6 +348,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # are missing, malformed, weak, duplicate, unreadable, or when the active
     # pair does not match. Development may generate its active pair here.
     validate_jwt_keypair()
+    if get_settings().environment == "production":
+        # RT-A-3: a world-readable mounted private key boots cleanly through
+        # validate_jwt_keypair but hands the RS256 signing capability to every
+        # local account on the host. os.stat follows the K8s-secret symlink
+        # deliberately kept legal for key reads; the pinned-fd in-read
+        # replacement check in security.py covers swap-in races.
+        private_key_path = Path(get_settings().jwt_private_key_path)
+        key_mode = os.stat(private_key_path).st_mode
+        if key_mode & 0o077:
+            raise RuntimeError(
+                f"Refusing to boot: JWT private key {private_key_path} is "
+                f"group/other accessible (mode {oct(key_mode & 0o777)}) — "
+                "chmod 600 it (mount secrets with restricted permissions)"
+            )
     # Warm the timing-equalization dummy hash so the first unknown-email
     # login pays no cold-start cost.
     prime_dummy_password_hash()
@@ -545,6 +568,10 @@ async def readyz() -> ReadinessStatusOut | JSONResponse:
 _REQUIRED_IDEMPOTENCY_HEADER_ROUTES = (
     ("/api/finance/new", "post"),
     ("/api/feeding/dispense", "post"),
+    ("/api/feeding/mix", "post"),
+    ("/api/feeding/inventory/{item_id}/add", "post"),
+    ("/api/purchases/new", "post"),
+    ("/api/auth/farms", "post"),
 )
 
 
@@ -619,6 +646,24 @@ def create_app() -> FastAPI:
         path = getattr(route, "path", None)
         return path if isinstance(path, str) and path else "unmatched"
 
+    def _metrics_method(request: Request) -> str:
+        """Canonical verb for the metrics label (RT-M-3).
+
+        The raw method token is attacker-chosen; free-range values give the
+        label unbounded cardinality (one Prometheus time series per spelling).
+        Map anything outside the standard verbs to a single OTHER bucket.
+        """
+        return request.method if request.method in _KNOWN_HTTP_METHODS else "OTHER"
+
+    def _log_safe_path(path: str) -> str:
+        """Single-line path for request logs (RT-M-4).
+
+        The logged path is percent-decoded upstream, so %0A/%0D inject
+        newlines into the log line. Escape every control character so one
+        request cannot forge subsequent log records.
+        """
+        return path.replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t")
+
     @app.middleware("http")
     async def request_id_middleware(
         request: Request, call_next: RequestResponseEndpoint
@@ -648,7 +693,7 @@ def create_app() -> FastAPI:
         finally:
             duration_ms = (time.perf_counter() - started) * 1000
             metrics.observe_http_request(
-                request.method,
+                _metrics_method(request),
                 _route_template(request),
                 status_code,
                 duration_ms / 1000,
@@ -656,7 +701,7 @@ def create_app() -> FastAPI:
             logger.info(
                 "request method=%s path=%s status=%d duration_ms=%.2f",
                 request.method,
-                request.url.path,
+                _log_safe_path(request.url.path),
                 status_code,
                 duration_ms,
             )

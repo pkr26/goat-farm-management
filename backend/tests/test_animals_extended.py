@@ -275,10 +275,15 @@ async def test_non_integer_farm_header_rejected(client: httpx.AsyncClient) -> No
 
 async def test_out_of_range_farm_header_rejected(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
-    for bad in ["0", "-3", str(2**62)]:
+    # Canonical-digit spellings beyond the int62 window stay "out of range";
+    # signed spellings are rejected as non-canonical integers (RT-B-4).
+    for bad in ["0", str(2**62)]:
         resp = await client.get("/api/animals", headers=headers | {"X-Farm-Id": bad})
         assert resp.status_code == 400, bad
         assert resp.json()["detail"] == "X-Farm-Id out of range"
+    resp = await client.get("/api/animals", headers=headers | {"X-Farm-Id": "-3"})
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "X-Farm-Id must be an integer"
 
 
 async def test_nonexistent_farm_header_404(client: httpx.AsyncClient) -> None:
@@ -3110,7 +3115,12 @@ async def test_animal_reads_redact_nested_fields_by_effective_permissions(
     assert vet_animal["movement_restricted"] is True
     assert vet_animal["suspected_scheduled_disease"] is True
     assert vet_animal["suspected_disease"] == "Anthrax concern"
-    assert vet_animal["restriction_clearance_reference"] == "AHD-SECRET-1"
+    # RT-FG-3: the v1 clearance describes only the cleared episode. Episode v2
+    # is an active hold, so no stale clearance attribution may ride along; the
+    # "AHD-SECRET-1" fact stays on the episode's CLEARED action row instead.
+    assert vet_animal["restriction_clearance_reference"] is None
+    assert vet_animal["restriction_cleared_at"] is None
+    assert vet_animal["restriction_cleared_by_id"] is None
     assert vet_profile["breedings"] == [breeding["id"]]
     assert [event["cost"] for event in vet_profile["health_events"]] == [None, 125.0]
     assert vet_profile["health_events"][0]["notes"] == "Private follow-up"
@@ -3143,7 +3153,9 @@ async def test_animal_reads_redact_nested_fields_by_effective_permissions(
     assert owner_profile["animal"]["seller_name"] == "Private Seller"
     assert owner_profile["animal"]["notes"] == "Confidential owner note"
     assert owner_profile["animal"]["suspected_scheduled_disease"] is True
-    assert owner_profile["animal"]["restriction_clearance_reference"] == "AHD-SECRET-1"
+    # Same RT-FG-3 episode-scoping as the vet view above: the active v2 hold
+    # carries no stale v1 clearance attribution.
+    assert owner_profile["animal"]["restriction_clearance_reference"] is None
     assert owner_profile["breedings"] == [breeding["id"]]
     assert [event["cost"] for event in owner_profile["health_events"]] == [None, 125.0]
     assert owner_profile["weights"][0]["notes"] == "Private clinical weight narrative"

@@ -354,7 +354,9 @@ describe("TasksPage board copy", () => {
     await user.click(
       within(rowOf("Scrub water troughs")).getByRole("button", { name: "Skip" }),
     );
-    await user.click(await screen.findByRole("button", { name: "Skip task" }));
+    const skipDialog = await screen.findByRole("dialog", { name: "Skip this task?" });
+    await user.type(within(skipDialog).getByLabelText("Reason"), "not needed");
+    await user.click(within(skipDialog).getByRole("button", { name: "Skip task" }));
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Task skipped."));
   });
 
@@ -446,7 +448,7 @@ describe("TasksPage board copy", () => {
       within(rowOf("Morning feed count")).getByRole("button", { name: "Skip" }),
     );
     const dialog = await screen.findByRole("dialog", { name: "Skip this task?" });
-    await user.type(within(dialog).getByLabelText("Reason (optional)"), "feed already issued");
+    await user.type(within(dialog).getByLabelText("Reason"), "feed already issued");
     await user.click(within(dialog).getByRole("button", { name: "Skip task" }));
 
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(
@@ -465,7 +467,7 @@ describe("TasksPage board copy", () => {
       within(rowOf("Morning feed count")).getByRole("button", { name: "Skip" }),
     );
     const reopened = await screen.findByRole("dialog", { name: "Skip this task?" });
-    expect(within(reopened).getByLabelText("Reason (optional)")).toHaveValue("");
+    expect(within(reopened).getByLabelText("Reason")).toHaveValue("");
     expect(within(reopened).getByRole("button", { name: "Skip task" })).toBeInTheDocument();
     expect(within(reopened).queryByRole("alert")).not.toBeInTheDocument();
   });
@@ -484,6 +486,7 @@ describe("TasksPage board copy", () => {
       within(rowOf("Morning feed count")).getByRole("button", { name: "Skip" }),
     );
     const dialog = await screen.findByRole("dialog", { name: "Skip this task?" });
+    await user.type(within(dialog).getByLabelText("Reason"), "not needed");
     await user.click(within(dialog).getByRole("button", { name: "Skip task" }));
 
     expect(await within(dialog).findByRole("button", { name: "Skipping…" })).toBeDisabled();

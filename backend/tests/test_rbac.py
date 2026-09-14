@@ -305,13 +305,17 @@ async def test_cleaner_dashboard_hides_the_breeding_programme(client: httpx.Asyn
     assert resp.status_code == 200, resp.text
     cleaner_dash = resp.json()
     assert cleaner_dash["kiddings_due"] == []
-    assert cleaner_dash["kiddings_due_total"] == 0
-    assert cleaner_dash["cull_candidates"] == []
     # null, not 0: a withheld section must be distinguishable from a
-    # genuinely empty cull list, or the UI presents the gate as fact.
+    # genuinely empty list, or the UI presents the gate as fact (RT-KL-4).
+    assert cleaner_dash["kiddings_due_total"] is None
+    assert cleaner_dash["cull_candidates"] == []
     assert cleaner_dash["cull_candidates_total"] is None
-    # Withheld sections, not a 403 — the cleaner's own page still works.
-    assert cleaner_dash["total_active"] == owner_dash["total_active"]
+    # Withheld sections, not a 403 — the cleaner's own page still works. The
+    # herd summary itself is animals.view-gated (RT-KL-1), so a cleaner sees
+    # the None sentinel there too.
+    assert cleaner_dash["total_active"] is None
+    assert cleaner_dash["buckets"] is None
+    assert owner_dash["total_active"] is not None
 
 
 async def test_rbac_denial_emits_an_identifiable_audit_log_record(

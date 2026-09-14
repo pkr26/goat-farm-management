@@ -584,12 +584,14 @@ describe("TasksPage branch guards", () => {
       const user = userEvent.setup();
       await renderLoaded();
       await user.click(within(rowOf("Morning feed count")).getByRole("button", { name: "Skip" }));
-      return { user, dialog: await screen.findByRole("dialog", { name: "Skip this task?" }) };
+      const dialog = await screen.findByRole("dialog", { name: "Skip this task?" });
+      await user.type(within(dialog).getByLabelText("Reason"), "not needed");
+      return { user, dialog };
     }
 
     it("dismisses the skip dialog from Cancel without skipping", async () => {
       const { user, dialog } = await openSkip();
-      await user.type(within(dialog).getByLabelText("Reason (optional)"), "changed my mind");
+      await user.type(within(dialog).getByLabelText("Reason"), "changed my mind");
       await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
 
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());

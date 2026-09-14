@@ -79,6 +79,17 @@ const optNum = (schema: z.ZodNumber) =>
     schema.optional(),
   );
 
+/** Deep-link batch ids arrive as raw query strings; anything that is not a
+ * positive safe integer written in plain digits is ignored, so JavaScript's
+ * permissive Number() syntax ("1e2", "0x64") can never silently target a
+ * batch the link did not name (RT-P2-3). */
+function parseBatchId(raw: string | null): number | null {
+  // Stryker disable next-line ConditionalExpression: the regex rejects null (coerced "null") exactly like any non-digit string, so the === null arm never decides anything
+  if (raw === null || !/^\d+$/.test(raw)) return null;
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : null;
+}
+
 /** value → label map for the root `items` prop: without it, Base UI's
  * Select.Value renders the raw value ("F") in the closed trigger. */
 const SEX_ITEMS: Record<string, string> = {
@@ -307,12 +318,9 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
   // page number.
   const { get: getUrl, getNumber: getUrlNumber, set: setUrlState, searchParams } =
     useUrlState();
-  const [detailId, setDetailId] = useState<number | null>(() => {
-    const raw = getUrl("batch");
-    // Stryker disable next-line ConditionalExpression: Number(null) is 0, which fails the integer-≥1 gate exactly like NaN does
-    const parsed = raw === null ? Number.NaN : Number(raw);
-    return Number.isInteger(parsed) && parsed >= 1 ? parsed : null;
-  });
+  const [detailId, setDetailId] = useState<number | null>(() =>
+    parseBatchId(getUrl("batch")),
+  );
   const [offset, setOffset] = useState(() =>
     getUrlNumber("offset", 0, 0, MAX_PAGE_OFFSET),
   );
@@ -333,10 +341,7 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
     // Stryker disable next-line ConditionalExpression: re-running for this page's own writes re-applies values the page already holds, so the guard only saves a no-op state write
     if (lastWrittenParamsRef.current === paramsKey) return;
     lastWrittenParamsRef.current = paramsKey;
-    const raw = getUrlRef.current("batch");
-    // Stryker disable next-line ConditionalExpression: Number(null) is 0, which fails the integer-≥1 gate exactly like NaN does
-    const parsed = raw === null ? Number.NaN : Number(raw);
-    setDetailId(Number.isInteger(parsed) && parsed >= 1 ? parsed : null);
+    setDetailId(parseBatchId(getUrlRef.current("batch")));
     setOffset(getUrlNumberRef.current("offset", 0, 0, MAX_PAGE_OFFSET));
   }, [paramsKey]);
   /** Write-through that remembers which params string this page authored,

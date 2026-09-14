@@ -111,13 +111,18 @@ export function Donut({
     "var(--chart-4)",
     "var(--chart-5)",
   ];
-  const total = slices.reduce((sum, slice) => sum + slice.value, 0);
   const radius = 54;
   const circumference = 2 * Math.PI * radius;
   let offset = 0;
+  // Non-finite values (a derived slice with bad math — the JSON API can
+  // never carry them) are dropped before the total: a single ±Infinity
+  // would otherwise poison it and render NaN dash arrays. Negatives stay
+  // in the total so exact cancellation still reads as "No data".
+  const finiteSlices = slices.filter((slice) => Number.isFinite(slice.value));
+  const total = finiteSlices.reduce((sum, slice) => sum + slice.value, 0);
   // Filter once: the ring and the legend must share one array so their
   // palette indexes agree even when zero-value slices precede real ones.
-  const visibleSlices = slices.filter((slice) => slice.value > 0);
+  const visibleSlices = finiteSlices.filter((slice) => slice.value > 0);
   return (
     <div className={cn("flex items-center gap-5", className)}>
       <svg
@@ -128,8 +133,7 @@ export function Donut({
         role="img"
         aria-label={
           total > 0
-            ? `Distribution: ${slices
-                .filter((s) => s.value > 0)
+            ? `Distribution: ${visibleSlices
                 .map((s) => `${s.label} ${s.value}`)
                 .join(", ")}`
             : "No data"

@@ -60,9 +60,15 @@ def iso(d: date) -> str:
 
 def second_client() -> httpx.AsyncClient:
     """A second client on the same app: its requests get their own DB
-    sessions/connections, so a gather'd pair races for real."""
+    sessions/connections, so a gather'd pair races for real. It carries the
+    same auto-idempotency-key hook as the fixture client, so POSTs to the
+    now-required-key routes stay symmetrical between the racers."""
+    from .conftest import _auto_idempotency_key
+
     return httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=create_app()), base_url="http://test"
+        transport=httpx.ASGITransport(app=create_app()),
+        base_url="http://test",
+        event_hooks={"request": [_auto_idempotency_key]},
     )
 
 

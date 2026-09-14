@@ -96,16 +96,18 @@ describe("refresh outcome vocabulary", () => {
     await flushMacrotasks();
   });
 
-  it("rejects a refresh superseded before it ever reached the network", async () => {
+  it("reports a refresh superseded before it ever reached the network as unavailable", async () => {
     // No Web Locks: the local FIFO gate still defers the refresh past the
     // synchronous sign-in below, which is exactly what the entry epoch check
-    // exists to catch. The refresh cookie belongs to the new session now.
+    // exists to catch. The refresh cookie belongs to the new session now —
+    // this is a local supersession, never the server's verdict, so the
+    // outcome must not masquerade as an authoritative "rejected".
     vi.stubGlobal("navigator", undefined);
 
     const pending = refreshSessionDetailed();
     setAccessToken("replacement-login-token", 2);
 
-    await expect(pending).resolves.toEqual({ kind: "rejected" });
+    await expect(pending).resolves.toEqual({ kind: "unavailable" });
     expect(fetchMock).not.toHaveBeenCalled();
     await expect(nextRequestAuthorization()).resolves.toBe(
       "Bearer replacement-login-token",
@@ -134,7 +136,7 @@ describe("refresh outcome vocabulary", () => {
     });
   });
 
-  it("rejects a refresh whose body lands after a newer sign-in", async () => {
+  it("reports a refresh whose body lands after a newer sign-in as unavailable", async () => {
     let deliver: ((response: Response) => void) | undefined;
     fetchMock.mockImplementationOnce(
       () =>
@@ -148,7 +150,9 @@ describe("refresh outcome vocabulary", () => {
     setAccessToken("newer-session-token", 7);
     deliver?.(jsonResponse(200, refreshPayload("rotated-token", 7)));
 
-    await expect(pending).resolves.toEqual({ kind: "rejected" });
+    // A local epoch supersession is not the server's answer: "rejected" stays
+    // exclusively for verdicts a caller may destroy session state on.
+    await expect(pending).resolves.toEqual({ kind: "unavailable" });
     // The rotated token answers a session this caller no longer owns; the
     // one the newer sign-in installed must survive untouched.
     await expect(nextRequestAuthorization()).resolves.toBe(

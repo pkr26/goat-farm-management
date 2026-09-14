@@ -343,10 +343,16 @@ describe("AuthProvider — auth actions act on the QueryClient in context", () =
 
   it("refreshFarms clears the client the tree renders against now", async () => {
     const clients = await renderThenSwapQueryClient();
+    // The refreshed snapshot keeps farm 1 valid and adds farm 3: the
+    // selection survives a membership refresh, and the cache clear runs on
+    // the client the tree renders against now. (A snapshot that REVOKES the
+    // selection clears identically — see the refreshFarms suite in
+    // auth-context.test.tsx.)
     server.use(
       http.get("/api/auth/farms", () =>
         HttpResponse.json([
           { id: 3, name: "New Farm", location: null, role: null },
+          { id: 1, name: "Farm One", location: null, role: null },
         ]),
       ),
     );
@@ -354,9 +360,8 @@ describe("AuthProvider — auth actions act on the QueryClient in context", () =
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "refresh-farms" }));
 
-    await waitFor(() =>
-      expect(screen.getByTestId("farmId")).toHaveTextContent("3"),
-    );
+    await waitFor(() => expect(screen.getByTestId("farms")).toHaveTextContent("3,1"));
+    expect(screen.getByTestId("farmId")).toHaveTextContent("1");
     expectOnlyCurrentClientCleared(clients);
   });
 
@@ -378,7 +383,10 @@ describe("AuthProvider — auth actions act on the QueryClient in context", () =
         "worker@goatfarm.test",
       ),
     );
-    expect(screen.getByTestId("farmId")).toHaveTextContent("5");
+    // The previous session's farm (1) is not one of the new user's
+    // memberships; the selection is cleared rather than silently landing the
+    // new user in list[0], and the clear still hits the current client.
+    expect(screen.getByTestId("farmId")).toHaveTextContent("none");
     expectOnlyCurrentClientCleared(clients);
   });
 

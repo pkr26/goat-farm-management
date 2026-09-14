@@ -2909,10 +2909,16 @@ async def test_permissions_farm_header_must_be_integer(client: httpx.AsyncClient
 
 async def test_permissions_farm_header_out_of_range(client: httpx.AsyncClient) -> None:
     headers = await register(client, "range@farm.in")
-    for bad in ("0", "-1", str(-(2**62)), str(2**62), str(2**62 + 1), str(10**30)):
+    # Canonical-digit spellings beyond the int62 window stay "out of range";
+    # signed spellings are rejected as non-canonical integers (RT-B-4).
+    for bad in ("0", str(2**62), str(2**62 + 1), str(10**30)):
         resp = await client.get("/api/auth/permissions", headers=headers | {"X-Farm-Id": bad})
         assert resp.status_code == 400, bad
         assert resp.json()["detail"] == "X-Farm-Id out of range"
+    for signed in ("-1", str(-(2**62))):
+        resp = await client.get("/api/auth/permissions", headers=headers | {"X-Farm-Id": signed})
+        assert resp.status_code == 400, signed
+        assert resp.json()["detail"] == "X-Farm-Id must be an integer"
 
 
 async def test_permissions_nonexistent_farm_is_404(client: httpx.AsyncClient) -> None:
@@ -3566,14 +3572,15 @@ async def test_refresh_cookies_are_per_user(client: httpx.AsyncClient) -> None:
     assert resp.json()["user"]["id"] == id_a != id_b
 
 
-async def test_farm_header_with_surrounding_whitespace_parses(client: httpx.AsyncClient) -> None:
-    """int() tolerates whitespace, so '  <id> ' is accepted — documents the
-    (harmless) parsing quirk of deps.current_farm."""
+async def test_farm_header_whitespace_is_rejected(client: httpx.AsyncClient) -> None:
+    """RT-B-4: X-Farm-Id accepts canonical [0-9]+ only — whitespace-padded
+    spellings are refused so edge/WAF canonicalization cannot disagree with
+    the application on a security-relevant header."""
     headers = await owner_with_farm(client, email="wsint@farm.in")
     padded = headers | {"X-Farm-Id": f"  {headers['X-Farm-Id']}  "}
     resp = await client.get("/api/auth/permissions", headers=padded)
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["is_owner"] is True
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"] == "X-Farm-Id must be an integer"
 
 
 async def test_farms_list_isolated_between_two_owners(client: httpx.AsyncClient) -> None:

@@ -138,7 +138,14 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         anchor.remove();
         URL.revokeObjectURL(href);
       }
-      toast.success("Your account data export was downloaded.");
+      // The download itself was explicitly user-initiated and already
+      // happened; only the completion toast is fenced, so closing the dialog
+      // mid-download (which bumps dialogEpoch) does not surface a stale
+      // toast for a lifecycle the operator already abandoned — the same
+      // double fence the error path below uses.
+      if (operationEpoch === dialogEpoch.current) {
+        toast.success("Your account data export was downloaded.");
+      }
     } catch (error) {
       if (
         authSessionEpochValue() === sessionEpoch &&

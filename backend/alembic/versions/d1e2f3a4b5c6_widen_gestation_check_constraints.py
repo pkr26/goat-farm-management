@@ -21,7 +21,8 @@ Revision ID: d1e2f3a4b5c6
 Revises: f8a2c4e6b1d9
 """
 
-from alembic import op
+from alembic import context, op
+from sqlalchemy import text
 
 revision = "d1e2f3a4b5c6"
 down_revision = "f8a2c4e6b1d9"
@@ -32,6 +33,28 @@ CONSTRAINTS = (
     ("ck_breeding_loss_within_max_gestation", "breeding_records"),
     ("ck_breeding_records_result_within_max_gestation", "breeding_records"),
 )
+
+
+def _refuse_rows_beyond_goat_maximum(incompatible_sql: str, description: str) -> None:
+    """House preflight (see e6f8a0b2c4d7): refuse a CHECK-narrowing downgrade
+    while live rows would violate it, instead of aborting mid-walk with a raw
+    CheckViolation that names only the constraint, not the offending rows."""
+    if context.is_offline_mode():
+        op.execute(
+            "DO $$ DECLARE incompatible_id bigint; BEGIN "
+            f"SELECT id INTO incompatible_id FROM ({incompatible_sql}) AS incompatible; "
+            "IF incompatible_id IS NOT NULL THEN "
+            "RAISE EXCEPTION 'Cannot restore the 200-day gestation maximum while "
+            f"breeding record % {description}', incompatible_id; "
+            "END IF; END $$"
+        )
+    else:
+        incompatible_id = op.get_bind().execute(text(incompatible_sql)).scalar_one_or_none()
+        if incompatible_id is not None:
+            raise RuntimeError(
+                "Cannot restore the 200-day gestation maximum while breeding record "
+                f"{incompatible_id} {description}; reconcile that record before downgrading"
+            )
 
 
 def upgrade() -> None:
@@ -53,6 +76,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    _refuse_rows_beyond_goat_maximum(
+        "SELECT id FROM breeding_records "
+        "WHERE ultrasound_result_date > breeding_date + 200 "
+        "ORDER BY id LIMIT 1",
+        "records an ultrasound result beyond day 200",
+    )
     op.drop_constraint(
         "ck_breeding_records_result_within_max_gestation", "breeding_records", type_="check"
     )
@@ -60,6 +89,13 @@ def downgrade() -> None:
         "ck_breeding_records_result_within_max_gestation",
         "breeding_records",
         "ultrasound_result_date IS NULL OR ultrasound_result_date <= breeding_date + 200",
+    )
+    _refuse_rows_beyond_goat_maximum(
+        "SELECT id FROM breeding_records "
+        "WHERE loss_date IS NOT NULL AND loss_cause <> 'ANIMAL_STATUS_CHANGE' "
+        "AND loss_date > breeding_date + 200 "
+        "ORDER BY id LIMIT 1",
+        "records a loss beyond day 200",
     )
     op.drop_constraint("ck_breeding_loss_within_max_gestation", "breeding_records", type_="check")
     op.create_check_constraint(

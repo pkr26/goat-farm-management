@@ -4,7 +4,9 @@ per-test table truncation + reference-data seed, and an httpx AsyncClient
 wired to the ASGI app. Async throughout (pytest-asyncio auto mode)."""
 
 import asyncio
+import json
 import os
+import re
 import subprocess
 import sys
 from collections.abc import AsyncGenerator
@@ -224,13 +226,43 @@ async def _rotate_provisioned_password(response: httpx.Response) -> None:
 # business logic; the 422-on-keyless contract itself is pinned by dedicated
 # tests in test_redteam_remediation_2026_09_04.py, which empty this set via
 # monkeypatch to send genuinely keyless requests.
-IDEMPOTENCY_REQUIRED_PATHS = {"/api/finance/new", "/api/feeding/dispense"}
+IDEMPOTENCY_REQUIRED_PATHS = {
+    "/api/finance/new",
+    "/api/feeding/dispense",
+    "/api/feeding/mix",
+    "/api/feeding/inventory-add",  # normalized: /api/feeding/inventory/{id}/add
+    "/api/purchases/new",
+    "/api/auth/farms",
+}
+
+# POST /api/animals requires the key only on the money-booking managed-purchase
+# branch; the hook inspects the JSON body for that shape. Dedicated keyless
+# tests disable this flag (and empty the set above) via monkeypatch.
+AUTO_KEY_MANAGED_PURCHASE = True
+
+
+def _is_managed_purchase_body(request: httpx.Request) -> bool:
+    try:
+        body = json.loads(request.content) if request.content else {}
+    except ValueError:
+        return False
+    return (
+        isinstance(body, dict)
+        and body.get("source") == "PURCHASED"
+        and not (body.get("historical_import_reason") or "").strip()
+    )
 
 
 async def _auto_idempotency_key(request: httpx.Request) -> None:
     if request.method.upper() != "POST":
         return
-    if request.url.path not in IDEMPOTENCY_REQUIRED_PATHS:
+    path = request.url.path
+    if re.fullmatch(r"/api/feeding/inventory/-?\d+/add", path):
+        path = "/api/feeding/inventory-add"
+    requires_key = path in IDEMPOTENCY_REQUIRED_PATHS or (
+        path == "/api/animals" and AUTO_KEY_MANAGED_PURCHASE and _is_managed_purchase_body(request)
+    )
+    if not requires_key:
         return
     # Presence check, not truthiness: an explicitly empty or otherwise
     # invalid key must reach the server (and its 422), never be silently
