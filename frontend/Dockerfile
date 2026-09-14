@@ -18,12 +18,16 @@ WORKDIR /app
 ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0 \
     PORT=3000
-# The standalone server invokes Node directly. Keeping npm in the runtime
-# image adds unused package-management code and its transitive attack surface;
-# the pinned base currently ships fixable high/critical CVEs under this exact
-# global npm tree. Leave npm available in deps/builder, but remove it and its
-# command shims from the final image.
-RUN rm -rf /usr/local/lib/node_modules/npm \
+# CVE sweep at build time: the digest-pinned base above can predate the
+# latest Alpine security point releases (libcrypto3/libssl3); `apk upgrade`
+# applies them so the Trivy fixable HIGH/CRITICAL gate stays at zero between
+# base-image republishes. The standalone server invokes Node directly, and
+# keeping npm in the runtime image adds unused package-management code and
+# its transitive attack surface — the pinned base has shipped fixable
+# high/critical CVEs under this exact global npm tree. Leave npm available
+# in deps/builder, but remove it and its command shims from the final image.
+RUN apk upgrade --no-cache \
+    && rm -rf /usr/local/lib/node_modules/npm \
     && rm -f /usr/local/bin/npm /usr/local/bin/npx
 RUN addgroup -S -g 10001 nextjs \
     && adduser -S -u 10001 -G nextjs nextjs

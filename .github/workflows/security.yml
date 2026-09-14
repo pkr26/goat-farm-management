@@ -85,7 +85,7 @@ jobs:
       # Keep these digest-pinned references in lockstep with docker-compose:
       # the database and edge are deployed images, not mere build dependencies.
       COMPOSE_POSTGRES_IMAGE: postgres:16@sha256:f1c3376c26f2609ab9f29f71f824103fe2fcd8ee0346485cb6122a4f93df6f94
-      COMPOSE_NGINX_IMAGE: nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de
+      COMPOSE_NGINX_IMAGE: nginx:1.30-alpine@sha256:dc5069ad14f19660b141b21236140b91656bf89bbc3e2417c70ae650cd66104c
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -165,6 +165,11 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
+          # Third-party compose images have no build step where a package
+          # upgrade could apply upstream fixes; the ignore file documents
+          # each residual (fix published upstream, image not yet rebuilt)
+          # and its refresh policy. Scoped to these two steps only.
+          trivyignores: .trivyignore.compose-images
       - name: Scan Compose nginx image for fixable high/critical vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -173,3 +178,4 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
+          trivyignores: .trivyignore.compose-images

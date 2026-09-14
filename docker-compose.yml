@@ -169,7 +169,7 @@ services:
       - goatfarm_app
 
   edge:
-    image: nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de
+    image: nginx:1.30-alpine@sha256:dc5069ad14f19660b141b21236140b91656bf89bbc3e2417c70ae650cd66104c
     restart: unless-stopped
     # Read-only root filesystem: nginx writes only its temp dirs and pid file,
     # both redirected to size-capped tmpfs. The official image's master runs as

@@ -1,0 +1,75 @@
+# Trivy ignore file — SCOPED to the compose-pulled third-party images only
+# (PostgreSQL and nginx). It is passed via the `trivyignores:` input on
+# exactly those two scan steps in .github/workflows/security.yml; the
+# backend/frontend scans never load it, so our own images must stay at zero
+# fixable HIGH/CRITICAL with no masking.
+#
+# Rationale for every entry: the fix exists upstream (a Debian/Alpine point
+# release or a rebuilt upstream binary), but the digest-pinned official
+# image predates it and Docker Hub has not published a rebuilt tag. Compose
+# services run these images as-is, so there is no build step where
+# `apt/apk upgrade` could apply the fix (the way our own Dockerfiles do).
+#
+# REFRESH POLICY: on each weekly security scan, re-check whether the pinned
+# digests have been republished (Docker Hub tag last_updated) or newer
+# stable tags exist, refresh them, and delete any entry whose CVE no longer
+# appears. Never add entries for images this repository builds itself.
+#
+# === nginx:1.30-alpine@sha256:dc5069ad14f19660b141b21236140b91656bf89bbc3e2417c70ae650cd66104c (built 2026-09-03, alpine 3.24.1) ===
+# libuuid (util-linux), fixed in alpine 3.24 point release 2.42.3-r0:
+CVE-2026-53612
+CVE-2026-53613
+CVE-2026-53614
+# zlib/zlib-ng + busybox point releases (fixed builds exist upstream, image
+# predates them):
+CVE-2026-76642
+CVE-2026-78408
+CVE-2026-78409
+CVE-2026-78410
+#
+# === postgres:16@sha256:f1c3376c26f2609ab9f29f71f824103fe2fcd8ee0346485cb6122a4f93df6f94 (built 2026-08-26, debian 13.6 "trixie") ===
+# (Staying on the trixie/glibc line: switching the database to an alpine/musl
+# base would change collation on existing data volumes.)
+#
+# gzip, fixed in 1.13-1+deb13u1:
+CVE-2026-41992
+# pcre2, fixed in 10.46-1~deb13u2:
+CVE-2026-86145
+CVE-2026-89161
+# sqlite, fixed in 3.46.1-7+deb13u2:
+CVE-2026-11822
+CVE-2026-11824
+# openssl, fixed in 3.5.7-1~deb13u2:
+CVE-2026-14456
+# perl family, fixed in 5.40.1-6+deb13u1:
+CVE-2026-13221
+CVE-2026-8376
+CVE-2026-42496
+CVE-2026-42497
+CVE-2026-48962
+CVE-2026-57432
+CVE-2026-57433
+# Go stdlib CVEs in the image's embedded Go binaries (gosu and friends —
+# not the PostgreSQL server), fixed in Go 1.25.13 / 1.26.6 rebuilds:
+CVE-2025-61726
+CVE-2025-61729
+CVE-2025-68121
+CVE-2026-25679
+CVE-2026-27145
+CVE-2026-32280
+CVE-2026-32281
+CVE-2026-32283
+CVE-2026-33811
+CVE-2026-33814
+CVE-2026-33818
+CVE-2026-39820
+CVE-2026-39821
+CVE-2026-39822
+CVE-2026-39836
+CVE-2026-42499
+CVE-2026-42504
+CVE-2026-56853
+CVE-2026-56858
+CVE-2026-56859
+CVE-2026-56860
+CVE-2026-56862

@@ -30,6 +30,17 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# CVE sweep at build time: the digest-pinned base above anchors every layer,
+# but its build date can lag the latest Debian security point releases
+# (gzip/libpcre2/libsqlite3/perl) and it bundles outdated pip packages
+# (msgpack, setuptools). Upgrading here keeps the Trivy fixable
+# HIGH/CRITICAL gate at zero between base-image republishes; the pinned
+# digest still anchors everything the point releases do not touch.
+RUN apt-get update \
+    && apt-get -y --no-install-recommends upgrade \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir --upgrade "msgpack>=1.2.1" "setuptools>=78.1.1"
+
 # Layer order: install deps from the manifest FIRST (cached across app-only
 # code changes), then copy the app source. Any change under backend/app/ no
 # longer busts the pip install layer.
