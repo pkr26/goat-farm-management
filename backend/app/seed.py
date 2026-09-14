@@ -166,8 +166,9 @@ FEED_RECIPES: list[tuple[str, str, str, list[tuple[str, float, str]]]] = [
             ("Maize DDGS", 2.5, CONC),
             ("Soya DOC", 3, CONC),
             ("Mustard DOC", 3.75, CONC),
-            ("DORB", 7.5, CONC),
-            ("Mineral mix", 0.75, CONC),
+            ("DORB", 5.25, CONC),
+            ("Mineral mix", 2.0, CONC),
+            ("Salt", 1.0, CONC),
         ],
     ),
     (
@@ -215,15 +216,36 @@ VACCINE_TEMPLATES: list[tuple[str, float | None, float | None, float | None, str
         12,
         "Annual, May–June (pre-monsoon); first week if dam unvaccinated",
     ),
-    ("Haemorrhagic Septicaemia (HS)", 3, 3.5, 12, "First dose 3–5 months; annual, May/June"),
+    # TNAU standard: HS first dose at 6 months, not 3 — maternal antibody
+    # interference makes earlier priming unreliable.
+    (
+        "Haemorrhagic Septicaemia (HS)",
+        6,
+        3.5,
+        12,
+        "First dose 6 months; annual, May/June (pre-monsoon)",
+    ),
     ("Goat Pox", 3, 3.5, 12, "First dose 3–5 months; annual, Nov/Dec"),
-    ("Black Quarter", 6, None, 12, "Annual, pre-monsoon"),
-    ("Johne's Disease", 6, None, 12, "Annual; herd-history dependent"),
+    ("Black Quarter", 6, None, 12, "Annual; pre-monsoon"),
+    (
+        "Johne's Disease",
+        6,
+        None,
+        12,
+        "Annual — advisory only; vaccination uncommon in India, herd-history dependent",
+    ),
     ("Anthrax", 6, None, 12, "Annual; region-specific"),
     # ORF (contagious ecthyma) is deliberately NOT in the default calendar:
     # Indian practice (TNAU) does not vaccinate for sore mouth; control is
     # outbreak-driven under veterinary direction.
     ("CCPP", 3, None, 12, "Annual, January"),
+    (
+        "Tetanus (TT)",
+        3,
+        None,
+        12,
+        "Often given combined with ET; standalone yearly booster for injury-risk herds",
+    ),
     (
         "ET + TT pre-kidding",
         None,
@@ -243,7 +265,7 @@ VACCINE_TEMPLATES: list[tuple[str, float | None, float | None, float | None, str
         1,
         None,
         None,
-        "1–3 months (Amprolium 5 days); coccidiosis peaks 1–6 months",
+        "Treatment round, not a vaccine (Amprolium 5 days, 1–3 months); coccidiosis peaks 1–6 months",
     ),
 ]
 
@@ -258,6 +280,7 @@ FARM_INGREDIENTS: list[tuple[str, str]] = [
     ("Mustard DOC", CONC),
     ("DORB", CONC),
     ("Mineral mix", CONC),
+    ("Salt", CONC),
 ]
 
 

@@ -27,6 +27,7 @@ export interface AnimalOut {
   status: AnimalOutStatus;
   status_date: string | null;
   sale_price: number | null;
+  sale_weight_kg: number | null;
   purchase_date: string | null;
   purchase_price: number | null;
   seller_name: string | null;

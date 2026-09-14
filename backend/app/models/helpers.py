@@ -57,7 +57,18 @@ def conception_rate(records: Iterable[BreedingRecord]) -> float | None:
 
 
 # 45-day quarantine protocols (day offsets relative to batch arrival date).
+# Two duties may share one day offset (arrival day carries both the clinical
+# inspection and the start of the rest period; day 30 pairs the Goat Pox
+# vaccine with the pre-release fecal recheck) — everything downstream that
+# derives work from this table must key on the entry, not the offset alone.
 QUARANTINE_PROTOCOL = [
+    (
+        1,
+        TaskCategory.QUARANTINE,
+        "Day 0–1: arrival inspection — dehydration (skin tent/gums), injuries, "
+        "lameness, temperature; isolate sick immediately; handle quarantine "
+        "animals LAST (dedicated boots/tools)",
+    ),
     (
         1,
         TaskCategory.QUARANTINE,
@@ -66,8 +77,15 @@ QUARANTINE_PROTOCOL = [
     (4, TaskCategory.DEWORMING, "Day 4: deworm — Albendazole/Closantel oral + Ivermectin SC"),
     (5, TaskCategory.QUARANTINE, "Days 5–9: liver tonic in water + Vitamin AD3E injection"),
     (10, TaskCategory.VACCINE, "Day 10: vaccinate PPR (live viral, SC)"),
+    (
+        13,
+        TaskCategory.QUARANTINE,
+        "Day 13: fecal/dung sample exam — confirm day-4 deworm efficacy "
+        "(record result as a FECAL_EXAM health event)",
+    ),
     (20, TaskCategory.VACCINE, "Day 20: vaccinate ET + Tetanus (toxoid, SC)"),
     (30, TaskCategory.VACCINE, "Day 30: vaccinate Goat Pox (live viral, SC)"),
+    (30, TaskCategory.QUARANTINE, "Day 30: fecal recheck + clinical review before release"),
     (40, TaskCategory.VACCINE, "Day 40: vaccinate FMD (killed, SC)"),
     (45, TaskCategory.BUCKET_MOVE, "Day 45: 10% zinc sulfate footbath → release to FOUNDATION"),
 ]

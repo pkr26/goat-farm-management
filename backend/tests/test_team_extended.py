@@ -111,6 +111,11 @@ PRESET_PERMS: dict[str, set[str]] = {
     "ACCOUNTANT": {
         "dashboard.view",
         "animals.view",
+        # Office duties only: INSURANCE renewals route here
+        # (TASK_CATEGORY_ROLE_MAP), and a duty-facing role must be able to
+        # open and close its duties.
+        "tasks.view",
+        "tasks.complete",
         "finance.view",
         "finance.manage",
         "reports.view",

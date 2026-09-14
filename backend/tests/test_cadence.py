@@ -1,0 +1,522 @@
+"""Recurring husbandry cadence (services/cadence.ensure_cadence_tasks).
+
+Domain rules under test:
+- Seasonal calendar rounds (FMD Sep/Mar, ET+HS May, Goat Pox Nov, CCPP Jan,
+  deworming Jun/Jan) fire once per (category, month, year) and are herd-level.
+- Interval rounds (hoof trimming, spraying, disinfection, weighing) respect
+  their lookback windows; a round due inside the window suppresses the next.
+- The daily feed-room routine dedupes on (exact title, due date, PENDING).
+- Feed reorder duties fire per under-level ingredient unless a PENDING FEED
+  duty already names that ingredient.
+- Buck rotation fires per male ≥ GOAT_PROFILE.buck_rotation_age_months with a
+  365-day dedupe, coalescing dob/estimated_dob for the age math.
+- A farm with no ACTIVE animals is a complete no-op.
+- GET /api/tasks (the board hook) materializes the cadence idempotently.
+
+Business dates are frozen through the same monkeypatched ``today`` helper the
+health suite uses (the farm-local business-date indirection), so no test
+depends on the wall clock.
+"""
+
+from datetime import date, timedelta
+
+import httpx
+import pytest
+from sqlalchemy import select, update
+
+from app.db import get_sessionmaker
+from app.models import Farm, FeedInventory, Task, TaskStatus
+from app.services.cadence import ensure_cadence_tasks
+from app.utils import utcnow
+
+from .conftest import owner_with_farm
+
+FMD_TITLE_TEMPLATE = (
+    "FMD vaccination round ({month} {year}) — all animals; "
+    "close via a bucket/batch vaccine health event"
+)
+DEWORM_TITLE_TEMPLATE = "Deworming round ({month} {year}) — adults; kids 1–6 months every 3 months"
+HOOF_TITLE = "Hoof trimming round (6-monthly) — trim all ages, heel to toe"
+SPRAY_TITLE = "Ectoparasite spray/dip round (Butox/deltamethrin) — never heavily pregnant does"
+DISINFECTION_TITLE = "Shed disinfection round — disinfect + lime; extra attention to kidding pens"
+WEIGHING_TITLE = "Monthly weighing round — record weights; grow-out buckets first"
+ROUTINE_TITLE = (
+    "Morning routine: sweep bunks before the 6:30 AM feeding; check and refill water troughs"
+)
+
+
+def freeze_business_date(monkeypatch: pytest.MonkeyPatch, frozen: date) -> date:
+    """Pin the farm-local business date every service decision uses."""
+
+    def frozen_today(timezone_name: str) -> date:
+        assert timezone_name == "Asia/Kolkata"
+        return frozen
+
+    monkeypatch.setattr("app.services.cadence.today", frozen_today)
+    return frozen
+
+
+async def make_animal(
+    client: httpx.AsyncClient,
+    headers: dict,
+    tag: str,
+    *,
+    sex: str = "F",
+    date_of_birth: str | None = None,
+    estimated_dob: str | None = None,
+) -> dict:
+    payload: dict = {
+        "tag_number": tag,
+        "sex": sex,
+        "source": "PURCHASED",
+        "current_bucket": "FOUNDATION",
+        "historical_import_reason": "Cadence test fixture",
+    }
+    if date_of_birth is not None:
+        payload["date_of_birth"] = date_of_birth
+    if estimated_dob is not None:
+        payload["estimated_dob"] = estimated_dob
+    resp = await client.post("/api/animals", json=payload, headers=headers)
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+async def load_farm(farm_id: int) -> Farm:
+    async with get_sessionmaker()() as db:
+        farm = await db.get(Farm, farm_id)
+        assert farm is not None
+        return farm
+
+
+async def run_ensure(farm_id: int) -> None:
+    farm = await load_farm(farm_id)
+    async with get_sessionmaker()() as db:
+        await ensure_cadence_tasks(db, farm)
+
+
+async def farm_tasks(farm_id: int, category: str | None = None) -> list[Task]:
+    async with get_sessionmaker()() as db:
+        stmt = select(Task).where(Task.farm_id == farm_id)
+        if category is not None:
+            stmt = stmt.where(Task.category == category)
+        rows = (await db.execute(stmt.order_by(Task.id))).scalars().all()
+    return list(rows)
+
+
+async def seed_history_task(
+    farm_id: int,
+    *,
+    category: str,
+    title: str,
+    due_date: date,
+    status: str = TaskStatus.DONE.value,
+    animal_id: int | None = None,
+) -> None:
+    """A pre-existing duty standing in for history created by earlier rounds."""
+    async with get_sessionmaker()() as db:
+        db.add(
+            Task(
+                farm_id=farm_id,
+                title=title,
+                due_date=due_date,
+                category=category,
+                status=status,
+                animal_id=animal_id,
+                auto_generated=True,
+                completed_at=utcnow() if status == TaskStatus.DONE.value else None,
+                skipped_at=utcnow() if status == TaskStatus.SKIPPED.value else None,
+            )
+        )
+        await db.commit()
+
+
+async def set_inventory(farm_id: int, ingredient: str, qty: float) -> None:
+    async with get_sessionmaker()() as db:
+        await db.execute(
+            update(FeedInventory)
+            .where(FeedInventory.farm_id == farm_id, FeedInventory.ingredient == ingredient)
+            .values(qty_on_hand=qty)
+        )
+        await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Calendar vaccination/deworming rounds
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("frozen", "category", "expected_title"),
+    [
+        (
+            date(2026, 3, 3),
+            "VACCINE",
+            FMD_TITLE_TEMPLATE.format(month="March", year=2026),
+        ),
+        (
+            date(2026, 9, 14),
+            "VACCINE",
+            FMD_TITLE_TEMPLATE.format(month="September", year=2026),
+        ),
+        (date(2026, 5, 2), "VACCINE", "ET + HS pre-monsoon round (2026) — all animals"),
+        (date(2026, 11, 7), "VACCINE", "Goat Pox round (2026)"),
+        (date(2027, 1, 12), "VACCINE", "CCPP round (2027)"),
+        (
+            date(2027, 1, 12),
+            "DEWORMING",
+            DEWORM_TITLE_TEMPLATE.format(month="January", year=2027),
+        ),
+        (
+            date(2026, 6, 15),
+            "DEWORMING",
+            DEWORM_TITLE_TEMPLATE.format(month="June", year=2026),
+        ),
+    ],
+)
+async def test_calendar_round_fires_in_month(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    frozen: date,
+    category: str,
+    expected_title: str,
+) -> None:
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "C-001")
+    farm_id = int(headers["X-Farm-Id"])
+    freeze_business_date(monkeypatch, frozen)
+
+    await run_ensure(farm_id)
+    rounds = [t for t in await farm_tasks(farm_id, category) if t.title == expected_title]
+    assert len(rounds) == 1
+    assert rounds[0].due_date == frozen
+    assert rounds[0].animal_id is None
+    assert rounds[0].auto_generated
+
+    # A second board load in the same month must not mint a second round.
+    await run_ensure(farm_id)
+    rounds = [t for t in await farm_tasks(farm_id, category) if t.title == expected_title]
+    assert len(rounds) == 1
+
+
+async def test_calendar_round_is_not_created_off_month(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "C-002")
+    farm_id = int(headers["X-Farm-Id"])
+    freeze_business_date(monkeypatch, date(2026, 8, 14))  # August: no round defined
+
+    await run_ensure(farm_id)
+    vaccine_titles = [t.title for t in await farm_tasks(farm_id, "VACCINE")]
+    assert vaccine_titles == []
+
+
+async def test_calendar_round_dedupe_is_scoped_to_month_and_year(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Last year's differently-titled round never blocks this year's copy."""
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "C-003")
+    farm_id = int(headers["X-Farm-Id"])
+    frozen = freeze_business_date(monkeypatch, date(2026, 9, 14))
+
+    await seed_history_task(
+        farm_id,
+        category="VACCINE",
+        title=FMD_TITLE_TEMPLATE.format(month="September", year=2025),
+        due_date=date(2025, 9, 14),
+    )
+    await seed_history_task(
+        farm_id,
+        category="VACCINE",
+        title=FMD_TITLE_TEMPLATE.format(month="September", year=2026),
+        due_date=date(2026, 9, 1),
+    )
+    await run_ensure(farm_id)
+
+    # The 2025 round is outside this month; the 2026 one is inside it, so the
+    # September 2026 round is suppressed despite the fresh load being due on
+    # a different day of the month.
+    fmd_2026 = [
+        t
+        for t in await farm_tasks(farm_id, "VACCINE")
+        if t.title == FMD_TITLE_TEMPLATE.format(month="September", year=2026)
+    ]
+    assert len(fmd_2026) == 1  # only the seeded history row
+    assert fmd_2026[0].due_date == date(2026, 9, 1)
+    assert frozen == date(2026, 9, 14)  # the frozen date drove the month/year decision
+
+
+# ---------------------------------------------------------------------------
+# Interval husbandry rounds
+# ---------------------------------------------------------------------------
+async def test_interval_rounds_fire_on_a_fresh_farm(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "I-001")
+    farm_id = int(headers["X-Farm-Id"])
+    frozen = freeze_business_date(monkeypatch, date(2026, 9, 14))
+
+    await run_ensure(farm_id)
+    for category, title in (
+        ("HOOF_TRIMMING", HOOF_TITLE),
+        ("SPRAYING", SPRAY_TITLE),
+        ("DISINFECTION", DISINFECTION_TITLE),
+        ("WEIGHING", WEIGHING_TITLE),
+    ):
+        rounds = [t for t in await farm_tasks(farm_id, category)]
+        assert [t.title for t in rounds] == [title]
+        assert rounds[0].due_date == frozen
+
+
+async def test_interval_rounds_respect_lookback_history(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "I-002")
+    farm_id = int(headers["X-Farm-Id"])
+    frozen = freeze_business_date(monkeypatch, date(2026, 9, 14))
+
+    # A weighing 30 days back sits inside the 45-day window: no new round.
+    await seed_history_task(
+        farm_id,
+        category="WEIGHING",
+        title="Monthly weighing round (crew A)",
+        due_date=frozen - timedelta(days=30),
+    )
+    # A hoof round 183 days back is outside the 182-day window: regenerate.
+    await seed_history_task(
+        farm_id,
+        category="HOOF_TRIMMING",
+        title="Hoof trimming round (previous)",
+        due_date=frozen - timedelta(days=183),
+        status=TaskStatus.SKIPPED.value,
+    )
+    await run_ensure(farm_id)
+
+    assert [t.title for t in await farm_tasks(farm_id, "WEIGHING")] == [
+        "Monthly weighing round (crew A)"
+    ]
+    hoof_titles = [t.title for t in await farm_tasks(farm_id, "HOOF_TRIMMING")]
+    assert HOOF_TITLE in hoof_titles
+
+
+# ---------------------------------------------------------------------------
+# Daily feed-room routine
+# ---------------------------------------------------------------------------
+async def test_daily_routine_dedupes_per_business_day(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "D-001")
+    farm_id = int(headers["X-Farm-Id"])
+    day_one = freeze_business_date(monkeypatch, date(2026, 9, 14))
+
+    await run_ensure(farm_id)
+    await run_ensure(farm_id)
+    routine = [t for t in await farm_tasks(farm_id, "FEED") if t.title == ROUTINE_TITLE]
+    assert len(routine) == 1
+    assert routine[0].due_date == day_one
+
+    # The next business day gets its own copy even while yesterday's is still
+    # PENDING (the dedupe is the exact title due TODAY).
+    freeze_business_date(monkeypatch, day_one + timedelta(days=1))
+    await run_ensure(farm_id)
+    routine = [t for t in await farm_tasks(farm_id, "FEED") if t.title == ROUTINE_TITLE]
+    assert len(routine) == 2
+
+
+async def test_daily_routine_honours_a_pending_manual_copy(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "D-002")
+    farm_id = int(headers["X-Farm-Id"])
+    frozen = freeze_business_date(monkeypatch, date(2026, 9, 14))
+
+    await seed_history_task(
+        farm_id,
+        category="FEED",
+        title=ROUTINE_TITLE,
+        due_date=frozen,
+        status=TaskStatus.PENDING.value,
+    )
+    await run_ensure(farm_id)
+    routine = [t for t in await farm_tasks(farm_id, "FEED") if t.title == ROUTINE_TITLE]
+    assert len(routine) == 1
+
+
+# ---------------------------------------------------------------------------
+# Feed reorder
+# ---------------------------------------------------------------------------
+async def test_reorder_fires_for_under_level_ingredients_only(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "R-001")
+    farm_id = int(headers["X-Farm-Id"])
+    frozen = freeze_business_date(monkeypatch, date(2026, 9, 14))
+
+    # Seeded inventory starts every canonical ingredient at 0 kg against a
+    # 100 kg reorder level. Refill one ingredient above its level and reserve
+    # another with an already-pending duty that names it.
+    await set_inventory(farm_id, "Crushed maize", 150.0)
+    await seed_history_task(
+        farm_id,
+        category="FEED",
+        title="Owner note: reorder Groundnut haulms this week",
+        due_date=frozen,
+        status=TaskStatus.PENDING.value,
+    )
+    await run_ensure(farm_id)
+
+    feed_titles = [t.title for t in await farm_tasks(farm_id, "FEED")]
+    assert "Reorder Salt: 0 kg on hand (reorder level 100 kg)" in feed_titles
+    assert not any("Crushed maize" in title for title in feed_titles)
+    # The pending owner note names the ingredient, so it suppresses the
+    # generated duty — it must remain the only Groundnut haulms FEED row.
+    # (The note itself contains the ingredient name, so the check has to be
+    # "no second, engine-generated copy", not "the name appears nowhere".)
+    groundnut = [title for title in feed_titles if "Groundnut haulms" in title]
+    assert groundnut == ["Owner note: reorder Groundnut haulms this week"]
+
+
+async def test_reorder_dedupe_is_pending_only(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "R-002")
+    farm_id = int(headers["X-Farm-Id"])
+    frozen = freeze_business_date(monkeypatch, date(2026, 9, 14))
+
+    await seed_history_task(
+        farm_id,
+        category="FEED",
+        title="Reorder Salt: 5 kg on hand (reorder level 100 kg)",
+        due_date=frozen - timedelta(days=3),
+        status=TaskStatus.DONE.value,
+    )
+    await run_ensure(farm_id)
+    salt_tasks = [t for t in await farm_tasks(farm_id, "FEED") if "Salt" in t.title]
+    # The completed reminder does not count: a fresh under-level duty appears.
+    assert len(salt_tasks) == 2
+
+    await run_ensure(farm_id)
+    salt_tasks = [t for t in await farm_tasks(farm_id, "FEED") if "Salt" in t.title]
+    assert len(salt_tasks) == 2  # the fresh PENDING copy now suppresses
+
+
+# ---------------------------------------------------------------------------
+# Buck rotation
+# ---------------------------------------------------------------------------
+async def test_buck_rotation_age_math_and_coalesced_dob(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers = await owner_with_farm(client)
+    # dob 2023-08-20 → 36 whole months on 2026-09-14 (day 14 < 20 floors to 36).
+    old_buck = await make_animal(client, headers, "B-OLD", sex="M", date_of_birth="2023-08-20")
+    # estimated_dob only (no recorded birth date) must coalesce the same way.
+    estimated_buck = await make_animal(
+        client, headers, "B-EST", sex="M", estimated_dob="2023-05-01"
+    )
+    # 27 months: under the 36-month rotation age.
+    young_buck = await make_animal(client, headers, "B-YNG", sex="M", date_of_birth="2024-06-01")
+    # Age alone must never rotate a doe.
+    old_doe = await make_animal(client, headers, "B-DOE", sex="F", date_of_birth="2020-01-01")
+    farm_id = int(headers["X-Farm-Id"])
+    freeze_business_date(monkeypatch, date(2026, 9, 14))
+
+    await run_ensure(farm_id)
+    rotations = await farm_tasks(farm_id, "BUCK_ROTATION")
+    assert sorted(t.animal_id for t in rotations) == [old_buck["id"], estimated_buck["id"]]
+    by_animal = {t.animal_id: t for t in rotations}
+    assert by_animal[old_buck["id"]].title == (
+        "Rotate/replace buck B-OLD — 36 months old (inbreeding management)"
+    )
+    # estimated_dob 2023-05-01 → 40 whole months on 2026-09-14 (day 14 >= 1).
+    assert by_animal[estimated_buck["id"]].title == (
+        "Rotate/replace buck B-EST — 40 months old (inbreeding management)"
+    )
+    assert old_doe["id"] not in by_animal  # age alone never rotates a doe
+    assert young_buck["id"] not in by_animal  # 27 months is under the floor
+
+
+async def test_buck_rotation_dedupes_within_a_year(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers = await owner_with_farm(client)
+    recent = await make_animal(client, headers, "B-REC", sex="M", date_of_birth="2020-01-01")
+    stale = await make_animal(client, headers, "B-STL", sex="M", date_of_birth="2020-01-01")
+    farm_id = int(headers["X-Farm-Id"])
+    frozen = freeze_business_date(monkeypatch, date(2026, 9, 14))
+
+    # Rotated 75 days ago (inside the 365-day dedupe) — no fresh duty.
+    await seed_history_task(
+        farm_id,
+        category="BUCK_ROTATION",
+        title="Rotate/replace buck B-REC — 79 months old (inbreeding management)",
+        due_date=frozen - timedelta(days=75),
+        animal_id=recent["id"],
+    )
+    # Rotated 378 days ago (outside the dedupe) — regenerate.
+    await seed_history_task(
+        farm_id,
+        category="BUCK_ROTATION",
+        title="Rotate/replace buck B-STL — 76 months old (inbreeding management)",
+        due_date=frozen - timedelta(days=378),
+        animal_id=stale["id"],
+    )
+    await run_ensure(farm_id)
+    rotations = await farm_tasks(farm_id, "BUCK_ROTATION")
+    by_animal: dict[int | None, int] = {}
+    for task in rotations:
+        by_animal[task.animal_id] = by_animal.get(task.animal_id, 0) + 1
+    assert by_animal[recent["id"]] == 1  # only the history row
+    assert by_animal[stale["id"]] == 2  # history + regenerated reminder
+
+
+# ---------------------------------------------------------------------------
+# Empty farm
+# ---------------------------------------------------------------------------
+async def test_empty_farm_is_a_no_op(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers = await owner_with_farm(client)
+    farm_id = int(headers["X-Farm-Id"])
+    freeze_business_date(monkeypatch, date(2026, 9, 14))
+
+    # No animals — even though September's FMD round, the daily routine and a
+    # fully under-level seeded inventory would otherwise all fire.
+    await run_ensure(farm_id)
+    assert await farm_tasks(farm_id) == []
+
+
+# ---------------------------------------------------------------------------
+# Board hook
+# ---------------------------------------------------------------------------
+async def test_task_board_load_materializes_cadence_idempotently(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "H-001")
+    farm_id = int(headers["X-Farm-Id"])
+    frozen = freeze_business_date(monkeypatch, date(2026, 9, 14))
+
+    def frozen_board_today(timezone_name: str) -> date:
+        assert timezone_name == "Asia/Kolkata"
+        return frozen
+
+    monkeypatch.setattr("app.api.tasks.today", frozen_board_today)
+
+    first = await client.get("/api/tasks", headers=headers)
+    assert first.status_code == 200, first.text
+    fmd_title = FMD_TITLE_TEMPLATE.format(month="September", year=2026)
+    today_titles = [t["title"] for t in first.json()["today"]]
+    assert fmd_title in today_titles
+    assert ROUTINE_TITLE in today_titles
+
+    second = await client.get("/api/tasks", headers=headers)
+    assert second.status_code == 200, second.text
+    fmd_tasks = [t for t in await farm_tasks(farm_id, "VACCINE") if t.title == fmd_title]
+    assert len(fmd_tasks) == 1
+    routine = [t for t in await farm_tasks(farm_id, "FEED") if t.title == ROUTINE_TITLE]
+    assert len(routine) == 1

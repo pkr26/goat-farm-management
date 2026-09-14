@@ -1506,9 +1506,13 @@ def test_template_abbreviation_matches_its_own_target() -> None:
     assert not target_matches_template("Anthrax", "Haemorrhagic Septicaemia (HS)")
 
 
-async def test_linked_duty_without_a_target_cannot_be_closed(client: httpx.AsyncClient) -> None:
-    """A generated VACCINE duty carrying neither an animal nor a batch has no
-    scope to validate against, so it must never close from a health record."""
+async def test_herd_level_duty_closes_only_via_herd_scoped_evidence(
+    client: httpx.AsyncClient,
+) -> None:
+    """A generated VACCINE duty carrying neither an animal nor a batch is a
+    herd-level round: a single-animal record has no scope to validate the
+    round against and must never close it, while bucket- (or batch-) scoped
+    evidence that the round was administered does."""
     owner = await owner_with_farm(client)
     animal = await make_animal(client, owner, tag="NO-TARGET")
     async with get_sessionmaker()() as db:
@@ -1536,10 +1540,32 @@ async def test_linked_duty_without_a_target_cannot_be_closed(client: httpx.Async
         headers=owner,
     )
     assert response.status_code == 422, response.text
-    assert response.json()["detail"] == "Linked health task has no supported target"
+    assert response.json()["detail"] == (
+        "A herd-level round closes via a bucket- or batch-scoped health event"
+    )
     async with get_sessionmaker()() as db:
         stored = await db.get(Task, task_id)
         assert stored is not None and stored.status == "PENDING"
+
+    # Bucket-scoped evidence of the round being administered closes the duty.
+    reviewed = await preview(client, owner, scope="bucket", bucket="FOUNDATION")
+    assert reviewed.status_code == 200, reviewed.text
+    closed = await client.post(
+        "/api/health/events",
+        json={
+            "scope": "bucket",
+            "bucket": "FOUNDATION",
+            "expected_animal_ids": reviewed.json()["target_animal_ids"],
+            "type": "VACCINE",
+            "disease_target": "PPR",
+            "task_id": task_id,
+        },
+        headers=owner,
+    )
+    assert closed.status_code == 201, closed.text
+    async with get_sessionmaker()() as db:
+        stored = await db.get(Task, task_id)
+        assert stored is not None and stored.status == "DONE"
 
 
 async def test_a_new_suspicion_episode_restates_its_own_authority_notification(

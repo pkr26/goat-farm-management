@@ -9,6 +9,9 @@ import type { PurchaseBatchInSex } from './purchaseBatchInSex';
 export interface PurchaseBatchIn {
   date: string;
   supplier?: string | null;
+  origin_market?: string | null;
+  transport_hours?: number | null;
+  seller_health_history?: string | null;
   /**
      * @minimum 1
      * @maximum 1000
@@ -17,6 +20,7 @@ export interface PurchaseBatchIn {
   sex?: PurchaseBatchInSex;
   avg_age_months?: number | null;
   avg_weight_kg?: number | null;
+  individual_weights_kg?: number[] | null;
   total_price?: number | null;
   notes?: string | null;
   create_animals?: boolean;

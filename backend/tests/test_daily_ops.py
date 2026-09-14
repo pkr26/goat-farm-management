@@ -5,12 +5,12 @@ of truth (not from the implementation):
 
 * GOAT_PROFILE: gestation 150d, pregnancy check +32d, pregnancy-late day 100,
   prepartum lead 15d, weaning day 60, postpartum recovery 14d.
-* Seed/protocol: quarantine protocol steps land on days 1/4/5/10/20/30/40/45
-  of the stay, release to FOUNDATION on day 45; pre-kidding ET+TT vaccine at
-  EKD−40 and booster at EKD−25 (EKD = service + 150).
+* Seed/protocol: quarantine protocol steps land on days 1 (×2)/4/5/10/13/20/
+  30 (×2)/40/45 of the stay, release to FOUNDATION on day 45; pre-kidding
+  ET+TT vaccine at EKD−40 and booster at EKD−25 (EKD = service + 150).
 * Feed: 40/20/40 shift split; per-head rates 1.0 (kids) … 1.5 (recovery);
-  creep 0.3 kg for unweaned kids; quarantine dry roughage for the first three
-  days in the bucket.
+  creep ramp 0.1/0.2/0.3 kg by age band from day 14 for unweaned kids;
+  quarantine dry roughage for the first three days in the bucket.
 * Policy: failed scan re-serves on the next heat (21 days); two consecutive
   failures cull; male kids sell entering the 8-month window.
 
@@ -173,10 +173,11 @@ def test_day1_schedule_order_is_the_operational_routine() -> None:
 
 def test_feeding_math_matches_seeded_rates_and_shift_split() -> None:
     """Two animals in BREEDING (1.2 kg/head) plus, from day 151, a lactating
-    doe (1.5) and her creep kid (0.3): daily totals and 40/20/40 shares."""
+    doe (1.5) and her creep kid on the age-banded ramp: daily totals and
+    40/20/40 shares."""
     payload = DailyOpsInput(
         start_date=date(2026, 9, 3),
-        horizon_days=160,
+        horizon_days=175,
         animals=[_doe(), _buck()],
         params=_quiet_params(),
     )
@@ -191,7 +192,8 @@ def test_feeding_math_matches_seeded_rates_and_shift_split() -> None:
         pytest.approx(0.96),
     )
     # The day AFTER kidding (feed is planned at the morning round, before the
-    # 09:00 lifecycle events): three lines across two buildings.
+    # 09:00 lifecycle events): the doe's lactating line only — a day-old kid
+    # is pre-creep (the creep line starts at day 14 of age).
     day152 = {line.building: line for line in result.days[151].feeding}
     assert day152["BREEDING"].recipe == "MAINTENANCE_75_25"
     assert day152["BREEDING"].daily_kg == pytest.approx(1.2)
@@ -199,7 +201,13 @@ def test_feeding_math_matches_seeded_rates_and_shift_split() -> None:
         line.recipe: line for line in result.days[151].feeding if line.building == "RECOVERY"
     }
     assert recovery_lines["LACTATING_60_40"].daily_kg == pytest.approx(1.5)
-    assert recovery_lines["CREEP"].daily_kg == pytest.approx(0.3)
+    assert "CREEP" not in recovery_lines
+    # Kid age 14 (kidding day 151 + 14): the first creep band opens at 0.1
+    # kg/head, labelled with the band on the display string.
+    day165 = [line for line in result.days[164].feeding if line.recipe == "CREEP"]
+    assert len(day165) == 1
+    assert day165[0].kg_per_head == pytest.approx(0.1)
+    assert "14–30 d" in day165[0].recipe_display
     for record in result.days:
         for line in record.feeding:
             # Gram-exact internal consistency on every line of every day.
@@ -214,8 +222,8 @@ def test_feeding_math_matches_seeded_rates_and_shift_split() -> None:
 
 
 def test_quarantine_protocol_days_and_release() -> None:
-    """Arrival on day 1: protocol steps on days 1/4/5/10/20/30/40 and release
-    on day 45; dry roughage for the first three days in the bucket."""
+    """Arrival on day 1: protocol steps on days 1 (×2)/4/5/10/13/20/30 (×2)/40
+    and release on day 45; dry roughage for the first three days in the bucket."""
     payload = DailyOpsInput(
         start_date=date(2026, 9, 3),
         horizon_days=46,
@@ -228,7 +236,7 @@ def test_quarantine_protocol_days_and_release() -> None:
         params=_quiet_params(),
     )
     result = run_daily_ops(payload)
-    protocol_days = {}
+    protocol_days: dict[int, list[str]] = {}
     for record in result.days:
         for task in record.tasks:
             if task.category in (
@@ -237,11 +245,18 @@ def test_quarantine_protocol_days_and_release() -> None:
                 "VACCINE",
                 "BUCKET_MOVE",
             ) and task.animals == ["Q1"]:
-                protocol_days[record.day] = task.headline
-    assert sorted(protocol_days) == [1, 4, 5, 10, 20, 30, 40, 45]
-    assert "deworm" in protocol_days[4]
-    assert "PPR" in protocol_days[10]
-    assert "Release Q1 to FOUNDATION" in protocol_days[45]
+                protocol_days.setdefault(record.day, []).append(task.headline)
+    assert sorted(protocol_days) == [1, 4, 5, 10, 13, 20, 30, 40, 45]
+    # Day 1 carries two duties (arrival inspection + rest), day 30 two
+    # (Goat Pox + fecal recheck) — the step-keyed dedupe fires both.
+    assert len(protocol_days[1]) == 2
+    assert len(protocol_days[30]) == 2
+    assert any("arrival inspection" in h.lower() for h in protocol_days[1])
+    assert any("fecal" in h.lower() for h in protocol_days[13])
+    assert any("fecal" in h.lower() for h in protocol_days[30])
+    assert "deworm" in protocol_days[4][0]
+    assert any("PPR" in h for h in protocol_days[10])
+    assert any("Release Q1 to FOUNDATION" in h for h in protocol_days[45])
     # Released at 14 months with a buck standing: bred the same day.
     assert _moves_of(result, "Q1") == [
         (45, "QUARANTINE", "FOUNDATION", "quarantine_release"),
@@ -559,7 +574,7 @@ def test_feeding_follows_morning_occupancy() -> None:
             assert line.daily_kg == pytest.approx(total, abs=1e-9)
             if line.recipe == "CREEP":
                 assert line.building == "RECOVERY"
-                assert line.kg_per_head == 0.3
+                assert line.kg_per_head in (0.1, 0.2, 0.3)
         previous = {row.building for row in record.occupancy}
 
 

@@ -64,11 +64,12 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from ..models.constants import BUCK_DOE_RATIO, MEAT_SALE_AGE_MONTHS, SHIFT_SPLIT
 from ..models.enums import Bucket, FeedingShift
 from ..models.feed_rules import (
-    CREEP_KG_PER_HEAD,
     DRY_ROUGHAGE,
     GOAT_BUCKET_KG_PER_HEAD,
     GOAT_BUILDING_NAMES,
     RECIPE_DISPLAY,
+    creep_band_label,
+    creep_daily_kg,
     recipe_for_context,
 )
 from ..models.helpers import QUARANTINE_PROTOCOL
@@ -78,7 +79,7 @@ from ..permissions import TASK_CATEGORY_ROLE_MAP
 from .feed import DAYS_PER_MONTH
 from .results import MetricExplanation
 
-DAILY_OPS_MODEL_VERSION = "1.0.0"
+DAILY_OPS_MODEL_VERSION = "1.1.0"
 
 _PROFILE = GOAT_PROFILE
 
@@ -525,7 +526,10 @@ class _Animal:
     dam_tag: str | None = None
     dependent_kid: bool = False
     quarantine_arrival_day: int | None = None
-    quarantine_steps_fired: set[int] = field(default_factory=set)
+    # The protocol carries same-day duties (arrival inspection + rest on day
+    # 1, Goat Pox + fecal recheck on day 30), so the dedupe key is the step,
+    # not the day offset.
+    quarantine_steps_fired: set[tuple[int, str]] = field(default_factory=set)
     status: str = "ACTIVE"
     exit_day: int | None = None
     exit_kind: str | None = None
@@ -718,7 +722,10 @@ class _DailyOpsRun:
 
     def _feed_lines(self, day: int) -> list[FeedLine]:
         record = self.days[day - 1]
-        groups: dict[tuple[str, str], list[_Animal]] = {}
+        # Creep kids group by age band (the operational plan's ramp); kids
+        # younger than the creep start produce no line at all. Non-creep
+        # groups carry a None band so the key shape stays uniform.
+        groups: dict[tuple[str, str, str | None], list[_Animal]] = {}
         for animal in sorted(self._active(), key=lambda a: a.tag):
             recipe = recipe_for_context(
                 animal.bucket,
@@ -727,13 +734,21 @@ class _DailyOpsRun:
                 animal.bucket_days(day),
                 is_dependent_kid=animal.dependent_kid,
             )
-            groups.setdefault((animal.bucket, recipe), []).append(animal)
+            band: str | None = None
+            if recipe == "CREEP":
+                band = creep_band_label(animal.age_days(day))
+                if band is None:
+                    continue
+            groups.setdefault((animal.bucket, recipe, band), []).append(animal)
 
         lines: list[FeedLine] = []
-        for building, recipe in sorted(groups):
-            members = groups[(building, recipe)]
+        for building, recipe, band in sorted(groups, key=lambda k: (k[0], k[1], k[2] or "")):
+            members = groups[(building, recipe, band)]
+            display = RECIPE_DISPLAY.get(recipe, recipe)
             if recipe == "CREEP":
-                kg_per_head = CREEP_KG_PER_HEAD
+                kg_per_head = creep_daily_kg(members[0].age_days(day))
+                display = f"{display} ({band})"
+                assert kg_per_head > 0, "banded creep group with a zero ration"
             else:
                 kg_per_head = GOAT_BUCKET_KG_PER_HEAD[building]
             daily = len(members) * kg_per_head
@@ -745,7 +760,7 @@ class _DailyOpsRun:
                     day=day,
                     building=building,
                     recipe=recipe,
-                    recipe_display=RECIPE_DISPLAY.get(recipe, recipe),
+                    recipe_display=display,
                     heads=len(members),
                     kg_per_head=kg_per_head,
                     daily_kg=round(morning + afternoon + night, 3),
@@ -834,9 +849,9 @@ class _DailyOpsRun:
             assert animal.quarantine_arrival_day is not None
             protocol_day = day - animal.quarantine_arrival_day + 1
             for offset, category, title in QUARANTINE_PROTOCOL:
-                if protocol_day != offset or offset in animal.quarantine_steps_fired:
+                if protocol_day != offset or (offset, title) in animal.quarantine_steps_fired:
                     continue
-                animal.quarantine_steps_fired.add(offset)
+                animal.quarantine_steps_fired.add((offset, title))
                 if offset == 45:
                     self._record(
                         day,

@@ -29,7 +29,7 @@ const SIMPLE_LABELS: Record<string, Record<string, string>> = {
   source: { BORN: "Born on farm", PURCHASED: "Purchased" },
   status: { ACTIVE: "Active", SOLD: "Sold", DEAD: "Dead", CULLED: "Culled" },
   kidStatus: { ALIVE: "Alive", STILLBORN: "Stillborn", DIED: "Died" },
-  ease: { NORMAL: "Normal", ASSISTED: "Assisted", DIFFICULT: "Difficult" },
+  ease: { NORMAL: "Normal", ASSISTED: "Assisted", DIFFICULT: "Difficult", CAESAREAN: "Caesarean" },
   shift: { MORNING: "Morning", AFTERNOON: "Afternoon", NIGHT: "Night" },
   method: { NATURAL: "Natural", AI: "AI", AI_SEXED: "AI (sexed)" },
   birthType: {
@@ -45,6 +45,8 @@ const SIMPLE_LABELS: Record<string, Record<string, string>> = {
     TREATMENT: "Treatment",
     FOOTBATH: "Foot bath",
     VITAMIN: "Vitamin / supplement",
+    EXAM: "Clinical exam",
+    FECAL_EXAM: "Fecal exam",
   },
   txCategory: {
     ANIMAL_SALE: "Animal sale",
@@ -69,6 +71,39 @@ const SIMPLE_LABELS: Record<string, Record<string, string>> = {
     FEED: "Feeding",
     CLEANING: "Cleaning",
     OTHER: "Other",
+    KIDDING_WATCH: "Kidding watch",
+    BIRTHING_KIT: "Birthing kit check",
+    HEALTH_CHECK: "Health check",
+    HEAT_WATCH: "Heat watch",
+    HOOF_TRIMMING: "Hoof trimming",
+    SPRAYING: "Spraying",
+    DISINFECTION: "Disinfection",
+    WEIGHING: "Weighing",
+    REBREED: "Re-breed",
+    BUCK_ROTATION: "Buck rotation",
+    INSURANCE: "Insurance",
+  },
+  // Coded mortality causes (animals.mortality_cause_code). The three
+  // *_SUSPECTED entries are the notifiable-disease watches; the label says
+  // "suspected" so a badge never reads as a lab confirmation.
+  mortalityCause: {
+    PNEUMONIA: "Pneumonia",
+    DIARRHOEA: "Diarrhoea",
+    COLIBACILLOSIS: "Colibacillosis",
+    ENTEROTOXAEMIA: "Enterotoxaemia",
+    PPR_SUSPECTED: "PPR (suspected)",
+    FMD_SUSPECTED: "FMD (suspected)",
+    GOAT_POX_SUSPECTED: "Goat pox (suspected)",
+    PARASITISM: "Parasitism",
+    COCCIDIOSIS: "Coccidiosis",
+    NUTRITIONAL: "Nutritional",
+    HEAT_STRESS: "Heat stress",
+    PREDATION: "Predation",
+    ACCIDENT: "Accident",
+    DYSTOCIA: "Dystocia",
+    OLD_AGE: "Old age",
+    OTHER: "Other",
+    UNKNOWN: "Unknown",
   },
   lossCause: {
     UNKNOWN: "Unknown",
@@ -139,6 +174,7 @@ export type EnumKind =
   | "txCategory"
   | "txType"
   | "taskCategory"
+  | "mortalityCause"
   | "outcome"
   | "lossCause"
   | "bucket";

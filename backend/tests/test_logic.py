@@ -340,7 +340,7 @@ def test_quarantine_schedule_covers_45_days() -> None:
     batch = PurchaseBatch(farm_id=1, date=date(2026, 3, 1), supplier="Kurnool Traders", count=50)
     batch.id = 7
     schedule = quarantine_schedule(batch)
-    assert len(schedule) == 8
+    assert len(schedule) == 11
     # Day 4 deworming is due 3 days after arrival (offset day N -> date + N-1)
     deworm = next(t for t in schedule if t["category"] == "DEWORMING")
     assert deworm["due_date"] == date(2026, 3, 4)
@@ -348,8 +348,10 @@ def test_quarantine_schedule_covers_45_days() -> None:
     last = schedule[-1]
     assert last["due_date"] == date(2026, 4, 14)  # batch.date + 44
     assert "FOUNDATION" in last["title"]
-    # Live viral vaccines separated by >= 10 days (PPR day 10, Goat Pox day 30)
+    # Four live/killed vaccine duties, pairwise separated by >= 10 days
+    # (PPR day 10, ET+TT day 20, Goat Pox day 30, FMD day 40)
     vaccines = [t for t in schedule if t["category"] == "VACCINE"]
+    assert len(vaccines) == 4
     gaps = [(b["due_date"] - a["due_date"]).days for a, b in pairwise(vaccines)]
     assert all(g >= 10 for g in gaps)
 
@@ -376,7 +378,7 @@ def test_resting_flush_switch_at_day_10() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_ultrasound_pregnant_creates_three_followup_tasks(
+async def test_ultrasound_pregnant_creates_twelve_followup_tasks(
     client: httpx.AsyncClient,
 ) -> None:
     headers = await owner_with_farm(client)
@@ -401,17 +403,35 @@ async def test_ultrasound_pregnant_creates_three_followup_tasks(
     assert [t["status"] for t in tasks_by_category(tasks, "ULTRASOUND")] == ["DONE"]
 
     ekd = date.fromisoformat(br["expected_kidding_date"])
-    vaccine = tasks_by_category(tasks, "VACCINE")
-    moves = tasks_by_category(tasks, "BUCKET_MOVE")
-    kidding = tasks_by_category(tasks, "KIDDING_DUE")
+    # The cadence engine boards herd-level rounds on GET /api/tasks (e.g. the
+    # seasonal FMD vaccination round) — the pregnancy follow-ups are exactly
+    # the twelve doe-scoped duties below.
+    doe_tasks = [t for t in tasks if t["animal_id"] == doe["id"]]
+    vaccine = tasks_by_category(doe_tasks, "VACCINE")
+    moves = tasks_by_category(doe_tasks, "BUCKET_MOVE")
+    kits = tasks_by_category(doe_tasks, "BIRTHING_KIT")
+    watches = tasks_by_category(doe_tasks, "KIDDING_WATCH")
+    kidding = tasks_by_category(doe_tasks, "KIDDING_DUE")
+    assert sum(len(x) for x in (vaccine, moves, kits, watches, kidding)) == 12
     # Primary ET+TT dose at EKD-40 plus its booster 15 days later.
-    assert [t["due_date"] for t in vaccine] == [
-        (ekd - timedelta(days=40)).isoformat(),
-        (ekd - timedelta(days=25)).isoformat(),
+    assert sorted(t["due_date"] for t in vaccine) == sorted(
+        [(ekd - timedelta(days=40)).isoformat(), (ekd - timedelta(days=25)).isoformat()]
+    )
+    # Gestation-day-100 ration step-up (EKD-50, PREGNANCY_LATE) and the
+    # prepartum move to DELIVERY (EKD-15).
+    assert sorted(t["due_date"] for t in moves) == sorted(
+        [
+            (ekd - timedelta(days=50)).isoformat(),
+            (ekd - timedelta(days=15)).isoformat(),
+        ]
+    )
+    assert [t["due_date"] for t in kits] == [(ekd - timedelta(days=7)).isoformat()]
+    # One watch duty per day across the final week: EKD-5 through EKD.
+    assert sorted(t["due_date"] for t in watches) == [
+        (ekd - timedelta(days=offset)).isoformat() for offset in range(5, -1, -1)
     ]
-    assert [t["due_date"] for t in moves] == [(ekd - timedelta(days=15)).isoformat()]
     assert [t["due_date"] for t in kidding] == [ekd.isoformat()]
-    assert all(t["animal_id"] == doe["id"] for t in vaccine + moves + kidding)
+    assert all(t["animal_id"] == doe["id"] for t in vaccine + moves + kits + watches + kidding)
 
 
 async def test_two_failed_cycles_flag_cull_candidate(client: httpx.AsyncClient) -> None:
@@ -531,8 +551,8 @@ async def test_quarantine_batch_creates_45_day_task_set(client: httpx.AsyncClien
     assert all(a["purchase_price"] == 10000.0 for a in stubbed)  # total split evenly
 
     tasks = detail["tasks"]  # ordered by due_date
-    assert len(tasks) == 8
-    assert tasks[0]["due_date"] == "2026-03-01"  # days 1–3 rest
+    assert len(tasks) == 11
+    assert tasks[0]["due_date"] == "2026-03-01"  # day-1 arrival inspection
     assert tasks[-1]["category"] == "BUCKET_MOVE"
     assert tasks[-1]["due_date"] == "2026-04-14"
 

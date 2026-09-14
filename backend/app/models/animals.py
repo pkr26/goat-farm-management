@@ -31,6 +31,7 @@ from .enums import (
     BirthType,
     BreedingOutcome,
     Bucket,
+    MortalityCause,
     Sex,
     sql_in_values,
 )
@@ -45,6 +46,7 @@ if TYPE_CHECKING:
 # literals cannot drift from models/enums.py (see sql_in_values).
 _BUCKET_VALUES = sql_in_values(Bucket)
 _ANIMAL_STATUS_VALUES = sql_in_values(AnimalStatus)
+_MORTALITY_CAUSE_VALUES = sql_in_values(MortalityCause)
 
 
 class Animal(Base):
@@ -112,6 +114,20 @@ class Animal(Base):
             "status = 'DEAD' OR (mortality_cause IS NULL AND mortality_reported_at IS NULL)",
             name="ck_animals_mortality_fields",
         ),
+        # Husbandry-standards death audit: the coded cause, the carcass
+        # disposal and any necropsy narrative are terminal facts of a DEAD
+        # animal, exactly like the legacy free-text cause above. necropsy_done
+        # is a plain boolean and stays false on living rows, so it needs no
+        # DEAD gate here.
+        CheckConstraint(
+            "status = 'DEAD' OR (mortality_cause_code IS NULL AND disposal_method IS NULL "
+            "AND necropsy_findings IS NULL)",
+            name="ck_animals_death_audit_fields",
+        ),
+        CheckConstraint(
+            f"mortality_cause_code IS NULL OR mortality_cause_code IN ({_MORTALITY_CAUSE_VALUES})",
+            name="ck_animals_mortality_cause_code",
+        ),
         CheckConstraint(
             "(current_bucket <> 'MALE_KIDS' OR sex = 'M') AND "
             "(current_bucket <> 'FEMALE_KIDS' OR sex = 'F') AND "
@@ -138,6 +154,12 @@ class Animal(Base):
         CheckConstraint(
             "sale_price IS NULL OR sale_price <= 1000000000",
             name="ck_animals_sale_price_bounded",
+        ),
+        # Market-convention sale capture: a recorded weight-at-sale is a
+        # positive measurement (₹/kg benchmarking divides by it), never zero.
+        CheckConstraint(
+            "sale_weight_kg IS NULL OR sale_weight_kg > 0",
+            name="ck_animals_sale_weight_positive",
         ),
         CheckConstraint(
             "movement_restricted IS FALSE OR "
@@ -201,6 +223,10 @@ class Animal(Base):
     status_notes: Mapped[str | None] = mapped_column(String(255))
     sale_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     buyer_name: Mapped[str | None] = mapped_column(String(120))
+    # Live weight at sale (husbandry standards): the denominator of the
+    # realized ₹/kg the ledger note records. Decimal, not float, because the
+    # derived sale price (weight × rate) must be paise-exact.
+    sale_weight_kg: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))
     cull_candidate: Mapped[bool] = mapped_column(default=False)
     # A movement hold is deliberately a factual operational state, not a
     # diagnosis or treatment instruction.  It lets task and sale/release
@@ -224,6 +250,15 @@ class Animal(Base):
     restriction_version: Mapped[int] = mapped_column(default=0, server_default="0")
     mortality_cause: Mapped[str | None] = mapped_column(String(120))
     mortality_reported_at: Mapped[date | None] = mapped_column(Date)
+    # Husbandry-standards death audit: coded cause for stable cross-farm
+    # reporting (the legacy free text above stays accepted for local detail),
+    # carcass disposal, and an optional post-mortem record.
+    mortality_cause_code: Mapped[str | None] = mapped_column(String(30))  # MortalityCause enum
+    disposal_method: Mapped[str | None] = mapped_column(String(60))
+    necropsy_done: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false")
+    )
+    necropsy_findings: Mapped[str | None] = mapped_column(Text)
     notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 

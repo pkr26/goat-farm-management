@@ -348,6 +348,19 @@ async def test_create_every_safe_manual_category(client: httpx.AsyncClient, cate
         "WEANING",
         "BUCKET_MOVE",
         "QUARANTINE",
+        # Husbandry-standards categories are workflow duties too: their
+        # domain services own creation, never the generic endpoint.
+        "KIDDING_WATCH",
+        "BIRTHING_KIT",
+        "HEALTH_CHECK",
+        "HEAT_WATCH",
+        "HOOF_TRIMMING",
+        "SPRAYING",
+        "DISINFECTION",
+        "WEIGHING",
+        "REBREED",
+        "BUCK_ROTATION",
+        "INSURANCE",
     ],
 )
 async def test_create_rejects_system_workflow_categories(
@@ -1700,9 +1713,13 @@ async def test_auto_duty_not_due_yet_409(client: httpx.AsyncClient) -> None:
     # bred 120 days ago → EKD in 30 days → DELIVERY move duty due in 15 days
     _doe, br = await make_pregnancy(client, owner, today() - timedelta(days=120))
     tabs = await get_tabs(client, owner)
-    move = next(t for t in all_tasks(tabs) if t["category"] == "BUCKET_MOVE")
-    assert (
-        move["due_date"]
+    # The day-100 step-up move (EKD - 50) is already overdue by now; the
+    # not-due-yet guard is about the DELIVERY move (EKD - 15).
+    move = next(
+        t
+        for t in all_tasks(tabs)
+        if t["category"] == "BUCKET_MOVE"
+        and t["due_date"]
         == (date.fromisoformat(br["expected_kidding_date"]) - timedelta(days=15)).isoformat()
     )
     resp = await complete_duty(client, owner, move["id"])
@@ -1863,7 +1880,7 @@ async def test_quarantine_protocol_tasks_cannot_be_skipped_into_release_deadlock
         for task in all_tasks(await get_tabs(client, owner))
         if task["purchase_batch_id"] == batch_id
     ]
-    assert len(batch_tasks) == 8
+    assert len(batch_tasks) == 11
 
     for task in batch_tasks:
         response = await client.post(
@@ -1926,9 +1943,16 @@ async def test_skip_form_linked_duty_allowed(client: httpx.AsyncClient) -> None:
 async def test_skip_auto_future_duty_allowed(client: httpx.AsyncClient) -> None:
     """The not-due-yet guard applies to complete, not skip."""
     owner = await owner_with_farm(client)
-    _doe, _br = await make_pregnancy(client, owner, today() - timedelta(days=120))
+    _doe, br = await make_pregnancy(client, owner, today() - timedelta(days=120))
     tabs = await get_tabs(client, owner)
-    move = next(t for t in all_tasks(tabs) if t["category"] == "BUCKET_MOVE")
+    # EKD - 15 is still in the future (the day-100 move at EKD - 50 is not).
+    move = next(
+        t
+        for t in all_tasks(tabs)
+        if t["category"] == "BUCKET_MOVE"
+        and t["due_date"]
+        == (date.fromisoformat(br["expected_kidding_date"]) - timedelta(days=15)).isoformat()
+    )
     assert move["due_date"] > iso(today())
     resp = await client.post(
         f"/api/tasks/{move['id']}/skip", json={"reason": "seasonal standdown"}, headers=owner
@@ -2644,10 +2668,14 @@ async def test_weaning_task_assigned_to_mover(client: httpx.AsyncClient) -> None
 
 async def test_quarantine_batch_tasks_map_to_preset_roles(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    await make_batch(client, owner)
+    batch_id = await make_batch(client, owner)
     tabs = await get_tabs(client, owner)
-    auto = [t for t in all_tasks(tabs) if t["auto_generated"]]
-    assert len(auto) == 8
+    # The cadence engine boards herd-level auto-generated rounds too; the
+    # quarantine protocol's 11 duties are the batch-scoped ones.
+    auto = [
+        t for t in all_tasks(tabs) if t["auto_generated"] and t["purchase_batch_id"] == batch_id
+    ]
+    assert len(auto) == 11
     by_category = {}
     for t in auto:
         by_category.setdefault(t["category"], set()).add(t["assigned_role_name"])
@@ -2655,6 +2683,13 @@ async def test_quarantine_batch_tasks_map_to_preset_roles(client: httpx.AsyncCli
     assert by_category["DEWORMING"] == {"Veterinarian"}
     assert by_category["VACCINE"] == {"Veterinarian"}
     assert by_category["BUCKET_MOVE"] == {"Animal Mover"}
+    # 5 QUARANTINE inspections + 1 DEWORMING + 4 VACCINE duties + the release move
+    assert {c: sum(1 for t in auto if t["category"] == c) for c in by_category} == {
+        "QUARANTINE": 5,
+        "DEWORMING": 1,
+        "VACCINE": 4,
+        "BUCKET_MOVE": 1,
+    }
 
 
 async def test_vet_sees_ultrasound_duty_mover_does_not(client: httpx.AsyncClient) -> None:
@@ -2787,7 +2822,11 @@ async def test_vaccine_duty_generic_complete_409(client: httpx.AsyncClient) -> N
     owner = await owner_with_farm(client)
     doe, _br = await make_pregnancy(client, owner, today() - timedelta(days=120))
     tabs = await get_tabs(client, owner)
-    duty = next(t for t in all_tasks(tabs) if t["category"] == "VACCINE")
+    # The doe-scoped pre-kidding dose (overdue at EKD-40), not the herd-level
+    # cadence vaccination round the task board also carries.
+    duty = next(
+        t for t in all_tasks(tabs) if t["category"] == "VACCINE" and t["animal_id"] == doe["id"]
+    )
     assert duty["due_date"] < iso(today())  # EKD-40 is 10 days in the past
     assert duty["action_url"] is not None
     assert duty["action_url"].startswith("/health/new?task_id=")
@@ -2801,7 +2840,13 @@ async def test_deworming_duty_action_url_includes_batch(client: httpx.AsyncClien
     owner = await owner_with_farm(client)
     batch_id = await make_batch(client, owner, today() - timedelta(days=10))
     tabs = await get_tabs(client, owner)
-    duty = next(t for t in all_tasks(tabs) if t["category"] == "DEWORMING")
+    # The batch's day-4 deworming duty, not the herd-level deworming round the
+    # cadence calendar boards in deworming months.
+    duty = next(
+        t
+        for t in all_tasks(tabs)
+        if t["category"] == "DEWORMING" and t["purchase_batch_id"] == batch_id
+    )
     assert duty["due_date"] < iso(today())
     assert duty["action_url"] is not None
     assert f"task_id={duty['id']}" in duty["action_url"]
@@ -3124,9 +3169,15 @@ async def test_quarantine_duty_is_skippable_only_once_the_batch_has_no_active_an
     """A batch that loses every animal can never write the linked health event
     nor pass the day-45 release, so its protocol duties need a terminal path."""
     owner = await owner_with_farm(client)
-    await make_batch(client, owner, today() - timedelta(days=50))
+    batch_id = await make_batch(client, owner, today() - timedelta(days=50))
     tabs = await get_tabs(client, owner)
-    vaccine = next(t for t in all_tasks(tabs) if t["category"] == "VACCINE" and t["auto_generated"])
+    # A batch-protocol vaccine duty (the board also carries the herd-level
+    # cadence vaccination round, which is legitimately skippable).
+    vaccine = next(
+        t
+        for t in all_tasks(tabs)
+        if t["category"] == "VACCINE" and t["purchase_batch_id"] == batch_id
+    )
     blocked = await client.post(
         f"/api/tasks/{vaccine['id']}/skip", json={"reason": "seasonal standdown"}, headers=owner
     )

@@ -51,6 +51,8 @@ const STATUS_TONES: Record<string, StatusTone> = {
   // siblings (STILLBORN/FAILED), not neutral transitions.
   DIED: "destructive",
   ABORTED: "destructive",
+  // A caesarean delivery is as adverse as a difficult one.
+  CAESAREAN: "destructive",
 };
 /** Resolve any status string to its semantic tone (neutral → null). */
 export function statusTone(status: string): StatusTone | null {

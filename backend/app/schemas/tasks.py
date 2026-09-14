@@ -20,6 +20,17 @@ TaskCategoryStr = Literal[
     "FEED",
     "CLEANING",
     "OTHER",
+    "KIDDING_WATCH",
+    "BIRTHING_KIT",
+    "HEALTH_CHECK",
+    "HEAT_WATCH",
+    "HOOF_TRIMMING",
+    "SPRAYING",
+    "DISINFECTION",
+    "WEIGHING",
+    "REBREED",
+    "BUCK_ROTATION",
+    "INSURANCE",
 ]
 
 # Manual duties are intentionally operational checklists. Workflow categories

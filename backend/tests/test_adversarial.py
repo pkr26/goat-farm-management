@@ -687,8 +687,13 @@ async def test_kidding_closes_leftover_pregnancy_tasks(client: httpx.AsyncClient
         t for t in pending_tasks(await task_tabs(client, owner)) if t["breeding_record_id"] == br_id
     ]
     # Kidding closes the pregnancy duties but deliberately schedules the next
-    # lifecycle duty for the same breeding/litter.
-    assert [task["category"] for task in linked_pending] == ["WEANING"]
+    # lifecycle work for the same breeding/litter: the next-day postpartum
+    # care pair (dam check + stall cleanout) and the weaning milestone.
+    assert sorted(task["category"] for task in linked_pending) == [
+        "CLEANING",
+        "HEALTH_CHECK",
+        "WEANING",
+    ]
 
 
 async def test_deworming_appears_in_vaccination_schedule(client: httpx.AsyncClient) -> None:
@@ -871,7 +876,10 @@ async def test_death_skips_pending_tasks_and_clears_cull_flag(client: httpx.Asyn
     skipped = [
         t for t in all_tasks(tabs) if t["breeding_record_id"] == br3 and t["status"] == "SKIPPED"
     ]
-    assert len(skipped) == 1  # ultrasound task cancelled — no pending work for a dead animal
+    # Both duties the fresh service spawned — the +32-day pregnancy check and
+    # the +18-day return-to-heat watch — are cancelled: no pending work for a
+    # dead animal.
+    assert {t["category"] for t in skipped} == {"ULTRASOUND", "HEAT_WATCH"}
 
 
 async def test_ultrasound_rejects_garbage_pregnant_and_bad_kid_count(

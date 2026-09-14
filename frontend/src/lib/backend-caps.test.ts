@@ -69,6 +69,9 @@ describe("frontend caps mirror the generated API contract", () => {
 
   it("purchase batch count and age caps match PurchaseBatchIn", () => {
     expect(schemaBound(spec, "PurchaseBatchIn", "count", "maximum")).toBe(caps.MAX_BATCH_COUNT);
+    expect(schemaBound(spec, "PurchaseBatchIn", "transport_hours", "maximum")).toBe(
+      caps.MAX_TRANSPORT_HOURS,
+    );
     // avg_age_months carries its bound as exclusive-maximum-style `le`
     // inside anyOf (pydantic Field(le=...) exports as "maximum" here only
     // for ints; the float field keeps `le`), so assert via either key.

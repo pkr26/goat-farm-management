@@ -2,6 +2,7 @@
 
 import re
 from datetime import date
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -74,7 +75,7 @@ from ..services import (
 # close a never-scanned service.
 from ..services.animals import skip_pending_tasks_for_empty_batch
 from ..services.breeding import mark_unassessed
-from ..utils import money, today
+from ..utils import MONEY_QUANTUM, money, today
 from ._shared import AnimalComputedFacts, animal_computed_facts, animal_out, unique_constraint_name
 
 router = APIRouter(prefix="/api/animals", tags=["animals"], responses=COMMON_ERROR_RESPONSES)
@@ -883,6 +884,26 @@ async def move_bucket(
         ).scalar_one_or_none()
         if orphan_provenance is not None:
             context = "orphan_weaning"
+    resting_since: date | None = None
+    if (
+        not payload.history_override
+        and animal.current_bucket == Bucket.RESTING.value
+        and payload.to_bucket == Bucket.BREEDING.value
+    ):
+        # Flush-window residency: days since the doe's latest RESTING entry
+        # (func.max over effective_date — the same bounded latest-move probe
+        # the chronology service uses). The animal row carries no bucket-age
+        # column and its bucket_moves relationship stays unloaded on request
+        # paths, so the guard consumes this SQL-derived fact.
+        resting_since = (
+            await db.execute(
+                select(func.max(BucketMove.effective_date)).where(
+                    BucketMove.farm_id == farm.id,
+                    BucketMove.animal_id == animal.id,
+                    BucketMove.to_bucket == Bucket.RESTING.value,
+                )
+            )
+        ).scalar_one_or_none()
     try:
         require_bucket_transition(
             animal,
@@ -890,6 +911,7 @@ async def move_bucket(
             context=context,
             reference_date=reference_date,
             facts=transition_facts,
+            resting_since=resting_since,
             # The BREEDING-entry gate inside enforces the goat thresholds
             # (10 months / 22 kg), keeping juveniles out of the breeding
             # pool.
@@ -963,6 +985,7 @@ async def move_bucket(
         context=context,
         reference_date=reference_date,
         facts=transition_facts,
+        resting_since=resting_since,
     )
     await db.commit()
     return await _animal_out(db, animal, today(farm.timezone), farm.timezone, perms)
@@ -1091,6 +1114,7 @@ async def change_status(
                 status_code=409,
                 detail=f"Sale/cull is blocked by medicine withdrawal through {withdrawal}",
             )
+    status_note_advisories: list[str] = []
     if payload.new_status == AnimalStatus.SOLD.value:
         # Biosecurity fence: an animal still inside the 45-day quarantine
         # protocol (possibly incubating) must not enter the food chain. A
@@ -1108,26 +1132,55 @@ async def change_status(
         # cannot be liquidated as meat stock — regardless of bucket, so an
         # unweaned kid still riding in RECOVERY with its dam cannot slip the
         # gate (RT-C-2). Culling remains open (injury/illness), and the owner
-        # can still record the exit through a cull with notes. Unknown birth
-        # dates fall through — age is provable only when an effective DOB
-        # exists.
-        if animal.sex == "M" and animal.effective_dob is not None:
-            age_months = animal.age_months_on(status_date)
-            if age_months is not None and age_months < MEAT_SALE_AGE_MONTHS[0]:
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        f"{animal.tag_number} is {age_months} months old — the meat-sale "
-                        f"window opens at {MEAT_SALE_AGE_MONTHS[0]} months and "
-                        f"{MEAT_SALE_WEIGHT_KG[0]:.0f} kg (record a cull instead if the "
-                        "animal must leave the herd now)"
-                    ),
+        # can still record the exit through a cull with notes. The gate reads
+        # the effective DOB (recorded or estimated), so an estimated birth
+        # date closes the old unknown-DOB loophole.
+        if animal.sex == "M":
+            if animal.effective_dob is None:
+                # Age is provable only when an effective DOB exists; the sale
+                # proceeds, but the unverifiable age stays visible on the
+                # record instead of silently passing the gate.
+                status_note_advisories.append("age unverifiable — no birth/estimated date")
+            else:
+                age_months = animal.age_months_on(status_date)
+                if age_months is not None and age_months < MEAT_SALE_AGE_MONTHS[0]:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            f"{animal.tag_number} is {age_months} months old — the meat-sale "
+                            f"window opens at {MEAT_SALE_AGE_MONTHS[0]} months and "
+                            f"{MEAT_SALE_WEIGHT_KG[0]:.0f} kg (record a cull instead if the "
+                            "animal must leave the herd now)"
+                        ),
+                    )
+            if (
+                payload.sale_weight_kg is not None
+                and payload.sale_weight_kg < MEAT_SALE_WEIGHT_KG[0]
+            ):
+                # Soft weight window: the sale still proceeds — a light male
+                # may legitimately leave the herd — but the advisory keeps
+                # the below-window realization auditable.
+                status_note_advisories.append(
+                    "sold below the "
+                    f"{MEAT_SALE_WEIGHT_KG[0]:.0f}–{MEAT_SALE_WEIGHT_KG[1]:.0f} kg market window"
                 )
     animal.status = payload.new_status
     animal.status_date = status_date
-    animal.status_notes = (payload.notes or "").strip() or None
+    # Advisories join the operator's own narrative with the local "—" note
+    # convention; the column is String(255), so the composition is truncated
+    # like the other bounded note writers.
+    animal.status_notes = (
+        " — ".join(
+            part for part in ((payload.notes or "").strip(), *status_note_advisories) if part
+        )[:255]
+        or None
+    )
     if payload.new_status == AnimalStatus.DEAD.value:
         animal.mortality_cause = (payload.mortality_cause or "").strip() or None
+        animal.mortality_cause_code = payload.mortality_cause_code
+        animal.disposal_method = (payload.disposal_method or "").strip() or None
+        animal.necropsy_done = payload.necropsy_done
+        animal.necropsy_findings = (payload.necropsy_findings or "").strip() or None
         animal.mortality_reported_at = payload.mortality_reported_at
         if payload.suspected_scheduled_disease:
             place_movement_restriction(
@@ -1286,16 +1339,54 @@ async def change_status(
         await skip_pending_tasks_for_empty_batch(db, farm.id, animal.purchase_batch_id)
 
     if payload.new_status in SALE_CAPABLE_STATUSES:
-        animal.sale_price = money(payload.sale_price) if payload.sale_price is not None else None
+        # Sale weight is recorded at the ledger's gram-derived precision so
+        # the persisted weight and any price derived from it cannot disagree
+        # by a rounding step. (SOLD-only fields; the schema rejects them for
+        # CULLED/DEAD, so the None default holds there.)
+        sale_weight_kg = (
+            Decimal(str(payload.sale_weight_kg)).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+            if payload.sale_weight_kg is not None
+            else None
+        )
+        sale_price: Decimal | float | None = payload.sale_price
+        if (
+            sale_price is None
+            and sale_weight_kg is not None
+            and payload.sale_price_per_kg is not None
+        ):
+            # Market convention: price = live weight × ₹/kg, exact-paise via
+            # the money helper (decimal multiplication of already-2dp inputs,
+            # then ROUND_HALF_UP to the paise quantum).
+            sale_price = money(sale_weight_kg * Decimal(str(payload.sale_price_per_kg)))
+            if sale_price > 1_000_000_000:
+                # Same ledger ceiling the explicit sale_price field carries
+                # (NonNegativeMoneyFloat); without this a forged weight ×
+                # rate would surface as the CHECK constraint's 500 instead
+                # of a validation error.
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "The derived sale price (weight × ₹/kg) exceeds the "
+                        "₹1,000,000,000 ledger cap"
+                    ),
+                )
+        animal.sale_price = money(sale_price) if sale_price is not None else None
+        animal.sale_weight_kg = sale_weight_kg
         animal.buyer_name = (payload.buyer_name or "").strip() or None
         # A SOLD/CULLED animal always lands in the ledger. When the price is
         # omitted the row books ₹0 and says so in plain text: the asset
         # leaving the herd must be countable from the finance views, never
         # silently invisible (the off-ledger-sale hole).
         sale_note = f"Sale of {animal.tag_number}"
+        # float():g renders the persisted 2-dp weight without Decimal's
+        # trailing-zero padding ("25.5", not "25.50").
+        if sale_weight_kg is not None and payload.sale_price_per_kg is not None:
+            sale_note += f" at {float(sale_weight_kg):g} kg @ ₹{payload.sale_price_per_kg:g}/kg"
+        elif sale_weight_kg is not None:
+            sale_note += f" at {float(sale_weight_kg):g} kg"
         if animal.buyer_name:
             sale_note += f" to {animal.buyer_name}"
-        if payload.sale_price is None:
+        if sale_price is None:
             sale_note += " — no price recorded (₹0 booked)"
         db.add(
             Transaction(
@@ -1303,7 +1394,7 @@ async def change_status(
                 date=status_date,
                 type=TransactionType.INCOME.value,
                 category=TransactionCategory.ANIMAL_SALE.value,
-                amount=money(payload.sale_price) if payload.sale_price is not None else money(0),
+                amount=money(sale_price) if sale_price is not None else money(0),
                 related_animal_id=animal.id,
                 notes=sale_note,
                 created_by_id=user.id,

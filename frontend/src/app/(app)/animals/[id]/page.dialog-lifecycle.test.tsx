@@ -71,6 +71,8 @@ const ANIMAL = {
   status: "ACTIVE",
   status_date: null,
   sale_price: null,
+  sale_weight_kg: null,
+  sale_price_per_kg: null,
   purchase_date: null,
   purchase_price: null,
   seller_name: null,
@@ -85,6 +87,10 @@ const ANIMAL = {
   restriction_clearance_reference: null,
   restriction_version: 0,
   mortality_cause: null,
+  mortality_cause_code: null,
+  disposal_method: null,
+  necropsy_done: false,
+  necropsy_findings: null,
   mortality_reported_at: null,
   notes: "Calm doe, good milker.",
   created_at: "2026-01-01T05:30:00Z",
@@ -260,7 +266,7 @@ describe("AnimalProfilePage behaviour", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      await pickOption(user, within(dialog).getByRole("combobox"), "DEAD");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
       await user.type(within(dialog).getByLabelText("Mortality cause"), "Sudden fever");
       await user.click(
         within(dialog).getByRole("checkbox", {
@@ -274,7 +280,7 @@ describe("AnimalProfilePage behaviour", () => {
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
       const reopened = await openDialog(user, "Change status");
-      expect(within(reopened).getByRole("combobox")).toHaveTextContent("SOLD");
+      expect(within(reopened).getByLabelText(/new status/i)).toHaveTextContent("SOLD");
       expect(within(reopened).queryByLabelText("Mortality cause")).not.toBeInTheDocument();
       expect(
         within(reopened).queryByRole("checkbox", {
@@ -289,7 +295,7 @@ describe("AnimalProfilePage behaviour", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      await pickOption(user, within(dialog).getByRole("combobox"), "DEAD");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
       await user.click(
         within(dialog).getByRole("checkbox", {
           name: "Suspected scheduled/notifiable disease",

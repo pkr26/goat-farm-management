@@ -15,6 +15,8 @@ export interface KiddingCreateIn {
   breeding_record_id: number;
   date: string;
   ease?: KiddingCreateInEase;
+  placenta_passed?: boolean | null;
+  mastitis_suspected?: boolean;
   notes?: string | null;
   /**
      * @minItems 1

@@ -147,6 +147,7 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
   const allowed = can("dashboard.view");
   const canViewAnimals = can("animals.view");
   const canViewBreeding = can("breeding.view");
+  const canViewFinance = can("finance.view");
   const canViewTasks = can("tasks.view");
   const query = useDashboardApiDashboardGet({ query: { enabled: allowed } });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
@@ -159,6 +160,10 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
   // sentinel alone would render stale privileged rows after a revocation.
   const breedingWithheld = payload?.cull_candidates_total === null || !canViewBreeding;
   const animalsWithheld = payload?.recent_weights_total === null || !canViewAnimals;
+  // Insurance is money at risk: the API nulls the section's total without
+  // finance.view, and the stale permission cache must not resurrect a revoked
+  // figure either (the same fail-closed OR as breeding/animals above).
+  const insuranceWithheld = payload?.insurance_expiring_total === null || !canViewFinance;
   // The task previews/totals (and, without animals.view, the bucket/animal
   // aggregates read further down) arrive as the same null sentinels; the
   // generated client types lag the contract, so widen the read before
@@ -781,6 +786,49 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
               <p className="text-sm text-muted-foreground">
                 Showing {payload.restricted_animals.length} of{" "}
                 {payload.restricted_animals_total} held animals.
+              </p>
+            )}
+          </DataTableCard>
+        )}
+        {/* Active policies renewing inside the expiry window. Money at risk
+            sits behind finance.view — a null total means the section was
+            withheld (the register holds the full list), and 0 stays silent
+            like the cull banner: no alarm fatigue when nothing expires. */}
+        {!insuranceWithheld && (payload.insurance_expiring_total ?? 0) > 0 && (
+          <DataTableCard
+            title={`Insurance renewals due soon (${payload.insurance_expiring_total})`}
+            contentClassName="space-y-3"
+          >
+            <Table>
+              <TableHeader className="sr-only">
+                <TableRow>
+                  <th scope="col">Policy</th>
+                  <th scope="col">Insurer</th>
+                  <th scope="col">Animal</th>
+                  <th scope="col">Renewal date</th>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {payload.insurance_expiring.map((policy) => (
+                  <TableRow key={policy.id}>
+                    <TableCell className="font-medium">{policy.policy_number}</TableCell>
+                    <TableCell>{policy.insurer}</TableCell>
+                    <TableCell>{policy.animal_tag ?? "—"}</TableCell>
+                    <TableCell>
+                      {formatDate(policy.renewal_date)}{" "}
+                      <span className="text-warning-tint-foreground">
+                        (in {daysBetween(today, policy.renewal_date)}d)
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            {canViewFinance && (
+              <p className="text-sm text-muted-foreground">
+                <Link href="/finance/insurance" className="text-primary underline">
+                  View the insurance register
+                </Link>
               </p>
             )}
           </DataTableCard>

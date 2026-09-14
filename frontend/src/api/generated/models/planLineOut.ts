@@ -4,6 +4,7 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { PlanLineOutBasis } from './planLineOutBasis';
 import type { PlanLineOutShiftsItem } from './planLineOutShiftsItem';
 
 export interface PlanLineOut {
@@ -14,4 +15,8 @@ export interface PlanLineOut {
   kg_per_head: number;
   daily_kg: number;
   shifts: PlanLineOutShiftsItem[];
+  creep_band?: string | null;
+  basis?: PlanLineOutBasis;
+  mean_weight_kg?: number | null;
+  note?: string | null;
 }

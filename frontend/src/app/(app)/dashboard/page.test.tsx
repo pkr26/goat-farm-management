@@ -86,6 +86,7 @@ function makeAnimal(overrides: Partial<AnimalOut>): AnimalOut {
     status: "ACTIVE",
     status_date: null,
     sale_price: null,
+    sale_weight_kg: null,
     purchase_date: null,
     purchase_price: null,
     seller_name: null,
@@ -121,6 +122,7 @@ function makePayload(overrides: Partial<DashboardOut> = {}): DashboardOut {
     suggestions: [],
     restricted_animals: [],
     recent_weights: [],
+    insurance_expiring: [],
     ...overrides,
   };
   return {
@@ -136,6 +138,8 @@ function makePayload(overrides: Partial<DashboardOut> = {}): DashboardOut {
     restricted_animals_total:
       overrides.restricted_animals_total ?? payload.restricted_animals.length,
     recent_weights_total: overrides.recent_weights_total ?? payload.recent_weights.length,
+    insurance_expiring_total:
+      overrides.insurance_expiring_total ?? payload.insurance_expiring.length,
     preview_limit: overrides.preview_limit ?? 20,
     recent_weights_limit: overrides.recent_weights_limit ?? 10,
   };

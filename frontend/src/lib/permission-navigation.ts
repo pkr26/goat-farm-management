@@ -63,6 +63,7 @@ const FARM_AGNOSTIC_SUBROUTES: readonly string[] = [
   "/animals/new",
   "/feeding/inventory",
   "/feeding/recipes",
+  "/finance/insurance",
   "/health/new",
   "/kidding/new",
 ];

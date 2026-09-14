@@ -13,4 +13,7 @@ export interface KidIn {
   birth_weight?: number | null;
   status?: KidInStatus;
   mortality_reported_at?: string | null;
+  colostrum_within_2h?: boolean | null;
+  navel_dipped?: boolean | null;
+  dam_rejected?: boolean;
 }

@@ -1,8 +1,9 @@
 """Feed allocation rules (pure: no ORM imports).
 
 Single source of truth for which recipe applies to which bucket on a given
-day, the SPEC allocation reference tables, shift times and the per-bucket
-per-head ration defaults. ``services.feeding`` consumes it for the live daily
+day, the SPEC allocation reference tables, shift times, the per-bucket
+per-head ration defaults, the creep-ration age ramp and the weight-scaling
+class percentages. ``services.feeding`` consumes it for the live daily
 plan; ``app.simulation.daily_ops`` consumes it so the simulated feed manifest
 matches what the operational feeding plan would order, bucket for bucket.
 """
@@ -12,11 +13,27 @@ from __future__ import annotations
 from datetime import date
 
 from .enums import Bucket, FeedingShift
+from .species import GOAT_PROFILE
 
 DRY_ROUGHAGE = "DRY_ROUGHAGE_ONLY"
-# Per-kid daily creep allowance for unweaned kids with their dam in RECOVERY
-# (goat farms): ~3% of an 8-12 kg kid's body weight as the creep concentrate.
+# Terminal-band per-kid daily creep allowance: the top step of the ramp below,
+# reached at day 46 and held to weaning. ~3% of an 8-12 kg kid's body weight
+# as the creep concentrate.
 CREEP_KG_PER_HEAD = 0.3
+# Creep ration ramp for unweaned kids with their dam in RECOVERY (goat farms).
+# Creep concentrate starts at the species' creep_start_days and steps up to the
+# terminal allowance; past weaning the kid eats from the grown pens, not the
+# creep trough, so the last band is weaning-bounded. Rows are
+# (start_day, end_day, kg_per_head); the plan's SQL CASE and this module's
+# pure helpers are generated from the same table so the twins cannot drift.
+CREEP_BANDS: tuple[tuple[int, int, float], ...] = (
+    (GOAT_PROFILE.creep_start_days, 30, 0.1),
+    (31, 45, 0.2),
+    (46, GOAT_PROFILE.weaning_days, CREEP_KG_PER_HEAD),
+)
+# Bucks in the BREEDING bucket carry a mating-season condition supplement on
+# top of whatever per-head amount the bucket resolves to (flat or scaled).
+BUCK_BREEDING_SUPPLEMENT_KG = 0.5
 # The virtual quarantine recipe is direct-fed from a seeded raw-inventory row.
 # Keeping the ingredient explicit prevents a successful dispensing log from
 # creating feed ex nihilo merely because no finished-mix recipe exists.
@@ -58,6 +75,32 @@ SHIFT_TIMES = {
 
 def recipe_age_days(effective_dob: date | None, ref: date) -> int:
     return (ref - effective_dob).days if effective_dob else 999  # unknown → grown
+
+
+def creep_band_for(age_days: int) -> tuple[str, float] | None:
+    """(label, kg_per_head) of the creep band covering ``age_days``.
+
+    ``None`` outside the creep window: below creep_start_days the kid is
+    milk-fed (no creep line at all), and past weaning it eats from the grown
+    pens. The SQL twin inside ``services.feeding.feeding_plan`` derives its
+    CASE bands from the same ``CREEP_BANDS`` table.
+    """
+    for start_day, end_day, kg_per_head in CREEP_BANDS:
+        if start_day <= age_days <= end_day:
+            return f"{start_day}\u2013{end_day} d", kg_per_head
+    return None
+
+
+def creep_daily_kg(age_days: int) -> float:
+    """Per-kid daily creep allowance at ``age_days`` (kg, as-fed)."""
+    band = creep_band_for(age_days)
+    return band[1] if band is not None else 0.0
+
+
+def creep_band_label(age_days: int) -> str | None:
+    """Display label of the creep band covering ``age_days`` ("14–30 d")."""
+    band = creep_band_for(age_days)
+    return band[0] if band is not None else None
 
 
 def recipe_for_context(
@@ -108,6 +151,26 @@ GOAT_BUCKET_KG_PER_HEAD: dict[str, float] = {
     Bucket.RESTING.value: 1.2,
     Bucket.MALE_KIDS.value: 1.0,
     Bucket.FEMALE_KIDS.value: 1.0,
+}
+
+# As-fed daily ration as a percentage of live body weight per bucket
+# (husbandry-standards reference). The daily plan scales the bucket's mean
+# latest weight by this factor, clamped to [0.5×, 2.0×] the flat per-head
+# default above (or the farm's BucketFeedSetting override, which defines the
+# flat default operationally); buckets with no weighing at all keep the flat
+# default. Creep is excluded: a kid's allowance is the age-band ramp, and the
+# breeding-buck supplement is additive, not a percentage.
+BUCKET_CLASS_PCT: dict[str, float] = {
+    Bucket.QUARANTINE.value: 3.0,
+    Bucket.FOUNDATION.value: 3.25,
+    Bucket.BREEDING.value: 3.0,
+    Bucket.PREGNANCY_EARLY.value: 3.0,
+    Bucket.PREGNANCY_LATE.value: 3.5,
+    Bucket.DELIVERY.value: 4.0,
+    Bucket.RECOVERY.value: 4.0,
+    Bucket.RESTING.value: 3.0,
+    Bucket.MALE_KIDS.value: 3.25,
+    Bucket.FEMALE_KIDS.value: 3.25,
 }
 
 # One building per bucket (the daily simulation's physical layout): the

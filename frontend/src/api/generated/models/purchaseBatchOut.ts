@@ -10,6 +10,9 @@ export interface PurchaseBatchOut {
   id: number;
   date: string;
   supplier: string | null;
+  origin_market: string | null;
+  transport_hours: number | null;
+  seller_health_history: string | null;
   count: number;
   sex: PurchaseBatchOutSex;
   avg_age_months: number | null;

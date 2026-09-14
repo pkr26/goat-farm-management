@@ -708,8 +708,10 @@ async def test_concurrent_ultrasound_submissions_apply_once(
     # The breeding row is locked FOR UPDATE: the loser re-reads the committed
     # outcome and gets the same 409 a sequential replay gets.
     assert sorted([r1.status_code, r2.status_code]) == [200, 409]
-    # ET+TT vaccine + booster + DELIVERY move + kidding due — once each.
-    assert len(await breeding_follow_ups(client, owner, br["id"])) == 4
+    # The full pre-kidding set (vaccine pair, both pen moves, birthing-kit
+    # check, six daily watches, kidding due) plus the DONE return-to-heat
+    # watch (the completed tab) — exactly once each, never duplicated.
+    assert len(await breeding_follow_ups(client, owner, br["id"])) == 13
     resp = await client.get(f"/api/animals/{doe}", headers=owner)
     moves = [m for m in resp.json()["moves"] if m["to_bucket"] == "PREGNANCY_EARLY"]
     assert len(moves) == 1
@@ -741,10 +743,13 @@ async def test_concurrent_mixed_ultrasound_results_stay_consistent(
     outcome = resp.json()["outcome"]
     follow_ups = await breeding_follow_ups(client, owner, br["id"])
     if outcome == "CONFIRMED_PREGNANT":
-        assert len(follow_ups) == 4  # incl. the ET+TT booster
+        assert len(follow_ups) == 13  # the 12 pregnancy duties + the DONE heat watch
     else:
         assert outcome == "FAILED"
-        assert follow_ups == []  # no pregnancy tasks for a failed cycle
+        # No pregnancy duties for a failed cycle — the only linked survivor is
+        # the return-to-heat watch, skipped service-side by the negative scan.
+        assert [t["category"] for t in follow_ups] == ["HEAT_WATCH"]
+        assert {t["status"] for t in follow_ups} == {"SKIPPED"}
 
 
 # ---------------------------------------------------------------------------
@@ -770,9 +775,11 @@ async def test_concurrent_double_abort_aborts_once(client: httpx.AsyncClient) ->
     aborts = [m for m in resp.json()["moves"] if m["reason"] == "Pregnancy aborted"]
     assert len(aborts) == 1
     follow_ups = await breeding_follow_ups(client, owner, br["id"])
-    # Primary ET+TT, its booster, the DELIVERY move, and the kidding-due duty.
-    assert len(follow_ups) == 4
-    assert {t["status"] for t in follow_ups} == {"SKIPPED"}
+    # The 12 pregnancy duties are all skipped by the single abort; the
+    # return-to-heat watch was already closed DONE by the confirming scan.
+    assert len(follow_ups) == 13
+    assert {t["status"] for t in follow_ups} == {"DONE", "SKIPPED"}
+    assert [t["category"] for t in follow_ups if t["status"] == "DONE"] == ["HEAT_WATCH"]
 
 
 # ---------------------------------------------------------------------------
@@ -908,11 +915,15 @@ async def test_complete_delivery_move_vs_sell_never_deadlocks(
             )
             await confirm_pregnancy(client, owner, br["id"])
             # EKD = today + 14, so the "Move to DELIVERY" duty (EKD − 15)
-            # fell due yesterday and is completable.
+            # fell due yesterday and is completable. Disambiguate from the
+            # day-100 step-up move (EKD − 50): both are pending BUCKET_MOVEs
+            # now, and the earlier due date sorts first.
             move_task = next(
                 t
                 for t in await breeding_follow_ups(client, owner, br["id"])
-                if t["category"] == "BUCKET_MOVE" and t["status"] == "PENDING"
+                if t["category"] == "BUCKET_MOVE"
+                and t["status"] == "PENDING"
+                and t["due_date"] == iso(today() - timedelta(days=1))
             )
             r_complete, r_sell = await asyncio.gather(
                 client.post(f"/api/tasks/{move_task['id']}/complete", headers=owner),

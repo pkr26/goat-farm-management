@@ -6,6 +6,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import false, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
@@ -17,6 +18,7 @@ from ..models import (
     BucketMove,
     FeedInventory,
     HealthEvent,
+    InsurancePolicy,
     PurchaseBatch,
     Transaction,
     TransactionType,
@@ -25,6 +27,12 @@ from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFS
 from ..schemas.finance import (
     SYSTEM_ONLY_CATEGORIES,
     FinanceOut,
+    InsuranceListOut,
+    InsurancePolicyIn,
+    InsurancePolicyOut,
+    InsuranceRenewalIn,
+    InsuranceStatusStr,
+    LifetimePnlOut,
     PnlRowOut,
     TransactionCategoryStr,
     TransactionCorrectionIn,
@@ -42,7 +50,14 @@ from ..services import (
     require_purchase_before_recorded_facts,
     require_status_after_recorded_facts,
 )
+from ..services.finance import (
+    create_insurance_policy,
+    feed_stock_value,
+    lifetime_pnl,
+    renew_insurance_policy,
+)
 from ..utils import add_months, money, utcnow
+from ._shared import unique_constraint_name
 
 router = APIRouter(prefix="/api/finance", tags=["finance"], responses=COMMON_ERROR_RESPONSES)
 
@@ -570,6 +585,7 @@ async def list_transactions(
         offset=offset,
         total_income=float(total_income),
         total_expense=float(total_expense),
+        feed_stock_value=float(await feed_stock_value(db, farm)),
         pnl=[PnlRowOut.model_validate(row) for row in pnl],
     )
 
@@ -734,4 +750,172 @@ async def correct_transaction(
         success_status=201,
         response_type=TransactionOut,
         mutate=mutate,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Insurance register
+# ---------------------------------------------------------------------------
+
+
+def _policy_out(policy: InsurancePolicy) -> InsurancePolicyOut:
+    """ORM → schema; `animal` must already be loaded (selectinload)."""
+    out = InsurancePolicyOut.model_validate(policy)
+    out.animal_tag = policy.animal.tag_number if policy.animal else None
+    return out
+
+
+@router.get("/insurance")
+async def list_insurance_policies(
+    db: DbSession,
+    farm: CurrentFarm,
+    perms: FinanceView,
+    status: InsuranceStatusStr | None = None,
+    animal_id: int | None = Query(default=None, ge=1),
+    limit: Annotated[int, Query(ge=1, le=200)] = 200,
+    offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
+) -> InsuranceListOut:
+    """The farm's insurance register, most urgent renewal first.
+
+    A cross-farm ``animal_id`` filter simply matches nothing (it is a filter,
+    not a resource lookup), so the list cannot serve as an enumeration
+    oracle. ``total`` is the full filtered count for honest pagination."""
+    query = (
+        select(InsurancePolicy)
+        .options(selectinload(InsurancePolicy.animal))
+        .where(InsurancePolicy.farm_id == farm.id)
+    )
+    if status is not None:
+        query = query.where(InsurancePolicy.status == status)
+    if animal_id is not None:
+        query = query.where(InsurancePolicy.animal_id == animal_id)
+    total = (
+        await db.execute(select(func.count()).select_from(query.order_by(None).subquery()))
+    ).scalar_one()
+    policies = list(
+        (
+            await db.execute(
+                query.order_by(InsurancePolicy.renewal_date, InsurancePolicy.id)
+                .offset(offset)
+                .limit(limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return InsuranceListOut(policies=[_policy_out(policy) for policy in policies], total=total)
+
+
+@router.post("/insurance", status_code=201)
+async def add_insurance_policy(
+    payload: InsurancePolicyIn,
+    db: DbSession,
+    user: CurrentUser,
+    farm: CurrentFarm,
+    perms: FinanceManage,
+) -> InsurancePolicyOut:
+    """Register a policy; a future renewal date queues the accountant's duty.
+
+    The (farm, policy_number) natural key makes a double-submit a 409, so no
+    Idempotency-Key is demanded here (unlike the manual ledger row)."""
+    animal_id, animal_tag = await _resolve_related_animal(db, farm, payload.animal_id)
+    try:
+        policy = await create_insurance_policy(
+            db,
+            farm,
+            policy_number=payload.policy_number,
+            insurer=payload.insurer,
+            sum_insured=Decimal(str(payload.sum_insured)),
+            premium=Decimal(str(payload.premium)),
+            start_date=payload.start_date,
+            renewal_date=payload.renewal_date,
+            animal_id=animal_id,
+            notes=(payload.notes or "").strip() or None,
+            created_by_id=user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    except IntegrityError as exc:
+        if unique_constraint_name(exc) != "uq_insurance_policies_farm_policy_number":
+            raise
+        raise HTTPException(
+            status_code=409,
+            detail=f"Policy number {payload.policy_number} is already registered on this farm",
+        ) from None
+    await db.commit()
+    out = InsurancePolicyOut.model_validate(policy)
+    out.animal_tag = animal_tag
+    return out
+
+
+@router.post("/insurance/{policy_id}/renew")
+async def renew_policy(
+    policy_id: int,
+    payload: InsuranceRenewalIn,
+    db: DbSession,
+    farm: CurrentFarm,
+    perms: FinanceManage,
+) -> InsurancePolicyOut:
+    """Move a policy's renewal horizon forward; queues the next renewal duty.
+
+    The register is append-style: renewal keeps the row's identity and audit
+    trail (compare the ledger's correct flow) instead of allowing edits."""
+    if not 1 <= policy_id <= MAX_INT32_ID:
+        policy = None
+    else:
+        # FOR UPDATE serializes a concurrent pair of renewals so the horizon
+        # cannot move backwards between two read-modify-writes.
+        policy = (
+            await db.execute(
+                select(InsurancePolicy)
+                .where(InsurancePolicy.id == policy_id, InsurancePolicy.farm_id == farm.id)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+    if policy is None or policy.farm_id != farm.id:
+        raise HTTPException(status_code=404, detail="Insurance policy not found")
+    try:
+        await renew_insurance_policy(
+            db,
+            farm,
+            policy,
+            renewal_date=payload.renewal_date,
+            premium=Decimal(str(payload.premium)) if payload.premium is not None else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    await db.commit()
+    # expire_on_commit=False keeps the row valid; the animal link is loaded
+    # explicitly (async sessions forbid implicit lazy loads).
+    linked = (
+        await db.get(Animal, policy.animal_id)
+        if policy.animal_id is not None and policy.animal_id > 0
+        else None
+    )
+    out = InsurancePolicyOut.model_validate(policy)
+    out.animal_tag = linked.tag_number if linked is not None and linked.farm_id == farm.id else None
+    return out
+
+
+@router.get("/animals/{animal_id}/lifetime-pnl")
+async def animal_lifetime_pnl(
+    animal_id: int,
+    db: DbSession,
+    farm: CurrentFarm,
+    perms: FinanceView,
+) -> LifetimePnlOut:
+    """Lifetime money in/out for one animal on this farm (zero-safe)."""
+    animal = await db.get(Animal, animal_id) if 1 <= animal_id <= MAX_INT32_ID else None
+    if animal is None or animal.farm_id != farm.id:
+        raise HTTPException(status_code=404, detail="Animal not found")
+    pnl = await lifetime_pnl(db, farm, animal)
+    return LifetimePnlOut(
+        animal_id=animal.id,
+        tag_number=animal.tag_number,
+        purchase_cost=float(pnl["purchase_cost"]),
+        health_cost=float(pnl["health_cost"]),
+        insurance_premiums=float(pnl["insurance_premiums"]),
+        sale_income=float(pnl["sale_income"]),
+        net=float(pnl["net"]),
+        note=str(pnl["note"]),
     )

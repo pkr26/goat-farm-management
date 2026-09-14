@@ -55,6 +55,9 @@ class KidSpec(TypedDict):
     birth_weight: float | None
     status: str
     mortality_reported_at: date | None
+    colostrum_within_2h: bool | None  # None = not recorded
+    navel_dipped: bool | None  # None = not recorded
+    dam_rejected: bool
 
 
 async def record_kidding(
@@ -65,10 +68,15 @@ async def record_kidding(
     ease: str,
     notes: str,
     kids: list[KidSpec],
+    placenta_passed: bool | None = None,
+    mastitis_suspected: bool = False,
     created_by_id: int | None = None,
 ) -> KiddingRecord:
     """Record a kidding. Alive kids auto-create Animal rows (source=BORN,
-    dam/sire linked, bucket=RECOVERY). Doe → RECOVERY; WEANING task at +60d.
+    dam/sire linked, bucket=RECOVERY). Doe → RECOVERY; WEANING task at +60d,
+    postpartum dam check + stall cleanout at +1d (GOAT_PROFILE
+    .postpartum_care_lead_days), plus a kid-support duty for a litter that
+    missed colostrum or was rejected by the dam.
 
     Only a confirmed, not-yet-delivered pregnancy of an ACTIVE doe can deliver:
     a sold/dead doe must not "deliver" new stock onto the farm. The kidding
@@ -129,12 +137,30 @@ async def record_kidding(
     if any(kid["status"] == KidStatus.STILLBORN.value for kid in kids):
         await db.execute(select(func.pg_advisory_xact_lock(literal(farm.id))))
 
+    # Parity is server-derived (clients never send it): her existing kidding
+    # count + 1. Counted before `record` joins the session — sessions run
+    # autoflush=False, so a pending row would be invisible to this SELECT and
+    # double-counted on any later re-derivation; the pregnancy guard above
+    # ensures this transaction has not flushed any KiddingRecord for her yet.
+    prior_kiddings: int = (
+        await db.execute(
+            select(func.count())
+            .select_from(KiddingRecord)
+            .where(
+                KiddingRecord.farm_id == farm.id,
+                KiddingRecord.doe_id == doe.id,
+            )
+        )
+    ).scalar_one()
     record = KiddingRecord(
         farm_id=farm.id,
         doe_id=doe.id,
         date=kidding_date,
         breeding_record_id=br.id,
         ease=ease,
+        parity=prior_kiddings + 1,
+        placenta_passed=placenta_passed,
+        mastitis_suspected=mastitis_suspected,
         notes=notes or None,
         created_by_id=created_by_id,
     )
@@ -209,6 +235,9 @@ async def record_kidding(
             birth_weight=kid["birth_weight"],
             status=kid["status"],
             mortality_reported_at=kid["mortality_reported_at"],
+            colostrum_within_2h=kid["colostrum_within_2h"],
+            navel_dipped=kid["navel_dipped"],
+            dam_rejected=kid["dam_rejected"],
         )
         db.add(entry)
         await db.flush()
@@ -326,6 +355,47 @@ async def record_kidding(
             f"Move {doe.tag_number} to RESTING after postpartum recovery",
             recovery_anchor + timedelta(days=profile.postpartum_recovery_days),
             TaskCategory.BUCKET_MOVE,
+            animal_id=doe.id,
+            breeding_record_id=br.id,
+        )
+    # Husbandry standards: the fresh doe gets a next-day dam check (HEALTH_CHECK
+    # auto-routes to the farm's VET preset role) and the kidding stall a
+    # cleanout; a litter that missed colostrum or was rejected by the dam needs
+    # hands-on support on the same schedule. Added only after the leftover-skip
+    # sweep above — that sweep closes every still-pending duty linked to this
+    # breeding, so these must join the session after it, never before.
+    postpartum_due = kidding_date + timedelta(days=profile.postpartum_care_lead_days)
+    await _add_task(
+        db,
+        farm.id,
+        f"Post-kidding dam check: {doe.tag_number} — placenta passed? "
+        "udder/mastitis check, warm water, light feed, clean hindquarters",
+        postpartum_due,
+        TaskCategory.HEALTH_CHECK,
+        animal_id=doe.id,
+        breeding_record_id=br.id,
+    )
+    await _add_task(
+        db,
+        farm.id,
+        f"Clean & disinfect kidding stall: {doe.tag_number} — "
+        "remove soiled bedding, disinfect, re-bed dry",
+        postpartum_due,
+        TaskCategory.CLEANING,
+        animal_id=doe.id,
+        breeding_record_id=br.id,
+    )
+    if any(
+        kid["status"] == KidStatus.ALIVE.value
+        and (kid["dam_rejected"] or kid["colostrum_within_2h"] is False)
+        for kid in kids
+    ):
+        await _add_task(
+            db,
+            farm.id,
+            f"Kid support: bottle-feed / colostrum replacer for {doe.tag_number}'s litter",
+            postpartum_due,
+            TaskCategory.HEALTH_CHECK,
             animal_id=doe.id,
             breeding_record_id=br.id,
         )

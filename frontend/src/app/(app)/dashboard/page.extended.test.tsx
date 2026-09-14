@@ -152,6 +152,7 @@ function makePayload(overrides: Partial<DashboardOut> = {}): DashboardOut {
     suggestions: [],
     restricted_animals: [],
     recent_weights: [],
+    insurance_expiring: [],
     ...overrides,
   };
   return {
@@ -167,6 +168,8 @@ function makePayload(overrides: Partial<DashboardOut> = {}): DashboardOut {
     restricted_animals_total:
       overrides.restricted_animals_total ?? payload.restricted_animals.length,
     recent_weights_total: overrides.recent_weights_total ?? payload.recent_weights.length,
+    insurance_expiring_total:
+      overrides.insurance_expiring_total ?? payload.insurance_expiring.length,
     preview_limit: overrides.preview_limit ?? 20,
     recent_weights_limit: overrides.recent_weights_limit ?? 10,
   };
@@ -796,5 +799,72 @@ describe("DashboardPage — movement restrictions", () => {
     renderWithProviders(<DashboardPage />);
     await screen.findAllByRole("heading", { name: /— Dashboard/ });
     expect(screen.queryByText(/Movement restrictions/)).not.toBeInTheDocument();
+  });
+});
+
+describe("DashboardPage — insurance renewals due", () => {
+  const policy = {
+    id: 71,
+    policy_number: "POL-2026-001",
+    insurer: "Oriental Insurance",
+    renewal_date: farmToday(),
+    animal_id: 11,
+    animal_tag: "G-011",
+  };
+  const herdPolicy = {
+    ...policy,
+    id: 72,
+    policy_number: "HERD-2026",
+    animal_id: null,
+    animal_tag: null,
+  };
+
+  it("lists expiring policies and links the register", async () => {
+    server.use(
+      dashboardHandler(
+        makePayload({
+          insurance_expiring: [policy, herdPolicy],
+          insurance_expiring_total: 2,
+        }),
+      ),
+    );
+    renderWithProviders(<DashboardPage />);
+    await screen.findByRole("heading", { name: /— Dashboard/ });
+
+    expect(screen.getByText("Insurance renewals due soon (2)")).toBeInTheDocument();
+    const row = rowOf("POL-2026-001");
+    expect(within(row).getByText("Oriental Insurance")).toBeInTheDocument();
+    expect(within(row).getByText("G-011")).toBeInTheDocument();
+    expect(within(rowOf("HERD-2026")).getByText("—")).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: "View the insurance register" });
+    expect(link).toHaveAttribute("href", "/finance/insurance");
+  });
+
+  it("stays silent at zero and hidden without finance access", async () => {
+    server.use(dashboardHandler(COMPLETE));
+    renderWithProviders(<DashboardPage />);
+    await screen.findByRole("heading", { name: /— Dashboard/ });
+    expect(screen.queryByText(/Insurance renewals due soon/)).not.toBeInTheDocument();
+
+    // null total = withheld (no finance.view): never a factual "(0)".
+    server.use(
+      dashboardHandler({
+        ...COMPLETE,
+        insurance_expiring: [policy],
+        insurance_expiring_total: null,
+      }),
+    );
+    renderWithProviders(<DashboardPage />);
+    await screen.findAllByRole("heading", { name: /— Dashboard/ });
+    expect(screen.queryByText(/Insurance renewals due soon/)).not.toBeInTheDocument();
+
+    // The stale permission cache must not resurrect a revoked figure either.
+    server.use(permissionsHandler(["dashboard.view"]));
+    server.use(
+      dashboardHandler({ ...COMPLETE, insurance_expiring: [policy], insurance_expiring_total: 1 }),
+    );
+    renderWithProviders(<DashboardPage />);
+    await screen.findAllByRole("heading", { name: /— Dashboard/ });
+    expect(screen.queryByText(/Insurance renewals due soon/)).not.toBeInTheDocument();
   });
 });

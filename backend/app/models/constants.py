@@ -32,6 +32,14 @@ HISTORY_OVERRIDE_REASON_PREFIX = "[HISTORY OVERRIDE] "
 # A kidding with no surviving kids has no weaning event to move the doe out
 # of RECOVERY. Keep that maternal recovery period explicit and deterministic.
 POSTPARTUM_RECOVERY_DAYS = GOAT_PROFILE.postpartum_recovery_days
+# Husbandry-standards scheduling knobs (species profile), same alias pattern
+# as the biology constants above; the parity test asserts the identity.
+KIDDING_WATCH_START_DAYS = GOAT_PROFILE.kidding_watch_start_days
+BIRTHING_KIT_LEAD_DAYS = GOAT_PROFILE.birthing_kit_lead_days
+POSTPARTUM_CARE_LEAD_DAYS = GOAT_PROFILE.postpartum_care_lead_days
+CREEP_START_DAYS = GOAT_PROFILE.creep_start_days
+MIN_REST_FLUSH_DAYS = GOAT_PROFILE.min_rest_flush_days
+BUCK_ROTATION_AGE_MONTHS = GOAT_PROFILE.buck_rotation_age_months
 # Buck mating policy: enforced by services.breeding (a buck's open services
 # are capped at the ratio) and quoted in the seeded BREEDING bucket text.
 BUCK_ROTATION_DAYS = 7

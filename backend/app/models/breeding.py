@@ -235,6 +235,12 @@ class KiddingRecord(Base):
     date: Mapped[date]
     breeding_record_id: Mapped[int | None] = mapped_column(ForeignKey("breeding_records.id"))
     ease: Mapped[str] = mapped_column(String(10), default=KiddingEase.NORMAL.value)
+    # Server-derived litter index for this doe (1 = first kidding). Clients
+    # never send it; record_kidding counts her prior KiddingRecords + 1.
+    parity: Mapped[int | None]
+    # Postpartum care facts: NULL = not recorded (kept NULL on legacy rows).
+    placenta_passed: Mapped[bool | None]
+    mastitis_suspected: Mapped[bool] = mapped_column(default=False, server_default="false")
     notes: Mapped[str | None] = mapped_column(Text)
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
@@ -304,6 +310,12 @@ class KidEntry(Base):
     birth_weight: Mapped[float | None]
     status: Mapped[str] = mapped_column(String(10), default=KidStatus.ALIVE.value)
     mortality_reported_at: Mapped[date | None]
+    # Neonatal care facts: NULL = not recorded (legacy rows / skipped checks);
+    # stillborn kids keep both NULL by schema validation.
+    colostrum_within_2h: Mapped[bool | None]
+    navel_dipped: Mapped[bool | None]
+    # Dam refused to nurse this kid — triggers the bottle-feed support duty.
+    dam_rejected: Mapped[bool] = mapped_column(default=False, server_default="false")
     animal_id: Mapped[int | None] = mapped_column(ForeignKey("animals.id"))  # auto-created Animal
 
     kidding_record: Mapped[KiddingRecord] = relationship(

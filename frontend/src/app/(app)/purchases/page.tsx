@@ -53,10 +53,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/lib/api-client";
 import { mutationError } from "@/lib/mutations";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
-import { MAX_AGE_MONTHS, MAX_BATCH_COUNT } from "@/lib/backend-caps";
+import { MAX_AGE_MONTHS, MAX_BATCH_COUNT, MAX_TRANSPORT_HOURS } from "@/lib/backend-caps";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { enumLabel } from "@/lib/enum-labels";
 import { farmToday, formatDate, formatMoney } from "@/lib/format";
@@ -101,6 +102,19 @@ const SEX_ITEMS: Record<string, string> = {
 // prices ≥ 0, date year ≥ 2000 and not in the future). avg_weight_kg is
 // species-scaled client-side to max_adult_weight_kg; the wire schema still
 // hard-caps at 1000 kg and the API re-checks the species cap.
+/** One arrival weight per non-empty line, trimmed. Empty textarea → no lines. */
+function weightLines(raw: string | undefined): string[] {
+  return (raw ?? "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+/** Credibility band for a single arrival weight: the species' adult scale
+ * floors it above a typo'd 0 and caps it at the same max_adult_weight_kg the
+ * average-weight field uses. */
+const MIN_ARRIVAL_WEIGHT_KG = 0.1;
+
 /** Species-scaled average-weight cap (max_adult_weight_kg): the backend
  * rejects a batch average above the farm species' credible adult scale. */
 const batchSchema = (maxWeightKg: number) =>
@@ -108,6 +122,20 @@ const batchSchema = (maxWeightKg: number) =>
   .object({
     date: z.string().min(1, "Date is required"),
     supplier: z.string().max(120, "At most 120 characters").optional(),
+    origin_market: z.string().max(120, "At most 120 characters").optional(),
+    // StrictInt on the wire: whole hours only, 0–240 (MAX_TRANSPORT_HOURS).
+    transport_hours: optNum(
+      z
+        .number()
+        .int("Whole hours only")
+        .min(0, "Cannot be negative")
+        .max(MAX_TRANSPORT_HOURS, `At most ${MAX_TRANSPORT_HOURS} hours`),
+    ),
+    // Prior vaccinations/deworming reported by the seller at source.
+    seller_health_history: z
+      .string()
+      .max(4_000, "Seller health history cannot exceed 4000 characters")
+      .optional(),
     count: z.coerce
       .number()
       .int("Count must be a whole number")
@@ -120,6 +148,8 @@ const batchSchema = (maxWeightKg: number) =>
     avg_weight_kg: optNum(
       z.number().min(0, "Cannot be negative").max(maxWeightKg, `At most ${maxWeightKg} kg for this farm's species`),
     ),
+    // One weight per line; parsed against `count` in the superRefine below.
+    individual_weights: z.string().optional(),
     total_price: optNum(
       z
         .number()
@@ -129,6 +159,39 @@ const batchSchema = (maxWeightKg: number) =>
     ),
     notes: z.string().max(4_000, "Notes cannot exceed 4000 characters").optional(),
     create_animals: z.boolean(),
+  })
+  .superRefine((values, ctx) => {
+    const lines = weightLines(values.individual_weights);
+    if (lines.length === 0) return;
+    // Per-head arrival weights only make sense as a complete set written to
+    // the created stub animals, mirroring _individual_weights_are_plausible.
+    if (!values.create_animals) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["individual_weights"],
+        message: "Arrival weights need animal stubs to be written to",
+      });
+      return;
+    }
+    if (lines.length !== values.count) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["individual_weights"],
+        message: `Enter exactly ${values.count} weights (one per animal) — got ${lines.length}`,
+      });
+      return;
+    }
+    for (const [index, line] of lines.entries()) {
+      const weight = Number(line);
+      if (!Number.isFinite(weight) || weight < MIN_ARRIVAL_WEIGHT_KG || weight > maxWeightKg) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["individual_weights"],
+          message: `Line ${index + 1}: each weight must be between ${MIN_ARRIVAL_WEIGHT_KG} and ${maxWeightKg} kg`,
+        });
+        return;
+      }
+    }
   })
   .refine((v) => !v.date || Number(v.date.slice(0, 4)) >= 2000, {
     message: "Date must be year 2000 or later",
@@ -405,6 +468,9 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
     // Stryker restore ObjectLiteral, BooleanLiteral
   });
   const wCreateAnimals = useWatch({ control, name: "create_animals" });
+  // z.coerce.number() types the pre-parse input as unknown; the field only
+  // ever holds the numeric string the number input yields.
+  const wCount = useWatch({ control, name: "count" }) as number | undefined;
 
   function onReview(values: BatchValues) {
     setPendingBatch(values);
@@ -421,10 +487,21 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
             date: values.date,
             // Stryker disable next-line OptionalChaining: the supplier input is registered unconditionally, so the value is a string, never undefined
   supplier: values.supplier?.trim() ? values.supplier.trim() : null,
+            // Stryker disable next-line OptionalChaining: the origin-market input is registered unconditionally, so the value is a string, never undefined
+  origin_market: values.origin_market?.trim() ? values.origin_market.trim() : null,
+            transport_hours: values.transport_hours ?? null,
+            // Stryker disable next-line OptionalChaining: the history textarea is registered unconditionally, so the value is a string, never undefined
+  seller_health_history: values.seller_health_history?.trim()
+              ? values.seller_health_history.trim()
+              : null,
             count: values.count,
             sex: values.sex,
             avg_age_months: values.avg_age_months ?? null,
             avg_weight_kg: values.avg_weight_kg ?? null,
+            individual_weights_kg:
+              weightLines(values.individual_weights).length > 0
+                ? weightLines(values.individual_weights).map(Number)
+                : null,
             total_price: values.total_price ?? null,
             // Stryker disable next-line OptionalChaining: the notes input is registered unconditionally, so the value is a string, never undefined
   notes: values.notes?.trim() ? values.notes.trim() : null,
@@ -712,7 +789,7 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
               </DialogHeader>
               <p className="text-sm text-muted-foreground">
                 {wCreateAnimals
-                  ? "Animal stubs and the 45-day quarantine protocol (deworm → PPR → ET+TT → Goat Pox → FMD → footbath/release) will be auto-created. "
+                  ? "Animal stubs and the 45-day, 11-step quarantine protocol (arrival inspection → rest/electrolytes → deworm → liver tonic+AD3E → PPR → ET+TT → Goat Pox → FMD → day-13 fecal → day-30 fecal recheck → day-45 footbath/release) will be auto-created. "
                   : "With animal-stub creation off, this records only the batch and any purchase expense; it creates no quarantine protocol tasks. "}
                 An ANIMAL_PURCHASE expense is booked when a total price is provided.
               </p>
@@ -749,6 +826,42 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
                 {errors.supplier && (
                   <p id="purchase-supplier-error" role="alert" className="text-sm text-destructive">
                     {errors.supplier.message}
+                  </p>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="origin_market">Origin market</Label>
+                <Input
+                  id="origin_market"
+                  maxLength={120}
+                  aria-invalid={Boolean(errors.origin_market) || undefined}
+                  aria-describedby={errors.origin_market ? "purchase-origin-error" : undefined}
+                  {...register("origin_market")}
+                />
+                {errors.origin_market && (
+                  <p id="purchase-origin-error" role="alert" className="text-sm text-destructive">
+                    {errors.origin_market.message}
+                  </p>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="transport_hours">Transport hours</Label>
+                <Input
+                  id="transport_hours"
+                  type="number"
+                  step="1"
+                  min="0"
+                  max={String(MAX_TRANSPORT_HOURS)}
+                  aria-invalid={Boolean(errors.transport_hours) || undefined}
+                  aria-describedby={errors.transport_hours ? "purchase-transport-error" : undefined}
+                  {...register("transport_hours")}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Journey length from the purchase market to the farm (0–{MAX_TRANSPORT_HOURS} h).
+                </p>
+                {errors.transport_hours && (
+                  <p id="purchase-transport-error" role="alert" className="text-sm text-destructive">
+                    {errors.transport_hours.message}
                   </p>
                 )}
               </div>
@@ -840,6 +953,52 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
                   </p>
                 )}
               </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="individual_weights">Individual arrival weights (kg)</Label>
+              <Textarea
+                id="individual_weights"
+                rows={3}
+                disabled={!wCreateAnimals}
+                placeholder={"24.5\n23.8"}
+                aria-invalid={Boolean(errors.individual_weights) || undefined}
+                aria-describedby={
+                  errors.individual_weights ? "purchase-weights-error" : "purchase-weights-help"
+                }
+                {...register("individual_weights")}
+              />
+              <p id="purchase-weights-help" className="text-xs text-muted-foreground">
+                One weight per line — exactly {wCount ?? 1}{" "}
+                {(wCount ?? 1) === 1 ? "line" : "lines"} for{" "}
+                {(wCount ?? 1) === 1 ? "this animal" : `these ${wCount ?? 1} animals`}. Left
+                blank, every stub gets the average weight above.
+              </p>
+              {errors.individual_weights && (
+                <p id="purchase-weights-error" role="alert" className="text-sm text-destructive">
+                  {errors.individual_weights.message}
+                </p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="seller_health_history">Seller health history</Label>
+              <Textarea
+                id="seller_health_history"
+                rows={2}
+                maxLength={4_000}
+                aria-invalid={Boolean(errors.seller_health_history) || undefined}
+                aria-describedby={
+                  errors.seller_health_history ? "purchase-history-error" : undefined
+                }
+                {...register("seller_health_history")}
+              />
+              <p className="text-xs text-muted-foreground">
+                Vaccinations and deworming the seller reports for the source herd.
+              </p>
+              {errors.seller_health_history && (
+                <p id="purchase-history-error" role="alert" className="text-sm text-destructive">
+                  {errors.seller_health_history.message}
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="notes">Notes</Label>

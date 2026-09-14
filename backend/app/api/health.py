@@ -838,11 +838,13 @@ async def _record_event_mutation(
                 detail="Disease target does not match the selected schedule template",
             )
     else:
-        # A treatment/footbath/vitamin follow-up has no seeded programme item,
-        # but next_due_date still requires a stated schedule and authority
-        # (ck_health_events_next_due_provenance). Keep that provenance as free
-        # text: binding it to a VaccineTemplate is what the DB forbids
-        # (ck_health_events_schedule_template_type), not naming the schedule.
+        # A treatment/footbath/vitamin/exam/fecal-exam follow-up has no seeded
+        # programme item, but next_due_date still requires a stated schedule
+        # and authority (ck_health_events_next_due_provenance). Keep that
+        # provenance as free text: binding it to a VaccineTemplate is what the
+        # DB forbids (ck_health_events_schedule_template_type — a template id
+        # exists only for VACCINE/DEWORMING, so validated_template rejects
+        # EXAM/FECAL_EXAM exactly like TREATMENT), not naming the schedule.
         template_name = requested_template
 
     if payload.task_id is not None:
@@ -876,9 +878,16 @@ async def _record_event_mutation(
                     status_code=422, detail="Health event scope must match the linked animal"
                 )
         else:
-            raise HTTPException(
-                status_code=422, detail="Linked health task has no supported target"
-            )
+            # A herd-level round duty (the cadence-generated vaccination and
+            # deworming rounds carry no animal/batch target): close it on
+            # bucket- or batch-scoped evidence of the round being
+            # administered. A single-animal event never satisfies a herd
+            # round.
+            if payload.scope not in ("bucket", "batch"):
+                raise HTTPException(
+                    status_code=422,
+                    detail=("A herd-level round closes via a bucket- or batch-scoped health event"),
+                )
         expected_template = template_name_for_task(task.title, task.category)
         if expected_template:
             if template_name is not None and template_name != expected_template:

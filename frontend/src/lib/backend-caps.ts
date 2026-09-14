@@ -16,6 +16,9 @@ export const MAX_RECUR_DAYS = 3650;
 export const MAX_AGE_MONTHS = 240;
 // models.MAX_BATCH_COUNT (animals per purchase batch).
 export const MAX_BATCH_COUNT = 1000;
+// schemas.purchases.MAX_TRANSPORT_HOURS (market-to-farm journey ceiling,
+// mirroring the ck_purchase_batches_transport_hours CHECK 0–240).
+export const MAX_TRANSPORT_HOURS = 240;
 // models.MAX_WITHDRAWAL_DAYS (health event withdrawal window).
 export const MAX_WITHDRAWAL_DAYS = 730;
 // schemas.common.MAX_FREE_TEXT_LENGTH (notes fields).

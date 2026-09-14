@@ -76,13 +76,19 @@ import type {
   HealthStatusOut,
   HerdSnapshotApiSimulationHerdSnapshotGetParams,
   HerdSnapshotOut,
+  InsuranceListOut,
+  InsurancePolicyIn,
+  InsurancePolicyOut,
+  InsuranceRenewalIn,
   KiddingCreateIn,
   KiddingListApiKiddingGetParams,
   KiddingListOut,
   KiddingRecordOut,
+  LifetimePnlOut,
   ListAnimalsApiAnimalsGetParams,
   ListBatchesApiPurchasesGetParams,
   ListEventsApiHealthEventsGetParams,
+  ListInsurancePoliciesApiFinanceInsuranceGetParams,
   ListPlansApiPlannerPlansGetParams,
   ListScenariosApiSimulationScenariosGetParams,
   ListTasksApiTasksGetParams,
@@ -7948,6 +7954,568 @@ export const useCorrectTransactionApiFinanceTransactionsTransactionIdCorrectPost
       return useMutation(getCorrectTransactionApiFinanceTransactionsTransactionIdCorrectPostMutationOptions(options), queryClient);
     }
 
+export type listInsurancePoliciesApiFinanceInsuranceGetResponse200 = {
+  data: InsuranceListOut
+  status: 200
+}
+
+export type listInsurancePoliciesApiFinanceInsuranceGetResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type listInsurancePoliciesApiFinanceInsuranceGetResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type listInsurancePoliciesApiFinanceInsuranceGetResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type listInsurancePoliciesApiFinanceInsuranceGetResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type listInsurancePoliciesApiFinanceInsuranceGetResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type listInsurancePoliciesApiFinanceInsuranceGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type listInsurancePoliciesApiFinanceInsuranceGetResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type listInsurancePoliciesApiFinanceInsuranceGetResponseSuccess = (listInsurancePoliciesApiFinanceInsuranceGetResponse200) & {
+  headers: Headers;
+};
+export type listInsurancePoliciesApiFinanceInsuranceGetResponseError = (listInsurancePoliciesApiFinanceInsuranceGetResponse400 | listInsurancePoliciesApiFinanceInsuranceGetResponse401 | listInsurancePoliciesApiFinanceInsuranceGetResponse403 | listInsurancePoliciesApiFinanceInsuranceGetResponse404 | listInsurancePoliciesApiFinanceInsuranceGetResponse409 | listInsurancePoliciesApiFinanceInsuranceGetResponse422 | listInsurancePoliciesApiFinanceInsuranceGetResponse429) & {
+  headers: Headers;
+};
+
+export type listInsurancePoliciesApiFinanceInsuranceGetResponse = (listInsurancePoliciesApiFinanceInsuranceGetResponseSuccess | listInsurancePoliciesApiFinanceInsuranceGetResponseError)
+
+export const getListInsurancePoliciesApiFinanceInsuranceGetUrl = (params?: ListInsurancePoliciesApiFinanceInsuranceGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/finance/insurance?${stringifiedParams}` : `/api/finance/insurance`
+}
+
+/**
+ * The farm's insurance register, most urgent renewal first.
+ *
+ * A cross-farm ``animal_id`` filter simply matches nothing (it is a filter,
+ * not a resource lookup), so the list cannot serve as an enumeration
+ * oracle. ``total`` is the full filtered count for honest pagination.
+ * @summary List Insurance Policies
+ */
+export const listInsurancePoliciesApiFinanceInsuranceGet = async (params?: ListInsurancePoliciesApiFinanceInsuranceGetParams, options?: Parameters<typeof customInstance>[1]): Promise<listInsurancePoliciesApiFinanceInsuranceGetResponse> => {
+
+  return customInstance<listInsurancePoliciesApiFinanceInsuranceGetResponse>(getListInsurancePoliciesApiFinanceInsuranceGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListInsurancePoliciesApiFinanceInsuranceGetQueryKey = (params?: ListInsurancePoliciesApiFinanceInsuranceGetParams,) => {
+    return [
+    `/api/finance/insurance`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListInsurancePoliciesApiFinanceInsuranceGetQueryOptions = <TData = Awaited<ReturnType<typeof listInsurancePoliciesApiFinanceInsuranceGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(params?: ListInsurancePoliciesApiFinanceInsuranceGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listInsurancePoliciesApiFinanceInsuranceGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListInsurancePoliciesApiFinanceInsuranceGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listInsurancePoliciesApiFinanceInsuranceGet>>> = ({ signal }) => listInsurancePoliciesApiFinanceInsuranceGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listInsurancePoliciesApiFinanceInsuranceGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListInsurancePoliciesApiFinanceInsuranceGetQueryResult = NonNullable<Awaited<ReturnType<typeof listInsurancePoliciesApiFinanceInsuranceGet>>>
+export type ListInsurancePoliciesApiFinanceInsuranceGetQueryError = ErrorType<ErrorOut | HTTPValidationError>
+
+
+export function useListInsurancePoliciesApiFinanceInsuranceGet<TData = Awaited<ReturnType<typeof listInsurancePoliciesApiFinanceInsuranceGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ params: undefined |  ListInsurancePoliciesApiFinanceInsuranceGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listInsurancePoliciesApiFinanceInsuranceGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listInsurancePoliciesApiFinanceInsuranceGet>>,
+          TError,
+          Awaited<ReturnType<typeof listInsurancePoliciesApiFinanceInsuranceGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListInsurancePoliciesApiFinanceInsuranceGet<TData = Awaited<ReturnType<typeof listInsurancePoliciesApiFinanceInsuranceGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ params?: ListInsurancePoliciesApiFinanceInsuranceGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listInsurancePoliciesApiFinanceInsuranceGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listInsurancePoliciesApiFinanceInsuranceGet>>,
+          TError,
+          Awaited<ReturnType<typeof listInsurancePoliciesApiFinanceInsuranceGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListInsurancePoliciesApiFinanceInsuranceGet<TData = Awaited<ReturnType<typeof listInsurancePoliciesApiFinanceInsuranceGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ params?: ListInsurancePoliciesApiFinanceInsuranceGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listInsurancePoliciesApiFinanceInsuranceGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary List Insurance Policies
+ */
+
+export function useListInsurancePoliciesApiFinanceInsuranceGet<TData = Awaited<ReturnType<typeof listInsurancePoliciesApiFinanceInsuranceGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ params?: ListInsurancePoliciesApiFinanceInsuranceGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listInsurancePoliciesApiFinanceInsuranceGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListInsurancePoliciesApiFinanceInsuranceGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type addInsurancePolicyApiFinanceInsurancePostResponse201 = {
+  data: InsurancePolicyOut
+  status: 201
+}
+
+export type addInsurancePolicyApiFinanceInsurancePostResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type addInsurancePolicyApiFinanceInsurancePostResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type addInsurancePolicyApiFinanceInsurancePostResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type addInsurancePolicyApiFinanceInsurancePostResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type addInsurancePolicyApiFinanceInsurancePostResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type addInsurancePolicyApiFinanceInsurancePostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type addInsurancePolicyApiFinanceInsurancePostResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type addInsurancePolicyApiFinanceInsurancePostResponseSuccess = (addInsurancePolicyApiFinanceInsurancePostResponse201) & {
+  headers: Headers;
+};
+export type addInsurancePolicyApiFinanceInsurancePostResponseError = (addInsurancePolicyApiFinanceInsurancePostResponse400 | addInsurancePolicyApiFinanceInsurancePostResponse401 | addInsurancePolicyApiFinanceInsurancePostResponse403 | addInsurancePolicyApiFinanceInsurancePostResponse404 | addInsurancePolicyApiFinanceInsurancePostResponse409 | addInsurancePolicyApiFinanceInsurancePostResponse422 | addInsurancePolicyApiFinanceInsurancePostResponse429) & {
+  headers: Headers;
+};
+
+export type addInsurancePolicyApiFinanceInsurancePostResponse = (addInsurancePolicyApiFinanceInsurancePostResponseSuccess | addInsurancePolicyApiFinanceInsurancePostResponseError)
+
+export const getAddInsurancePolicyApiFinanceInsurancePostUrl = () => {
+
+
+
+
+  return `/api/finance/insurance`
+}
+
+/**
+ * Register a policy; a future renewal date queues the accountant's duty.
+ *
+ * The (farm, policy_number) natural key makes a double-submit a 409, so no
+ * Idempotency-Key is demanded here (unlike the manual ledger row).
+ * @summary Add Insurance Policy
+ */
+export const addInsurancePolicyApiFinanceInsurancePost = async (insurancePolicyIn: InsurancePolicyIn, options?: Parameters<typeof customInstance>[1]): Promise<addInsurancePolicyApiFinanceInsurancePostResponse> => {
+
+  return customInstance<addInsurancePolicyApiFinanceInsurancePostResponse>(getAddInsurancePolicyApiFinanceInsurancePostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(insurancePolicyIn)
+  }
+);}
+
+
+
+
+
+export const getAddInsurancePolicyApiFinanceInsurancePostMutationOptions = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addInsurancePolicyApiFinanceInsurancePost>>, TError,{data: InsurancePolicyIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof addInsurancePolicyApiFinanceInsurancePost>>, TError,{data: InsurancePolicyIn}, TContext> => {
+
+const mutationKey = ['addInsurancePolicyApiFinanceInsurancePost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof addInsurancePolicyApiFinanceInsurancePost>>, {data: InsurancePolicyIn}> = (props) => {
+          const {data} = props ?? {};
+
+          return  addInsurancePolicyApiFinanceInsurancePost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AddInsurancePolicyApiFinanceInsurancePostMutationResult = NonNullable<Awaited<ReturnType<typeof addInsurancePolicyApiFinanceInsurancePost>>>
+    export type AddInsurancePolicyApiFinanceInsurancePostMutationBody = InsurancePolicyIn
+    export type AddInsurancePolicyApiFinanceInsurancePostMutationError = ErrorType<ErrorOut | HTTPValidationError>
+
+    /**
+ * @summary Add Insurance Policy
+ */
+export const useAddInsurancePolicyApiFinanceInsurancePost = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addInsurancePolicyApiFinanceInsurancePost>>, TError,{data: InsurancePolicyIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof addInsurancePolicyApiFinanceInsurancePost>>,
+        TError,
+        {data: InsurancePolicyIn},
+        TContext
+      > => {
+      return useMutation(getAddInsurancePolicyApiFinanceInsurancePostMutationOptions(options), queryClient);
+    }
+
+export type renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse200 = {
+  data: InsurancePolicyOut
+  status: 200
+}
+
+export type renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type renewPolicyApiFinanceInsurancePolicyIdRenewPostResponseSuccess = (renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse200) & {
+  headers: Headers;
+};
+export type renewPolicyApiFinanceInsurancePolicyIdRenewPostResponseError = (renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse400 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse401 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse403 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse404 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse409 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse422 | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse429) & {
+  headers: Headers;
+};
+
+export type renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse = (renewPolicyApiFinanceInsurancePolicyIdRenewPostResponseSuccess | renewPolicyApiFinanceInsurancePolicyIdRenewPostResponseError)
+
+export const getRenewPolicyApiFinanceInsurancePolicyIdRenewPostUrl = (policyId: number,) => {
+
+
+
+
+  return `/api/finance/insurance/${policyId}/renew`
+}
+
+/**
+ * Move a policy's renewal horizon forward; queues the next renewal duty.
+ *
+ * The register is append-style: renewal keeps the row's identity and audit
+ * trail (compare the ledger's correct flow) instead of allowing edits.
+ * @summary Renew Policy
+ */
+export const renewPolicyApiFinanceInsurancePolicyIdRenewPost = async (policyId: number,
+    insuranceRenewalIn: InsuranceRenewalIn, options?: Parameters<typeof customInstance>[1]): Promise<renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse> => {
+
+  return customInstance<renewPolicyApiFinanceInsurancePolicyIdRenewPostResponse>(getRenewPolicyApiFinanceInsurancePolicyIdRenewPostUrl(policyId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(insuranceRenewalIn)
+  }
+);}
+
+
+
+
+
+export const getRenewPolicyApiFinanceInsurancePolicyIdRenewPostMutationOptions = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof renewPolicyApiFinanceInsurancePolicyIdRenewPost>>, TError,{policyId: number;data: InsuranceRenewalIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof renewPolicyApiFinanceInsurancePolicyIdRenewPost>>, TError,{policyId: number;data: InsuranceRenewalIn}, TContext> => {
+
+const mutationKey = ['renewPolicyApiFinanceInsurancePolicyIdRenewPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof renewPolicyApiFinanceInsurancePolicyIdRenewPost>>, {policyId: number;data: InsuranceRenewalIn}> = (props) => {
+          const {policyId,data} = props ?? {};
+
+          return  renewPolicyApiFinanceInsurancePolicyIdRenewPost(policyId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RenewPolicyApiFinanceInsurancePolicyIdRenewPostMutationResult = NonNullable<Awaited<ReturnType<typeof renewPolicyApiFinanceInsurancePolicyIdRenewPost>>>
+    export type RenewPolicyApiFinanceInsurancePolicyIdRenewPostMutationBody = InsuranceRenewalIn
+    export type RenewPolicyApiFinanceInsurancePolicyIdRenewPostMutationError = ErrorType<ErrorOut | HTTPValidationError>
+
+    /**
+ * @summary Renew Policy
+ */
+export const useRenewPolicyApiFinanceInsurancePolicyIdRenewPost = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof renewPolicyApiFinanceInsurancePolicyIdRenewPost>>, TError,{policyId: number;data: InsuranceRenewalIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof renewPolicyApiFinanceInsurancePolicyIdRenewPost>>,
+        TError,
+        {policyId: number;data: InsuranceRenewalIn},
+        TContext
+      > => {
+      return useMutation(getRenewPolicyApiFinanceInsurancePolicyIdRenewPostMutationOptions(options), queryClient);
+    }
+
+export type animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse200 = {
+  data: LifetimePnlOut
+  status: 200
+}
+
+export type animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponseSuccess = (animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse200) & {
+  headers: Headers;
+};
+export type animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponseError = (animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse400 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse401 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse403 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse404 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse409 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse422 | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse429) & {
+  headers: Headers;
+};
+
+export type animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse = (animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponseSuccess | animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponseError)
+
+export const getAnimalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetUrl = (animalId: number,) => {
+
+
+
+
+  return `/api/finance/animals/${animalId}/lifetime-pnl`
+}
+
+/**
+ * Lifetime money in/out for one animal on this farm (zero-safe).
+ * @summary Animal Lifetime Pnl
+ */
+export const animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet = async (animalId: number, options?: Parameters<typeof customInstance>[1]): Promise<animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse> => {
+
+  return customInstance<animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse>(getAnimalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetUrl(animalId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAnimalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetQueryKey = (animalId: number,) => {
+    return [
+    `/api/finance/animals/${animalId}/lifetime-pnl`
+    ] as const;
+    }
+
+
+export const getAnimalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetQueryOptions = <TData = Awaited<ReturnType<typeof animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(animalId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAnimalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetQueryKey(animalId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet>>> = ({ signal }) => animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet(animalId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: animalId !== null && animalId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type AnimalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetQueryResult = NonNullable<Awaited<ReturnType<typeof animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet>>>
+export type AnimalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetQueryError = ErrorType<ErrorOut | HTTPValidationError>
+
+
+export function useAnimalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet<TData = Awaited<ReturnType<typeof animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ animalId: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet>>,
+          TError,
+          Awaited<ReturnType<typeof animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useAnimalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet<TData = Awaited<ReturnType<typeof animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ animalId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet>>,
+          TError,
+          Awaited<ReturnType<typeof animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useAnimalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet<TData = Awaited<ReturnType<typeof animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ animalId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Animal Lifetime Pnl
+ */
+
+export function useAnimalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet<TData = Awaited<ReturnType<typeof animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ animalId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getAnimalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetQueryOptions(animalId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
 export type listBatchesApiPurchasesGetResponse200 = {
   data: PurchaseBatchListOut
   status: 200
@@ -8307,7 +8875,7 @@ export const getBatchDetailApiPurchasesBatchIdGetUrl = (batchId: number,
  * A batch may legitimately hold ``MAX_BATCH_COUNT`` animals, so its animals
  * are a bounded page like every other list in the API; the exact occupancy
  * stays available as the batch's ``animals_created``. The protocol schedule
- * needs no bound — ``QUARANTINE_PROTOCOL`` is 8 steps.
+ * needs no bound — ``QUARANTINE_PROTOCOL`` is 11 steps.
  * @summary Batch Detail
  */
 export const batchDetailApiPurchasesBatchIdGet = async (batchId: number,
@@ -8489,6 +9057,10 @@ export const getDashboardApiDashboardGetUrl = () => {
  * Recent weights are per-animal weight/BCS rows with the animal's identity,
  * so they need ``animals.view`` — the permission that guards weight history
  * on the animal pages — and are withheld (empty list, null total) without it.
+ *
+ * The insurance-expiring block summarizes the finance register (policy
+ * numbers, cover, renewal dates), so it follows the register's own
+ * ``finance.view`` gate with the same withheld-not-empty convention.
  * @summary Dashboard
  */
 export const dashboardApiDashboardGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<dashboardApiDashboardGetResponse> => {

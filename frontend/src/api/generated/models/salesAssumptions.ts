@@ -22,6 +22,11 @@ export interface SalesAssumptions {
   meat_price_per_kg?: number;
   /**
      * @minimum 0
+     * @maximum 0.5
+     */
+  breed_price_premium_pct?: number;
+  /**
+     * @minimum 0
      * @maximum 1000000000
      */
   cull_doe_price_per_kg?: number;

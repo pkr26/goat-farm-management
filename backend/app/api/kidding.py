@@ -59,6 +59,9 @@ def _kidding_out(record: KiddingRecord) -> KiddingRecordOut:
         date=record.date,
         breeding_record_id=record.breeding_record_id,
         ease=cast(KiddingEaseStr, record.ease),
+        parity=record.parity,
+        placenta_passed=record.placenta_passed,
+        mastitis_suspected=record.mastitis_suspected,
         notes=record.notes,
         kids=[KidEntryOut.model_validate(kid) for kid in record.kids],
         doe_tag=record.doe.tag_number,
@@ -316,6 +319,9 @@ async def create_kidding(
                     "birth_weight": kid.birth_weight,
                     "status": kid.status,
                     "mortality_reported_at": kid.mortality_reported_at,
+                    "colostrum_within_2h": kid.colostrum_within_2h,
+                    "navel_dipped": kid.navel_dipped,
+                    "dam_rejected": kid.dam_rejected,
                 }
             )
 
@@ -340,12 +346,21 @@ async def create_kidding(
             if animal_clash.first() is not None or kid_clash.first() is not None:
                 raise HTTPException(status_code=400, detail="A kid tag already exists in this farm")
 
-        # SPEC defines ease as NORMAL | ASSISTED | DIFFICULT — the schema
-        # (KiddingEaseStr) now matches KiddingEase exactly, so no coercion.
+        # KiddingEaseStr matches models.KiddingEase exactly (incl. CAESAREAN
+        # since the husbandry-standards release), so no coercion is needed.
         ease = payload.ease
         try:
             record = await record_kidding(
-                db, farm, br, payload.date, ease, payload.notes or "", kids, created_by_id=user.id
+                db,
+                farm,
+                br,
+                payload.date,
+                ease,
+                payload.notes or "",
+                kids,
+                placenta_passed=payload.placenta_passed,
+                mastitis_suspected=payload.mastitis_suspected,
+                created_by_id=user.id,
             )
             record_id = record.id
         except LitterSizeError as exc:

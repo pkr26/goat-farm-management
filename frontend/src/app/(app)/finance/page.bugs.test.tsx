@@ -46,6 +46,7 @@ const PAYLOAD = {
   offset: 0,
   total_income: 0,
   total_expense: 0,
+  feed_stock_value: 12000,
   pnl: [{ month: "2026-01", income: 100, expense: 0, net: 100, categories: {} }],
 };
 

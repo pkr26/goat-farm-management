@@ -797,6 +797,82 @@ def test_assumptions_defaults_valid_and_extra_forbidden() -> None:
         SimulationAssumptions(meta={"horizon_months": 120, "bogus": 1})  # type: ignore[dict-item]
 
 
+def test_adult_buck_weight_default_is_the_breed_descriptor_mid() -> None:
+    """NBAGR/Osmanabadi descriptors put adult males at 33.5-36 kg (TNAU quotes
+    35-40 for large males): the old 42 kg sat at the top of a breeding-tract
+    morphological study and overstated every buck-linked cull, feed and
+    insurance line. The preset registry must inherit the same default."""
+    g = SimulationAssumptions().growth
+    assert g.adult_weight_doe_kg == 33.0
+    assert g.adult_weight_buck_kg == 35.0
+    assert get_preset("osmanabadi").growth.adult_weight_buck_kg == 35.0
+    # Weight-chain coherence: the 0..12 month table is anchored on recorded
+    # field weights, NOT on the adult anchors — so the SPEC sale window
+    # (males at 9 mo, table weight x the young-male premium ≈ 24.4 kg) is
+    # unchanged by the buck default, and the adult weight still clears the
+    # heaviest table point (the schema validator pins >=).
+    assert g.adult_weight_buck_kg >= max(g.weight_by_age_months)
+    assert male_weight_at_age(g.sale_age_months, g, g.adult_weight_buck_kg) == pytest.approx(
+        g.weight_by_age_months[g.sale_age_months] * (1.0 + g.young_male_weight_premium)
+    )
+
+
+def test_breed_price_premium_default_leaves_the_baseline_bit_identical() -> None:
+    """The premium-breed toggle defaults to 0 and must be a strict no-op: the
+    base price is untouched and a run with an explicit 0 premium equals the
+    default run exactly (not approximately)."""
+    sales = SalesAssumptions()
+    assert sales.breed_price_premium_pct == 0.0
+    assert sales.meat_price_per_kg == 370.0
+    base_run = run_simulation(SimulationAssumptions(), with_break_even=False)
+    zero_run = run_simulation(
+        SimulationAssumptions(sales=SalesAssumptions(breed_price_premium_pct=0.0)),
+        with_break_even=False,
+    )
+    assert zero_run.metrics.npv == base_run.metrics.npv
+
+
+def test_breed_price_premium_scales_meat_revenue_only() -> None:
+    """A 10% premium-breed toggle lifts the meat price to 370 x 1.10 and with
+    it every meat-sale rupee (seasonality, escalation and the Eid uplift all
+    multiply off the base price), while cull proceeds — priced on their own
+    spent-animal calibration — and the herd itself stay flat. The toggle is
+    folded into the base price once and reset, so re-validating a dumped
+    scenario (a save round-trip) cannot compound the premium a second time."""
+    premium = SimulationAssumptions(
+        meta=MetaAssumptions(horizon_months=24),
+        sales=SalesAssumptions(breed_price_premium_pct=0.10),
+    )
+    assert premium.sales.meat_price_per_kg == pytest.approx(370.0 * 1.10)
+    assert premium.sales.breed_price_premium_pct == 0.0  # folded, not re-appliable
+    assert premium.sales.cull_doe_price_per_kg == 220.0
+    assert premium.sales.cull_buck_price_per_kg == 240.0
+    round_tripped = SalesAssumptions.model_validate(premium.sales.model_dump())
+    assert round_tripped.meat_price_per_kg == premium.sales.meat_price_per_kg
+
+    baseline = SimulationAssumptions(meta=MetaAssumptions(horizon_months=24))
+    res = run_simulation(premium, with_break_even=False)
+    base = run_simulation(baseline, with_break_even=False)
+    for row, base_row in zip(res.months, base.months, strict=True):
+        assert row.total_herd == base_row.total_herd  # price never feeds biology
+        if base_row.sales_revenue > 0.0:
+            assert row.sales_revenue == pytest.approx(1.10 * base_row.sales_revenue)
+        if base_row.cull_revenue > 0.0:
+            assert row.cull_revenue == pytest.approx(base_row.cull_revenue)
+    assert res.metrics.npv != base.metrics.npv
+
+
+def test_breed_price_premium_bounds_and_ceiling_fold() -> None:
+    with pytest.raises(ValidationError):
+        SalesAssumptions(breed_price_premium_pct=0.51)
+    with pytest.raises(ValidationError):
+        SalesAssumptions(breed_price_premium_pct=-0.01)
+    # The documented 0.5 ceiling is accepted and folds exactly once.
+    folded = SalesAssumptions(meat_price_per_kg=100.0, breed_price_premium_pct=0.5)
+    assert folded.meat_price_per_kg == pytest.approx(150.0)
+    assert folded.breed_price_premium_pct == 0.0
+
+
 def test_weight_curve() -> None:
     g = SimulationAssumptions().growth
     assert weight_at_age(0, g, 32.0) == 2.5
@@ -887,7 +963,7 @@ def test_breed_presets_and_systems() -> None:
             2,  # SPEC weaning+rebreed interval (GOAT_PROFILE.weaning_days=60)
             2.5,
             33,
-            42,
+            35,  # NBAGR/Osmanabadi descriptors 33.5-36 kg; TNAU 35-40 for large males
             osmanabadi_curve,
             9,
             0,

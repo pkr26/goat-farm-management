@@ -122,9 +122,19 @@ describe("kiddingSchema — campaign kills", () => {
     birth_weight: 2.5,
     status: "ALIVE" as const,
     mortality_reported_at: "",
+    colostrum: "unrecorded" as const,
+    navel: "unrecorded" as const,
+    dam_rejected: false,
     ...overrides,
   });
-  const base = { date: TODAY, ease: "NORMAL" as const, notes: "", kids: [kid()] };
+  const base = {
+    date: TODAY,
+    ease: "NORMAL" as const,
+    placenta: "unrecorded" as const,
+    mastitis_suspected: false,
+    notes: "",
+    kids: [kid()],
+  };
 
   it("validates the date grammar and future bound", () => {
     expect(messagesOf(schema.safeParse({ ...base, date: "2026-9-1" }))).toContain(
@@ -634,12 +644,17 @@ describe("KiddingPage — campaign kills", () => {
       birth_weight: 2.5,
       status: "DIED" as const,
       mortality_reported_at: "",
+      colostrum: "unrecorded" as const,
+      navel: "unrecorded" as const,
+      dam_rejected: false,
     };
     expect(
       messagesOf(
         kiddingSchema(farmVocabulary).safeParse({
           date: TODAY,
           ease: "NORMAL",
+          placenta: "unrecorded",
+          mastitis_suspected: false,
           notes: "",
           kids: [withoutField],
         }),

@@ -91,6 +91,9 @@ function makeKidding(overrides: Partial<KiddingRecordOut>): KiddingRecordOut {
     date: "2026-07-20",
     breeding_record_id: 1,
     ease: "NORMAL",
+    parity: null,
+    placenta_passed: null,
+    mastitis_suspected: false,
     notes: null,
     kids: [],
     doe_tag: "G-010",
@@ -113,6 +116,9 @@ const HISTORY = makeKidding({
       birth_weight: 2.4,
       status: "ALIVE",
       mortality_reported_at: null,
+      colostrum_within_2h: null,
+      navel_dipped: null,
+      dam_rejected: false,
       animal_id: 55,
     },
     {
@@ -122,6 +128,9 @@ const HISTORY = makeKidding({
       birth_weight: null,
       status: "STILLBORN",
       mortality_reported_at: null,
+      colostrum_within_2h: null,
+      navel_dipped: null,
+      dam_rejected: false,
       animal_id: null,
     },
   ],
@@ -409,6 +418,44 @@ describe("KiddingPage", () => {
     expect(within(row).getByText(/kid\s*\(Male, stillborn\)/)).toBeInTheDocument();
   });
 
+  it("surfaces the recorded care facts read-only in the history", async () => {
+    payload.records = [
+      makeKidding({
+        id: 30,
+        parity: 2,
+        placenta_passed: false,
+        mastitis_suspected: true,
+        kids: [
+          {
+            id: 3,
+            tag: "G-103",
+            sex: "F",
+            birth_weight: 2.2,
+            status: "ALIVE",
+            mortality_reported_at: null,
+            colostrum_within_2h: true,
+            navel_dipped: false,
+            dam_rejected: true,
+            animal_id: null,
+          },
+        ],
+      }),
+    ];
+    renderWithProviders(<KiddingPage />);
+    await screen.findByText("Recent kiddings");
+    const row = screen.getByText("20 Jul 2026").closest("tr")!;
+    // Postpartum facts ride under the ease badge; uncaptured facts stay silent.
+    expect(
+      within(row).getByText("parity 2 · placenta not passed · mastitis suspected"),
+    ).toBeInTheDocument();
+    // Recorded neonatal care joins the kid's parenthetical.
+    expect(
+      within(row).getByText(
+        /\(Female, alive, colostrum yes, navel dipped no, dam rejected\)/,
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("renders a dash in the kids cell when a kidding has no kids", async () => {
     payload.records = [makeKidding({ id: 22, kids: [] })];
     payload.overdue = [];
@@ -559,7 +606,16 @@ describe("KiddingPage", () => {
 
     await waitFor(() => expect(postBody).not.toBeNull());
     expect(postBody!.kids).toEqual([
-      { tag: null, sex: "F", birth_weight: null, status: "ALIVE", mortality_reported_at: null },
+      {
+        tag: null,
+        sex: "F",
+        birth_weight: null,
+        status: "ALIVE",
+        mortality_reported_at: null,
+        colostrum_within_2h: null,
+        navel_dipped: null,
+        dam_rejected: false,
+      },
     ]);
   });
 
@@ -665,6 +721,8 @@ describe("KiddingPage", () => {
       breeding_record_id: 12,
       date: localTodayISO(),
       ease: "NORMAL",
+      placenta_passed: null,
+      mastitis_suspected: false,
       notes: "easy birth",
     });
     expect(postBody!.kids).toEqual([
@@ -674,8 +732,20 @@ describe("KiddingPage", () => {
         birth_weight: 2.5,
         status: "ALIVE",
         mortality_reported_at: null,
+        colostrum_within_2h: null,
+        navel_dipped: null,
+        dam_rejected: false,
       },
-      { tag: null, sex: "F", birth_weight: null, status: "ALIVE", mortality_reported_at: null },
+      {
+        tag: null,
+        sex: "F",
+        birth_weight: null,
+        status: "ALIVE",
+        mortality_reported_at: null,
+        colostrum_within_2h: null,
+        navel_dipped: null,
+        dam_rejected: false,
+      },
     ]);
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await waitFor(() => expect(listCalls).toBeGreaterThanOrEqual(2));
@@ -693,10 +763,10 @@ describe("KiddingPage", () => {
     const combos = within(dialog).getAllByRole("combobox");
     // Order: ease, then per-row [sex, status].
     await pickOption(user, combos[0], "Difficult");
-    await pickOption(user, within(dialog).getAllByRole("combobox")[1], "Male");
-    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "Died");
+    await pickOption(user, within(dialog).getByLabelText("Kid 1 sex"), "Male");
+    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "Died");
     // The sex trigger shows the label "Male", not the raw value "M".
-    expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("Male");
+    expect(within(dialog).getByLabelText("Kid 1 sex")).toHaveTextContent("Male");
     fireEvent.change(within(dialog).getByLabelText("Kid 1 mortality date *"), {
       target: { value: localTodayISO() },
     });
@@ -712,6 +782,9 @@ describe("KiddingPage", () => {
       birth_weight: null,
       status: "DIED",
       mortality_reported_at: localTodayISO(),
+      colostrum_within_2h: null,
+      navel_dipped: null,
+      dam_rejected: false,
     });
   });
 
@@ -736,7 +809,7 @@ describe("KiddingPage", () => {
       }),
     );
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "Died");
+    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "Died");
     fireEvent.change(within(dialog).getByLabelText("Kid 1 mortality date *"), {
       target: { value: localTodayISO() },
     });
@@ -750,7 +823,7 @@ describe("KiddingPage", () => {
 
   it("requires a mortality date before posting a died kid", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "Died");
+    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "Died");
     await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
 
     expect(await within(dialog).findByText("Mortality date is required")).toBeInTheDocument();
@@ -762,7 +835,7 @@ describe("KiddingPage", () => {
 
   it("rejects a mortality date before the kidding date", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "Died");
+    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "Died");
     fireEvent.change(within(dialog).getByLabelText("Kid 1 mortality date *"), {
       target: { value: daysFromToday(-1) },
     });
@@ -776,7 +849,7 @@ describe("KiddingPage", () => {
 
   it("rejects a mortality date in the future", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "Died");
+    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "Died");
     fireEvent.change(within(dialog).getByLabelText("Kid 1 mortality date *"), {
       target: { value: daysFromToday(1) },
     });
@@ -812,11 +885,11 @@ describe("KiddingPage", () => {
 
   it("drops the mortality date when a kid is switched back off DIED", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "Died");
+    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "Died");
     fireEvent.change(within(dialog).getByLabelText("Kid 1 mortality date *"), {
       target: { value: localTodayISO() },
     });
-    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "Alive");
+    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "Alive");
     expect(
       within(dialog).queryByLabelText("Kid 1 mortality date *"),
     ).not.toBeInTheDocument();
@@ -826,6 +899,9 @@ describe("KiddingPage", () => {
     expect((postBody!.kids as Record<string, unknown>[])[0]).toMatchObject({
       status: "ALIVE",
       mortality_reported_at: null,
+      colostrum_within_2h: null,
+      navel_dipped: null,
+      dam_rejected: false,
     });
   });
 

@@ -9,6 +9,7 @@ from ..models.constants import HISTORY_OVERRIDE_REASON_PREFIX, MAX_ANIMAL_TAG_LE
 from ..models.helpers import no_control_characters
 from .common import (
     MAX_FREE_TEXT_LENGTH,
+    MoneyFloat,
     NonNegativeMoneyFloat,
     NonNegativeWeightKgFloat,
     PastOrTodayDate,
@@ -23,6 +24,28 @@ Sex = Literal["M", "F"]
 AnimalSourceStr = Literal["BORN", "PURCHASED"]
 AnimalStatusStr = Literal["ACTIVE", "SOLD", "DEAD", "CULLED"]
 BirthTypeStr = Literal["SINGLE", "TWIN", "TRIPLET", "QUADRUPLET", "MULTIPLET"]
+# Coded mortality vocabulary (husbandry standards). Re-declares
+# models.enums.MortalityCause like every other wire Literal; the parity test
+# keeps the two lists from drifting.
+MortalityCauseStr = Literal[
+    "PNEUMONIA",
+    "DIARRHOEA",
+    "COLIBACILLOSIS",
+    "ENTEROTOXAEMIA",
+    "PPR_SUSPECTED",
+    "FMD_SUSPECTED",
+    "GOAT_POX_SUSPECTED",
+    "PARASITISM",
+    "COCCIDIOSIS",
+    "NUTRITIONAL",
+    "HEAT_STRESS",
+    "PREDATION",
+    "ACCIDENT",
+    "DYSTOCIA",
+    "OLD_AGE",
+    "OTHER",
+    "UNKNOWN",
+]
 BucketStr = Literal[
     "QUARANTINE",
     "FOUNDATION",
@@ -130,6 +153,9 @@ class AnimalOut(BaseModel):
     status: AnimalStatusStr
     status_date: date | None
     sale_price: float | None
+    # Operational sale fact (like latest_weight_kg); paired with sale_price in
+    # the ledger note for realized ₹/kg benchmarking.
+    sale_weight_kg: float | None
     purchase_date: date | None
     purchase_price: float | None
     seller_name: str | None
@@ -239,11 +265,22 @@ class StatusChangeIn(StrictInputModel):
     date: PastOrTodayDate | None = None  # defaults to today
     sale_price: NonNegativeMoneyFloat | None = None
     buyer_name: PostgresText | None = Field(default=None, max_length=120)
+    # Market-convention sale capture (SOLD only): live weight at sale and the
+    # realized ₹/kg rate. When sale_price is omitted but both are supplied the
+    # endpoint derives price = money(weight × rate) — paise-exact.
+    sale_weight_kg: WeightKgFloat | None = None
+    sale_price_per_kg: MoneyFloat | None = None
     notes: PostgresText | None = Field(
         default=None, max_length=255
     )  # animals.status_notes String(255)
     mortality_cause: PostgresText | None = Field(default=None, max_length=120)
+    mortality_cause_code: MortalityCauseStr | None = None
+    disposal_method: PostgresText | None = Field(default=None, max_length=60)
     mortality_reported_at: PastOrTodayDate | None = None
+    necropsy_done: StrictBool = False
+    necropsy_findings: PostgresText | None = Field(
+        default=None, max_length=MAX_FREE_TEXT_LENGTH
+    )  # animals.necropsy_findings Text
     suspected_scheduled_disease: StrictBool = False
     suspected_disease: PostgresText | None = Field(default=None, max_length=120)
     authority_notified_at: PastOrTodayDate | None = None
@@ -254,16 +291,29 @@ class StatusChangeIn(StrictInputModel):
             self.sale_price is not None or self.buyer_name is not None
         ):
             raise ValueError("Sale price and buyer require SOLD or CULLED status")
+        if self.new_status != "SOLD" and (
+            self.sale_weight_kg is not None or self.sale_price_per_kg is not None
+        ):
+            raise ValueError("Sale weight and price-per-kg require SOLD status")
         if self.new_status != "DEAD" and any(
             value is not None
             for value in (
                 self.mortality_cause,
+                self.mortality_cause_code,
+                self.disposal_method,
                 self.mortality_reported_at,
+                self.necropsy_findings,
                 self.suspected_disease,
                 self.authority_notified_at,
             )
         ):
             raise ValueError("Mortality and disease-escalation fields require DEAD status")
+        if self.new_status != "DEAD" and self.necropsy_done:
+            raise ValueError("necropsy_done requires DEAD status")
+        if self.necropsy_findings is not None and not self.necropsy_done:
+            raise ValueError("Necropsy findings require necropsy_done=true")
+        if self.sale_price_per_kg is not None and self.sale_weight_kg is None:
+            raise ValueError("sale_price_per_kg requires sale_weight_kg")
         if self.suspected_scheduled_disease and not self.suspected_disease:
             raise ValueError("A suspected scheduled disease requires an identified disease")
         if not self.suspected_scheduled_disease and (

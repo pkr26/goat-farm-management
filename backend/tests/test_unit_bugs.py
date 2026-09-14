@@ -162,19 +162,21 @@ async def test_status_notes_unbounded_exceeds_db_column(client: httpx.AsyncClien
     assert resp.status_code == 422, resp.text
 
 
-# FIXED — regression test
-# schemas/kidding.py KiddingEaseStr used to include "CAESAREAN", but SPEC
-# §KiddingRecord defines ease as NORMAL | ASSISTED | DIFFICULT and
-# models.KiddingEase has exactly those three values. The literal is now
-# tightened (and the CAESAREAN→NORMAL coercion in api/kidding.py deleted).
-def test_kidding_ease_rejects_caesarean_per_spec() -> None:
+# UPDATED — husbandry-standards release: models.KiddingEase and the
+# KiddingEaseStr literal now include CAESAREAN (the kidding ease vocabulary
+# was widened to record surgical deliveries), so the payload validates and
+# persists. The literal remains a closed set — anything outside the four
+# documented values still fails schema validation.
+def test_kidding_ease_accepts_caesarean() -> None:
+    payload = KiddingCreateIn(
+        breeding_record_id=1,
+        date=TODAY,
+        ease="CAESAREAN",
+        kids=[{"sex": "M"}],
+    )
+    assert payload.ease == "CAESAREAN"
     with pytest.raises(ValidationError):
-        KiddingCreateIn(
-            breeding_record_id=1,
-            date=TODAY,
-            ease="CAESAREAN",
-            kids=[{"sex": "M"}],
-        )
+        KiddingCreateIn(breeding_record_id=1, date=TODAY, ease="EPISIOTOMY", kids=[{"sex": "M"}])
 
 
 # FIXED — regression test

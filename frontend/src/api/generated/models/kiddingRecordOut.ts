@@ -13,6 +13,9 @@ export interface KiddingRecordOut {
   date: string;
   breeding_record_id: number | null;
   ease: KiddingRecordOutEase;
+  parity: number | null;
+  placenta_passed: boolean | null;
+  mastitis_suspected: boolean;
   notes: string | null;
   kids?: KidEntryOut[];
   doe_tag?: string | null;

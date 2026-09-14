@@ -78,6 +78,8 @@ const ANIMAL = {
   status: "ACTIVE",
   status_date: null,
   sale_price: null,
+  sale_weight_kg: null,
+  sale_price_per_kg: null,
   purchase_date: null,
   purchase_price: null,
   seller_name: null,
@@ -92,6 +94,10 @@ const ANIMAL = {
   restriction_clearance_reference: null,
   restriction_version: 0,
   mortality_cause: null,
+  mortality_cause_code: null,
+  disposal_method: null,
+  necropsy_done: false,
+  necropsy_findings: null,
   mortality_reported_at: null,
   notes: "Calm doe, good milker.",
   created_at: "2026-01-01T05:30:00Z",
@@ -255,12 +261,58 @@ describe("AnimalProfilePage guards", () => {
       expect(screen.queryByText("Scheduled disease suspected")).not.toBeInTheDocument();
     });
 
+    it("shows the recorded sale weight next to the sale price", async () => {
+      useProfileHandler(
+        profileWith({
+          status: "SOLD",
+          status_date: "2026-07-30",
+          sale_price: 9000,
+          sale_weight_kg: 40,
+        }),
+      );
+      await renderProfile();
+
+      expect(detailValue("Sale price")).toBe("₹9,000");
+      expect(detailValue("Sale weight")).toBe("40 kg");
+    });
+
+    it("renders the lifetime P&L card with its farm-level feed note", async () => {
+      server.use(
+        http.get("/api/finance/animals/1/lifetime-pnl", () =>
+          HttpResponse.json({
+            animal_id: 1,
+            tag_number: "G-001",
+            purchase_cost: 5000,
+            health_cost: 300,
+            insurance_premiums: 120,
+            sale_income: 9000,
+            net: 3580,
+            note: "Feed costs are not attributed per animal (farm-level dispensing).",
+          }),
+        ),
+      );
+      await renderProfile();
+
+      const card = screen.getByText("Lifetime P&L").closest('[data-slot="card"]') as HTMLElement;
+      await waitFor(() => expect(within(card).getByText("Purchase cost")).toBeInTheDocument());
+      expect(within(card).getByText("Insurance premiums")).toBeInTheDocument();
+      expect(within(card).getByText("Net")).toBeInTheDocument();
+      expect(within(card).getByText("₹3,580")).toBeInTheDocument();
+      expect(
+        within(card).getByText(/Feed costs are not attributed per animal/),
+      ).toBeInTheDocument();
+    });
+
     it("reports a suspected scheduled disease for a death", async () => {
       useProfileHandler(
         profileWith({
           status: "DEAD",
           status_date: "2026-07-30",
           mortality_cause: "Sudden fever",
+          mortality_cause_code: null,
+          disposal_method: null,
+          necropsy_done: false,
+          necropsy_findings: null,
           mortality_reported_at: "2026-07-31",
           suspected_scheduled_disease: true,
           suspected_disease: "PPR",
@@ -278,6 +330,10 @@ describe("AnimalProfilePage guards", () => {
           status: "DEAD",
           status_date: "2026-07-30",
           mortality_cause: null,
+          mortality_cause_code: null,
+          disposal_method: null,
+          necropsy_done: false,
+          necropsy_findings: null,
           suspected_scheduled_disease: false,
           suspected_disease: null,
         }),
@@ -663,7 +719,7 @@ describe("AnimalProfilePage guards", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      await pickOption(user, within(dialog).getByRole("combobox"), "DEAD");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
       await user.click(
         within(dialog).getByRole("checkbox", {
           name: "Suspected scheduled/notifiable disease",
@@ -683,7 +739,7 @@ describe("AnimalProfilePage guards", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      await pickOption(user, within(dialog).getByRole("combobox"), "DEAD");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
       await user.click(
         within(dialog).getByRole("checkbox", {
           name: "Suspected scheduled/notifiable disease",
@@ -712,7 +768,7 @@ describe("AnimalProfilePage guards", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      await pickOption(user, within(dialog).getByRole("combobox"), "DEAD");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
       const checkbox = within(dialog).getByRole("checkbox", {
         name: "Suspected scheduled/notifiable disease",
       });

@@ -7067,6 +7067,537 @@
         }
       }
     },
+    "/api/finance/insurance": {
+      "get": {
+        "tags": [
+          "finance"
+        ],
+        "summary": "List Insurance Policies",
+        "description": "The farm's insurance register, most urgent renewal first.\n\nA cross-farm ``animal_id`` filter simply matches nothing (it is a filter,\nnot a resource lookup), so the list cannot serve as an enumeration\noracle. ``total`` is the full filtered count for honest pagination.",
+        "operationId": "list_insurance_policies_api_finance_insurance_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "active",
+                    "renewed",
+                    "lapsed",
+                    "claimed"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "animal_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Animal Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 200,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InsuranceListOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected (invalid state or values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (state, replay, or race)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "finance"
+        ],
+        "summary": "Add Insurance Policy",
+        "description": "Register a policy; a future renewal date queues the accountant's duty.\n\nThe (farm, policy_number) natural key makes a double-submit a 409, so no\nIdempotency-Key is demanded here (unlike the manual ledger row).",
+        "operationId": "add_insurance_policy_api_finance_insurance_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InsurancePolicyIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InsurancePolicyOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected (invalid state or values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (state, replay, or race)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/finance/insurance/{policy_id}/renew": {
+      "post": {
+        "tags": [
+          "finance"
+        ],
+        "summary": "Renew Policy",
+        "description": "Move a policy's renewal horizon forward; queues the next renewal duty.\n\nThe register is append-style: renewal keeps the row's identity and audit\ntrail (compare the ledger's correct flow) instead of allowing edits.",
+        "operationId": "renew_policy_api_finance_insurance__policy_id__renew_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "policy_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Policy Id"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InsuranceRenewalIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InsurancePolicyOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected (invalid state or values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (state, replay, or race)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/finance/animals/{animal_id}/lifetime-pnl": {
+      "get": {
+        "tags": [
+          "finance"
+        ],
+        "summary": "Animal Lifetime Pnl",
+        "description": "Lifetime money in/out for one animal on this farm (zero-safe).",
+        "operationId": "animal_lifetime_pnl_api_finance_animals__animal_id__lifetime_pnl_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "animal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Animal Id"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LifetimePnlOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected (invalid state or values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (state, replay, or race)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/purchases": {
       "get": {
         "tags": [
@@ -7351,7 +7882,7 @@
           "purchases"
         ],
         "summary": "Batch Detail",
-        "description": "One batch with its quarantine schedule and purpose-scoped animals.\n\nThe schedule itself belongs to procurement, but task assignment and\ncompletion attribution remain task-module data. Likewise, a batch animal\ncan be tracked through quarantine without granting its complete profile.\n\nA batch may legitimately hold ``MAX_BATCH_COUNT`` animals, so its animals\nare a bounded page like every other list in the API; the exact occupancy\nstays available as the batch's ``animals_created``. The protocol schedule\nneeds no bound \u2014 ``QUARANTINE_PROTOCOL`` is 8 steps.",
+        "description": "One batch with its quarantine schedule and purpose-scoped animals.\n\nThe schedule itself belongs to procurement, but task assignment and\ncompletion attribution remain task-module data. Likewise, a batch animal\ncan be tracked through quarantine without granting its complete profile.\n\nA batch may legitimately hold ``MAX_BATCH_COUNT`` animals, so its animals\nare a bounded page like every other list in the API; the exact occupancy\nstays available as the batch's ``animals_created``. The protocol schedule\nneeds no bound \u2014 ``QUARANTINE_PROTOCOL`` is 11 steps.",
         "operationId": "batch_detail_api_purchases__batch_id__get",
         "security": [
           {
@@ -7492,7 +8023,7 @@
           "dashboard"
         ],
         "summary": "Dashboard",
-        "description": "Exact herd counts plus deterministic, bounded operational previews.\n\nEach ``*_total`` is calculated in the same SQL statement as its list.\nOperational lists contain at most ``preview_limit`` rows; recent weights\nuse ``recent_weights_limit``. The dedicated tasks, breeding and animals\npages remain the full paginated/history views.\n\nSections carrying a breeding-programme judgement \u2014 kiddings due, cull\ncandidates and the suggestions derived from breeding readiness or an open\npregnancy \u2014 need ``breeding.view`` (suggestions additionally\n``animals.view``, since every one names the animal and its exact weight),\nthe same permissions that govern ``cull_candidate`` / ``is_breeding_ready``\n/ ``is_currently_pregnant`` in ``animal_out``. A caller without a section's\ngate gets an empty list and a null total rather than a 403, so the page\nstill renders for e.g. the cleaner preset.\n\nThe herd-summary block \u2014 bucket occupancy (the breeding-programme buckets\namong them), the active total and the sex split \u2014 restate animal-register\nfacts the animals pages hold behind ``animals.view``, so it is withheld\nthe same way (null fields, not zeros) without that permission.\n\nRecent weights are per-animal weight/BCS rows with the animal's identity,\nso they need ``animals.view`` \u2014 the permission that guards weight history\non the animal pages \u2014 and are withheld (empty list, null total) without it.",
+        "description": "Exact herd counts plus deterministic, bounded operational previews.\n\nEach ``*_total`` is calculated in the same SQL statement as its list.\nOperational lists contain at most ``preview_limit`` rows; recent weights\nuse ``recent_weights_limit``. The dedicated tasks, breeding and animals\npages remain the full paginated/history views.\n\nSections carrying a breeding-programme judgement \u2014 kiddings due, cull\ncandidates and the suggestions derived from breeding readiness or an open\npregnancy \u2014 need ``breeding.view`` (suggestions additionally\n``animals.view``, since every one names the animal and its exact weight),\nthe same permissions that govern ``cull_candidate`` / ``is_breeding_ready``\n/ ``is_currently_pregnant`` in ``animal_out``. A caller without a section's\ngate gets an empty list and a null total rather than a 403, so the page\nstill renders for e.g. the cleaner preset.\n\nThe herd-summary block \u2014 bucket occupancy (the breeding-programme buckets\namong them), the active total and the sex split \u2014 restate animal-register\nfacts the animals pages hold behind ``animals.view``, so it is withheld\nthe same way (null fields, not zeros) without that permission.\n\nRecent weights are per-animal weight/BCS rows with the animal's identity,\nso they need ``animals.view`` \u2014 the permission that guards weight history\non the animal pages \u2014 and are withheld (empty list, null total) without it.\n\nThe insurance-expiring block summarizes the finance register (policy\nnumbers, cover, renewal dates), so it follows the register's own\n``finance.view`` gate with the same withheld-not-empty convention.",
         "operationId": "dashboard_api_dashboard_get",
         "security": [
           {
@@ -11735,6 +12266,17 @@
             ],
             "title": "Sale Price"
           },
+          "sale_weight_kg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sale Weight Kg"
+          },
           "purchase_date": {
             "anyOf": [
               {
@@ -11948,6 +12490,7 @@
           "status",
           "status_date",
           "sale_price",
+          "sale_weight_kg",
           "purchase_date",
           "purchase_price",
           "seller_name",
@@ -14070,6 +14613,24 @@
             ],
             "title": "Recent Weights Total"
           },
+          "insurance_expiring": {
+            "items": {
+              "$ref": "#/components/schemas/InsuranceExpiringOut"
+            },
+            "type": "array",
+            "title": "Insurance Expiring"
+          },
+          "insurance_expiring_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Insurance Expiring Total"
+          },
           "preview_limit": {
             "type": "integer",
             "title": "Preview Limit"
@@ -14101,6 +14662,8 @@
           "restricted_animals_total",
           "recent_weights",
           "recent_weights_total",
+          "insurance_expiring",
+          "insurance_expiring_total",
           "preview_limit",
           "recent_weights_limit"
         ],
@@ -15330,6 +15893,10 @@
             "type": "number",
             "title": "Total Expense"
           },
+          "feed_stock_value": {
+            "type": "number",
+            "title": "Feed Stock Value"
+          },
           "pnl": {
             "items": {
               "$ref": "#/components/schemas/PnlRowOut"
@@ -15346,6 +15913,7 @@
           "offset",
           "total_income",
           "total_expense",
+          "feed_stock_value",
           "pnl"
         ],
         "title": "FinanceOut"
@@ -15394,7 +15962,7 @@
             "maximum": 1000.0,
             "exclusiveMinimum": 0.0,
             "title": "Adult Weight Buck Kg",
-            "default": 42.0
+            "default": 35.0
           },
           "weight_by_age_months": {
             "items": {
@@ -15763,7 +16331,9 @@
               "DEWORMING",
               "TREATMENT",
               "FOOTBATH",
-              "VITAMIN"
+              "VITAMIN",
+              "EXAM",
+              "FECAL_EXAM"
             ],
             "title": "Type"
           },
@@ -16130,7 +16700,9 @@
               "DEWORMING",
               "TREATMENT",
               "FOOTBATH",
-              "VITAMIN"
+              "VITAMIN",
+              "EXAM",
+              "FECAL_EXAM"
             ],
             "title": "Type"
           },
@@ -16713,6 +17285,275 @@
         "title": "HerdSnapshotOut",
         "description": "The farm's ACTIVE animals grouped into simulation starting cohorts."
       },
+      "InsuranceExpiringOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "policy_number": {
+            "type": "string",
+            "title": "Policy Number"
+          },
+          "insurer": {
+            "type": "string",
+            "title": "Insurer"
+          },
+          "renewal_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Renewal Date"
+          },
+          "animal_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Animal Id"
+          },
+          "animal_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Animal Tag"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "policy_number",
+          "insurer",
+          "renewal_date"
+        ],
+        "title": "InsuranceExpiringOut",
+        "description": "One active policy whose renewal falls inside the dashboard window.\n\nInsurance is money at risk, so the block sits behind finance.view \u2014 the\nsame permission that guards the finance register it summarizes. The\nanimal tag is present only for per-animal policies."
+      },
+      "InsuranceListOut": {
+        "properties": {
+          "policies": {
+            "items": {
+              "$ref": "#/components/schemas/InsurancePolicyOut"
+            },
+            "type": "array",
+            "title": "Policies"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "policies",
+          "total"
+        ],
+        "title": "InsuranceListOut"
+      },
+      "InsurancePolicyIn": {
+        "properties": {
+          "policy_number": {
+            "type": "string",
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Policy Number"
+          },
+          "insurer": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Insurer"
+          },
+          "sum_insured": {
+            "type": "number",
+            "title": "Sum Insured",
+            "le": 1000000000
+          },
+          "premium": {
+            "type": "number",
+            "title": "Premium",
+            "le": 1000000000
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Start Date"
+          },
+          "renewal_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Renewal Date"
+          },
+          "animal_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 4.611686018427388e+18,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Animal Id"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "policy_number",
+          "insurer",
+          "sum_insured",
+          "premium",
+          "start_date",
+          "renewal_date"
+        ],
+        "title": "InsurancePolicyIn"
+      },
+      "InsurancePolicyOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "policy_number": {
+            "type": "string",
+            "title": "Policy Number"
+          },
+          "insurer": {
+            "type": "string",
+            "title": "Insurer"
+          },
+          "animal_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Animal Id"
+          },
+          "animal_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Animal Tag"
+          },
+          "sum_insured": {
+            "type": "number",
+            "title": "Sum Insured"
+          },
+          "premium": {
+            "type": "number",
+            "title": "Premium"
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Start Date"
+          },
+          "renewal_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Renewal Date"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "renewed",
+              "lapsed",
+              "claimed"
+            ],
+            "title": "Status"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "policy_number",
+          "insurer",
+          "animal_id",
+          "sum_insured",
+          "premium",
+          "start_date",
+          "renewal_date",
+          "status",
+          "notes",
+          "created_at"
+        ],
+        "title": "InsurancePolicyOut"
+      },
+      "InsuranceRenewalIn": {
+        "properties": {
+          "renewal_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Renewal Date"
+          },
+          "premium": {
+            "anyOf": [
+              {
+                "type": "number",
+                "le": 1000000000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Premium"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "renewal_date"
+        ],
+        "title": "InsuranceRenewalIn",
+        "description": "Move a policy forward: a new renewal horizon (never backwards) and an\noptional corrected premium. The policy keeps its identity and history \u2014\nthere is no edit/delete; renewal/lapse status is the register's version\nof the ledger's correction flow."
+      },
       "JourneyHop": {
         "properties": {
           "day": {
@@ -16806,6 +17647,32 @@
             ],
             "title": "Mortality Reported At"
           },
+          "colostrum_within_2h": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Colostrum Within 2H"
+          },
+          "navel_dipped": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Navel Dipped"
+          },
+          "dam_rejected": {
+            "type": "boolean",
+            "title": "Dam Rejected"
+          },
           "animal_id": {
             "anyOf": [
               {
@@ -16826,6 +17693,9 @@
           "birth_weight",
           "status",
           "mortality_reported_at",
+          "colostrum_within_2h",
+          "navel_dipped",
+          "dam_rejected",
           "animal_id"
         ],
         "title": "KidEntryOut"
@@ -16885,6 +17755,33 @@
               }
             ],
             "title": "Mortality Reported At"
+          },
+          "colostrum_within_2h": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Colostrum Within 2H"
+          },
+          "navel_dipped": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Navel Dipped"
+          },
+          "dam_rejected": {
+            "type": "boolean",
+            "title": "Dam Rejected",
+            "default": false
           }
         },
         "additionalProperties": false,
@@ -16912,10 +17809,27 @@
             "enum": [
               "NORMAL",
               "ASSISTED",
-              "DIFFICULT"
+              "DIFFICULT",
+              "CAESAREAN"
             ],
             "title": "Ease",
             "default": "NORMAL"
+          },
+          "placenta_passed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Placenta Passed"
+          },
+          "mastitis_suspected": {
+            "type": "boolean",
+            "title": "Mastitis Suspected",
+            "default": false
           },
           "notes": {
             "anyOf": [
@@ -17056,9 +17970,36 @@
             "enum": [
               "NORMAL",
               "ASSISTED",
-              "DIFFICULT"
+              "DIFFICULT",
+              "CAESAREAN"
             ],
             "title": "Ease"
+          },
+          "parity": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parity"
+          },
+          "placenta_passed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Placenta Passed"
+          },
+          "mastitis_suspected": {
+            "type": "boolean",
+            "title": "Mastitis Suspected"
           },
           "notes": {
             "anyOf": [
@@ -17098,9 +18039,61 @@
           "date",
           "breeding_record_id",
           "ease",
+          "parity",
+          "placenta_passed",
+          "mastitis_suspected",
           "notes"
         ],
         "title": "KiddingRecordOut"
+      },
+      "LifetimePnlOut": {
+        "properties": {
+          "animal_id": {
+            "type": "integer",
+            "title": "Animal Id"
+          },
+          "tag_number": {
+            "type": "string",
+            "title": "Tag Number"
+          },
+          "purchase_cost": {
+            "type": "number",
+            "title": "Purchase Cost"
+          },
+          "health_cost": {
+            "type": "number",
+            "title": "Health Cost"
+          },
+          "insurance_premiums": {
+            "type": "number",
+            "title": "Insurance Premiums"
+          },
+          "sale_income": {
+            "type": "number",
+            "title": "Sale Income"
+          },
+          "net": {
+            "type": "number",
+            "title": "Net"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "animal_id",
+          "tag_number",
+          "purchase_cost",
+          "health_cost",
+          "insurance_premiums",
+          "sale_income",
+          "net",
+          "note"
+        ],
+        "title": "LifetimePnlOut",
+        "description": "Per-animal lifetime profit & loss (money in minus money out).\n\nFeed costs are deliberately absent: feed is purchased and dispensed at\nfarm level, so any per-animal attribution would be a fabricated split."
       },
       "LoginIn": {
         "properties": {
@@ -18663,6 +19656,48 @@
             },
             "type": "array",
             "title": "Shifts"
+          },
+          "creep_band": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Creep Band"
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "weight",
+              "flat"
+            ],
+            "title": "Basis",
+            "default": "flat"
+          },
+          "mean_weight_kg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Weight Kg"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
           }
         },
         "type": "object",
@@ -19394,6 +20429,43 @@
             ],
             "title": "Supplier"
           },
+          "origin_market": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin Market"
+          },
+          "transport_hours": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 240.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transport Hours"
+          },
+          "seller_health_history": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seller Health History"
+          },
           "count": {
             "type": "integer",
             "maximum": 1000.0,
@@ -19432,6 +20504,21 @@
               }
             ],
             "title": "Avg Weight Kg"
+          },
+          "individual_weights_kg": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number",
+                  "le": 1000
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Individual Weights Kg"
           },
           "total_price": {
             "anyOf": [
@@ -19524,6 +20611,39 @@
             ],
             "title": "Supplier"
           },
+          "origin_market": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin Market"
+          },
+          "transport_hours": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transport Hours"
+          },
+          "seller_health_history": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seller Health History"
+          },
           "count": {
             "type": "integer",
             "title": "Count"
@@ -19603,6 +20723,9 @@
           "id",
           "date",
           "supplier",
+          "origin_market",
+          "transport_hours",
+          "seller_health_history",
           "count",
           "sex",
           "avg_age_months",
@@ -19705,7 +20828,18 @@
               "QUARANTINE",
               "FEED",
               "CLEANING",
-              "OTHER"
+              "OTHER",
+              "KIDDING_WATCH",
+              "BIRTHING_KIT",
+              "HEALTH_CHECK",
+              "HEAT_WATCH",
+              "HOOF_TRIMMING",
+              "SPRAYING",
+              "DISINFECTION",
+              "WEIGHING",
+              "REBREED",
+              "BUCK_ROTATION",
+              "INSURANCE"
             ],
             "title": "Category"
           }
@@ -20500,6 +21634,13 @@
             "title": "Meat Price Per Kg",
             "default": 370.0
           },
+          "breed_price_premium_pct": {
+            "type": "number",
+            "maximum": 0.5,
+            "minimum": 0.0,
+            "title": "Breed Price Premium Pct",
+            "default": 0.0
+          },
           "cull_doe_price_per_kg": {
             "type": "number",
             "maximum": 1000000000.0,
@@ -21051,7 +22192,9 @@
               "DEWORMING",
               "TREATMENT",
               "FOOTBATH",
-              "VITAMIN"
+              "VITAMIN",
+              "EXAM",
+              "FECAL_EXAM"
             ],
             "title": "Event Type"
           }
@@ -21522,6 +22665,30 @@
             ],
             "title": "Buyer Name"
           },
+          "sale_weight_kg": {
+            "anyOf": [
+              {
+                "type": "number",
+                "le": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sale Weight Kg"
+          },
+          "sale_price_per_kg": {
+            "anyOf": [
+              {
+                "type": "number",
+                "le": 1000000000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sale Price Per Kg"
+          },
           "notes": {
             "anyOf": [
               {
@@ -21546,6 +22713,48 @@
             ],
             "title": "Mortality Cause"
           },
+          "mortality_cause_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "PNEUMONIA",
+                  "DIARRHOEA",
+                  "COLIBACILLOSIS",
+                  "ENTEROTOXAEMIA",
+                  "PPR_SUSPECTED",
+                  "FMD_SUSPECTED",
+                  "GOAT_POX_SUSPECTED",
+                  "PARASITISM",
+                  "COCCIDIOSIS",
+                  "NUTRITIONAL",
+                  "HEAT_STRESS",
+                  "PREDATION",
+                  "ACCIDENT",
+                  "DYSTOCIA",
+                  "OLD_AGE",
+                  "OTHER",
+                  "UNKNOWN"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mortality Cause Code"
+          },
+          "disposal_method": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 60
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disposal Method"
+          },
           "mortality_reported_at": {
             "anyOf": [
               {
@@ -21557,6 +22766,23 @@
               }
             ],
             "title": "Mortality Reported At"
+          },
+          "necropsy_done": {
+            "type": "boolean",
+            "title": "Necropsy Done",
+            "default": false
+          },
+          "necropsy_findings": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Necropsy Findings"
           },
           "suspected_scheduled_disease": {
             "type": "boolean",
@@ -21825,7 +23051,18 @@
               "QUARANTINE",
               "FEED",
               "CLEANING",
-              "OTHER"
+              "OTHER",
+              "KIDDING_WATCH",
+              "BIRTHING_KIT",
+              "HEALTH_CHECK",
+              "HEAT_WATCH",
+              "HOOF_TRIMMING",
+              "SPRAYING",
+              "DISINFECTION",
+              "WEIGHING",
+              "REBREED",
+              "BUCK_ROTATION",
+              "INSURANCE"
             ],
             "title": "Category"
           },

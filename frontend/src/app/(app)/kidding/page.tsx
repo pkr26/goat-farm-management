@@ -28,6 +28,7 @@ import { farmVocabulary, type FarmVocabulary } from "@/lib/farm-vocabulary";
 import { PaginationControls } from "@/components/pagination-controls";
 import { StatusBadge } from "@/components/status-badge";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -82,8 +83,17 @@ function cap(noun: string): string {
   return noun.charAt(0).toUpperCase() + noun.slice(1);
 }
 
-const EASES = ["NORMAL", "ASSISTED", "DIFFICULT"] as const;
+const EASES = ["NORMAL", "ASSISTED", "DIFFICULT", "CAESAREAN"] as const;
 const KID_STATUSES = ["ALIVE", "STILLBORN", "DIED"] as const;
+/** Tri-state yes/no facts (colostrum, navel dip, placenta): "unrecorded"
+ * maps to null on the wire — the backend reads null as "not captured",
+ * never as a false care metric. */
+const TRI_STATES = ["yes", "no", "unrecorded"] as const;
+const TRI_STATE_ITEMS: Record<string, string> = {
+  yes: "Yes",
+  no: "No",
+  unrecorded: "Not recorded",
+};
 /** value → label maps for the root `items` prop: without them, Base UI's
  * Select.Value renders the raw value in the closed trigger. */
 // Stryker disable next-line StringLiteral: ease labels are exactly the titlecase of their enum values and Telugu carries no ease overrides, so the catalog lookup is the identity over the reachable set
@@ -120,6 +130,11 @@ const kidSchema = (vocabulary: FarmVocabulary) =>
     status: z.enum(KID_STATUSES),
     // Required exactly when the kid died, mirroring KidIn (schemas/kidding.py).
     mortality_reported_at: z.string().optional(),
+    // Neonatal care facts; "unrecorded" → null (KidIn colostrum_within_2h /
+    // navel_dipped). STILLBORN rows keep the defaults and omit the keys.
+    colostrum: z.enum(TRI_STATES),
+    navel: z.enum(TRI_STATES),
+    dam_rejected: z.boolean(),
   });
 /** The farm vocabulary threads through every validation message ("Kidding
  * date cannot be…", "At least one kid"), so the schema is built per farm. */
@@ -136,6 +151,10 @@ export function kiddingSchema(vocabulary: FarmVocabulary) {
         )
         .refine((s) => s <= farmToday(), "Date can't be in the future"),
       ease: z.enum(EASES),
+      // Postpartum care facts, mirroring KiddingCreateIn: placenta_passed is
+      // tri-state ("unrecorded" → null); mastitis_suspected defaults false.
+      placenta: z.enum(TRI_STATES),
+      mastitis_suspected: z.boolean(),
       // Backend KiddingCreateIn caps free text at MAX_FREE_TEXT_LENGTH (4000);
       // an over-long pasted note should fail inline like the pregnancy-loss
       // dialog's notes rather than only as a server 422 on submit.
@@ -254,7 +273,21 @@ function isDiedKid(
 }
 
 function emptyKid(): KiddingValues["kids"][number] {
-  return { tag: "", sex: "F", birth_weight: null, status: "ALIVE", mortality_reported_at: "" };
+  return {
+    tag: "",
+    sex: "F",
+    birth_weight: null,
+    status: "ALIVE",
+    mortality_reported_at: "",
+    colostrum: "unrecorded",
+    navel: "unrecorded",
+    dam_rejected: false,
+  };
+}
+
+/** Tri-state select value → wire boolean (null = not recorded). */
+function triStateToBool(value: (typeof TRI_STATES)[number]): boolean | null {
+  return value === "unrecorded" ? null : value === "yes";
 }
 
 function RecordKiddingDialog({
@@ -301,6 +334,8 @@ function RecordKiddingDialog({
     defaultValues: {
       date: farmToday(),
       ease: "NORMAL",
+      placenta: "unrecorded",
+      mastitis_suspected: false,
       notes: "",
       // Goat kiddings norm to twins (v1 parity).
       kids: [emptyKid(), emptyKid()],
@@ -322,18 +357,38 @@ function RecordKiddingDialog({
             breeding_record_id: breeding.id,
             date: values.date,
             ease: values.ease,
+            placenta_passed: triStateToBool(values.placenta),
+            mastitis_suspected: values.mastitis_suspected,
             // Stryker disable next-line OptionalChaining: the notes input is registered unconditionally with a string default, so the value is never undefined
           notes: values.notes?.trim() ? values.notes.trim() : null,
-            kids: values.kids.map((k) => ({
-              // Stryker disable next-line OptionalChaining: the tag input is registered unconditionally with a string default, so the value is never undefined
-              tag: k.tag?.trim() ? k.tag.trim() : null,
-              sex: k.sex,
-              birth_weight: k.birth_weight ?? null,
-              status: k.status,
-              // KidIn forbids the date unless the kid died, so never send a stale one.
-              mortality_reported_at:
-                k.status === "DIED" ? (k.mortality_reported_at ?? null) : null,
-            })),
+            kids: values.kids.map((k) => {
+              // KidIn forbids the neonatal-care keys entirely for a
+              // stillborn kid (_stillborn_takes_no_neonatal_care), so they
+              // are omitted rather than nulled on that arm.
+              if (k.status === "STILLBORN") {
+                return {
+                  // Stryker disable next-line OptionalChaining: the tag input is registered unconditionally with a string default, so the value is never undefined
+                  tag: k.tag?.trim() ? k.tag.trim() : null,
+                  sex: k.sex,
+                  birth_weight: k.birth_weight ?? null,
+                  status: k.status,
+                  mortality_reported_at: null,
+                };
+              }
+              return {
+                // Stryker disable next-line OptionalChaining: the tag input is registered unconditionally with a string default, so the value is never undefined
+                tag: k.tag?.trim() ? k.tag.trim() : null,
+                sex: k.sex,
+                birth_weight: k.birth_weight ?? null,
+                status: k.status,
+                // KidIn forbids the date unless the kid died, so never send a stale one.
+                mortality_reported_at:
+                  k.status === "DIED" ? (k.mortality_reported_at ?? null) : null,
+                colostrum_within_2h: triStateToBool(k.colostrum),
+                navel_dipped: triStateToBool(k.navel),
+                dam_rejected: k.dam_rejected,
+              };
+            }),
           },
         });
         if (!stillOwnsFarm()) return;
@@ -416,6 +471,49 @@ function RecordKiddingDialog({
                 )}
               />
             </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="kidding-placenta">Placenta passed</Label>
+              <Controller
+                control={control}
+                name="placenta"
+                render={({ field }) => (
+                  <Select
+                    value={field.value}
+                    disabled={isSubmitting || createFlight.pending}
+                    onValueChange={field.onChange}
+                    items={TRI_STATE_ITEMS}
+                  >
+                    <SelectTrigger id="kidding-placenta" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TRI_STATES.map((v) => (
+                        <SelectItem key={v} value={v}>
+                          {TRI_STATE_ITEMS[v]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Controller
+              control={control}
+              name="mastitis_suspected"
+              render={({ field }) => (
+                <Checkbox
+                  id="kidding-mastitis"
+                  checked={field.value}
+                  disabled={isSubmitting || createFlight.pending}
+                  onCheckedChange={(checked) => field.onChange(checked === true)}
+                />
+              )}
+            />
+            <Label htmlFor="kidding-mastitis" className="font-normal">
+              Mastitis suspected
+            </Label>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="kidding_notes">Notes</Label>
@@ -557,6 +655,13 @@ function RecordKiddingDialog({
                               shouldValidate: true,
                             });
                           }
+                          // KidIn forbids neonatal-care facts on a stillborn
+                          // kid, so returning to that status drops them.
+                          if (v === "STILLBORN") {
+                            setValue(`kids.${index}.colostrum`, "unrecorded");
+                            setValue(`kids.${index}.navel`, "unrecorded");
+                            setValue(`kids.${index}.dam_rejected`, false);
+                          }
                         }}
                         items={KID_STATUS_ITEMS}
                       >
@@ -585,6 +690,84 @@ function RecordKiddingDialog({
                 >
                   <X />
                 </Button>
+                {/* Neonatal care applies to live (and died) kids only — a
+                    stillborn never nursed, was never navel-dipped and cannot
+                    be rejected by the dam, so the fields disappear with the
+                    status and their keys stay off the wire. */}
+                {kidValues?.[index]?.status !== "STILLBORN" && (
+                  <div className="col-span-2 grid gap-2 sm:col-span-5 sm:grid-cols-[1fr_1fr_auto] sm:items-center">
+                    <div className="space-y-1">
+                      <Label htmlFor={`kid-${field.id}-colostrum`} className="text-xs">
+                        {youngLabel} {index + 1} colostrum within 2 h
+                      </Label>
+                      <Controller
+                        control={control}
+                        name={`kids.${index}.colostrum`}
+                        render={({ field: f }) => (
+                          <Select
+                            value={f.value}
+                            onValueChange={f.onChange}
+                            items={TRI_STATE_ITEMS}
+                          >
+                            <SelectTrigger id={`kid-${field.id}-colostrum`} size="sm">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {TRI_STATES.map((v) => (
+                                <SelectItem key={v} value={v}>
+                                  {TRI_STATE_ITEMS[v]}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor={`kid-${field.id}-navel`} className="text-xs">
+                        {youngLabel} {index + 1} navel dipped (7% iodine)
+                      </Label>
+                      <Controller
+                        control={control}
+                        name={`kids.${index}.navel`}
+                        render={({ field: f }) => (
+                          <Select
+                            value={f.value}
+                            onValueChange={f.onChange}
+                            items={TRI_STATE_ITEMS}
+                          >
+                            <SelectTrigger id={`kid-${field.id}-navel`} size="sm">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {TRI_STATES.map((v) => (
+                                <SelectItem key={v} value={v}>
+                                  {TRI_STATE_ITEMS[v]}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Controller
+                        control={control}
+                        name={`kids.${index}.dam_rejected`}
+                        render={({ field: f }) => (
+                          <Checkbox
+                            id={`kid-${field.id}-dam-rejected`}
+                            checked={f.value}
+                            onCheckedChange={(checked) => f.onChange(checked === true)}
+                          />
+                        )}
+                      />
+                      <Label htmlFor={`kid-${field.id}-dam-rejected`} className="text-xs font-normal">
+                        {youngLabel} {index + 1} dam rejected
+                      </Label>
+                    </div>
+                  </div>
+                )}
                 {isDiedKid(kidValues, index) && (
                   <div className="col-span-2 space-y-1 sm:col-span-5">
                     <Label htmlFor={`kid-${field.id}-mortality`} className="text-xs">
@@ -653,7 +836,9 @@ function RecordKiddingDialog({
   );
 }
 
-/** Kids of a kidding record, inline: "tag (sex, status), …" with animal links. */
+/** Kids of a kidding record, inline: "tag (sex, status), …" with animal links.
+ *  Recorded neonatal care follows the status in the same parentheses — only
+ *  captured facts appear, so pre-care fixtures stay terse. */
 function KidsCell({
   kidding,
   canViewAnimals,
@@ -676,11 +861,40 @@ function KidsCell({
           ) : (
             (kid.tag ?? vocabulary.young)
           )}{" "}
-          ({enumLabel("sex", kid.sex)}, {kid.status.toLowerCase()})
+          (
+          {[
+            enumLabel("sex", kid.sex),
+            kid.status.toLowerCase(),
+            kid.colostrum_within_2h === null
+              ? null
+              : `colostrum ${kid.colostrum_within_2h ? "yes" : "no"}`,
+            kid.navel_dipped === null
+              ? null
+              : `navel dipped ${kid.navel_dipped ? "yes" : "no"}`,
+            kid.dam_rejected ? "dam rejected" : null,
+          ]
+            .filter(Boolean)
+            .join(", ")}
+          )
         </span>
       ))}
     </span>
   );
+}
+
+/** Postpartum facts under the ease badge: parity (server-derived), placenta
+ *  and the mastitis flag — only what was recorded, kept on one muted line. */
+function kiddingCareFacts(kidding: KiddingRecordOut): string | null {
+  const facts = [
+    kidding.parity !== null ? `parity ${kidding.parity}` : null,
+    kidding.placenta_passed === null
+      ? null
+      : kidding.placenta_passed
+        ? "placenta passed"
+        : "placenta not passed",
+    kidding.mastitis_suspected ? "mastitis suspected" : null,
+  ].filter(Boolean);
+  return facts.length > 0 ? facts.join(" · ") : null;
 }
 
 function KiddingPageContent({ perms }: { perms: PermissionsState }) {
@@ -1064,6 +1278,11 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
                   </TableCell>
                   <TableCell>
                     <StatusBadge status={k.ease}>{EASE_ITEMS[k.ease] ?? k.ease}</StatusBadge>
+                    {kiddingCareFacts(k) && (
+                      <span className="block text-xs text-muted-foreground">
+                        {kiddingCareFacts(k)}
+                      </span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <KidsCell kidding={k} canViewAnimals={canViewAnimals} />

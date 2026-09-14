@@ -52,6 +52,7 @@ from ..services import (
     task_scope,
     verify_task,
 )
+from ..services.cadence import ensure_cadence_tasks
 from ..utils import today
 from ._shared import TASK_LOADS, task_action_url, task_out, visible_to
 
@@ -265,6 +266,9 @@ async def list_tasks(
     completed_offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
 ) -> TaskTabsOut:
     """All five v1 tabs as deterministic, independently pageable lists."""
+    # Materialize today's recurring husbandry duties before the queries so the
+    # board reflects the farm's cadence calendar (idempotent per business day).
+    await ensure_cadence_tasks(db, farm)
     now = today(farm.timezone)
     scoped = (await task_scope(db, farm, user)).options(*TASK_LOADS)
     pending = scoped.where(actionable_pending_task_predicate())

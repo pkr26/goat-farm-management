@@ -59,6 +59,22 @@ class SpeciesProfile:
     # Sanity band on one animal's total recorded yield per day (unused for
     # goats; kept for profile-shape stability).
     max_daily_milk_litres: float
+    # Husbandry-standards scheduling knobs. Defaulted (unlike the v1 fields
+    # above) so later profile additions stay additive; GOAT_PROFILE still
+    # pins each value explicitly for the parity test.
+    # Daily watch begins this many days before the expected kidding.
+    kidding_watch_start_days: int = 5
+    # Birthing-kit preparation duty due this many days before expected kidding.
+    birthing_kit_lead_days: int = 7
+    # Dam-care + stall-cleanout tasks due kidding + 1 day.
+    postpartum_care_lead_days: int = 1
+    # Day of lactation when creep feed starts for the kids.
+    creep_start_days: int = 14
+    # Minimum RESTING days before re-entry to BREEDING; equals the flush
+    # switch day (dry-off before it, flush after).
+    min_rest_flush_days: int = 10
+    # Bucks past this age are rotated out of the mating squad.
+    buck_rotation_age_months: int = 36
 
 
 GOAT_PROFILE = SpeciesProfile(
@@ -86,4 +102,10 @@ GOAT_PROFILE = SpeciesProfile(
     birth_weight_kg_range=(0.5, 8.0),
     max_adult_weight_kg=150.0,
     max_daily_milk_litres=0.0,
+    kidding_watch_start_days=5,
+    birthing_kit_lead_days=7,
+    postpartum_care_lead_days=1,
+    creep_start_days=14,
+    min_rest_flush_days=10,
+    buck_rotation_age_months=36,
 )

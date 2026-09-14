@@ -44,12 +44,24 @@ class PurchaseBatch(Base):
             "sex IS NULL OR sex IN ('M', 'F')",
             name="ck_purchase_batches_sex",
         ),
+        CheckConstraint(
+            "transport_hours IS NULL OR transport_hours BETWEEN 0 AND 240",
+            name="ck_purchase_batches_transport_hours",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
     date: Mapped[date] = mapped_column(default=today)
     supplier: Mapped[str | None] = mapped_column(String(120))
+    # Market/shed the animals were bought at and how long they were in transit
+    # before arriving — the two provenance facts that frame a batch's arrival
+    # stress and disease-exposure risk during quarantine.
+    origin_market: Mapped[str | None] = mapped_column(String(120))
+    transport_hours: Mapped[int | None]
+    # Free-text prior vaccinations/deworming reported by the seller at source;
+    # deliberately narrative (no structured claims to verify against).
+    seller_health_history: Mapped[str | None] = mapped_column(Text)
     count: Mapped[int]
     # Nullable only for legacy batches that created no animals (there is no
     # historical evidence from which to infer the submitted sex).

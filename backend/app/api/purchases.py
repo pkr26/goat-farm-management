@@ -144,6 +144,18 @@ async def create_batch(
                     f"adult scale for this farm's species ({adult_cap:g} kg cap)"
                 ),
             )
+        for weight in payload.individual_weights_kg or ():
+            # Same species bounds as the average, plus positivity: a WeightRecord
+            # row cannot hold 0 kg (ck_weight_records_weight_positive), and one
+            # unrecorded head would silently lose its arrival baseline.
+            if not 0 < weight <= adult_cap:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"Individual arrival weight {weight:g} kg is outside the credible "
+                        f"range for this farm's species (0–{adult_cap:g} kg)"
+                    ),
+                )
         try:
             batch = await create_purchase_batch(
                 db,
@@ -158,6 +170,10 @@ async def create_batch(
                 payload.create_animals,
                 created_by_id=user.id,
                 sex=payload.sex,
+                origin_market=(payload.origin_market or "").strip() or None,
+                transport_hours=payload.transport_hours,
+                seller_health_history=(payload.seller_health_history or "").strip() or None,
+                individual_weights_kg=payload.individual_weights_kg,
             )
             # Inside the try: deferred stub inserts can surface their unique
             # violations here rather than after the handlers.
@@ -224,7 +240,7 @@ async def batch_detail(
     A batch may legitimately hold ``MAX_BATCH_COUNT`` animals, so its animals
     are a bounded page like every other list in the API; the exact occupancy
     stays available as the batch's ``animals_created``. The protocol schedule
-    needs no bound — ``QUARANTINE_PROTOCOL`` is 8 steps.
+    needs no bound — ``QUARANTINE_PROTOCOL`` is 11 steps.
     """
     batch = await db.get(PurchaseBatch, batch_id) if 1 <= batch_id <= MAX_INT32_ID else None
     if batch is None or batch.farm_id != farm.id:

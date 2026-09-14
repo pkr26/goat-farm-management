@@ -91,6 +91,20 @@ export const server = setupServer(
   http.get("/api/health/schedule-templates", () =>
     HttpResponse.json({ templates: SCHEDULE_TEMPLATES }),
   ),
+  // The animal profile's lifetime P&L card (finance.view-gated) — a zero-safe
+  // default so profile renders never need a per-file handler.
+  http.get("/api/finance/animals/:animalId/lifetime-pnl", () =>
+    HttpResponse.json({
+      animal_id: 1,
+      tag_number: "G-001",
+      purchase_cost: 0,
+      health_cost: 0,
+      insurance_premiums: 0,
+      sale_income: 0,
+      net: 0,
+      note: "Feed costs are not attributed per animal (farm-level dispensing).",
+    }),
+  ),
   http.get("/api/auth/permissions", () =>
     HttpResponse.json({ is_owner: true, permissions: ALL_PERMISSIONS }),
   ),

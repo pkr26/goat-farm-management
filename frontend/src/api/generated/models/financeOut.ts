@@ -14,5 +14,6 @@ export interface FinanceOut {
   offset: number;
   total_income: number;
   total_expense: number;
+  feed_stock_value: number;
   pnl: PnlRowOut[];
 }

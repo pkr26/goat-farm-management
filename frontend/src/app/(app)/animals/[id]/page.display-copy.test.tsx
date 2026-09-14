@@ -104,6 +104,8 @@ const ANIMAL = {
   status: "ACTIVE",
   status_date: null,
   sale_price: null,
+  sale_weight_kg: null,
+  sale_price_per_kg: null,
   purchase_date: null,
   purchase_price: null,
   seller_name: null,
@@ -118,6 +120,10 @@ const ANIMAL = {
   restriction_clearance_reference: null,
   restriction_version: 0,
   mortality_cause: null,
+  mortality_cause_code: null,
+  disposal_method: null,
+  necropsy_done: false,
+  necropsy_findings: null,
   mortality_reported_at: null,
   notes: "Calm doe, good milker.",
   created_at: "2026-01-01T05:30:00Z",
@@ -362,6 +368,10 @@ describe("AnimalProfilePage rendering and dialog contracts", () => {
           status: "DEAD",
           status_date: "2026-07-30",
           mortality_cause: null,
+          mortality_cause_code: null,
+          disposal_method: null,
+          necropsy_done: false,
+          necropsy_findings: null,
           suspected_scheduled_disease: false,
         }),
       );
@@ -719,7 +729,7 @@ describe("AnimalProfilePage rendering and dialog contracts", () => {
       const tomorrow = addDays(farmToday(), 1);
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      await pickOption(user, within(dialog).getByRole("combobox"), "DEAD");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
       const reported = within(dialog).getByLabelText("Mortality reported date");
       setInput(reported, tomorrow);
       await user.click(
@@ -745,7 +755,7 @@ describe("AnimalProfilePage rendering and dialog contracts", () => {
       const tomorrow = addDays(farmToday(), 1);
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      const combo = () => within(dialog).getByRole("combobox");
+      const combo = () => within(dialog).getByLabelText(/new status/i);
       await pickOption(user, combo(), "DEAD");
       setInput(within(dialog).getByLabelText("Mortality cause"), "c".repeat(121));
       setInput(within(dialog).getByLabelText("Mortality reported date"), tomorrow);
@@ -767,9 +777,15 @@ describe("AnimalProfilePage rendering and dialog contracts", () => {
         new_status: "SOLD",
         date: null,
         sale_price: null,
+        sale_weight_kg: null,
+        sale_price_per_kg: null,
         buyer_name: null,
         notes: null,
         mortality_cause: null,
+        mortality_cause_code: null,
+        disposal_method: null,
+        necropsy_done: false,
+        necropsy_findings: null,
         mortality_reported_at: null,
         suspected_scheduled_disease: false,
         suspected_disease: null,

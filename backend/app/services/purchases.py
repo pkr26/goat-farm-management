@@ -93,6 +93,10 @@ async def create_purchase_batch(
     create_animals: bool,
     created_by_id: int | None = None,
     sex: str = "F",
+    origin_market: str | None = None,
+    transport_hours: int | None = None,
+    seller_health_history: str | None = None,
+    individual_weights_kg: list[float] | None = None,
 ) -> PurchaseBatch:
     """Create a purchase batch, optionally stub N animals into QUARANTINE,
     auto-generate the 45-day quarantine task schedule, and book the expense.
@@ -111,11 +115,22 @@ async def create_purchase_batch(
         raise ValueError(f"Average age must be between 0 and {MAX_AGE_MONTHS} months")
     if avg_weight_kg is not None and avg_weight_kg < 0:
         raise ValueError("Average weight cannot be negative")
+    if transport_hours is not None and not 0 <= transport_hours <= 240:
+        # Mirrors ck_purchase_batches_transport_hours.
+        raise ValueError("Transport hours must be between 0 and 240")
+    if individual_weights_kg is not None and len(individual_weights_kg) != count:
+        raise ValueError("Individual arrival weights must supply exactly one value per animal")
+    if individual_weights_kg is not None and any(weight <= 0 for weight in individual_weights_kg):
+        # WeightRecord rows must satisfy ck_weight_records_weight_positive.
+        raise ValueError("Individual arrival weights must be positive")
     exact_total_price = money(total_price) if total_price is not None else None
     batch = PurchaseBatch(
         farm_id=farm.id,
         date=batch_date,
         supplier=supplier or None,
+        origin_market=origin_market or None,
+        transport_hours=transport_hours,
+        seller_health_history=seller_health_history or None,
         count=count,
         sex=sex,
         avg_age_months=avg_age_months,
@@ -184,7 +199,23 @@ async def create_purchase_batch(
                 for animal in animals
             ]
         )
-        if avg_weight_kg is not None and avg_weight_kg > 0:
+        if individual_weights_kg is not None:
+            # Positional pairing: the i-th weight belongs to the i-th animal,
+            # i.e. the generated tag's trailing index — the only order a
+            # client submitting per-head weights can rely on.
+            db.add_all(
+                [
+                    WeightRecord(
+                        animal_id=animal.id,
+                        date=batch_date,
+                        weight_kg=weight,
+                        notes="Arrival weight (individual)",
+                        created_by_id=created_by_id,
+                    )
+                    for animal, weight in zip(animals, individual_weights_kg, strict=True)
+                ]
+            )
+        elif avg_weight_kg is not None and avg_weight_kg > 0:
             db.add_all(
                 [
                     WeightRecord(

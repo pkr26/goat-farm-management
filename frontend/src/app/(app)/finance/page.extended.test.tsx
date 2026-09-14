@@ -89,6 +89,7 @@ const PAYLOAD = {
   offset: 0,
   total_income: 150000,
   total_expense: 90000,
+  feed_stock_value: 12000,
   pnl: [
     { month: "2026-01", income: 150000, expense: 90000, net: 60000, categories: {} },
     { month: "2025-12", income: 10000, expense: 15000, net: -5000, categories: {} },
@@ -166,6 +167,16 @@ describe("FinancePage totals and P&L", () => {
     expect(lossCell).toHaveClass("text-destructive");
     const profitRow = screen.getByText("2026-01").closest("tr") as HTMLElement;
     expect(within(profitRow).getByText("₹60,000")).not.toHaveClass("text-destructive");
+  });
+
+  it("carries the feed-stock memo beside the P&L, never as an expense", async () => {
+    await renderLoaded();
+
+    expect(
+      screen.getByText("Feed stock on hand ₹12,000 (memo — not an expense)."),
+    ).toBeInTheDocument();
+    // The memo is the P&L card's description, not a ledger stat of its own.
+    expect(screen.queryByLabelText(/feed stock/i)).not.toBeInTheDocument();
   });
 
   it("shows the empty P&L message when there are no transactions", async () => {

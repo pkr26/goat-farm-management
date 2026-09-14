@@ -214,14 +214,14 @@ describe("AnimalProfilePage mutation hardening", () => {
       const user = userEvent.setup();
       await renderProfile();
       let dialog = await openDialog(user, "Change status");
-      await pickOption(user, within(dialog).getByRole("combobox"), "DEAD");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
       await user.type(within(dialog).getByLabelText("Mortality cause"), "drafted cause");
 
       await user.keyboard("{Escape}");
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
       dialog = await openDialog(user, "Change status");
-      expect(within(dialog).getByRole("combobox")).toHaveTextContent("SOLD");
+      expect(within(dialog).getByLabelText(/new status/i)).toHaveTextContent("SOLD");
       expect(within(dialog).queryByLabelText("Mortality cause")).not.toBeInTheDocument();
       expect(within(dialog).getByLabelText(/sale price/i)).toBeInTheDocument();
     });

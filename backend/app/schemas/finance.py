@@ -108,4 +108,84 @@ class FinanceOut(BaseModel):
     offset: int
     total_income: float
     total_expense: float
+    # Memo line, not an expense: the farm's feed stock valued at each
+    # inventory item's last purchase price (qty_on_hand x last price). Kept
+    # out of the income/expense totals above — an unsold stockpile is an
+    # asset, not a transaction.
+    feed_stock_value: float
     pnl: list[PnlRowOut]
+
+
+# Mirrors models.INSURANCE_POLICY_STATUSES exactly.
+InsuranceStatusStr = Literal["active", "renewed", "lapsed", "claimed"]
+
+
+class InsurancePolicyIn(StrictInputModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    # insurance_policies.policy_number String(60) / insurer String(120)
+    policy_number: PostgresText = Field(min_length=1, max_length=60)
+    insurer: PostgresText = Field(min_length=1, max_length=120)
+    sum_insured: MoneyFloat
+    premium: NonNegativeMoneyFloat
+    start_date: PastOrTodayDate
+    # A renewal is the whole point of a future-dated policy, so unlike
+    # start_date it may lie ahead (the renewal duty is spawned from it).
+    renewal_date: date
+    animal_id: BoundedId | None = None  # API verifies same-farm existence
+    notes: PostgresText | None = None
+
+    @model_validator(mode="after")
+    def _renewal_not_before_start(self) -> "InsurancePolicyIn":
+        if self.renewal_date < self.start_date:
+            raise ValueError("renewal_date cannot be before start_date")
+        return self
+
+
+class InsurancePolicyOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    policy_number: str
+    insurer: str
+    animal_id: int | None
+    animal_tag: str | None = None
+    sum_insured: float
+    premium: float
+    start_date: date
+    renewal_date: date
+    status: InsuranceStatusStr
+    notes: str | None
+    created_at: datetime
+
+
+class InsuranceListOut(BaseModel):
+    policies: list[InsurancePolicyOut]
+    total: int
+
+
+class InsuranceRenewalIn(StrictInputModel):
+    """Move a policy forward: a new renewal horizon (never backwards) and an
+    optional corrected premium. The policy keeps its identity and history —
+    there is no edit/delete; renewal/lapse status is the register's version
+    of the ledger's correction flow."""
+
+    renewal_date: date
+    premium: NonNegativeMoneyFloat | None = None
+
+
+class LifetimePnlOut(BaseModel):
+    """Per-animal lifetime profit & loss (money in minus money out).
+
+    Feed costs are deliberately absent: feed is purchased and dispensed at
+    farm level, so any per-animal attribution would be a fabricated split."""
+
+    animal_id: int
+    tag_number: str
+    purchase_cost: float
+    health_cost: float
+    insurance_premiums: float
+    sale_income: float
+    # income - (purchase_cost + health_cost + insurance_premiums)
+    net: float
+    note: str

@@ -17,7 +17,7 @@ it is actionable for planning: expected_kidding_date = breeding_date + 150
 (app/models.py), and the kidding list's upcoming/overdue windows.
 """
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 import httpx
 from sqlalchemy import select
@@ -253,14 +253,99 @@ async def test_delivery_move_task_moves_doe_from_pregnancy_early(
     doe, _buck, br = await pregnant_doe(client, headers, gestation_days=136)
     # EKD = today + 14 → the move duty (EKD − 15) fell due yesterday.
     assert (await get_animal(client, headers, doe["id"]))["current_bucket"] == "PREGNANCY_EARLY"
+    ekd = date.fromisoformat(br["expected_kidding_date"])
     move_task = next(
         t
         for t in await all_tasks(client, headers)
         if t["breeding_record_id"] == br["id"]
         and t["category"] == "BUCKET_MOVE"
         and t["status"] == "PENDING"
+        and t["due_date"] == iso(ekd - timedelta(days=15))
     )
     resp = await client.post(f"/api/tasks/{move_task['id']}/complete", headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert (await get_animal(client, headers, doe["id"]))["current_bucket"] == "DELIVERY"
+
+
+# ---------------------------------------------------------------------------
+# — the gestation-day-100 duty moves PREGNANCY_EARLY → PREGNANCY_LATE
+# ---------------------------------------------------------------------------
+# The ration step-up prompt (due EKD − 50 == breeding + 100) is its own
+# movement: it steps the doe up a pregnancy bucket on day 100, and completing
+# it late (she is already past the step-up) must never move her backward.
+async def test_day100_move_task_steps_doe_up_to_pregnancy_late(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    doe, _buck, br = await pregnant_doe(client, headers, gestation_days=140)
+    # EKD = today + 10 → the day-100 duty (EKD − 50) is 40 days overdue and
+    # the doe is still in PREGNANCY_EARLY.
+    ekd = date.fromisoformat(br["expected_kidding_date"])
+    day100 = next(
+        t
+        for t in await all_tasks(client, headers)
+        if t["breeding_record_id"] == br["id"]
+        and t["category"] == "BUCKET_MOVE"
+        and t["due_date"] == iso(ekd - timedelta(days=50))
+    )
+    resp = await client.post(f"/api/tasks/{day100['id']}/complete", headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert (await get_animal(client, headers, doe["id"]))["current_bucket"] == "PREGNANCY_LATE"
+    moves = (await client.get(f"/api/animals/{doe['id']}", headers=headers)).json()["moves"]
+    assert any(m["reason"] == "Gestation day 100 (ration step-up)" for m in moves)
+
+
+async def test_day100_move_task_completes_when_doe_already_late(
+    client: httpx.AsyncClient,
+) -> None:
+    """The owner moved her manually before the duty was actioned: completing
+    it must not error, re-move, or (crucially) hop her forward to DELIVERY."""
+    headers = await owner_with_farm(client)
+    doe, _buck, br = await pregnant_doe(client, headers, gestation_days=140)
+    ekd = date.fromisoformat(br["expected_kidding_date"])
+    await move_to(client, headers, doe["id"], "PREGNANCY_LATE")
+    day100 = next(
+        t
+        for t in await all_tasks(client, headers)
+        if t["breeding_record_id"] == br["id"]
+        and t["category"] == "BUCKET_MOVE"
+        and t["due_date"] == iso(ekd - timedelta(days=50))
+    )
+    resp = await client.post(f"/api/tasks/{day100['id']}/complete", headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert (await get_animal(client, headers, doe["id"]))["current_bucket"] == "PREGNANCY_LATE"
+    moves = (await client.get(f"/api/animals/{doe['id']}", headers=headers)).json()["moves"]
+    assert not any(m["reason"] == "Gestation day 100 (ration step-up)" for m in moves)
+    assert not any(m["to_bucket"] == "DELIVERY" for m in moves)
+
+
+async def test_day100_move_task_completes_when_doe_already_delivered(
+    client: httpx.AsyncClient,
+) -> None:
+    """Past the step-up entirely (DELIVERY pen): the duty completes without
+    moving her backward out of the kidding pen."""
+    headers = await owner_with_farm(client)
+    doe, _buck, br = await pregnant_doe(client, headers, gestation_days=140)
+    ekd = date.fromisoformat(br["expected_kidding_date"])
+    delivery_move = next(
+        t
+        for t in await all_tasks(client, headers)
+        if t["breeding_record_id"] == br["id"]
+        and t["category"] == "BUCKET_MOVE"
+        and t["due_date"] == iso(ekd - timedelta(days=15))
+    )
+    assert (
+        await client.post(f"/api/tasks/{delivery_move['id']}/complete", headers=headers)
+    ).status_code == 200
+    assert (await get_animal(client, headers, doe["id"]))["current_bucket"] == "DELIVERY"
+    day100 = next(
+        t
+        for t in await all_tasks(client, headers)
+        if t["breeding_record_id"] == br["id"]
+        and t["category"] == "BUCKET_MOVE"
+        and t["due_date"] == iso(ekd - timedelta(days=50))
+    )
+    resp = await client.post(f"/api/tasks/{day100['id']}/complete", headers=headers)
     assert resp.status_code == 200, resp.text
     assert (await get_animal(client, headers, doe["id"]))["current_bucket"] == "DELIVERY"
 
@@ -348,9 +433,10 @@ async def test_ultrasound_rejected_after_doe_sold(client: httpx.AsyncClient) -> 
     assert final["outcome"] == "UNASSESSED"
     assert final["ultrasound_done"] is False
     related = [t for t in await all_tasks(client, headers) if t["breeding_record_id"] == br["id"]]
-    # Only the ultrasound duty exists (skipped by the sale) — no pre-kidding
-    # task set was spawned for a doe that is no longer on the farm.
-    assert {t["category"] for t in related} == {"ULTRASOUND"}
+    # Only the ultrasound duty and the return-to-heat watch exist (both skipped
+    # by the sale) — no pre-kidding task set was spawned for a doe that is no
+    # longer on the farm.
+    assert {t["category"] for t in related} == {"ULTRASOUND", "HEAT_WATCH"}
     assert {t["status"] for t in related} == {"SKIPPED"}
 
 
@@ -431,7 +517,10 @@ async def _doe_with_two_retained_recovery_litters(
     )
 
     await move_to(client, headers, doe["id"], "RESTING", history_override=True)
-    await backdate_latest_bucket_move(doe["id"], today() - timedelta(days=185))
+    # 186 days back leaves exactly the 10-day rest-and-flush window before the
+    # second service (today − 176) while staying after the first kidding
+    # (today − 190), which that service's VWP floor is anchored on.
+    await backdate_latest_bucket_move(doe["id"], today() - timedelta(days=186))
     second = await make_breeding(
         client,
         headers,

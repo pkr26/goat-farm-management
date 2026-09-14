@@ -650,7 +650,7 @@ async def test_individual_purchase_is_forced_into_managed_quarantine(
     batches = (await client.get("/api/purchases", headers=owner)).json()
     assert batches["total"] == 1
     assert batches["batches"][0]["animals_created"] == 1
-    assert batches["batches"][0]["open_tasks"] == 8
+    assert batches["batches"][0]["open_tasks"] == 11
 
 
 async def test_historical_purchase_import_requires_and_audits_a_reason(
@@ -2654,7 +2654,7 @@ async def test_batch_quarantine_duties_are_swept_when_its_herd_is_gone(
     assert first.status_code == 200, first.text
     # One animal left: the batch protocol is still live work.
     listed = (await client.get("/api/purchases", headers=owner)).json()["batches"][0]
-    assert listed["open_tasks"] == 8
+    assert listed["open_tasks"] == 11
 
     second = await mark_status(client, owner, animals[1]["id"], "DEAD", mortality_cause="PPR")
     assert second.status_code == 200, second.text
@@ -2662,7 +2662,7 @@ async def test_batch_quarantine_duties_are_swept_when_its_herd_is_gone(
     assert listed["open_tasks"] == 0
     closed = await client.get(f"/api/purchases/{batch_id}", headers=owner)
     tasks = closed.json()["tasks"]
-    assert len(tasks) == 8
+    assert len(tasks) == 11
     assert {task["status"] for task in tasks} == {"SKIPPED"}
     dash = await client.get("/api/dashboard", headers=owner)
     assert dash.status_code == 200, dash.text

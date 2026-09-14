@@ -45,6 +45,12 @@ from app.models import (
     Sex,
     User,
 )
+from app.models.feed_rules import (
+    CREEP_KG_PER_HEAD,
+    creep_band_label,
+    creep_daily_kg,
+    recipe_for_context,
+)
 from app.services import (
     BUCKET_ALLOCATION_REFERENCE,
     DRY_ROUGHAGE,
@@ -103,6 +109,7 @@ EXPECTED_INVENTORY_ORDER = [
     "Maize DDGS",
     "Mineral mix",
     "Mustard DOC",
+    "Salt",
     "Soya DOC",
     "Dry jowar stover",
     "Groundnut haulms",
@@ -468,6 +475,10 @@ async def test_plan_response_shape(client: httpx.AsyncClient) -> None:
         "kg_per_head",
         "daily_kg",
         "shifts",
+        "creep_band",
+        "basis",
+        "mean_weight_kg",
+        "note",
     }
     shift = line["shifts"][0]
     assert set(shift) == {"shift", "pct", "kg", "time"}
@@ -484,8 +495,12 @@ async def test_plan_single_bucket_headcount_and_kg_math(client: httpx.AsyncClien
     assert line["recipe_code"] == "MAINTENANCE_75_25"
     assert line["recipe_name"] == "Maintenance 75:25"
     assert line["heads"] == 3
-    assert line["kg_per_head"] == 1.2  # BucketDefinition default
-    assert line["daily_kg"] == pytest.approx(3.6)
+    # Weight-scaled: BREEDING imports carry a 30 kg entry weight → 30 kg ×
+    # 3.0% = 0.9 kg, inside the [0.6, 2.4] clamp around the 1.2 flat default.
+    assert line["basis"] == "weight"
+    assert line["mean_weight_kg"] == pytest.approx(30.0)
+    assert line["kg_per_head"] == pytest.approx(0.9)
+    assert line["daily_kg"] == pytest.approx(2.7)
 
 
 async def test_plan_shift_split_is_hard_40_20_40(client: httpx.AsyncClient) -> None:
@@ -513,11 +528,11 @@ async def test_plan_shift_kg_sums_back_to_daily_total(client: httpx.AsyncClient)
     for i in range(4):
         await make_animal(client, headers, f"D-{i}")
     line = (await get_plan(client, headers))["lines"][0]
-    assert line["daily_kg"] == pytest.approx(4.8)
+    assert line["daily_kg"] == pytest.approx(3.6)  # 4 × 0.9 kg (weight-scaled)
     by_shift = {s["shift"]: s["kg"] for s in line["shifts"]}
-    assert by_shift["MORNING"] == pytest.approx(1.92)
-    assert by_shift["AFTERNOON"] == pytest.approx(0.96)
-    assert by_shift["NIGHT"] == pytest.approx(1.92)
+    assert by_shift["MORNING"] == pytest.approx(1.44)
+    assert by_shift["AFTERNOON"] == pytest.approx(0.72)
+    assert by_shift["NIGHT"] == pytest.approx(1.44)
     assert sum(by_shift.values()) == pytest.approx(line["daily_kg"])
 
 
@@ -610,7 +625,9 @@ async def test_plan_pregnancy_late_gets_lactating(client: httpx.AsyncClient) -> 
     await make_animal(client, headers, "PL-1", bucket="PREGNANCY_LATE")
     line = (await get_plan(client, headers))["lines"][0]
     assert line["recipe_code"] == "LACTATING_60_40"
-    assert line["kg_per_head"] == 1.4
+    # 30 kg entry weight × 3.5% = 1.05 kg (in [0.7, 2.8] around the 1.4 flat).
+    assert line["basis"] == "weight"
+    assert line["kg_per_head"] == pytest.approx(1.05)
 
 
 async def test_plan_delivery_gets_lactating(client: httpx.AsyncClient) -> None:
@@ -618,7 +635,9 @@ async def test_plan_delivery_gets_lactating(client: httpx.AsyncClient) -> None:
     await make_animal(client, headers, "DL-1", bucket="DELIVERY")
     line = (await get_plan(client, headers))["lines"][0]
     assert line["recipe_code"] == "LACTATING_60_40"
-    assert line["kg_per_head"] == 1.5
+    # 30 kg entry weight × 4.0% = 1.2 kg (in [0.75, 3.0] around the 1.5 flat).
+    assert line["basis"] == "weight"
+    assert line["kg_per_head"] == pytest.approx(1.2)
 
 
 async def test_plan_recovery_gets_lactating(client: httpx.AsyncClient) -> None:
@@ -626,7 +645,9 @@ async def test_plan_recovery_gets_lactating(client: httpx.AsyncClient) -> None:
     await make_animal(client, headers, "RC-1", bucket="RECOVERY")
     line = (await get_plan(client, headers))["lines"][0]
     assert line["recipe_code"] == "LACTATING_60_40"
-    assert line["kg_per_head"] == 1.5
+    # 30 kg entry weight × 4.0% = 1.2 kg (in [0.75, 3.0] around the 1.5 flat).
+    assert line["basis"] == "weight"
+    assert line["kg_per_head"] == pytest.approx(1.2)
 
 
 async def test_plan_resting_day0_gets_maintenance(client: httpx.AsyncClient) -> None:
@@ -707,7 +728,7 @@ async def test_plan_male_kids_unknown_age_defaults_to_fattening(
 
 
 async def test_plan_full_bucket_table_matches_spec(client: httpx.AsyncClient) -> None:
-    """One animal per bucket: recipe allocation + default per-head ration for
+    """One animal per bucket: recipe allocation + resolved per-head ration for
     the whole SPEC table in a single plan."""
     headers = await owner_with_farm(client)
     for bucket in BUCKET_RECIPE_API:
@@ -726,6 +747,23 @@ async def test_plan_full_bucket_table_matches_spec(client: httpx.AsyncClient) ->
         "MALE_KIDS",
         "FEMALE_KIDS",
     ]
+    # (kg_per_head, basis) per bucket: BREEDING and the reproductive buckets
+    # arrive via the candidate workflow with a 30 kg entry weight, so their
+    # ration is weight-scaled (30 kg × class %, clamped around the flat
+    # default); the plain historical imports carry no weighing and keep the
+    # flat default.
+    expected_kg = {
+        "QUARANTINE": (1.1, "flat"),
+        "FOUNDATION": (1.2, "flat"),
+        "BREEDING": (0.9, "weight"),  # × 3.0%
+        "PREGNANCY_EARLY": (0.9, "weight"),  # × 3.0%
+        "PREGNANCY_LATE": (1.05, "weight"),  # × 3.5%
+        "DELIVERY": (1.2, "weight"),  # × 4.0%
+        "RECOVERY": (1.2, "weight"),  # × 4.0%
+        "RESTING": (1.2, "flat"),
+        "MALE_KIDS": (1.0, "flat"),
+        "FEMALE_KIDS": (1.0, "flat"),
+    }
     for line in lines:
         expected = (
             "FATTENING_50_50"
@@ -733,11 +771,336 @@ async def test_plan_full_bucket_table_matches_spec(client: httpx.AsyncClient) ->
             else BUCKET_RECIPE_API[line["bucket"]]
         )
         assert line["recipe_code"] == expected, line["bucket"]
-        assert line["kg_per_head"] == BUCKET_DEFAULT_KG[line["bucket"]], line["bucket"]
+        kg_per_head, basis = expected_kg[line["bucket"]]
+        assert line["kg_per_head"] == pytest.approx(kg_per_head), line["bucket"]
+        assert line["basis"] == basis, line["bucket"]
         assert line["heads"] == 1
         # every line's split sums to 100 and its kg sums back to the daily total
         assert sum(s["pct"] for s in line["shifts"]) == 100
         assert sum(s["kg"] for s in line["shifts"]) == pytest.approx(line["daily_kg"], abs=0.02)
+
+
+# ---------------------------------------------------------------------------
+# Creep ration ramp — pure twin (models.feed_rules.crep_daily_kg)
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("age_days", "kg", "band"),
+    [
+        (0, 0.0, None),  # milk-fed: creep has not started
+        (13, 0.0, None),  # day before the creep start
+        (14, 0.1, "14–30 d"),  # first creep day
+        (30, 0.1, "14–30 d"),  # last day of the first band
+        (31, 0.2, "31–45 d"),
+        (45, 0.2, "31–45 d"),
+        (46, 0.3, "46–60 d"),
+        (60, 0.3, "46–60 d"),  # last day before weaning
+        (61, 0.0, None),  # weaned: grown-pen ration, not creep
+    ],
+)
+def test_creep_daily_kg_ramp(age_days: int, kg: float, band: str | None) -> None:
+    assert creep_daily_kg(age_days) == kg
+    assert creep_band_label(age_days) == band
+
+
+def test_creep_terminal_band_is_the_constant_allowance() -> None:
+    """CREEP_KG_PER_HEAD is the terminal band value (kept as the simulation's
+    flat allowance), never a separate number the ramp could drift from."""
+    assert creep_daily_kg(46) == creep_daily_kg(60) == CREEP_KG_PER_HEAD
+
+
+# ---------------------------------------------------------------------------
+# GET /api/feeding/plan — creep lines per age band (dependent kids)
+# ---------------------------------------------------------------------------
+def _orm_animal(
+    farm_id: int,
+    tag: str,
+    *,
+    sex: str,
+    bucket: str,
+    dob_days: int | None,
+    dam_id: int | None = None,
+) -> Animal:
+    """Persisted-ready Animal for plan fixtures the JSON API cannot express
+    (unweighed BREEDING entries, dependent kids of a RECOVERY dam)."""
+    return Animal(
+        farm_id=farm_id,
+        tag_number=tag,
+        breed="Osmanabadi",
+        sex=sex,
+        source=AnimalSource.BORN.value,
+        current_bucket=bucket,
+        status=AnimalStatus.ACTIVE.value,
+        dam_id=dam_id,
+        date_of_birth=today() - timedelta(days=dob_days) if dob_days is not None else None,
+        cull_candidate=False,
+        movement_restricted=False,
+        suspected_scheduled_disease=False,
+    )
+
+
+async def test_plan_creep_lines_split_by_age_band(client: httpx.AsyncClient) -> None:
+    """Creep is no longer a flat 0.3 kg: one line per age band, and a kid
+    younger than the creep start produces no creep line at all."""
+    headers = await owner_with_farm(client)
+    farm_id = int(headers["X-Farm-Id"])
+    async with get_sessionmaker()() as db:
+        doe = _orm_animal(farm_id, "CR-DOE", sex="F", bucket="RECOVERY", dob_days=700)
+        db.add(doe)
+        await db.flush()
+        db.add_all(
+            [
+                _orm_animal(
+                    farm_id,
+                    f"CR-K{age}",
+                    sex="F",
+                    bucket="RECOVERY",
+                    dob_days=age,
+                    dam_id=doe.id,
+                )
+                for age in (5, 20, 40, 55)
+            ]
+        )
+        await db.commit()
+    lines = (await get_plan(client, headers))["lines"]
+    creep = [line for line in lines if line["recipe_code"] == "CREEP"]
+    by_band = {line["creep_band"]: line for line in creep}
+    assert set(by_band) == {"14–30 d", "31–45 d", "46–60 d"}
+    assert by_band["14–30 d"]["kg_per_head"] == pytest.approx(0.1)
+    assert by_band["31–45 d"]["kg_per_head"] == pytest.approx(0.2)
+    assert by_band["46–60 d"]["kg_per_head"] == pytest.approx(0.3)
+    for line in creep:
+        assert line["bucket"] == "RECOVERY"
+        assert line["heads"] == 1
+        assert line["basis"] == "flat"
+        assert line["mean_weight_kg"] is None
+        assert line["note"] is None
+        assert line["daily_kg"] == pytest.approx(line["kg_per_head"])
+    # the day-5 kid is milk-fed: no creep line, and never the doe's TMR
+    assert sum(line["heads"] for line in creep) == 3
+    adult_recovery = next(
+        line for line in lines if line["bucket"] == "RECOVERY" and line["recipe_code"] != "CREEP"
+    )
+    assert adult_recovery["recipe_code"] == "LACTATING_60_40"
+    assert adult_recovery["heads"] == 1  # the doe only
+
+
+# ---------------------------------------------------------------------------
+# GET /api/feeding/plan — weight-scaled per-head amounts
+# ---------------------------------------------------------------------------
+async def test_plan_weight_scaled_in_range_uses_class_percentage(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "W-30", bucket="RESTING", dob_days=800, weight_kg=30.0)
+    line = (await get_plan(client, headers))["lines"][0]
+    assert line["bucket"] == "RESTING"
+    assert line["basis"] == "weight"
+    assert line["mean_weight_kg"] == pytest.approx(30.0)
+    assert line["kg_per_head"] == pytest.approx(0.9)  # 30 kg × 3.0%
+    assert line["daily_kg"] == pytest.approx(0.9)
+
+
+async def test_plan_weight_scaled_under_floor_clamped_to_half_default(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "W-10", bucket="RESTING", dob_days=800, weight_kg=10.0)
+    line = (await get_plan(client, headers))["lines"][0]
+    # 10 kg × 3.0% = 0.3 kg, below the 0.6 kg floor (0.5 × the 1.2 flat default)
+    assert line["basis"] == "weight"
+    assert line["kg_per_head"] == pytest.approx(0.6)
+
+
+async def test_plan_weight_scaled_over_cap_clamped_to_double_default(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "W-100", bucket="RESTING", dob_days=800, weight_kg=100.0)
+    # an unweighed pen-mate: counted in heads, excluded from the mean
+    await make_animal(client, headers, "W-NONE", bucket="RESTING", dob_days=800)
+    line = (await get_plan(client, headers))["lines"][0]
+    # 100 kg × 3.0% = 3.0 kg, capped at 2.4 kg (2.0 × the 1.2 flat default)
+    assert line["basis"] == "weight"
+    assert line["mean_weight_kg"] == pytest.approx(100.0)
+    assert line["heads"] == 2
+    assert line["kg_per_head"] == pytest.approx(2.4)
+    assert line["daily_kg"] == pytest.approx(4.8)
+
+
+async def test_plan_weight_scaled_rounds_to_005_steps(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "W-254", bucket="RESTING", dob_days=800, weight_kg=25.4)
+    line = (await get_plan(client, headers))["lines"][0]
+    # 25.4 kg × 3.0% = 0.762 kg → 0.75 kg on the 0.05 kg ration grid
+    assert line["kg_per_head"] == pytest.approx(0.75)
+
+
+async def test_plan_without_weighings_keeps_flat_default(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "W-FLAT", bucket="RESTING")
+    line = (await get_plan(client, headers))["lines"][0]
+    assert line["basis"] == "flat"
+    assert line["mean_weight_kg"] is None
+    assert line["kg_per_head"] == BUCKET_DEFAULT_KG["RESTING"]
+    assert line["note"] is None
+
+
+async def test_plan_override_defines_the_scaled_clamp_range(
+    client: httpx.AsyncClient,
+) -> None:
+    """The BucketFeedSetting override is the flat default, so it still bounds
+    the weight-scaled ration — it does not pin the amount verbatim."""
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "W-OVR", bucket="RESTING", dob_days=800, weight_kg=10.0)
+    # 10 kg × 3.0% = 0.3 kg: below the default 1.2's floor (0.6) …
+    line = (await get_plan(client, headers))["lines"][0]
+    assert line["kg_per_head"] == pytest.approx(0.6)
+    # … in range once the flat default is overridden to 0.5 ([0.25, 1.0]) …
+    resp = await client.post(
+        "/api/feeding/settings",
+        json={"bucket": "RESTING", "daily_kg_per_head": 0.5},
+        headers=headers,
+    )
+    assert resp.status_code == 204, resp.text
+    line = (await get_plan(client, headers))["lines"][0]
+    assert line["kg_per_head"] == pytest.approx(0.3)
+    # … and floored at 1.0 once it is overridden to 2.0 ([1.0, 4.0]).
+    resp = await client.post(
+        "/api/feeding/settings",
+        json={"bucket": "RESTING", "daily_kg_per_head": 2.0},
+        headers=headers,
+    )
+    assert resp.status_code == 204, resp.text
+    line = (await get_plan(client, headers))["lines"][0]
+    assert line["kg_per_head"] == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/feeding/plan — BREEDING sex split + buck breeding supplement
+# ---------------------------------------------------------------------------
+async def test_plan_breeding_sex_split_buck_gets_supplement(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "BR-DOE", bucket="BREEDING", dob_days=800, weight_kg=30.0)
+    await make_animal(
+        client, headers, "BR-BUCK", sex="M", bucket="BREEDING", dob_days=1000, weight_kg=40.0
+    )
+    lines = (await get_plan(client, headers))["lines"]
+    breeding = [line for line in lines if line["bucket"] == "BREEDING"]
+    assert len(breeding) == 2  # the grouping key gained sex for BREEDING only
+    by_note = {line["note"]: line for line in breeding}
+    assert set(by_note) == {None, "includes 0.5 kg breeding-season supplement"}
+    doe_line = by_note[None]
+    buck_line = by_note["includes 0.5 kg breeding-season supplement"]
+    # bucket-level mean (30+40)/2 = 35 kg × 3.0% = 1.05 kg for both lines
+    assert doe_line["basis"] == "weight"
+    assert buck_line["basis"] == "weight"
+    assert doe_line["mean_weight_kg"] == pytest.approx(35.0)
+    assert buck_line["mean_weight_kg"] == pytest.approx(35.0)
+    assert doe_line["kg_per_head"] == pytest.approx(1.05)
+    assert buck_line["kg_per_head"] == pytest.approx(1.55)  # + 0.5 kg supplement
+    assert doe_line["heads"] == 1
+    assert buck_line["heads"] == 1
+
+
+async def test_plan_breeding_flat_sex_split_buck_gets_supplement(
+    client: httpx.AsyncClient,
+) -> None:
+    """The supplement rides on the flat default too when nobody is weighed."""
+    headers = await owner_with_farm(client)
+    farm_id = int(headers["X-Farm-Id"])
+    async with get_sessionmaker()() as db:
+        db.add_all(
+            [
+                _orm_animal(farm_id, "BRF-DOE", sex="F", bucket="BREEDING", dob_days=800),
+                _orm_animal(farm_id, "BRF-BUCK", sex="M", bucket="BREEDING", dob_days=900),
+            ]
+        )
+        await db.commit()
+    lines = (await get_plan(client, headers))["lines"]
+    breeding = [line for line in lines if line["bucket"] == "BREEDING"]
+    assert len(breeding) == 2
+    by_note = {line["note"]: line for line in breeding}
+    doe_line = by_note[None]
+    buck_line = by_note["includes 0.5 kg breeding-season supplement"]
+    assert doe_line["basis"] == "flat"
+    assert doe_line["kg_per_head"] == 1.2
+    assert buck_line["basis"] == "flat"
+    assert buck_line["kg_per_head"] == pytest.approx(1.7)  # 1.2 + 0.5
+    assert doe_line["mean_weight_kg"] is None
+    assert buck_line["mean_weight_kg"] is None
+
+
+# ---------------------------------------------------------------------------
+# Twin parity: the SQL plan vs the pure recipe_for_context/creep_daily_kg
+# ---------------------------------------------------------------------------
+async def test_plan_groups_match_pure_recipe_and_creep_twins(
+    client: httpx.AsyncClient,
+) -> None:
+    """The SQL CASE inside feeding_plan and the pure twins in
+    models.feed_rules must agree on every line of a herd spanning all rules
+    (bucket recipes, dependent-kid creep with the age ramp, the BREEDING sex
+    split, and the milk-fed kid that produces no line at all)."""
+    headers = await owner_with_farm(client)
+    farm_id = int(headers["X-Farm-Id"])
+    herd: list[tuple[str, str, str, int, str | None]] = [
+        ("P-Q", "F", "QUARANTINE", 900, None),
+        ("P-F", "F", "FOUNDATION", 400, None),
+        ("P-BR-F", "F", "BREEDING", 800, None),
+        ("P-BR-M", "M", "BREEDING", 900, None),
+        ("P-PE", "F", "PREGNANCY_EARLY", 600, None),
+        ("P-R", "F", "RESTING", 400, None),
+        ("P-MK-Y", "M", "MALE_KIDS", 60, None),
+        ("P-MK-O", "M", "MALE_KIDS", 120, None),
+        ("P-FK", "F", "FEMALE_KIDS", 200, None),
+        ("P-RC-DOE", "F", "RECOVERY", 700, None),
+        ("P-K05", "F", "RECOVERY", 5, "P-RC-DOE"),
+        ("P-K20", "F", "RECOVERY", 20, "P-RC-DOE"),
+        ("P-K40", "M", "RECOVERY", 40, "P-RC-DOE"),
+        ("P-K55", "F", "RECOVERY", 55, "P-RC-DOE"),
+    ]
+    async with get_sessionmaker()() as db:
+        doe = _orm_animal(farm_id, "P-RC-DOE", sex="F", bucket="RECOVERY", dob_days=700)
+        db.add(doe)
+        await db.flush()
+        db.add_all(
+            _orm_animal(
+                farm_id,
+                tag,
+                sex=sex,
+                bucket=bucket_code,
+                dob_days=dob_days,
+                dam_id=doe.id if dam_tag is not None else None,
+            )
+            for tag, sex, bucket_code, dob_days, dam_tag in herd
+            if tag != "P-RC-DOE"
+        )
+        await db.commit()
+
+    ref = today()
+    expected: dict[tuple[str, str, str | None], tuple[int, float | None]] = {}
+    for _tag, _sex, bucket_code, dob_days, dam_tag in herd:
+        dob = ref - timedelta(days=dob_days)
+        dependent_kid = dam_tag is not None and dob_days <= 60
+        recipe = recipe_for_context(bucket_code, dob, ref, 0, is_dependent_kid=dependent_kid)
+        if recipe == "CREEP" and creep_daily_kg(dob_days) == 0.0:
+            continue  # milk-fed kid: the plan must emit no line for it
+        band = creep_band_label(dob_days) if recipe == "CREEP" else None
+        heads, _kg = expected.get((bucket_code, recipe, band), (0, None))
+        expected[(bucket_code, recipe, band)] = (
+            heads + 1,
+            creep_daily_kg(dob_days) if recipe == "CREEP" else None,
+        )
+
+    plan = await get_plan(client, headers)
+    actual: dict[tuple[str, str, str | None], tuple[int, float | None]] = {}
+    for line in plan["lines"]:
+        key = (line["bucket"], line["recipe_code"], line["creep_band"])
+        heads, _kg = actual.get(key, (0, None))
+        actual[key] = (
+            heads + line["heads"],
+            line["kg_per_head"] if line["recipe_code"] == "CREEP" else None,
+        )
+    assert actual == expected
 
 
 # ---------------------------------------------------------------------------
@@ -814,15 +1177,19 @@ async def test_settings_happy_returns_204_with_empty_body(client: httpx.AsyncCli
 
 async def test_settings_override_reflected_in_plan(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
+    # RESTING imports carry no weighing → the flat path, so the override is
+    # the per-head amount verbatim (the scaled path's clamp is covered below).
     for i in range(2):
-        await make_animal(client, headers, f"D-{i}")
+        await make_animal(client, headers, f"D-{i}", bucket="RESTING")
     resp = await client.post(
         "/api/feeding/settings",
-        json={"bucket": "BREEDING", "daily_kg_per_head": 2.5},
+        json={"bucket": "RESTING", "daily_kg_per_head": 2.5},
         headers=headers,
     )
     assert resp.status_code == 204, resp.text
     line = (await get_plan(client, headers))["lines"][0]
+    assert line["bucket"] == "RESTING"
+    assert line["basis"] == "flat"
     assert line["kg_per_head"] == 2.5
     assert line["daily_kg"] == pytest.approx(5.0)  # 2 heads × 2.5 kg
     by_shift = {s["shift"]: s["kg"] for s in line["shifts"]}
@@ -833,11 +1200,11 @@ async def test_settings_override_reflected_in_plan(client: httpx.AsyncClient) ->
 
 async def test_settings_upsert_replaces_previous_override(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
-    await make_animal(client, headers, "D-1")
+    await make_animal(client, headers, "D-1", bucket="RESTING")
     for kg in (2.5, 3.25):
         resp = await client.post(
             "/api/feeding/settings",
-            json={"bucket": "BREEDING", "daily_kg_per_head": kg},
+            json={"bucket": "RESTING", "daily_kg_per_head": kg},
             headers=headers,
         )
         assert resp.status_code == 204, resp.text
@@ -847,27 +1214,27 @@ async def test_settings_upsert_replaces_previous_override(client: httpx.AsyncCli
 
 async def test_settings_override_is_per_bucket(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
-    await make_animal(client, headers, "B-1", bucket="BREEDING")
+    await make_animal(client, headers, "B-1", bucket="RESTING")
     await make_animal(client, headers, "F-1", bucket="FOUNDATION")
     resp = await client.post(
         "/api/feeding/settings",
-        json={"bucket": "BREEDING", "daily_kg_per_head": 3.0},
+        json={"bucket": "RESTING", "daily_kg_per_head": 3.0},
         headers=headers,
     )
     assert resp.status_code == 204, resp.text
     lines = {line["bucket"]: line for line in (await get_plan(client, headers))["lines"]}
-    assert lines["BREEDING"]["kg_per_head"] == 3.0
+    assert lines["RESTING"]["kg_per_head"] == 3.0
     assert lines["FOUNDATION"]["kg_per_head"] == 1.2  # untouched default
 
 
 async def test_settings_override_is_per_farm(client: httpx.AsyncClient) -> None:
     owner_a = await owner_with_farm(client, email="a@farm.in", farm_name="Alpha Farm")
     owner_b = await owner_with_farm(client, email="b@farm.in", farm_name="Beta Farm")
-    await make_animal(client, owner_a, "A-1")
-    await make_animal(client, owner_b, "B-1")
+    await make_animal(client, owner_a, "A-1", bucket="RESTING")
+    await make_animal(client, owner_b, "B-1", bucket="RESTING")
     resp = await client.post(
         "/api/feeding/settings",
-        json={"bucket": "BREEDING", "daily_kg_per_head": 4.0},
+        json={"bucket": "RESTING", "daily_kg_per_head": 4.0},
         headers=owner_a,
     )
     assert resp.status_code == 204, resp.text
@@ -947,10 +1314,10 @@ async def test_settings_garbage_types_rejected(client: httpx.AsyncClient) -> Non
 
 async def test_settings_tiny_positive_accepted(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
-    await make_animal(client, headers, "D-1")
+    await make_animal(client, headers, "D-1", bucket="RESTING")
     resp = await client.post(
         "/api/feeding/settings",
-        json={"bucket": "BREEDING", "daily_kg_per_head": 0.001},
+        json={"bucket": "RESTING", "daily_kg_per_head": 0.001},
         headers=headers,
     )
     assert resp.status_code == 204, resp.text
@@ -962,10 +1329,10 @@ async def test_settings_tiny_positive_accepted(client: httpx.AsyncClient) -> Non
 
 async def test_settings_huge_finite_accepted(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
-    await make_animal(client, headers, "D-1")
+    await make_animal(client, headers, "D-1", bucket="RESTING")
     resp = await client.post(
         "/api/feeding/settings",
-        json={"bucket": "BREEDING", "daily_kg_per_head": 1e6},
+        json={"bucket": "RESTING", "daily_kg_per_head": 1e6},
         headers=headers,
     )
     # RT-HIJ-5: ration overrides carry a 50 kg/head/day domain cap; the
@@ -973,7 +1340,7 @@ async def test_settings_huge_finite_accepted(client: httpx.AsyncClient) -> None:
     assert resp.status_code == 422, resp.text
     resp = await client.post(
         "/api/feeding/settings",
-        json={"bucket": "BREEDING", "daily_kg_per_head": 50},
+        json={"bucket": "RESTING", "daily_kg_per_head": 50},
         headers=headers,
     )
     assert resp.status_code == 204, resp.text
@@ -984,10 +1351,10 @@ async def test_settings_huge_finite_accepted(client: httpx.AsyncClient) -> None:
 
 async def test_settings_shift_rounding_is_deterministic(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
-    await make_animal(client, headers, "D-1")
+    await make_animal(client, headers, "D-1", bucket="RESTING")
     resp = await client.post(
         "/api/feeding/settings",
-        json={"bucket": "BREEDING", "daily_kg_per_head": 1.13},
+        json={"bucket": "RESTING", "daily_kg_per_head": 1.13},
         headers=headers,
     )
     assert resp.status_code == 204, resp.text
@@ -1002,10 +1369,10 @@ async def test_settings_tiny_daily_total_is_not_lost_across_shifts(
     client: httpx.AsyncClient,
 ) -> None:
     headers = await owner_with_farm(client)
-    await make_animal(client, headers, "D-TINY")
+    await make_animal(client, headers, "D-TINY", bucket="RESTING")
     resp = await client.post(
         "/api/feeding/settings",
-        json={"bucket": "BREEDING", "daily_kg_per_head": 0.01},
+        json={"bucket": "RESTING", "daily_kg_per_head": 0.01},
         headers=headers,
     )
     assert resp.status_code == 204, resp.text
@@ -1019,10 +1386,10 @@ async def test_settings_multihead_gram_total_is_neither_rounded_up_nor_lost(
 ) -> None:
     headers = await owner_with_farm(client)
     for index in range(5):
-        await make_animal(client, headers, f"D-GRAM-{index}")
+        await make_animal(client, headers, f"D-GRAM-{index}", bucket="RESTING")
     resp = await client.post(
         "/api/feeding/settings",
-        json={"bucket": "BREEDING", "daily_kg_per_head": 0.001},
+        json={"bucket": "RESTING", "daily_kg_per_head": 0.001},
         headers=headers,
     )
     assert resp.status_code == 204, resp.text
@@ -1468,7 +1835,7 @@ async def test_dispense_sql_injection_recipe_rejected_safely(client: httpx.Async
     assert payload not in resp.text  # validation responses do not reflect input
     # nothing recorded, tables intact
     assert (await get_plan(client, headers))["records"] == []
-    assert len(await get_inventory(client, headers)) == 9
+    assert len(await get_inventory(client, headers)) == 10
 
 
 async def test_dispense_very_long_recipe_code_rejected_safely(client: httpx.AsyncClient) -> None:
@@ -2096,11 +2463,11 @@ async def test_mix_unknown_extra_field_rejected(client: httpx.AsyncClient) -> No
 # ---------------------------------------------------------------------------
 # GET /api/feeding/inventory
 # ---------------------------------------------------------------------------
-async def test_inventory_seeded_with_nine_zero_stock_rows(client: httpx.AsyncClient) -> None:
-    """SPEC seed data: the 9 ingredients, zero stock, reorder level 100."""
+async def test_inventory_seeded_with_ten_zero_stock_rows(client: httpx.AsyncClient) -> None:
+    """SPEC seed data: the 10 canonical ingredients, zero stock, reorder level 100."""
     headers = await owner_with_farm(client)
     inventory = await get_inventory(client, headers)
-    assert len(inventory) == 9
+    assert len(inventory) == 10
     for item in inventory:
         assert item["qty_on_hand"] == 0.0
         assert item["unit"] == "kg"
@@ -2634,16 +3001,18 @@ async def test_full_feeding_day_flow(client: httpx.AsyncClient) -> None:
     )
     assert resp.status_code == 200, resp.text
     assert (await inv_item(client, headers, GREEN))["qty_on_hand"] == pytest.approx(455.0)
-    # 3. two breeding does on a 2.0 kg/head override → 4.0 kg/day, 1.6/0.8/1.6
+    # 3. two resting does on a 2.0 kg/head override → 4.0 kg/day, 1.6/0.8/1.6
+    #    (RESTING imports carry no weighing, so the override is the flat rate)
     for i in range(2):
-        await make_animal(client, headers, f"D-{i}")
+        await make_animal(client, headers, f"D-{i}", bucket="RESTING")
     resp = await client.post(
         "/api/feeding/settings",
-        json={"bucket": "BREEDING", "daily_kg_per_head": 2.0},
+        json={"bucket": "RESTING", "daily_kg_per_head": 2.0},
         headers=headers,
     )
     assert resp.status_code == 204, resp.text
     line = (await get_plan(client, headers))["lines"][0]
+    assert line["bucket"] == "RESTING"
     assert line["daily_kg"] == pytest.approx(4.0)
     assert [s["kg"] for s in line["shifts"]] == [1.6, 0.8, 1.6]
     # 4. dispense the morning shift against the plan

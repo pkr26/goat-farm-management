@@ -35,12 +35,20 @@ from ..models import (
     quarantine_schedule,
 )
 from ..utils import today, utcnow
-from ._common import _clear_task_rejection
+from ._common import _add_task, _clear_task_rejection
 from .animals import bucket_transition_error, move_animal
+from .breeding import PREGNANCY_LATE_MOVE_DAYS_BEFORE_EKD
 
 # Namespace for the per-farm manual-duty-queue mutex. Advisory lock keys are
 # global to the database, so every acquisition of this counter must pass it.
 MANUAL_TASK_QUEUE_LOCK_NAMESPACE = 4711
+
+# Rest length after a doe's litter is weaned (or her no-survivor postpartum
+# recovery ends) before the next service: 30 RESTING days covers the
+# min-rest/flush window (GOAT_PROFILE.min_rest_flush_days) with margin, so
+# the re-breeding prompt lands when she is biologically ready to return to
+# the breeding pen.
+REBREED_AFTER_RESTING_DAYS = 30
 
 
 class ManualTaskCapacityError(ValueError):
@@ -216,15 +224,17 @@ async def _litter_has_surviving_kid(
     return survivor is not None
 
 
-async def _guard_generated_movement_task(
-    db: AsyncSession,
-    task: Task,
-    linked_animal: Animal,
-) -> tuple[KiddingRecord | None, list[KidEntry]]:
-    """Verify that an animal-movement duty came from its recorded workflow."""
+async def _linked_breeding_for_movement_task(
+    db: AsyncSession, task: Task, linked_animal: Animal
+) -> BreedingRecord:
+    """Load the breeding record a generated animal-movement duty must carry.
+
+    Shared provenance gate for every pregnancy-linked movement completion:
+    only an auto-generated duty with its breeding link may move an animal,
+    and the record must belong to this farm and this doe.
+    """
     if not task.auto_generated or task.breeding_record_id is None:
         raise ValueError("Movement side effects require an authoritative generated duty")
-    movement_profile = GOAT_PROFILE
     breeding = (
         await db.execute(
             select(BreedingRecord).where(
@@ -236,6 +246,17 @@ async def _guard_generated_movement_task(
     ).scalar_one_or_none()
     if breeding is None:
         raise ValueError("The movement duty has no matching breeding record")
+    return breeding
+
+
+async def _guard_generated_movement_task(
+    db: AsyncSession,
+    task: Task,
+    linked_animal: Animal,
+    breeding: BreedingRecord,
+) -> tuple[KiddingRecord | None, list[KidEntry]]:
+    """Verify that an animal-movement duty came from its recorded workflow."""
+    movement_profile = GOAT_PROFILE
     kidding = (
         await db.execute(
             select(KiddingRecord).where(
@@ -325,6 +346,51 @@ async def _guard_generated_weaning_task(db: AsyncSession, task: Task) -> set[int
     return {animal_id for animal_id in linked_ids if animal_id is not None}
 
 
+async def _schedule_rebreed(db: AsyncSession, farm_id: int, doe: Animal, due: date) -> None:
+    """(Re-)date the doe's re-breeding prompt once her rest begins.
+
+    Both RESTING exits a completion can move a doe through — weaning and the
+    no-survivor postpartum recovery — funnel here. Dedupe is the manual
+    ON-conFLICT equivalent: a still-PENDING REBREED duty for the doe is
+    re-dated in place (row-locked like replan_dam_after_last_kid_death's
+    reuse) rather than growing a second parallel prompt, so however many
+    paths schedule the rest, exactly one re-breeding duty is ever open.
+    Replay safety comes from complete_task's non-PENDING no-op: a re-completed
+    weaning/postpartum duty never reaches this insert twice. Like every other
+    generated duty there is no creator attribution — the linked weaning or
+    postpartum row is the audit trail.
+    """
+    # Sessions run autoflush=False: persist any pending inserts (a prior
+    # _schedule_rebreed in this same transaction) so the dedupe SELECT below
+    # sees them — the same flush-before-lookup spawn_next_occurrence needs.
+    await db.flush()
+    existing = (
+        await db.execute(
+            select(Task)
+            .where(
+                Task.farm_id == farm_id,
+                Task.animal_id == doe.id,
+                Task.category == TaskCategory.REBREED.value,
+                Task.status == TaskStatus.PENDING.value,
+            )
+            .with_for_update()
+            .order_by(Task.id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if existing is None:
+        await _add_task(
+            db,
+            farm_id,
+            f"Re-breed {doe.tag_number} (resting complete — flush window done)",
+            due,
+            TaskCategory.REBREED,
+            animal_id=doe.id,
+        )
+    else:
+        existing.due_date = due
+
+
 async def complete_task(
     db: AsyncSession,
     task: Task,
@@ -336,8 +402,12 @@ async def complete_task(
     """Mark done (attributed) and apply side effects:
     - Day-45 quarantine BUCKET_MOVE (batch-linked) → release batch animals to FOUNDATION
     - BUCKET_MOVE (animal-linked, pregnancy) → move doe to DELIVERY
+    - BUCKET_MOVE (animal-linked, gestation day 100) → move doe PREGNANCY_EARLY
+      to PREGNANCY_LATE (completes without moving when she is already past it)
     - BUCKET_MOVE (no-survivor kidding) → move recovered doe to RESTING
     - WEANING → kids to MALE_KIDS/FEMALE_KIDS by sex, dam to RESTING
+    - a doe's RESTING exit (weaning, no-survivor postpartum) schedules her
+      REBREED prompt (re-dating any pending one instead of duplicating)
     - recurring duty (recur_days) → spawn the next occurrence (but a
       verification-required category spawns on verify/skip, its terminal
       transitions, never here — see the guard below)
@@ -356,6 +426,7 @@ async def complete_task(
     release_animals: list[Animal] | None = None
     movement_animal: Animal | None = None
     postpartum_doe: Animal | None = None
+    day100_doe: Animal | None = None
     weaning_kids: list[Animal] | None = None
     weaning_doe: Animal | None = None
     weaning_doe_can_rest = False
@@ -380,33 +451,60 @@ async def complete_task(
         if linked_animal is None or linked_animal.farm_id != task.farm_id:
             raise ValueError("The animal linked to this movement duty is unavailable")
         movement_animal = linked_animal
-        kidding, kids = await _guard_generated_movement_task(db, task, linked_animal)
-        if linked_animal.current_bucket == Bucket.RECOVERY.value:
-            # The dam's RECOVERY exit only exists once no kid still depends on
-            # her — mirror the gate _guard_generated_movement_task applies.
-            if kidding is None or await _litter_has_surviving_kid(db, task.farm_id, kids):
-                raise ValueError("Postpartum recovery duty is invalid while a kid survives")
-            if error := bucket_transition_error(
-                linked_animal,
-                Bucket.RESTING.value,
-                context="postpartum",
-                reference_date=movement_date,
+        breeding = await _linked_breeding_for_movement_task(db, task, linked_animal)
+        # The gestation-day-100 prompt (EKD − 50) is its own movement duty:
+        # EARLY → LATE (legal only under the "manual" context), never a
+        # DELIVERY/kidding shape, so it bypasses the gates below. Kidding and
+        # abortion skip the row, so a PENDING one implies the pregnancy it
+        # came from is still the live one.
+        if (
+            breeding.expected_kidding_date is not None
+            and task.due_date
+            == breeding.expected_kidding_date - timedelta(days=PREGNANCY_LATE_MOVE_DAYS_BEFORE_EKD)
+        ):
+            if breeding.outcome != BreedingOutcome.CONFIRMED_PREGNANT.value:
+                raise ValueError("The day-100 movement duty does not match the recorded pregnancy")
+            day100_doe = linked_animal
+            # Already PREGNANCY_LATE (owner moved her manually), DELIVERY or
+            # RECOVERY (she is past the step-up): the duty completes without
+            # moving — never backward, never a second hop to DELIVERY.
+            if linked_animal.current_bucket == Bucket.PREGNANCY_EARLY.value and (
+                error := bucket_transition_error(
+                    linked_animal,
+                    Bucket.PREGNANCY_LATE.value,
+                    context="manual",
+                    reference_date=movement_date,
+                )
             ):
                 raise ValueError(error)
-            postpartum_doe = linked_animal
-        elif linked_animal.current_bucket != Bucket.DELIVERY.value:
-            if linked_animal.current_bucket not in (
-                Bucket.PREGNANCY_LATE.value,
-                Bucket.PREGNANCY_EARLY.value,
-            ):
-                raise ValueError("The linked animal is not in a pregnancy bucket")
-            if error := bucket_transition_error(
-                linked_animal,
-                Bucket.DELIVERY.value,
-                context="delivery",
-                reference_date=movement_date,
-            ):
-                raise ValueError(error)
+        else:
+            kidding, kids = await _guard_generated_movement_task(db, task, linked_animal, breeding)
+            if linked_animal.current_bucket == Bucket.RECOVERY.value:
+                # The dam's RECOVERY exit only exists once no kid still depends on
+                # her — mirror the gate _guard_generated_movement_task applies.
+                if kidding is None or await _litter_has_surviving_kid(db, task.farm_id, kids):
+                    raise ValueError("Postpartum recovery duty is invalid while a kid survives")
+                if error := bucket_transition_error(
+                    linked_animal,
+                    Bucket.RESTING.value,
+                    context="postpartum",
+                    reference_date=movement_date,
+                ):
+                    raise ValueError(error)
+                postpartum_doe = linked_animal
+            elif linked_animal.current_bucket != Bucket.DELIVERY.value:
+                if linked_animal.current_bucket not in (
+                    Bucket.PREGNANCY_LATE.value,
+                    Bucket.PREGNANCY_EARLY.value,
+                ):
+                    raise ValueError("The linked animal is not in a pregnancy bucket")
+                if error := bucket_transition_error(
+                    linked_animal,
+                    Bucket.DELIVERY.value,
+                    context="delivery",
+                    reference_date=movement_date,
+                ):
+                    raise ValueError(error)
     elif task.category == TaskCategory.WEANING.value:
         if locked_animals is None:
             raise ValueError("Task completion animals were not pre-locked")
@@ -521,6 +619,28 @@ async def complete_task(
                 context="postpartum",
                 reference_date=movement_date,
             )
+            # Her rest begins now; the next service prompt follows it.
+            if movement_date is not None:  # always resolved for BUCKET_MOVE above
+                await _schedule_rebreed(
+                    db,
+                    task.farm_id,
+                    postpartum_doe,
+                    movement_date + timedelta(days=REBREED_AFTER_RESTING_DAYS),
+                )
+        elif day100_doe is not None:
+            # Gestation-day-100 step-up. Any bucket other than PREGNANCY_EARLY
+            # (already LATE, DELIVERY, RECOVERY) completes without moving —
+            # validated in the pre-flight block above.
+            if day100_doe.current_bucket == Bucket.PREGNANCY_EARLY.value:
+                move_animal(
+                    db,
+                    day100_doe,
+                    Bucket.PREGNANCY_LATE.value,
+                    "Gestation day 100 (ration step-up)",
+                    created_by_id=user.id if user else None,
+                    context="manual",
+                    reference_date=movement_date,
+                )
         # EARLY is accepted too: the EARLY→LATE transition is only a dashboard
         # suggestion, so a doe whose owner skipped it would otherwise see this
         # duty go green while she silently stays in PREGNANCY_EARLY.
@@ -570,6 +690,15 @@ async def complete_task(
                     context="weaning",
                     reference_date=movement_date,
                 )
+                # The dam's rest starts with the weaning; prompt the next
+                # service once the flush window has run.
+                if movement_date is not None:  # always resolved for WEANING above
+                    await _schedule_rebreed(
+                        db,
+                        task.farm_id,
+                        doe,
+                        movement_date + timedelta(days=REBREED_AFTER_RESTING_DAYS),
+                    )
 
     if task.recur_days and not task.needs_verification:
         # For verification-required categories DONE is NOT terminal: a reject

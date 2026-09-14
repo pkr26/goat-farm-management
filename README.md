@@ -773,10 +773,13 @@ DELIVERY → RECOVERY → RESTING → BREEDING …`
 
 Kids branch off at weaning (day 60) into `MALE_KIDS` (sold at 8–9 months,
 24–28 kg) and `FEMALE_KIDS` (grown to breeding-ready). New purchases sit in
-`QUARANTINE` for a 45-day protocol (deworm → PPR → ET+TT → Goat Pox → FMD →
-footbath) before joining `FOUNDATION`. The app auto-generates dated tasks for
-every transition: ultrasounds, pre-kidding vaccines, bucket moves, weaning,
-and the whole quarantine schedule.
+`QUARANTINE` for a 45-day protocol (arrival inspection & rest/electrolytes →
+deworm → PPR → ET+TT → Goat Pox → fecal exams → FMD → footbath) before
+joining `FOUNDATION`. The app auto-generates dated tasks for every
+transition: ultrasounds, return-to-heat watch, pre-kidding vaccines, the
+day-100 PREGNANCY_LATE move, birthing-kit check, the kidding-watch window,
+bucket moves, weaning, post-kidding dam care and stall disinfection, and the
+whole quarantine schedule.
 
 **Sires are terminal residents of `BREEDING`.** A retained buck is promoted
 from `MALE_KIDS` into `BREEDING` (12+ months, 25+ kg) and lives there for
@@ -805,6 +808,15 @@ list of currently held animals.
   schedules the next). Outstanding manual duties are capped per farm (5,000
   by default) so a compromised task creator cannot grow the queue without
   bound; completed/skipped history and generated workflow duties do not count.
+- **Cadence rounds**: loading the task board also materializes the farm's
+  recurring husbandry calendar — vaccination rounds by season (FMD Sep/Mar,
+  ET+HS pre-monsoon, Goat Pox Nov, CCPP Jan), deworming rounds (Jun/Jan),
+  hoof trimming and ectoparasite spraying (6-monthly), shed disinfection
+  (quarterly), the monthly weighing round, the daily morning water/bunk
+  routine, feed-reorder alerts when stock drops under an ingredient's
+  reorder level, and buck-rotation reminders at 36 months. Herd-level
+  VACCINE/DEWORMING rounds close through a bucket- or batch-scoped health
+  event, never a bare button.
 - Workers see only duties assigned to their role or to them; completing a
   duty stamps `completed_by`/`completed_at` — who did what is recorded.
 - **Cleaning verification loop**: CLEANING duties marked done wait in the
@@ -826,14 +838,30 @@ list of currently held animals.
   FOUNDATION / FEMALE_KIDS / RESTING. Two consecutive failed cycles →
   cull candidate.
 - Weaning at day 60 (doe → RESTING; kids → MALE_KIDS / FEMALE_KIDS by sex).
+  A doe must complete the 10-day RESTING dry-off/flush window before
+  re-entering BREEDING (enforced on both the manual move and the service);
+  her re-breed prompt arrives 30 days after weaning.
+- Kidding care: the kidding form records colostrum-within-2 h, navel-dip and
+  dam-rejection per kid, plus placenta passage, mastitis suspicion and
+  derived parity; kidding spawns next-day post-kidding dam-check and
+  stall-disinfection duties (and a bottle/colostrum-support duty when a kid
+  missed colostrum or was rejected).
+- Arrivals: purchase batches capture origin market, transport hours and the
+  seller's health history, and accept per-head arrival weights; deaths carry
+  a coded cause, disposal method and necropsy findings; sales capture
+  weight-at-sale, ₹/kg (price derivable from weight × rate) and buyer.
 - Feeding: TMR per bucket, 3 shifts split **40% (6:30 AM, sweep bunks) /
-  20% (1:30 PM) / 40% (7:30 PM)**. RESTING switches MAINTENANCE_75_25 →
-  FLUSH_70_30 at day 10; MALE_KIDS switch LACTATING_60_40 → FATTENING_50_50
-  at day 91.
+  20% (1:30 PM) / 40% (7:30 PM)**. Per-head amounts scale from the bucket's
+  mean recorded weight (3–4% by class, clamped to 0.5–2× the flat default;
+  flat fallback when no weights exist); breeding bucks carry a +0.5 kg
+  supplement line. RESTING switches MAINTENANCE_75_25 → FLUSH_70_30 at day
+  10; MALE_KIDS switch LACTATING_60_40 → FATTENING_50_50 at day 91; creep
+  feed ramps 0.1/0.2/0.3 kg by age band from day 14.
 - Core vaccines: FMD (6-monthly, Sep/Mar), PPR (3-yearly), ET (annual,
-  pre-monsoon), HS, Goat Pox, plus pre-kidding ET+TT 4–6 weeks before due
-  date. Deworming every 6 months (June/January).
-- Money in ₹ (Indian grouping), metric units.
+  pre-monsoon), HS (first dose 6 months), Goat Pox, TT, plus pre-kidding
+  ET+TT 4–6 weeks before due date. Deworming every 6 months (June/January).
+  Finance tracks a per-animal insurance register (renewal duties spawn
+  30 days ahead), a lifetime per-animal P&L, and a feed-stock memo value.
 
 ## Backend layout
 
@@ -844,7 +872,7 @@ backend/
                      request IDs, /healthz + /readyz, prod-safety validation)
     core/config.py   Pydantic settings (GOATFARM_* env vars)
     db.py            Async engine/session (autoflush=False, pre-ping), Base
-    models/          27 tables, domain enums, computed properties — split per
+    models/          28 tables, domain enums, computed properties — split per
                      domain (enums, constants, core, animals, breeding, …)
     services/        All domain flows + state guards — split per domain
                      (animals, breeding, kidding, health, tasks, feeding,

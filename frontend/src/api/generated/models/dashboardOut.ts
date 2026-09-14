@@ -10,6 +10,7 @@ import type { DashboardKiddingDueOut } from './dashboardKiddingDueOut';
 import type { DashboardOutSexCounts } from './dashboardOutSexCounts';
 import type { DashboardOutStatusTotals } from './dashboardOutStatusTotals';
 import type { DashboardWeightOut } from './dashboardWeightOut';
+import type { InsuranceExpiringOut } from './insuranceExpiringOut';
 import type { MoveSuggestionOut } from './moveSuggestionOut';
 import type { RestrictedAnimalOut } from './restrictedAnimalOut';
 import type { TaskOut } from './taskOut';
@@ -35,6 +36,8 @@ export interface DashboardOut {
   restricted_animals_total: number | null;
   recent_weights: DashboardWeightOut[];
   recent_weights_total: number | null;
+  insurance_expiring: InsuranceExpiringOut[];
+  insurance_expiring_total: number | null;
   preview_limit: number;
   recent_weights_limit: number;
 }

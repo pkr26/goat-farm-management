@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import re
 from collections.abc import Awaitable, Callable
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import httpx
@@ -16,11 +16,14 @@ from app.main import create_app
 from app.models import (
     MAX_ANIMAL_TAG_LENGTH,
     MAX_BATCH_COUNT,
+    QUARANTINE_PROTOCOL,
     Animal,
     BucketMove,
     PurchaseBatch,
     Task,
+    TaskCategory,
     Transaction,
+    WeightRecord,
 )
 from app.schemas.common import MAX_INT32_ID
 from app.services.purchases import _estimated_dob_from_age, _purchase_batch_tag
@@ -182,7 +185,7 @@ async def test_thousand_head_purchase_is_constant_statement_and_exact(
     assert animal_count == unique_tags == move_count == 1000
     _assert_batch_tag_sequence(tags, batch_id)
     assert total_allocated == booked_total == Decimal("1000.03")
-    assert task_count == maximum.json()["open_tasks"] == 8
+    assert task_count == maximum.json()["open_tasks"] == 11
 
     over_limit = await client.post(
         "/api/purchases/new",
@@ -215,7 +218,7 @@ async def test_thousand_head_batch_detail_is_a_bounded_page(client: httpx.AsyncC
     body = first.json()
     assert len(body["animals"]) == 100  # default page, not all 1,000
     assert body["batch"]["animals_created"] == MAX_BATCH_COUNT  # exact total stays available
-    assert len(body["tasks"]) == 8  # the protocol itself is bounded
+    assert len(body["tasks"]) == 11  # the protocol itself is bounded
 
     page = await client.get(
         f"/api/purchases/{batch_id}",
@@ -405,3 +408,254 @@ async def test_health_batch_picker_cost_is_independent_of_closed_batch_history(
     assert len(picker_statements) == 2  # one grouped total + one bounded page
     assert all("JOIN purchase_batches" in sql for sql in picker_statements)
     assert all(sql.count("FROM animals JOIN purchase_batches") == 1 for sql in picker_statements)
+
+
+# ---------------------------------------------------------------------------
+# Husbandry standards: 11-step protocol, batch provenance, arrival weights
+# ---------------------------------------------------------------------------
+
+PROTOCOL_DUTIES = 11
+
+
+def test_quarantine_protocol_is_day_ordered_with_new_duties() -> None:
+    """The 11-entry protocol stays sorted by day offset, and the three
+    husbandry-standards additions carry their intended categories."""
+    days = [offset for offset, _category, _title in QUARANTINE_PROTOCOL]
+    assert len(QUARANTINE_PROTOCOL) == PROTOCOL_DUTIES
+    assert days == sorted(days)
+    by_day = {
+        day: [(category, title) for d, category, title in QUARANTINE_PROTOCOL if d == day]
+        for day in (1, 13, 30)
+    }
+    # Arrival day carries two duties; the clinical inspection comes first.
+    assert [category for category, _title in by_day[1]] == [
+        TaskCategory.QUARANTINE,
+        TaskCategory.QUARANTINE,
+    ]
+    assert "arrival inspection" in by_day[1][0][1]
+    assert by_day[13][0][0] == TaskCategory.QUARANTINE
+    assert "fecal/dung sample exam" in by_day[13][0][1]
+    assert "FECAL_EXAM" in by_day[13][0][1]
+    # Day 30 pairs the Goat Pox vaccine with the pre-release fecal recheck.
+    assert [category for category, _title in by_day[30]] == [
+        TaskCategory.VACCINE,
+        TaskCategory.QUARANTINE,
+    ]
+    assert "fecal recheck" in by_day[30][1][1]
+    # The release footbath remains the final duty.
+    assert QUARANTINE_PROTOCOL[-1][0] == 45
+    assert QUARANTINE_PROTOCOL[-1][1] == TaskCategory.BUCKET_MOVE
+
+
+async def test_generated_schedule_places_new_protocol_duties_on_their_days(
+    client: httpx.AsyncClient,
+) -> None:
+    """Protocol day N is due N-1 days after arrival: the day-1 arrival
+    inspection shares the rest entry's due date, the day-13 fecal exam lands
+    twelve days after arrival, and the day-30 fecal recheck lands 29 days
+    after, alongside the Goat Pox vaccine."""
+    owner = await owner_with_farm(client)
+    arrival = today()
+    created = await client.post(
+        "/api/purchases/new",
+        json={"date": arrival.isoformat(), "count": 1, "create_animals": True},
+        headers=owner,
+    )
+    assert created.status_code == 201, created.text
+    detail = await client.get(f"/api/purchases/{created.json()['id']}", headers=owner)
+    assert detail.status_code == 200, detail.text
+    tasks = detail.json()["tasks"]
+    assert len(tasks) == PROTOCOL_DUTIES
+
+    def due(day_offset: int) -> str:
+        return (arrival + timedelta(days=day_offset - 1)).isoformat()
+
+    inspections = [task for task in tasks if "arrival inspection" in task["title"]]
+    assert len(inspections) == 1
+    assert inspections[0]["due_date"] == due(1)
+    assert inspections[0]["category"] == "QUARANTINE"
+
+    fecal_exams = [task for task in tasks if "fecal/dung sample exam" in task["title"]]
+    assert len(fecal_exams) == 1
+    assert fecal_exams[0]["due_date"] == due(13)
+    assert fecal_exams[0]["category"] == "QUARANTINE"
+
+    rechecks = [task for task in tasks if "fecal recheck" in task["title"]]
+    assert len(rechecks) == 1
+    assert rechecks[0]["due_date"] == due(30)
+    assert rechecks[0]["category"] == "QUARANTINE"
+
+    # The whole schedule stays due-ordered and ends on the release duty.
+    due_dates = [task["due_date"] for task in tasks]
+    assert due_dates == sorted(due_dates)
+    assert tasks[-1]["category"] == "BUCKET_MOVE"
+    assert tasks[-1]["due_date"] == due(45)
+
+
+async def test_purchase_batch_provenance_round_trips_and_is_validated(
+    client: httpx.AsyncClient,
+) -> None:
+    """Origin market, transit hours and the seller-stated health history are
+    procurement facts: they must survive create → detail → list unchanged,
+    and their bounds are enforced at the request boundary."""
+    owner = await owner_with_farm(client)
+    history = "Seller-stated: PPR vaccinated at source; dewormed two weeks pre-sale"
+    created = await client.post(
+        "/api/purchases/new",
+        json={
+            "date": today().isoformat(),
+            "supplier": "Kurnool Traders",
+            "origin_market": "Kurnool weekly shandy",
+            "transport_hours": 6,
+            "seller_health_history": history,
+            "count": 2,
+            "create_animals": True,
+        },
+        headers=owner,
+    )
+    assert created.status_code == 201, created.text
+    batch_id = created.json()["id"]
+    expected = {
+        "origin_market": "Kurnool weekly shandy",
+        "transport_hours": 6,
+        "seller_health_history": history,
+    }
+    assert {field: created.json()[field] for field in expected} == expected
+
+    detail = await client.get(f"/api/purchases/{batch_id}", headers=owner)
+    assert detail.status_code == 200, detail.text
+    assert {field: detail.json()["batch"][field] for field in expected} == expected
+
+    listed = await client.get("/api/purchases", headers=owner)
+    assert listed.status_code == 200, listed.text
+    batch = next(batch for batch in listed.json()["batches"] if batch["id"] == batch_id)
+    assert {field: batch[field] for field in expected} == expected
+
+    # Omitted provenance stays absent rather than defaulting to placeholders.
+    bare = await client.post(
+        "/api/purchases/new",
+        json={"date": today().isoformat(), "count": 1},
+        headers=owner,
+    )
+    assert bare.status_code == 201, bare.text
+    assert bare.json()["origin_market"] is None
+    assert bare.json()["transport_hours"] is None
+    assert bare.json()["seller_health_history"] is None
+
+    base = {"date": today().isoformat(), "count": 1}
+    rejected = [
+        base | {"transport_hours": 241},
+        base | {"transport_hours": -1},
+        base | {"transport_hours": "6"},  # strict ints only on the wire
+        base | {"transport_hours": 6.0},
+        base | {"origin_market": "M" * 121},
+        base | {"seller_health_history": "H" * 4_001},
+    ]
+    for payload in rejected:
+        response = await client.post("/api/purchases/new", json=payload, headers=owner)
+        assert response.status_code == 422, (payload, response.text)
+    # The ceiling itself is accepted.
+    ceiling = await client.post(
+        "/api/purchases/new",
+        json=base | {"transport_hours": 240},
+        headers=owner,
+    )
+    assert ceiling.status_code == 201, ceiling.text
+    assert ceiling.json()["transport_hours"] == 240
+
+
+async def _arrival_weight_rows(batch_id: int) -> list[tuple[str, float, str]]:
+    async with get_sessionmaker()() as db:
+        rows = (
+            await db.execute(
+                select(Animal.tag_number, WeightRecord.weight_kg, WeightRecord.notes)
+                .join(WeightRecord, WeightRecord.animal_id == Animal.id)
+                .where(Animal.purchase_batch_id == batch_id)
+                .order_by(Animal.tag_number)
+            )
+        ).all()
+    return [(str(tag), float(weight), str(notes)) for tag, weight, notes in rows]
+
+
+async def test_individual_arrival_weights_pair_positionally_with_tags(
+    client: httpx.AsyncClient,
+) -> None:
+    """Each head's own weight becomes its own arrival WeightRecord — the i-th
+    value belongs to the tag ending in the i-th generated index — instead of
+    one shared batch-average estimate."""
+    owner = await owner_with_farm(client)
+    created = await client.post(
+        "/api/purchases/new",
+        json={
+            "date": today().isoformat(),
+            "supplier": "Weighing supplier",
+            "count": 3,
+            "avg_weight_kg": 30.0,  # present yet deliberately unused per-head
+            "individual_weights_kg": [12.5, 13.25, 14.0],
+            "create_animals": True,
+        },
+        headers=owner,
+    )
+    assert created.status_code == 201, created.text
+    rows = await _arrival_weight_rows(created.json()["id"])
+    assert [row[0].rsplit("-", 1)[-1] for row in rows] == ["0001", "0002", "0003"]
+    assert [row[1] for row in rows] == [12.5, 13.25, 14.0]
+    assert {row[2] for row in rows} == {"Arrival weight (individual)"}
+
+
+async def test_individual_arrival_weights_reject_wrong_length_and_out_of_bounds(
+    client: httpx.AsyncClient,
+) -> None:
+    """A short/long list would shift every animal's weight by one position;
+    a value outside the species' credible scale would fabricate a weight
+    fact. Both are 422s at the request boundary."""
+    owner = await owner_with_farm(client)
+    base = {"date": today().isoformat(), "count": 3, "create_animals": True}
+    for weights in (
+        [12.0, 13.0],  # one short
+        [12.0, 13.0, 14.0, 15.0],  # one long
+        [12.0, 13.0, 151.0],  # above the goat adult cap (species bound)
+        [12.0, 13.0, 1001.0],  # above the generic 0–1000 kg weight bound
+        [12.0, 13.0, 0.0],  # a WeightRecord cannot hold zero
+        [12.0, 13.0, -1.0],
+    ):
+        response = await client.post(
+            "/api/purchases/new",
+            json=base | {"individual_weights_kg": weights},
+            headers=owner,
+        )
+        assert response.status_code == 422, (weights, response.text)
+    # Per-head weights without stub animals have nowhere to be written.
+    no_stubs = await client.post(
+        "/api/purchases/new",
+        json={
+            "date": today().isoformat(),
+            "count": 1,
+            "create_animals": False,
+            "individual_weights_kg": [12.0],
+        },
+        headers=owner,
+    )
+    assert no_stubs.status_code == 422, no_stubs.text
+
+
+async def test_arrival_weights_fall_back_to_the_batch_average_when_omitted(
+    client: httpx.AsyncClient,
+) -> None:
+    """Without per-head values the pre-existing behaviour is unchanged: every
+    stub gets one estimated record at the batch average."""
+    owner = await owner_with_farm(client)
+    created = await client.post(
+        "/api/purchases/new",
+        json={
+            "date": today().isoformat(),
+            "count": 3,
+            "avg_weight_kg": 30.0,
+            "create_animals": True,
+        },
+        headers=owner,
+    )
+    assert created.status_code == 201, created.text
+    rows = await _arrival_weight_rows(created.json()["id"])
+    assert [row[1] for row in rows] == [30.0, 30.0, 30.0]
+    assert {row[2] for row in rows} == {"Estimated from purchase batch average"}

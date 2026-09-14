@@ -4,6 +4,7 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { StatusChangeInMortalityCauseCode } from './statusChangeInMortalityCauseCode';
 import type { StatusChangeInNewStatus } from './statusChangeInNewStatus';
 
 export interface StatusChangeIn {
@@ -11,9 +12,15 @@ export interface StatusChangeIn {
   date?: string | null;
   sale_price?: number | null;
   buyer_name?: string | null;
+  sale_weight_kg?: number | null;
+  sale_price_per_kg?: number | null;
   notes?: string | null;
   mortality_cause?: string | null;
+  mortality_cause_code?: StatusChangeInMortalityCauseCode;
+  disposal_method?: string | null;
   mortality_reported_at?: string | null;
+  necropsy_done?: boolean;
+  necropsy_findings?: string | null;
   suspected_scheduled_disease?: boolean;
   suspected_disease?: string | null;
   authority_notified_at?: string | null;

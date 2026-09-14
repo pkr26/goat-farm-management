@@ -61,6 +61,7 @@ const ANIMAL: AnimalOut = {
   status: "ACTIVE",
   status_date: null,
   sale_price: null,
+  sale_weight_kg: null,
   purchase_date: null,
   purchase_price: null,
   seller_name: null,

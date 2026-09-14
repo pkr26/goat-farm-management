@@ -37,6 +37,21 @@ class BucketCountOut(BaseModel):
     count: int
 
 
+class InsuranceExpiringOut(BaseModel):
+    """One active policy whose renewal falls inside the dashboard window.
+
+    Insurance is money at risk, so the block sits behind finance.view — the
+    same permission that guards the finance register it summarizes. The
+    animal tag is present only for per-animal policies."""
+
+    id: int
+    policy_number: str
+    insurer: str
+    renewal_date: dt.date
+    animal_id: int | None = None
+    animal_tag: str | None = None
+
+
 class DashboardOut(BaseModel):
     # Herd counts by bucket (the pregnancy/breeding-programme buckets among
     # them), the active total and the sex split restate animal-register facts
@@ -73,6 +88,11 @@ class DashboardOut(BaseModel):
     # None means the caller lacks animals.view — the weights preview was
     # withheld, not empty. A literal 0 must always mean "genuinely none".
     recent_weights_total: int | None
+    # Active insurance policies renewing inside the expiry window. None means
+    # the caller lacks finance.view — withheld, not empty (same convention as
+    # the totals above; the finance register holds the full list).
+    insurance_expiring: list[InsuranceExpiringOut]
+    insurance_expiring_total: int | None
     # All operational lists above except recent_weights use this cap.
     preview_limit: int
     recent_weights_limit: int

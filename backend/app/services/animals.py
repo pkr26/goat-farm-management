@@ -1,7 +1,7 @@
 """Animals: lifecycle transitions, pending-task skips, tag generation."""
 
 import secrets
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy import Select, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,6 +32,7 @@ def bucket_transition_error(
     context: TransitionContext = "manual",
     reference_date: date | None = None,
     facts: TransitionFacts | None = None,
+    resting_since: date | None = None,
     allow_restricted_reclassification: bool = False,
 ) -> str | None:
     """Return the model-level reason a lifecycle move must be blocked.
@@ -40,6 +41,13 @@ def bucket_transition_error(
     cannot override a hold/restriction or impossible sex mapping. Authoritative
     reproductive workflows must opt in explicitly when they reclassify an
     animal without clearing the physical movement hold.
+
+    ``resting_since`` is the effective_date of the doe's latest RESTING
+    BucketMove, mirroring how ``facts`` threads SQL-derived state into this
+    pure sync guard (the bucket_moves relationship is not loaded on the
+    request-path animal rows). ``None`` leaves the flush window unproven and
+    therefore unenforced — callers that can reach RESTING → BREEDING must
+    supply it.
     """
     if animal.status != AnimalStatus.ACTIVE.value:
         return f"{animal.tag_number} is {animal.status.lower()} — cannot move buckets"
@@ -77,6 +85,26 @@ def bucket_transition_error(
     if to_bucket == Bucket.BREEDING.value:
         profile = GOAT_PROFILE
         if animal.sex == "F":
+            if (
+                animal.current_bucket == Bucket.RESTING.value
+                and resting_since is not None
+                and (when - resting_since).days < profile.min_rest_flush_days
+            ):
+                # RESTING is the dry-off + flush window: the ration switches to
+                # the flush mix only at min_rest_flush_days, so a same-day
+                # re-service breeds a doe whose body condition has not been
+                # prepared. The VWP already holds the first 14 days post-kidding;
+                # this closes the flush gap after it. Only "manual" and
+                # "breeding" contexts reach here (history_override returned
+                # above), and RESTING → BREEDING is the sole legal RESTING exit.
+                earliest = resting_since + timedelta(days=profile.min_rest_flush_days)
+                return (
+                    f"{animal.tag_number} has been in RESTING for "
+                    f"{max((when - resting_since).days, 0)} of the "
+                    f"{profile.min_rest_flush_days}-day rest-and-flush window "
+                    f"before re-entering BREEDING — earliest re-entry is "
+                    f"{earliest.isoformat()}"
+                )
             if facts is None:
                 eligible = animal.is_breeding_eligible_on(when)
             else:
@@ -125,6 +153,7 @@ def require_bucket_transition(
     context: TransitionContext = "manual",
     reference_date: date | None = None,
     facts: TransitionFacts | None = None,
+    resting_since: date | None = None,
     allow_restricted_reclassification: bool = False,
 ) -> None:
     if error := bucket_transition_error(
@@ -133,6 +162,7 @@ def require_bucket_transition(
         context=context,
         reference_date=reference_date,
         facts=facts,
+        resting_since=resting_since,
         allow_restricted_reclassification=allow_restricted_reclassification,
     ):
         raise ValueError(error)
@@ -148,6 +178,7 @@ def move_animal(
     context: TransitionContext = "manual",
     reference_date: date | None = None,
     facts: TransitionFacts | None = None,
+    resting_since: date | None = None,
     allow_restricted_reclassification: bool = False,
 ) -> None:
     """Record a BucketMove and update the animal's current bucket.
@@ -168,6 +199,7 @@ def move_animal(
         context=context,
         reference_date=reference_date,
         facts=facts,
+        resting_since=resting_since,
         allow_restricted_reclassification=allow_restricted_reclassification,
     )
     db.add(

@@ -16,6 +16,7 @@ from datetime import date, timedelta
 
 import httpx
 from sqlalchemy import select
+from sqlalchemy import update as sa_update
 
 from app.db import get_sessionmaker
 from app.models import BucketMove
@@ -308,7 +309,9 @@ async def test_golden_path_full_doe_cycle(client: httpx.AsyncClient) -> None:
     detail = await confirm_pregnancy(client, headers, br["id"], kid_count=2)
     assert (await get_animal(client, headers, doe["id"]))["current_bucket"] == "PREGNANCY_EARLY"
     assert (await find_task(client, headers, id=us_task["id"]))["status"] == "DONE"
-    # four generated duties: 2 vaccines, delivery move, kidding due
+    ekd = date.fromisoformat(detail["expected_kidding_date"])
+    # generated duties: 2 vaccines, the day-100 and DELIVERY pen moves,
+    # birthing kit, 6 kidding watches, kidding due
     tasks = await all_tasks(client, headers)
     vax = sorted(
         (
@@ -318,10 +321,15 @@ async def test_golden_path_full_doe_cycle(client: httpx.AsyncClient) -> None:
         ),
         key=lambda t: t["due_date"],
     )
+    # Two BUCKET_MOVE duties are linked to this breeding now (day-100 step-up
+    # at EKD-50 and the DELIVERY move at EKD-15); the earlier due date sorts
+    # first, so pin the DELIVERY one by its date.
     delivery = next(
         t
         for t in tasks
-        if t["category"] == "BUCKET_MOVE" and t.get("breeding_record_id") == br["id"]
+        if t["category"] == "BUCKET_MOVE"
+        and t.get("breeding_record_id") == br["id"]
+        and t["due_date"] == iso(ekd - timedelta(days=15))
     )
     due_task = next(
         t
@@ -350,7 +358,6 @@ async def test_golden_path_full_doe_cycle(client: httpx.AsyncClient) -> None:
     assert (await get_animal(client, headers, doe["id"]))["current_bucket"] == "DELIVERY"
 
     # -- kidding on the EKD (T-110): doe → RECOVERY, kids born into RECOVERY
-    ekd = date.fromisoformat(detail["expected_kidding_date"])
     kids_payload = [
         {"tag": "GOLD-K-1", "sex": "M", "birth_weight": 2.8, "status": "ALIVE"},
         {"tag": "GOLD-K-2", "sex": "F", "birth_weight": 2.5, "status": "ALIVE"},
@@ -380,8 +387,27 @@ async def test_golden_path_full_doe_cycle(client: httpx.AsyncClient) -> None:
     )
     assert refused.status_code in {409, 422}, refused.text
 
-    # -- rest period is advisory only: re-service straight out of RESTING
+    # -- flush-window guard: re-service on the day she entered RESTING is
+    # refused; after the flush window it succeeds
     await set_weight(client, headers, doe["id"], 27.0)
+    refused_rebreed = await client.post(
+        "/api/breeding",
+        json={"doe_id": doe["id"], "buck_id": buck["id"], "breeding_date": iso(today())},
+        headers=headers,
+    )
+    assert refused_rebreed.status_code == 409, refused_rebreed.text
+    assert (await get_animal(client, headers, doe["id"]))["current_bucket"] == "RESTING"
+    async with get_sessionmaker()() as db:
+        await db.execute(
+            sa_update(BucketMove)
+            .where(
+                BucketMove.farm_id == int(headers["X-Farm-Id"]),
+                BucketMove.animal_id == doe["id"],
+                BucketMove.to_bucket == "RESTING",
+            )
+            .values(effective_date=today() - timedelta(days=35))
+        )
+        await db.commit()
     br2 = await breed(client, headers, doe["id"], buck["id"], today())
     assert br2["id"] != br["id"]
     assert (await get_animal(client, headers, doe["id"]))["current_bucket"] == "BREEDING"
@@ -416,7 +442,7 @@ async def test_purchase_quarantine_release_chain(client: httpx.AsyncClient) -> N
     assert len(animal_ids) == 3
     for animal_id in animal_ids:
         assert (await get_animal(client, headers, animal_id))["current_bucket"] == "QUARANTINE"
-    assert len(detail["tasks"]) == 8
+    assert len(detail["tasks"]) == 11
 
     tasks = await all_tasks(client, headers)
     batch_tasks = [t for t in tasks if t.get("purchase_batch_id") == batch["id"]]
@@ -428,7 +454,9 @@ async def test_purchase_quarantine_release_chain(client: httpx.AsyncClient) -> N
         key=lambda t: t["due_date"],
     )
     release = next(t for t in batch_tasks if t["category"] == "BUCKET_MOVE")
-    assert len(plain) == 2 and len(forms) == 5 and release["status"] == "PENDING"
+    # day-1 ×2 (arrival inspection + rest), day-5, day-13 fecal, day-30 review;
+    # deworming + the four vaccine rounds; the day-45 release move.
+    assert len(plain) == 5 and len(forms) == 5 and release["status"] == "PENDING"
 
     # A protocol duty cannot be skipped while the batch still has live animals.
     skip_refused = await client.post(
@@ -569,7 +597,15 @@ async def test_weaning_blocked_while_kid_under_movement_hold(client: httpx.Async
     buck = await make_animal(client, headers, "WH-M-1", sex="M", weight_kg=32.0)
     br = await breed(client, headers, doe["id"], buck["id"], today() - timedelta(days=260))
     detail = await confirm_pregnancy(client, headers, br["id"], kid_count=1)
-    delivery = await find_task(client, headers, category="BUCKET_MOVE", breeding_record_id=br["id"])
+    # Disambiguate from the day-100 step-up move (EKD − 50): both are pending
+    # breeding-linked BUCKET_MOVEs and the earlier due date sorts first.
+    delivery = await find_task(
+        client,
+        headers,
+        category="BUCKET_MOVE",
+        breeding_record_id=br["id"],
+        due_date=iso(date.fromisoformat(detail["expected_kidding_date"]) - timedelta(days=15)),
+    )
     assert (await complete(client, headers, delivery["id"])).status_code == 200
     kidding = await record_kidding(
         client,
@@ -677,7 +713,15 @@ async def test_all_stillborn_litter_postpartum_path(client: httpx.AsyncClient) -
     buck = await make_animal(client, headers, "SB-M-1", sex="M", weight_kg=32.0)
     br = await breed(client, headers, doe["id"], buck["id"], today() - timedelta(days=260))
     detail = await confirm_pregnancy(client, headers, br["id"], kid_count=2)
-    delivery = await find_task(client, headers, category="BUCKET_MOVE", breeding_record_id=br["id"])
+    # Disambiguate from the day-100 step-up move (EKD − 50): both are pending
+    # breeding-linked BUCKET_MOVEs and the earlier due date sorts first.
+    delivery = await find_task(
+        client,
+        headers,
+        category="BUCKET_MOVE",
+        breeding_record_id=br["id"],
+        due_date=iso(date.fromisoformat(detail["expected_kidding_date"]) - timedelta(days=15)),
+    )
     await complete(client, headers, delivery["id"])
 
     kidding_date = date.fromisoformat(detail["expected_kidding_date"])
@@ -707,7 +751,15 @@ async def test_last_kid_death_replans_dam_to_postpartum(client: httpx.AsyncClien
     buck = await make_animal(client, headers, "LD-M-1", sex="M", weight_kg=32.0)
     br = await breed(client, headers, doe["id"], buck["id"], today() - timedelta(days=300))
     detail = await confirm_pregnancy(client, headers, br["id"], kid_count=2)
-    delivery = await find_task(client, headers, category="BUCKET_MOVE", breeding_record_id=br["id"])
+    # Disambiguate from the day-100 step-up move (EKD − 50): both are pending
+    # breeding-linked BUCKET_MOVEs and the earlier due date sorts first.
+    delivery = await find_task(
+        client,
+        headers,
+        category="BUCKET_MOVE",
+        breeding_record_id=br["id"],
+        due_date=iso(date.fromisoformat(detail["expected_kidding_date"]) - timedelta(days=15)),
+    )
     await complete(client, headers, delivery["id"])
     kidding_date = date.fromisoformat(detail["expected_kidding_date"])
     kidding = await record_kidding(
@@ -757,7 +809,15 @@ async def test_dam_exit_orphan_weans_surviving_kid(client: httpx.AsyncClient) ->
     buck = await make_animal(client, headers, "OR-M-1", sex="M", weight_kg=32.0)
     br = await breed(client, headers, doe["id"], buck["id"], today() - timedelta(days=260))
     detail = await confirm_pregnancy(client, headers, br["id"], kid_count=1)
-    delivery = await find_task(client, headers, category="BUCKET_MOVE", breeding_record_id=br["id"])
+    # Disambiguate from the day-100 step-up move (EKD − 50): both are pending
+    # breeding-linked BUCKET_MOVEs and the earlier due date sorts first.
+    delivery = await find_task(
+        client,
+        headers,
+        category="BUCKET_MOVE",
+        breeding_record_id=br["id"],
+        due_date=iso(date.fromisoformat(detail["expected_kidding_date"]) - timedelta(days=15)),
+    )
     await complete(client, headers, delivery["id"])
     kidding = await record_kidding(
         client,
@@ -872,7 +932,15 @@ async def test_recovery_is_closed_except_through_duties(client: httpx.AsyncClien
     buck = await make_animal(client, headers, "RC-M-1", sex="M", weight_kg=32.0)
     br = await breed(client, headers, doe["id"], buck["id"], today() - timedelta(days=260))
     detail = await confirm_pregnancy(client, headers, br["id"], kid_count=1)
-    delivery = await find_task(client, headers, category="BUCKET_MOVE", breeding_record_id=br["id"])
+    # Disambiguate from the day-100 step-up move (EKD − 50): both are pending
+    # breeding-linked BUCKET_MOVEs and the earlier due date sorts first.
+    delivery = await find_task(
+        client,
+        headers,
+        category="BUCKET_MOVE",
+        breeding_record_id=br["id"],
+        due_date=iso(date.fromisoformat(detail["expected_kidding_date"]) - timedelta(days=15)),
+    )
     await complete(client, headers, delivery["id"])
     kidding = await record_kidding(
         client,

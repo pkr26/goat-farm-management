@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import {
+  useAnimalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet,
   useAnimalProfileApiAnimalsAnimalIdGet,
   useChangeStatusApiAnimalsAnimalIdStatusPost,
   useClearMovementRestrictionApiHealthRestrictionsAnimalIdClearPost,
@@ -22,6 +23,7 @@ import {
 } from "@/api/generated/endpoints";
 import {
   MoveInToBucket,
+  StatusChangeInMortalityCauseCode,
   StatusChangeInNewStatus,
   type AnimalProfileOut,
 } from "@/api/generated/models";
@@ -73,8 +75,20 @@ import {
 } from "@/lib/persisted-numbers";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
+import { cn } from "@/lib/utils";
 
 const BUCKETS = Object.values(MoveInToBucket);
+/** Coded mortality causes (StatusChangeInMortalityCauseCode): the select
+ * offers them in the wire enum's order, labelled through the enum catalog. */
+const MORTALITY_CAUSE_CODES = Object.values(StatusChangeInMortalityCauseCode);
+/** value → label map for the root `items` prop: without it, Base UI's
+ * Select.Value renders the raw code in the closed trigger. */
+const MORTALITY_CAUSE_CODE_ITEMS: Record<string, string> = {
+  "": "— not coded —",
+  ...Object.fromEntries(
+    MORTALITY_CAUSE_CODES.map((code) => [code, enumLabel("mortalityCause", code)]),
+  ),
+};
 const PROFILE_HISTORY_LIMIT = 25;
 const RESTRICTION_HISTORY_LIMIT = 25;
 
@@ -443,13 +457,38 @@ const statusSchema = z
         .max(1_000_000_000, "Sale price cannot exceed ₹1,000,000,000")
         .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
     ),
+    // Operational sale facts (WeightKgFloat / MoneyFloat on the wire): the
+    // rate is only meaningful against a weight, enforced in the refine below.
+    sale_weight_kg: optNum(
+      z
+        .number()
+        .positive("Weight must be greater than 0")
+        .max(1_000, "Weight must be at most 1000 kg"),
+    ),
+    sale_price_per_kg: optNum(
+      z
+        .number()
+        .positive("Price per kg must be greater than 0")
+        .max(1_000_000_000, "Price per kg cannot exceed ₹1,000,000,000")
+        .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
+    ),
     buyer_name: z.string().max(120, "Buyer name cannot exceed 120 characters").optional(),
     notes: z.string().max(255, "Notes cannot exceed 255 characters").optional(),
     mortality_cause: z
       .string()
       .max(120, "Mortality cause cannot exceed 120 characters")
       .optional(),
+    mortality_cause_code: z.enum(MORTALITY_CAUSE_CODES as [string, ...string[]]).optional(),
+    disposal_method: z
+      .string()
+      .max(60, "Disposal method cannot exceed 60 characters")
+      .optional(),
     mortality_reported_at: z.string().optional(),
+    necropsy_done: z.boolean(),
+    necropsy_findings: z
+      .string()
+      .max(4_000, "Necropsy findings cannot exceed 4000 characters")
+      .optional(),
     suspected_scheduled_disease: z.boolean(),
     suspected_disease: z
       .string()
@@ -477,6 +516,22 @@ const statusSchema = z
         code: "custom",
         path: ["mortality_reported_at"],
         message: "Mortality report cannot be before the death date",
+      });
+    }
+    // Mirrors StatusChangeIn._death_escalation_fields_are_coherent: the rate
+    // without its weight would be rejected as a server 422.
+    if (values.sale_price_per_kg !== undefined && values.sale_weight_kg === undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["sale_price_per_kg"],
+        message: "Enter the weight at sale before the price per kg",
+      });
+    }
+    if (values.necropsy_findings && values.necropsy_findings.trim() && !values.necropsy_done) {
+      context.addIssue({
+        code: "custom",
+        path: ["necropsy_findings"],
+        message: "Necropsy findings require a performed necropsy",
       });
     }
     if (
@@ -531,6 +586,7 @@ function StatusDialog({
     defaultValues: {
       new_status: StatusChangeInNewStatus.SOLD,
       suspected_scheduled_disease: false,
+      necropsy_done: false,
     },
   });
   const newStatus = useWatch({ control, name: "new_status" });
@@ -538,6 +594,8 @@ function StatusDialog({
     control,
     name: "suspected_scheduled_disease",
   });
+  const necropsyDone = useWatch({ control, name: "necropsy_done" });
+  const saleWeight = useWatch({ control, name: "sale_weight_kg" });
 
   async function onSubmit(values: StatusValues) {
     if (profileSettling) return;
@@ -552,6 +610,15 @@ function StatusDialog({
             sale_price: statusCanRecordSale(values.new_status)
               ? (values.sale_price ?? null)
               : null,
+            // Weight/rate are SOLD-only facts (_death_escalation_fields checks).
+            sale_weight_kg:
+              values.new_status === StatusChangeInNewStatus.SOLD
+                ? (values.sale_weight_kg ?? null)
+                : null,
+            sale_price_per_kg:
+              values.new_status === StatusChangeInNewStatus.SOLD
+                ? (values.sale_price_per_kg ?? null)
+                : null,
             buyer_name: statusCanRecordSale(values.new_status)
               ? emptyToNull(values.buyer_name)
               : null,
@@ -560,9 +627,23 @@ function StatusDialog({
               values.new_status === StatusChangeInNewStatus.DEAD
                 ? emptyToNull(values.mortality_cause)
                 : null,
+            mortality_cause_code:
+              values.new_status === StatusChangeInNewStatus.DEAD
+                ? ((values.mortality_cause_code ?? null) as StatusChangeInMortalityCauseCode)
+                : null,
+            disposal_method:
+              values.new_status === StatusChangeInNewStatus.DEAD
+                ? emptyToNull(values.disposal_method)
+                : null,
             mortality_reported_at:
               values.new_status === StatusChangeInNewStatus.DEAD
                 ? emptyToNull(values.mortality_reported_at)
+                : null,
+            necropsy_done:
+              values.new_status === StatusChangeInNewStatus.DEAD && values.necropsy_done,
+            necropsy_findings:
+              values.new_status === StatusChangeInNewStatus.DEAD && values.necropsy_done
+                ? emptyToNull(values.necropsy_findings)
                 : null,
             suspected_scheduled_disease:
               values.new_status === StatusChangeInNewStatus.DEAD &&
@@ -630,11 +711,20 @@ function StatusDialog({
                     if (!statusCanRecordSale(nextStatus)) {
                       unregister(["sale_price", "buyer_name"]);
                     }
+                    // Weight and rate are SOLD-only facts: a cull records a
+                    // price, never a realized ₹/kg.
+                    if (nextStatus !== StatusChangeInNewStatus.SOLD) {
+                      unregister(["sale_weight_kg", "sale_price_per_kg"]);
+                    }
                     if (nextStatus !== StatusChangeInNewStatus.DEAD) {
                       setValue("suspected_scheduled_disease", false);
+                      setValue("necropsy_done", false);
                       unregister([
                         "mortality_cause",
+                        "mortality_cause_code",
+                        "disposal_method",
                         "mortality_reported_at",
+                        "necropsy_findings",
                         "suspected_disease",
                         "authority_notified_at",
                       ]);
@@ -667,6 +757,25 @@ function StatusDialog({
           </div>
           {statusCanRecordSale(newStatus) && (
             <>
+              {newStatus === StatusChangeInNewStatus.SOLD && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="s_weight">Weight at sale (kg)</Label>
+                  <Input
+                    id="s_weight"
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    aria-invalid={Boolean(errors.sale_weight_kg) || undefined}
+                    aria-describedby={errors.sale_weight_kg ? "status-sale-weight-error" : undefined}
+                    {...register("sale_weight_kg")}
+                  />
+                  {errors.sale_weight_kg && (
+                    <p id="status-sale-weight-error" role="alert" className="text-sm text-destructive">
+                      {errors.sale_weight_kg.message}
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="space-y-1.5">
                 <Label htmlFor="s_price">Sale price (₹)</Label>
                 <Input
@@ -682,6 +791,32 @@ function StatusDialog({
                   <p id="status-sale-price-error" role="alert" className="text-sm text-destructive">{errors.sale_price.message}</p>
                 )}
               </div>
+              {newStatus === StatusChangeInNewStatus.SOLD && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="s_price_per_kg">Price per kg (₹)</Label>
+                  <Input
+                    id="s_price_per_kg"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    disabled={saleWeight === undefined || saleWeight === null}
+                    aria-invalid={Boolean(errors.sale_price_per_kg) || undefined}
+                    aria-describedby={
+                      errors.sale_price_per_kg ? "status-price-per-kg-error" : "status-price-per-kg-hint"
+                    }
+                    {...register("sale_price_per_kg")}
+                  />
+                  <p id="status-price-per-kg-hint" className="text-xs text-muted-foreground">
+                    The sale price can be derived from weight × rate — leave the total price blank
+                    and the server books it paise-exact.
+                  </p>
+                  {errors.sale_price_per_kg && (
+                    <p id="status-price-per-kg-error" role="alert" className="text-sm text-destructive">
+                      {errors.sale_price_per_kg.message}
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="space-y-1.5">
                 <Label htmlFor="s_buyer">Buyer name</Label>
                 <Input
@@ -725,6 +860,60 @@ function StatusDialog({
                 )}
               </div>
               <div className="space-y-1.5">
+                <Label htmlFor="mortality-cause-code">Cause (coded)</Label>
+                <Controller
+                  control={control}
+                  name="mortality_cause_code"
+                  render={({ field }) => (
+                    <Select
+                      value={field.value ?? ""}
+                      onValueChange={(value) =>
+                        field.onChange(value === "" ? undefined : value)
+                      }
+                      items={MORTALITY_CAUSE_CODE_ITEMS}
+                    >
+                      <SelectTrigger
+                        id="mortality-cause-code"
+                        className="w-full"
+                        aria-invalid={Boolean(errors.mortality_cause_code) || undefined}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">— not coded —</SelectItem>
+                        {MORTALITY_CAUSE_CODES.map((code) => (
+                          <SelectItem key={code} value={code}>
+                            {enumLabel("mortalityCause", code)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Coded causes drive the mortality breakdown; pick the closest and keep the
+                  detail in the free-text cause.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="disposal-method">Disposal method</Label>
+                <Input
+                  id="disposal-method"
+                  maxLength={60}
+                  placeholder="burial, incineration…"
+                  aria-invalid={Boolean(errors.disposal_method) || undefined}
+                  aria-describedby={
+                    errors.disposal_method ? "disposal-method-error" : undefined
+                  }
+                  {...register("disposal_method")}
+                />
+                {errors.disposal_method && (
+                  <p id="disposal-method-error" role="alert" className="text-sm text-destructive">
+                    {errors.disposal_method.message}
+                  </p>
+                )}
+              </div>
+              <div className="space-y-1.5">
                 <Label htmlFor="mortality-reported-at">Mortality reported date</Label>
                 <Input
                   id="mortality-reported-at"
@@ -740,6 +929,52 @@ function StatusDialog({
                   </p>
                 )}
               </div>
+              <div className="flex items-center gap-2">
+                <Controller
+                  control={control}
+                  name="necropsy_done"
+                  render={({ field }) => (
+                    <Checkbox
+                      id="necropsy-done"
+                      checked={field.value}
+                      onCheckedChange={(checked) => {
+                        const selected = checked === true;
+                        if (!selected) {
+                          unregister(["necropsy_findings"]);
+                        }
+                        field.onChange(selected);
+                      }}
+                    />
+                  )}
+                />
+                <Label htmlFor="necropsy-done" className="font-normal">
+                  Necropsy performed
+                </Label>
+              </div>
+              {necropsyDone && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="necropsy-findings">Necropsy findings</Label>
+                  <Textarea
+                    id="necropsy-findings"
+                    rows={3}
+                    maxLength={4_000}
+                    aria-invalid={Boolean(errors.necropsy_findings) || undefined}
+                    aria-describedby={
+                      errors.necropsy_findings ? "necropsy-findings-error" : undefined
+                    }
+                    {...register("necropsy_findings")}
+                  />
+                  {errors.necropsy_findings && (
+                    <p
+                      id="necropsy-findings-error"
+                      role="alert"
+                      className="text-sm text-destructive"
+                    >
+                      {errors.necropsy_findings.message}
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="flex items-center gap-2">
                 <Controller
                   control={control}
@@ -973,6 +1208,88 @@ function ClearRestrictionDialog({
   );
 }
 
+/** Lifetime money in/out for one animal, from the finance register's
+ *  per-animal endpoint. Feed is farm-level on purpose — the note row carries
+ *  that caveat so the zeros are never read as "feed was free". */
+function LifetimePnlCard({
+  animalId,
+  canViewFinance,
+}: {
+  animalId: number;
+  canViewFinance: boolean;
+}) {
+  const query = useAnimalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet(animalId, {
+    query: { enabled: canViewFinance },
+  });
+  const pnl = query.data?.status === 200 ? query.data.data : undefined;
+
+  return (
+    <DataTableCard
+      title="Lifetime P&L"
+      description="Money in and out recorded against this animal."
+      ariaBusy={query.isFetching}
+    >
+      {query.isLoading ? (
+        <InlineLoading>Loading lifetime P&L…</InlineLoading>
+      ) : query.isError ? (
+        <div role="alert" className="flex flex-wrap items-center gap-3">
+          <p className="text-sm text-destructive">
+            {query.error instanceof ApiError
+              ? query.error.detail
+              : "Could not load the lifetime P&L."}
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => void query.refetch()}
+          >
+            Retry P&L
+          </Button>
+        </div>
+      ) : pnl ? (
+        <>
+          <Table>
+            <TableHeader className="sr-only">
+              <TableRow>
+                <th scope="col">Line</th>
+                <th scope="col">Amount</th>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {[
+                { label: "Purchase cost", value: pnl.purchase_cost },
+                { label: "Health cost", value: pnl.health_cost },
+                { label: "Insurance premiums", value: pnl.insurance_premiums },
+                { label: "Sale income", value: pnl.sale_income },
+              ].map((row) => (
+                <TableRow key={row.label}>
+                  <TableCell>{row.label}</TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {formatMoney(row.value)}
+                  </TableCell>
+                </TableRow>
+              ))}
+              <TableRow>
+                <TableCell className="font-medium">Net</TableCell>
+                <TableCell
+                  className={cn(
+                    "text-right tabular-nums font-medium",
+                    pnl.net < 0 ? "text-destructive" : "text-success",
+                  )}
+                >
+                  {formatMoney(pnl.net)}
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+          <p className="mt-2 text-xs text-muted-foreground">{pnl.note}</p>
+        </>
+      ) : null}
+    </DataTableCard>
+  );
+}
+
 function ProfileBody({
   profile,
   refresh,
@@ -1008,6 +1325,7 @@ function ProfileBody({
   const canViewHealth = can("health.view");
   const canManageHealth = can("health.manage");
   const canViewBreeding = can("breeding.view");
+  const canViewFinance = can("finance.view");
   // Weight, move, status and restriction clearance all mutate the same animal
   // lifecycle. One synchronous lock prevents a dismissed slow dialog from
   // overlapping a second action whose validity depends on the first.
@@ -1222,7 +1540,12 @@ function ProfileBody({
               <>
                 <Detail label="Status date">{formatDate(a.status_date)}</Detail>
                 {SALE_CAPABLE_STATUSES.includes(a.status) && (
-                  <Detail label="Sale price">{formatMoney(a.sale_price)}</Detail>
+                  <>
+                    <Detail label="Sale price">{formatMoney(a.sale_price)}</Detail>
+                    {a.sale_weight_kg != null && (
+                      <Detail label="Sale weight">{a.sale_weight_kg} kg</Detail>
+                    )}
+                  </>
                 )}
                 {a.status === "DEAD" && (
                   <>
@@ -1519,6 +1842,11 @@ function ProfileBody({
             />
           </DataTableCard>
         )}
+
+        {/* The lifetime P&L reads the finance register (money facts only), so
+            it follows finance.view; the backend also enforces it on the
+            endpoint itself. */}
+        {canViewFinance && <LifetimePnlCard animalId={a.id} canViewFinance={canViewFinance} />}
       </div>
     </div>
   );

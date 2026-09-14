@@ -406,7 +406,9 @@ describe("PurchasesPage new-batch flow", () => {
     const { user, dialog } = await openDialog();
     const box = within(dialog).getByRole("checkbox");
 
-    expect(within(dialog).getByText(/45-day quarantine protocol/)).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/45-day, 11-step quarantine protocol/),
+    ).toBeInTheDocument();
 
     await user.click(box);
     expect(box).not.toBeChecked();
@@ -416,7 +418,9 @@ describe("PurchasesPage new-batch flow", () => {
 
     await user.click(box);
     expect(box).toBeChecked();
-    expect(within(dialog).getByText(/45-day quarantine protocol/)).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/45-day, 11-step quarantine protocol/),
+    ).toBeInTheDocument();
 
     await reviewAndConfirm(user, dialog);
     await waitFor(() => expect(postCalls).toBe(1));

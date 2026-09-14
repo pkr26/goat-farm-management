@@ -6,7 +6,7 @@ from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal
 from typing import Any
 
 from sqlalchemy import Date as SqlDate
-from sqlalchemy import Numeric, and_, case, cast, exists, func, select, true
+from sqlalchemy import Numeric, and_, case, cast, exists, func, or_, select, true
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
@@ -25,22 +25,28 @@ from ..models import (
     FeedingShift,
     FeedInventory,
     FeedRecipe,
+    Sex,
     Transaction,
     TransactionCategory,
     TransactionType,
+    WeightRecord,
 )
 from ..models.feed_rules import (
-    CREEP_KG_PER_HEAD,
+    BUCK_BREEDING_SUPPLEMENT_KG,
+    BUCKET_CLASS_PCT,
+    CREEP_BANDS,
     DRY_ROUGHAGE,
     DRY_ROUGHAGE_INGREDIENT,
     RECIPE_DISPLAY,
     SHIFT_TIMES,
+    creep_band_label,
     recipe_for_context,
 )
 from ..models.species import GOAT_PROFILE
 from ..utils import DEFAULT_BUSINESS_TIMEZONE, MONEY_QUANTUM, money, today
 
 KG_QUANTUM = Decimal("0.001")
+RATION_QUANTUM = Decimal("0.05")
 MAX_LEDGER_AMOUNT = Decimal("1000000000.00")
 
 
@@ -168,6 +174,23 @@ def recipe_for_animal(
     )
 
 
+def _scaled_ration(mean_weight: float, class_pct: float, flat_default: float) -> float:
+    """Weight-scaled per-head ration on 0.05 kg steps.
+
+    ``mean_weight x class_pct`` (as-fed % of live weight) clamped to
+    [0.5x, 2.0x] the flat per-head default — the seeded BucketDefinition rate
+    or the farm's BucketFeedSetting override, which therefore still bounds the
+    scaled ration's range. Decimal throughout: the clamp bounds and the 0.05
+    kg rounding are exact, never float artifacts.
+    """
+    scaled = Decimal(str(mean_weight)) * Decimal(str(class_pct)) / Decimal(100)
+    floor = Decimal("0.5") * Decimal(str(flat_default))
+    cap = Decimal(2) * Decimal(str(flat_default))
+    clamped = min(max(scaled, floor), cap)
+    steps = (clamped / RATION_QUANTUM).to_integral_value(rounding=ROUND_HALF_UP)
+    return float(steps * RATION_QUANTUM)
+
+
 async def get_daily_kg_per_head(db: AsyncSession, farm_id: int, bucket_code: str) -> float:
     override_result = await db.execute(
         select(BucketFeedSetting).where(
@@ -206,8 +229,10 @@ async def set_daily_kg_per_head(
 async def feeding_plan(
     db: AsyncSession, farm: Farm, ref: date | None = None
 ) -> list[dict[str, Any]]:
-    """Today's plan: one line per (bucket, recipe) with headcount, daily kg
-    (heads × per-head setting) and the 40/20/40 shift split."""
+    """Today's plan: one line per (bucket, recipe, creep band, breeding sex)
+    with headcount, per-head kg — the bucket's mean latest weight scaled by
+    the class percentage and clamped around the flat default when any animal
+    is weighed, the flat default otherwise — and the 40/20/40 shift split."""
     ref = ref or today(farm.timezone)
     # A correlated LATERAL LIMIT 1 reads at most the latest movement per active
     # animal. The previous selectinload hydrated every historical BucketMove,
@@ -219,6 +244,18 @@ async def feeding_plan(
         .limit(1)
         .correlate(Animal)
         .lateral("latest_bucket_move")
+    )
+    # Date-bounded latest weighing, same LATERAL LIMIT 1 idiom the buckets
+    # board and breeding candidates use. The birth-weight fallback is
+    # deliberately NOT applied: only real scale readings scale a ration, and
+    # animals without one simply drop out of the bucket's mean.
+    latest_weight = (
+        select(WeightRecord.weight_kg)
+        .where(WeightRecord.animal_id == Animal.id, WeightRecord.date <= ref)
+        .order_by(WeightRecord.date.desc(), WeightRecord.id.desc())
+        .limit(1)
+        .correlate(Animal)
+        .lateral("latest_weight_record")
     )
     created_date = cast(
         func.timezone(farm.timezone, func.timezone("UTC", Animal.created_at)),
@@ -288,12 +325,36 @@ async def feeding_plan(
         (bucket == Bucket.MALE_KIDS.value, "FATTENING_50_50"),
         else_="MAINTENANCE_75_25",
     )
+    # Creep age band, generated from the same CREEP_BANDS table as the pure
+    # creep_daily_kg twin in models.feed_rules (creep_band_label(lo) returns
+    # exactly the label of the band starting at lo). NULL on every non-CREEP
+    # row so ordinary buckets never split by age, and NULL on a CREEP row
+    # below creep_start_days — a milk-fed kid produces no creep line at all.
+    band_by_age = case(
+        *[
+            (age_days.between(band_start, band_end), creep_band_label(band_start))
+            for band_start, band_end, _kg in CREEP_BANDS
+        ],
+        else_=None,
+    )
+    creep_band = case((recipe_code == "CREEP", band_by_age), else_=None)
+    # Sex splits the BREEDING bucket only: bucks carry the mating-season
+    # supplement, so they need their own line. Every other bucket ignores
+    # sex (empty string groups both together, as before).
+    breeding_sex = case((bucket == Bucket.BREEDING.value, Animal.sex), else_="")
     contexts = (
         select(
             bucket.label("bucket"),
             recipe_code.label("recipe_code"),
+            creep_band.label("creep_band"),
+            breeding_sex.label("breeding_sex"),
+            latest_weight.c.weight_kg.label("weight_kg"),
         )
+        # select_from pins the join chain's left side: with two correlated
+        # LATERALs SQLAlchemy cannot infer which FROM each join attaches to.
+        .select_from(Animal)
         .outerjoin(latest_move, true())
+        .outerjoin(latest_weight, true())
         .where(Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value)
         .subquery("feeding_contexts")
     )
@@ -302,14 +363,56 @@ async def feeding_plan(
             select(
                 contexts.c.bucket,
                 contexts.c.recipe_code,
+                contexts.c.creep_band,
+                contexts.c.breeding_sex,
                 func.count().label("heads"),
             )
-            .group_by(contexts.c.bucket, contexts.c.recipe_code)
+            # A dependent kid younger than the creep start is milk-fed: its
+            # CREEP row carries no band and must not surface as a line (nor
+            # fall through to the dam's lactating TMR).
+            .where(or_(contexts.c.recipe_code != "CREEP", contexts.c.creep_band.is_not(None)))
+            .group_by(
+                contexts.c.bucket,
+                contexts.c.recipe_code,
+                contexts.c.creep_band,
+                contexts.c.breeding_sex,
+            )
             .order_by(contexts.c.bucket, contexts.c.recipe_code)
         )
     ).all()
+    # Bucket-level mean latest weight over the animals that HAVE a weighing
+    # (avg skips NULLs; a bucket with no weighing stays absent from the dict).
+    # A separate lightweight source over Animal + the weight LATERAL — not
+    # the feeding_contexts subquery — so the movement LATERAL is still
+    # rendered by exactly one statement per plan.
+    weight_source = (
+        select(
+            Animal.current_bucket.label("bucket"),
+            latest_weight.c.weight_kg.label("weight_kg"),
+        )
+        .outerjoin(latest_weight, true())
+        .where(Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value)
+        .subquery("feeding_weights")
+    )
+    mean_weight_by_bucket = {
+        bucket_code: float(mean)
+        for bucket_code, mean in (
+            await db.execute(
+                select(
+                    weight_source.c.bucket,
+                    func.avg(weight_source.c.weight_kg).label("mean_weight"),
+                ).group_by(weight_source.c.bucket)
+            )
+        ).all()
+        if mean is not None
+    }
+    # Creep line kg per band label, from the same table the SQL CASE used.
+    creep_kg_by_band = {
+        creep_band_label(band_start): kg for band_start, _band_end, kg in CREEP_BANDS
+    }
 
-    # Two bulk queries, then join in Python — no per-bucket awaits.
+    # Bulk queries above (groups, bucket means), then the seeded definitions
+    # and overrides — joined in Python, no per-bucket awaits.
     definitions = list((await db.execute(select(BucketDefinition))).scalars())
     order = {d.code: d.sort_order for d in definitions}
     kg_per_head_by_bucket = {d.code: d.daily_kg_per_head for d in definitions}
@@ -319,14 +422,39 @@ async def feeding_plan(
     for setting in settings_result.scalars():
         kg_per_head_by_bucket[setting.bucket] = setting.daily_kg_per_head
     lines = []
-    for bucket_code, recipe_code, heads in sorted(groups, key=lambda row: order.get(row[0], 99)):
+    for bucket_code, recipe_code, band, sex, heads in sorted(
+        groups,
+        key=lambda row: (order.get(row[0], 99), row[1], row[3] or ""),
+    ):
+        note: str | None = None
+        mean_weight_kg: float | None = None
         if recipe_code == "CREEP":
-            # Creep is a per-kid allowance (~0.3 kg/day of the concentrate
-            # creep mix for a 2-8-week kid at ~3% of an 8-12 kg body weight),
-            # not a bucket rate.
-            kg_per_head = CREEP_KG_PER_HEAD
+            # Creep is a per-kid allowance stepped up by age band (the pure
+            # creep_daily_kg twin reads the same table), not a bucket rate,
+            # and is never weight-scaled.
+            kg_per_head = creep_kg_by_band[band]
+            basis = "flat"
         else:
-            kg_per_head = kg_per_head_by_bucket.get(bucket_code, 1.2)
+            flat_default = kg_per_head_by_bucket.get(bucket_code, 1.2)
+            mean_weight = mean_weight_by_bucket.get(bucket_code)
+            class_pct = BUCKET_CLASS_PCT.get(bucket_code)
+            if mean_weight is not None and class_pct is not None:
+                # At least one animal in the bucket is weighed: scale the
+                # mean by the class percentage, clamped around the flat
+                # default (which the farm's override defines operationally).
+                kg_per_head = _scaled_ration(mean_weight, class_pct, flat_default)
+                basis = "weight"
+                mean_weight_kg = mean_weight
+            else:
+                kg_per_head = flat_default
+                basis = "flat"
+        if bucket_code == Bucket.BREEDING.value and sex == Sex.M.value:
+            # Breeding-season condition supplement for the bucks, on top of
+            # whatever the bucket resolved to (flat or scaled).
+            kg_per_head = float(
+                Decimal(str(kg_per_head)) + Decimal(str(BUCK_BREEDING_SUPPLEMENT_KG))
+            )
+            note = f"includes {BUCK_BREEDING_SUPPLEMENT_KG:g} kg breeding-season supplement"
         daily_kg = float(
             (Decimal(heads) * Decimal(str(kg_per_head))).quantize(
                 KG_QUANTUM, rounding=ROUND_HALF_UP
@@ -350,6 +478,10 @@ async def feeding_plan(
                     }
                     for shift, pct in SHIFT_SPLIT.items()
                 ],
+                "creep_band": band if recipe_code == "CREEP" else None,
+                "basis": basis,
+                "mean_weight_kg": mean_weight_kg,
+                "note": note,
             }
         )
     return lines

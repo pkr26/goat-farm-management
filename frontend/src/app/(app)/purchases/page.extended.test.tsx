@@ -447,10 +447,14 @@ describe("PurchasesPage new-batch dialog", () => {
     expect(postBody).toEqual({
       date: localToday(),
       supplier: null,
+      origin_market: null,
+      transport_hours: null,
+      seller_health_history: null,
       count: 1,
       sex: "F",
       avg_age_months: null,
       avg_weight_kg: null,
+      individual_weights_kg: null,
       total_price: null,
       notes: null,
       create_animals: true,
@@ -504,19 +508,108 @@ describe("PurchasesPage new-batch dialog", () => {
     expect(postBody).toEqual({
       date: "2026-01-05",
       supplier: "Sharma Goat Farm",
+      origin_market: null,
+      transport_hours: null,
+      seller_health_history: null,
       count: 12,
       sex: "F",
       avg_age_months: 8,
       avg_weight_kg: 18.5,
+      individual_weights_kg: null,
       total_price: 150000,
       notes: "foundation stock",
       create_animals: false,
     });
   });
 
-  it("opens with Female preselected and POSTs sex M when Male is picked", async () => {
+  it("POSTs the provenance fields and parsed per-head arrival weights", async () => {
     const { user, dialog } = await openDialog();
 
+    await user.type(within(dialog).getByLabelText(/Origin market/), "  Warangal weekly market  ");
+    await user.type(within(dialog).getByLabelText(/Transport hours/), "4");
+    await user.type(
+      within(dialog).getByLabelText(/Seller health history/),
+      "  PPR vaccinated in March  ",
+    );
+    const count = within(dialog).getByLabelText(/Count/);
+    await user.clear(count);
+    await user.type(count, "2");
+    await user.type(
+      within(dialog).getByLabelText(/Individual arrival weights/),
+      "24.5\n\n23.8\n",
+    );
+
+    await reviewAndConfirm(user, dialog);
+
+    await waitFor(() => expect(postCalls).toBe(1));
+    expect(postBody).toMatchObject({
+      origin_market: "Warangal weekly market",
+      transport_hours: 4,
+      seller_health_history: "PPR vaccinated in March",
+      count: 2,
+      // Blank lines are dropped; one weight per head survives as numbers.
+      individual_weights_kg: [24.5, 23.8],
+    });
+  });
+
+  it("rejects arrival weights that do not match the animal count", async () => {
+    const { user, dialog } = await openDialog();
+    const weights = within(dialog).getByLabelText(/Individual arrival weights/);
+
+    await user.type(weights, "24.5\n23.8");
+    await user.click(within(dialog).getByRole("button", { name: "Review batch" }));
+
+    expect(
+      await within(dialog).findByText("Enter exactly 1 weights (one per animal) — got 2"),
+    ).toBeInTheDocument();
+    // The help text tracks the count the weights must match.
+    expect(within(dialog).getByText(/exactly 1 line/)).toBeInTheDocument();
+    expect(postCalls).toBe(0);
+  });
+
+  it("rejects an arrival weight outside the credible band", async () => {
+    const { user, dialog } = await openDialog();
+    const weights = within(dialog).getByLabelText(/Individual arrival weights/);
+
+    await user.type(weights, "0.05");
+    await user.click(within(dialog).getByRole("button", { name: "Review batch" }));
+
+    expect(
+      await within(dialog).findByText("Line 1: each weight must be between 0.1 and 150 kg"),
+    ).toBeInTheDocument();
+    expect(postCalls).toBe(0);
+  });
+
+  it("rejects arrival weights when animal-stub creation is off", async () => {
+    const { user, dialog } = await openDialog();
+    const weights = within(dialog).getByLabelText(/Individual arrival weights/);
+
+    await user.click(within(dialog).getByRole("checkbox"));
+    // Without stubs there is nowhere to write the weights: inert, not editable.
+    expect(weights).toBeDisabled();
+
+    await user.click(within(dialog).getByRole("checkbox"));
+    await user.type(weights, "24.5\n23.8");
+    await user.click(within(dialog).getByRole("button", { name: "Review batch" }));
+
+    expect(
+      await within(dialog).findByText("Enter exactly 1 weights (one per animal) — got 2"),
+    ).toBeInTheDocument();
+    expect(postCalls).toBe(0);
+  });
+
+  it("rejects transport hours above the journey ceiling", async () => {
+    const { user, dialog } = await openDialog();
+
+    await user.type(within(dialog).getByLabelText(/Transport hours/), "300");
+    await user.click(within(dialog).getByRole("button", { name: "Review batch" }));
+
+    expect(await within(dialog).findByText("At most 240 hours")).toBeInTheDocument();
+    expect(postCalls).toBe(0);
+  });
+
+  it("opens with Female preselected and POSTs sex M when Male is picked", async () => {
+    const { user, dialog } = await openDialog();
     const sexTrigger = within(dialog).getByRole("combobox");
     expect(sexTrigger).toHaveTextContent("Female");
     await user.click(sexTrigger);

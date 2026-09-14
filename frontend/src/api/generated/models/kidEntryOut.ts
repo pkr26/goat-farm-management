@@ -14,5 +14,8 @@ export interface KidEntryOut {
   birth_weight: number | null;
   status: KidEntryOutStatus;
   mortality_reported_at: string | null;
+  colostrum_within_2h: boolean | null;
+  navel_dipped: boolean | null;
+  dam_rejected: boolean;
   animal_id: number | null;
 }

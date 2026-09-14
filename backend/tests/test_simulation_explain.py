@@ -228,22 +228,22 @@ def test_metric_narratives_are_stable_across_core_financial_branches() -> None:
     )
 
     assert _explanation_digest(default) == (
-        "549a1cb11acc0403c8e18bc3de702feda8ace86fb7f5e0acb7b26d1e034d3e97"
+        "ab03193f8b92146770c7a7a0e27ef04cb18108899bbdd934c50f8a12e2135617"
     )
     assert _explanation_digest(viable) == (
-        "72ca5a56f85f4c13c22fbd801ef721fdbb9672421f17e11f04a3c6bf2dbbac8b"
+        "c8aa363111b6ec643b4f3edba46dbc65b1e85c3ee0091bedcfd19e94394e6a3c"
     )
     assert _explanation_digest(no_debt) == (
-        "d447d0506ba815cc5586b3b5c789ecf363605e6a9e49781b8923f25f9c8c03b4"
+        "7331eb907c7ff64be9a793016425b46d332f8b9b46901df6cbdbf0febbf67267"
     )
     assert _report_digest(default) == (
-        "965c34dba534d7119e7be77d28421ff2266a67342d2be7615dfcdbe365ec61ed"
+        "d806a6d9faecabcc32d51a7b43df81909c62e3f4b1e58cc1cdc37e836fe4ead4"
     )
     assert _report_digest(viable) == (
-        "69adb9419cebfe43e66328f597943ba53ce10dbe3adc8c4a7da54da20b4c4479"
+        "24cc06fa5f3cb6efa92edf236180722467a710fb853fa99ac7ad62f9bda94552"
     )
     assert _report_digest(no_debt) == (
-        "195faaa1b6273cc28e2a4f51eb6be13524ad8451f5f1fce86c2bc521d13fec2b"
+        "7c82486e50a6845eee960cc70b195c4a2f0befe6df8acd33dfb963501532e63e"
     )
     # Digests regenerated in the audit-remediation contract update: the
     # labour-rule, DSCR-window and growth-curve corrections changed the
@@ -255,9 +255,12 @@ def test_metric_narratives_are_stable_across_core_financial_branches() -> None:
     # 3.1.0): repeat-breeder culls, parity structure, the SPEC kidding cycle,
     # breeding-stock capitalization, half-unit labour, deseasonalized
     # insurance valuation, Telangana selling-cost defaults, and Monte Carlo
-    # confidence-interval sentences all changed quoted figures.
+    # confidence-interval sentences all changed quoted figures. Re-hashed in
+    # the 2026-09 husbandry-standards wave: the adult buck weight
+    # recalibration 42 → 35 kg (NBAGR/TNAU Osmanabadi descriptors) and the
+    # breed_price_premium_pct market toggle changed the runs' own numbers.
     assert _report_digest(risk) == (
-        "4f11e6c59912e00117cefc6264a2a4ae2270d7b6d29da6d0081d8812d7cf9e68"
+        "ff3fd928f3d55f963509b45eb3e37bb6ecdbeaa1358d09675a4c750368b8433e"
     )
 
 

@@ -315,11 +315,10 @@ class GrowthAssumptions(_Group):
     """
 
     birth_weight_kg: WeightKg = Field(default=2.5, gt=0.0)
-    # Osmanabadi breed descriptors: doe 27-36 kg (status paper ~33), buck
-    # 36-45 kg (breeding-tract morphological study 42.8 ± 3.9 kg; farm-reared
-    # bucks 45-50 kg). The old 34 kg buck was below every published range.
+    # Osmanabadi breed descriptors: doe 27-36 kg (status paper ~33).
     adult_weight_doe_kg: WeightKg = Field(default=33.0, gt=0.0)
-    adult_weight_buck_kg: WeightKg = Field(default=42.0, gt=0.0)
+    # NBAGR/Osmanabadi descriptors 33.5-36 kg; TNAU 35-40 kg for large males.
+    adult_weight_buck_kg: WeightKg = Field(default=35.0, gt=0.0)
     # Curve anchored on recorded field weights to 6 months (ICAR-AICRP/NARI:
     # 12.1 kg @ 3 m, ~17 @ 6 m), then the farm's own stall-fed finish target:
     # the operational SPEC sells males at 8-9 months / 24-28 kg, which the
@@ -399,6 +398,17 @@ class SalesAssumptions(_Group):
     # mean for a stall-fed unit selling quality young males outside festival
     # weeks; the seasonal curve and the Bakrid uplift below carry the spikes.
     meat_price_per_kg: FiniteFloat = Field(default=370.0, ge=0.0, le=MAX_MONEY)
+    # Premium-breed market toggle (e.g. Osmanabadi ₹50-100/kg premium over
+    # local desi in Hyderabad mandis): fraction added to the meat price only.
+    # Folded multiplicatively into meat_price_per_kg at validation time and
+    # then reset to 0 — every downstream consumer (seasonality, escalation,
+    # Eid uplift, Monte Carlo spread, break-even search) multiplies off the
+    # base price, and resetting the toggle keeps a round-tripped saved
+    # scenario from compounding the premium a second time. Cull prices are
+    # deliberately excluded: they are calibrated separately from spent-animal
+    # exits, not the young-male mandi tier this premium prices. 0 (default)
+    # leaves every deterministic result bit-identical.
+    breed_price_premium_pct: FiniteFloat = Field(default=0.0, ge=0.0, le=0.5)
     # Cull (spent) does and bucks: lower yield, older carcass. Female mandi
     # listings run ₹220-350/kg live; spent animals price near the floor.
     cull_doe_price_per_kg: FiniteFloat = Field(default=220.0, ge=0.0, le=MAX_MONEY)
@@ -522,6 +532,25 @@ class SalesAssumptions(_Group):
         if any(item <= 0.0 or item > MAX_SEASONAL_MULTIPLIER for item in value):
             raise ValueError(f"monthly multipliers must be > 0 and <= {MAX_SEASONAL_MULTIPLIER:g}")
         return value
+
+    @model_validator(mode="after")
+    def _fold_breed_price_premium(self) -> "SalesAssumptions":
+        # Absorb the premium-breed toggle into the base meat price exactly
+        # once. meat_price_per_kg is the single anchor every pricing path
+        # multiplies off, so folding keeps the premium compounding coherently
+        # with seasonality/escalation/Eid without touching the engine; the
+        # min() clamp mirrors the Monte Carlo convention so a near-ceiling
+        # price cannot cross MAX_MONEY. Resetting the toggle afterwards makes
+        # re-validation of a dumped scenario a no-op (the premium is never
+        # applied twice). Cull prices stay separate: they carry their own
+        # spent-animal calibration and are not part of the mandi tier the
+        # premium prices.
+        if self.breed_price_premium_pct != 0.0:
+            self.meat_price_per_kg = min(
+                float(MAX_MONEY), self.meat_price_per_kg * (1.0 + self.breed_price_premium_pct)
+            )
+            self.breed_price_premium_pct = 0.0
+        return self
 
 
 class FeedAssumptions(_Group):

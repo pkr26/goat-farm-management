@@ -11,6 +11,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from ..models import (
     BREEDING_READY_BUCKETS,
     BUCK_DOE_RATIO,
+    MAX_TASK_TITLE_LENGTH,
     PREGNANCY_LOSS_CAUSES,
     Animal,
     AnimalStatus,
@@ -18,6 +19,7 @@ from ..models import (
     BreedingOutcome,
     BreedingRecord,
     Bucket,
+    BucketMove,
     Farm,
     KiddingRecord,
     TaskCategory,
@@ -54,6 +56,21 @@ MAX_HEAT_CYCLE_NUMBER = 99
 # ("seen back in standing heat") that cannot physically have happened.
 STANDING_HEAT_DAYS = 1
 EARLIEST_RETURN_TO_HEAT_DAYS = 18
+
+# Gestation-day-100 ration step-up prompt: due EKD − 50 (== breeding +
+# pregnancy_late_day for the goat profile). Derived from the profile so the
+# generator here and the completion guard in services/tasks.py can never
+# disagree about which day the duty stands for.
+PREGNANCY_LATE_MOVE_DAYS_BEFORE_EKD = GOAT_PROFILE.gestation_days - GOAT_PROFILE.pregnancy_late_day
+
+
+# ``tasks.title`` is VARCHAR(MAX_TASK_TITLE_LENGTH): a generated title that
+# embeds a full husbandry checklist must stay insertable even for a
+# worst-case-length tag, so the tag — never the operational content — is the
+# part that gets fitted (same idea as kidding's ``_fit_tag``).
+def _fit_generated_title(prefix: str, tag: str, suffix: str) -> str:
+    budget = MAX_TASK_TITLE_LENGTH - len(prefix) - len(suffix)
+    return f"{prefix}{tag[: max(budget, 0)]}{suffix}"
 
 
 def _latest_weight_as_of(reference_date: date) -> ColumnElement[float]:
@@ -597,6 +614,35 @@ async def create_breeding_record(
         animal_id=doe.id,
         breeding_record_id=br.id,
     )
+    # The return-to-heat window is the first chance to catch a failed service
+    # (~21-day oestrous cycle: a doe standing heat again 18–21 days after
+    # breeding proves the service did not hold). Watching it beats waiting for
+    # the +32-day scan, and either ultrasound outcome closes this duty.
+    await _add_task(
+        db,
+        farm.id,
+        _fit_generated_title(
+            "Return-to-heat watch: ",
+            doe.tag_number,
+            " — days 18–21 post-service; a standing heat means the service "
+            "failed; record the observation early",
+        ),
+        breeding_date + timedelta(days=EARLIEST_RETURN_TO_HEAT_DAYS),
+        TaskCategory.HEAT_WATCH,
+        animal_id=doe.id,
+        breeding_record_id=br.id,
+    )
+    # The flush-window guard needs the doe's RESTING residency date; sessions
+    # run autoflush=False and the request path does not load bucket_moves.
+    resting_since: date | None = None
+    if doe.current_bucket == Bucket.RESTING.value:
+        resting_since = await db.scalar(
+            select(func.max(BucketMove.effective_date)).where(
+                BucketMove.farm_id == farm.id,
+                BucketMove.animal_id == doe.id,
+                BucketMove.to_bucket == Bucket.RESTING.value,
+            )
+        )
     move_animal(
         db,
         doe,
@@ -605,6 +651,7 @@ async def create_breeding_record(
         created_by_id=created_by_id,
         context="breeding",
         reference_date=breeding_date,
+        resting_since=resting_since,
         facts=(doe_latest_weight_kg, False),
     )
     await db.flush()
@@ -620,9 +667,13 @@ async def record_ultrasound_result(
     result_date: date,
     created_by_id: int | None = None,
 ) -> BreedingRecord:
-    """Record ultrasound outcome. Pregnant → CONFIRMED_PREGNANT + 3 follow-up
-    tasks + move to PREGNANCY_EARLY. Not pregnant → FAILED + cull check.
-    The closed ULTRASOUND duty is attributed to the acting user.
+    """Record ultrasound outcome. Pregnant → CONFIRMED_PREGNANT + the
+    pre-kidding duty set (vaccines, DELIVERY move, day-100 PREGNANCY_LATE
+    move, birthing-kit check, daily kidding watch, kidding due) + move to
+    PREGNANCY_EARLY. Not pregnant → FAILED + cull check. The closed
+    ULTRASOUND duty is attributed to the acting user; the HEAT_WATCH duty
+    closes with the answer (DONE when pregnant, service-side SKIPPED when
+    not).
 
     Idempotent: only a PENDING record accepts a result — a double submission
     (or forged replay) must not spawn a second set of follow-up tasks. The
@@ -718,6 +769,34 @@ async def record_ultrasound_result(
             task.completed_at = utcnow()
             _clear_task_rejection(task)
 
+    # The return-to-heat watch is answered by the scan itself: a positive
+    # result proves no heat ever returned, a negative one IS the observation
+    # the window was watching for. Semantics chosen against the Task model's
+    # CHECKs: ``ck_tasks_skip_state`` admits a service-side SKIPPED row
+    # (skipped_at set, skipped_by_id NULL — the same shape the kidding
+    # leftover sweep writes), so the negative path skips honestly instead of
+    # fabricating either a user attribution or a DONE "observation" nobody
+    # made; the positive path is a genuine answer attributed to the scan's
+    # recorder, exactly like the ultrasound duty above.
+    for task in await _pending_tasks_for(
+        db,
+        br.farm_id,
+        for_update=True,
+        breeding_record_id=br.id,
+        category=TaskCategory.HEAT_WATCH.value,
+    ):
+        if task.status == TaskStatus.PENDING.value:
+            if pregnant:
+                task.status = TaskStatus.DONE.value
+                task.completed_by_id = created_by_id
+                task.completed_at = utcnow()
+            else:
+                task.status = TaskStatus.SKIPPED.value
+                task.skipped_by_id = None
+                task.skipped_at = utcnow()
+                task.skip_reason = "assessed by ultrasound"
+            _clear_task_rejection(task)
+
     if pregnant:
         br.outcome = BreedingOutcome.CONFIRMED_PREGNANT.value
         doe.cull_candidate = False  # she conceived — previous failures forgiven
@@ -765,6 +844,56 @@ async def record_ultrasound_result(
             animal_id=doe.id,
             breeding_record_id=br.id,
         )
+        # Ration step-up at gestation day 100 (EKD − 50): the EARLY→LATE pen
+        # move the seeded bucket definitions promise. Kept breeding-linked so
+        # the kidding-time sweep (and mark_aborted) cancels it if the doe
+        # delivers or the pregnancy is lost first.
+        await _add_task(
+            db,
+            br.farm_id,
+            f"Move {doe.tag_number} to PREGNANCY_LATE (gestation day 100 — ration step-up)",
+            ekd - timedelta(days=PREGNANCY_LATE_MOVE_DAYS_BEFORE_EKD),
+            TaskCategory.BUCKET_MOVE,
+            animal_id=doe.id,
+            breeding_record_id=br.id,
+        )
+        # The birthing kit must exist before the first kid does. The checklist
+        # is the duty's operational content, so the tag is the fitted part (see
+        # _fit_generated_title) and the due date is the compact farm-facing
+        # date the task board already sorts on.
+        await _add_task(
+            db,
+            br.farm_id,
+            _fit_generated_title(
+                "Birthing kit check: ",
+                doe.tag_number,
+                f" due {ekd.strftime('%d-%m')} — 7% iodine+cup, towels, disinfected "
+                "scissors, lubricant, gloves, lamp, thermometer, tube+syringe, "
+                "colostrum+electrolytes, weigh sling, ear tags+applicator",
+            ),
+            ekd - timedelta(days=profile.birthing_kit_lead_days),
+            TaskCategory.BIRTHING_KIT,
+            animal_id=doe.id,
+            breeding_record_id=br.id,
+        )
+        # One watch duty per day across the final week: the kidding window
+        # opens at 145 days (EKD − 5), and the signs (udder fill, tail-head
+        # ligaments, vulva discharge) are only meaningful as a daily look.
+        for watch_offset in range(profile.kidding_watch_start_days, -1, -1):
+            await _add_task(
+                db,
+                br.farm_id,
+                _fit_generated_title(
+                    "Kidding watch: ",
+                    doe.tag_number,
+                    f" (due {ekd.strftime('%d-%m')}) — check udder fill, tail-head "
+                    "ligaments, vulva discharge; monitor through the night if due today",
+                ),
+                ekd - timedelta(days=watch_offset),
+                TaskCategory.KIDDING_WATCH,
+                animal_id=doe.id,
+                breeding_record_id=br.id,
+            )
         await _add_task(
             db,
             br.farm_id,

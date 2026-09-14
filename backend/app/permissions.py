@@ -231,9 +231,14 @@ ROLE_PRESETS: list[RolePreset] = [
         "description": (
             "Records income and expenses and watches the P&L; no herd or parlour duties."
         ),
+        # Office duties only: INSURANCE (policy renewals) routes here via
+        # TASK_CATEGORY_ROLE_MAP, and a duty-facing role must be able to open
+        # and close its duties.
         "permissions": [
             "dashboard.view",
             "animals.view",
+            "tasks.view",
+            "tasks.complete",
             "finance.view",
             "finance.manage",
             "reports.view",
@@ -276,6 +281,19 @@ TASK_CATEGORY_ROLE_MAP: dict[str, str] = {
     "WEANING": "MOVER",
     "FEED": "FEEDER",
     "CLEANING": "CLEANER",
+    # Husbandry-standards categories. INSURANCE is the one office duty:
+    # policy renewals are the accountant's paperwork, not the crew's.
+    "KIDDING_WATCH": "CLEANER",
+    "BIRTHING_KIT": "MANAGER",
+    "HEALTH_CHECK": "VET",
+    "HEAT_WATCH": "CLEANER",
+    "HOOF_TRIMMING": "VET",
+    "SPRAYING": "VET",
+    "DISINFECTION": "CLEANER",
+    "WEIGHING": "MOVER",
+    "REBREED": "MANAGER",
+    "BUCK_ROTATION": "MANAGER",
+    "INSURANCE": "ACCOUNTANT",
 }
 
 
@@ -296,7 +314,8 @@ def task_role_codes(category: str) -> tuple[str, ...]:
 
 # What an assignee must be able to DO with each auto-assigned category, on top
 # of the tasks.view / tasks.complete every duty-facing preset role holds
-# (officer presets — ACCOUNTANT, VIEWER — receive no duties by design).
+# (the read-only VIEWER receives no duties by design; the ACCOUNTANT receives
+# only office duties — INSURANCE — and holds the pair for them).
 #
 # A form-linked duty (api._shared.task_action_url) refuses the bare complete
 # button: completing it means recording data, so it can only be closed by
@@ -313,6 +332,9 @@ def task_role_codes(category: str) -> tuple[str, ...]:
 # side effects (quarantine release, bucket moves, weaning) run server-side
 # under tasks.complete alone. Module view permissions are implied through
 # PERMISSION_DEPENDENCIES and are not repeated here.
+# The husbandry-standards categories are all generic-completed for now; each
+# grows its action permission when the domain form that records it lands (the
+# invariant tests then hold the map and the form in lockstep).
 TASK_CATEGORY_ACTION_PERMISSIONS: dict[str, frozenset[str]] = {
     "ULTRASOUND": frozenset({"breeding.manage"}),
     "VACCINE": frozenset({"health.manage"}),
@@ -323,4 +345,15 @@ TASK_CATEGORY_ACTION_PERMISSIONS: dict[str, frozenset[str]] = {
     "WEANING": frozenset(),
     "FEED": frozenset(),
     "CLEANING": frozenset(),
+    "KIDDING_WATCH": frozenset(),
+    "BIRTHING_KIT": frozenset(),
+    "HEALTH_CHECK": frozenset(),
+    "HEAT_WATCH": frozenset(),
+    "HOOF_TRIMMING": frozenset(),
+    "SPRAYING": frozenset(),
+    "DISINFECTION": frozenset(),
+    "WEIGHING": frozenset(),
+    "REBREED": frozenset(),
+    "BUCK_ROTATION": frozenset(),
+    "INSURANCE": frozenset(),
 }

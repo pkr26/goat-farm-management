@@ -13,6 +13,7 @@ from sqlalchemy import (
     Index,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
     text,
 )
@@ -137,3 +138,90 @@ Index(
     Transaction.date.desc(),
     Transaction.id.desc(),
 )
+
+
+# ---------------------------------------------------------------------------
+# Insurance register
+# ---------------------------------------------------------------------------
+
+# Server-owned policy lifecycle vocabulary (lowercase on the wire). The
+# register is append-style like the ledger: a row moves forward through
+# renewal and ends as lapsed/claimed, but is never edited into a different
+# fact or deleted — corrections happen by renewing, not rewriting.
+INSURANCE_POLICY_STATUSES: tuple[str, ...] = ("active", "renewed", "lapsed", "claimed")
+INSURANCE_STATUS_ACTIVE = "active"
+
+
+class InsurancePolicy(Base):
+    """One livestock insurance policy held by the farm.
+
+    ``animal_id`` is nullable: herd-level policies cover the flock, per-animal
+    policies link the covered goat (the tenant composite FK keeps the link
+    inside the farm, exactly like transactions.related_animal_id). Premiums
+    feed the per-animal lifetime P&L; renewals spawn INSURANCE duties.
+    """
+
+    __tablename__ = "insurance_policies"
+    __table_args__ = (
+        # Candidate key for the tenant composite animal FK below.
+        UniqueConstraint("farm_id", "id", name="uq_insurance_policies_farm_id_id"),
+        UniqueConstraint(
+            "farm_id", "policy_number", name="uq_insurance_policies_farm_policy_number"
+        ),
+        CheckConstraint(
+            "sum_insured > 0 AND sum_insured <= 1000000000",
+            name="ck_insurance_policies_sum_insured",
+        ),
+        CheckConstraint(
+            "premium >= 0 AND premium <= 1000000000",
+            name="ck_insurance_policies_premium",
+        ),
+        CheckConstraint(
+            "renewal_date >= start_date",
+            name="ck_insurance_policies_renewal_after_start",
+        ),
+        CheckConstraint(
+            f"status IN ({sql_in_values(INSURANCE_POLICY_STATUSES)})",
+            name="ck_insurance_policies_status",
+        ),
+        CheckConstraint(
+            "btrim(policy_number) <> ''",
+            name="ck_insurance_policies_policy_number_nonblank",
+        ),
+        CheckConstraint(
+            "btrim(insurer) <> ''",
+            name="ck_insurance_policies_insurer_nonblank",
+        ),
+        ForeignKeyConstraint(
+            ["farm_id", "animal_id"],
+            ["animals.farm_id", "animals.id"],
+            name="fk_insurance_policies_farm_animal",
+        ),
+        Index("ix_insurance_policies_animal_id", "animal_id"),
+        # The register pages and the dashboard expiry window both filter by
+        # farm plus status and then walk renewal_date.
+        Index(
+            "ix_insurance_policies_farm_status_renewal",
+            "farm_id",
+            "status",
+            "renewal_date",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
+    animal_id: Mapped[int | None] = mapped_column(ForeignKey("animals.id"))
+    policy_number: Mapped[str] = mapped_column(String(60))
+    insurer: Mapped[str] = mapped_column(String(120))
+    sum_insured: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    premium: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    start_date: Mapped[date] = mapped_column(default=today)
+    renewal_date: Mapped[date]
+    status: Mapped[str] = mapped_column(String(12), default=INSURANCE_STATUS_ACTIVE)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
+
+    animal: Mapped[Animal | None] = relationship(foreign_keys=[animal_id])

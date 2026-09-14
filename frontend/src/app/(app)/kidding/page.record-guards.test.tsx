@@ -93,6 +93,9 @@ function makeKidding(overrides: Partial<KiddingRecordOut>): KiddingRecordOut {
     date: "2026-07-20",
     breeding_record_id: 1,
     ease: "NORMAL",
+    parity: null,
+    placenta_passed: null,
+    mastitis_suspected: false,
     notes: null,
     kids: [],
     doe_tag: "G-010",
@@ -115,6 +118,9 @@ const HISTORY = makeKidding({
       birth_weight: 2.4,
       status: "ALIVE",
       mortality_reported_at: null,
+      colostrum_within_2h: null,
+      navel_dipped: null,
+      dam_rejected: false,
       animal_id: 55,
     },
     {
@@ -124,6 +130,9 @@ const HISTORY = makeKidding({
       birth_weight: null,
       status: "STILLBORN",
       mortality_reported_at: null,
+      colostrum_within_2h: null,
+      navel_dipped: null,
+      dam_rejected: false,
       animal_id: null,
     },
   ],
@@ -671,9 +680,123 @@ describe("KiddingPage branches", () => {
 
     await waitFor(() => expect(postBody).not.toBeNull());
     expect(postBody!.kids).toEqual([
-      { tag: null, sex: "F", birth_weight: null, status: "ALIVE", mortality_reported_at: null },
-      { tag: null, sex: "F", birth_weight: null, status: "ALIVE", mortality_reported_at: null },
+      {
+        tag: null,
+        sex: "F",
+        birth_weight: null,
+        status: "ALIVE",
+        mortality_reported_at: null,
+        colostrum_within_2h: null,
+        navel_dipped: null,
+        dam_rejected: false,
+      },
+      {
+        tag: null,
+        sex: "F",
+        birth_weight: null,
+        status: "ALIVE",
+        mortality_reported_at: null,
+        colostrum_within_2h: null,
+        navel_dipped: null,
+        dam_rejected: false,
+      },
     ]);
+  });
+
+  // ---------- neonatal & postpartum care facts ----------
+
+  it("defaults the care facts to not recorded and false", async () => {
+    const { user, dialog } = await openDialog();
+    await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
+
+    await waitFor(() => expect(postBody).not.toBeNull());
+    expect(postBody).toMatchObject({ placenta_passed: null, mastitis_suspected: false });
+  });
+
+  it("maps the tri-state selects to booleans and null", async () => {
+    const { user, dialog } = await openDialog();
+    await pickOption(user, within(dialog).getByLabelText("Placenta passed"), "No");
+    await pickOption(user, within(dialog).getByLabelText("Kid 1 colostrum within 2 h"), "Yes");
+    await pickOption(user, within(dialog).getByLabelText("Kid 1 navel dipped (7% iodine)"), "No");
+    await user.click(within(dialog).getByRole("checkbox", { name: "Kid 1 dam rejected" }));
+
+    await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
+
+    await waitFor(() => expect(postBody).not.toBeNull());
+    expect(postBody).toMatchObject({ placenta_passed: false, mastitis_suspected: false });
+    expect(postBody!.kids).toEqual([
+      expect.objectContaining({
+        colostrum_within_2h: true,
+        navel_dipped: false,
+        dam_rejected: true,
+      }),
+      expect.objectContaining({
+        colostrum_within_2h: null,
+        navel_dipped: null,
+        dam_rejected: false,
+      }),
+    ]);
+  });
+
+  it("flags a suspected mastitis and a caesarean ease", async () => {
+    const { user, dialog } = await openDialog();
+    await pickOption(user, within(dialog).getByLabelText("Ease"), "Caesarean");
+    await user.click(within(dialog).getByRole("checkbox", { name: "Mastitis suspected" }));
+
+    await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
+
+    await waitFor(() => expect(postBody).not.toBeNull());
+    expect(postBody).toMatchObject({ ease: "CAESAREAN", mastitis_suspected: true });
+  });
+
+  it("omits the neonatal care keys entirely for a stillborn kid", async () => {
+    const { user, dialog } = await openDialog();
+    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "Stillborn");
+    // The care controls disappear with the STILLBORN status…
+    expect(
+      within(dialog).queryByLabelText("Kid 1 colostrum within 2 h"),
+    ).not.toBeInTheDocument();
+    expect(
+      within(dialog).queryByLabelText("Kid 1 navel dipped (7% iodine)"),
+    ).not.toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("checkbox", { name: "Kid 1 dam rejected" }),
+    ).not.toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
+
+    await waitFor(() => expect(postBody).not.toBeNull());
+    // …and KidIn's extra="forbid" means the keys must be absent, not null.
+    expect((postBody!.kids as Record<string, unknown>[])[0]).toEqual({
+      tag: null,
+      sex: "F",
+      birth_weight: null,
+      status: "STILLBORN",
+      mortality_reported_at: null,
+    });
+  });
+
+  it("resets captured care facts when a kid becomes stillborn", async () => {
+    const { user, dialog } = await openDialog();
+    await pickOption(user, within(dialog).getByLabelText("Kid 1 colostrum within 2 h"), "Yes");
+    await user.click(within(dialog).getByRole("checkbox", { name: "Kid 1 dam rejected" }));
+    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "Stillborn");
+    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "Alive");
+
+    expect(within(dialog).getByLabelText("Kid 1 colostrum within 2 h")).toHaveTextContent(
+      "Not recorded",
+    );
+    expect(
+      within(dialog).getByRole("checkbox", { name: "Kid 1 dam rejected" }),
+    ).not.toBeChecked();
+
+    await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
+    await waitFor(() => expect(postBody).not.toBeNull());
+    expect((postBody!.kids as Record<string, unknown>[])[0]).toMatchObject({
+      status: "ALIVE",
+      colostrum_within_2h: null,
+      dam_rejected: false,
+    });
   });
 
   // ---------- in-flight interlocks ----------

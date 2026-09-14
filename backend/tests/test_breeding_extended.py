@@ -36,10 +36,12 @@ from app.models import (
     BucketMove,
     KiddingRecord,
     KidEntry,
+    Task,
     User,
     WeightRecord,
 )
 from app.services.breeding import mark_unassessed, record_ultrasound_result
+from app.services.tasks import _schedule_rebreed
 from app.utils import add_months, today
 
 from .conftest import owner_with_farm, register
@@ -49,6 +51,9 @@ GESTATION_DAYS = 150
 ULTRASOUND_AFTER_BREEDING_DAYS = 32
 WEANING_DAYS = 60
 POSTPARTUM_RECOVERY_DAYS = 14
+KIDDING_WATCH_START_DAYS = 5  # daily watch opens at EKD - 5 (gestation day 145)
+BIRTHING_KIT_LEAD_DAYS = 7
+REBREED_AFTER_RESTING_DAYS = 30
 
 
 def iso(d: date) -> str:
@@ -1127,8 +1132,15 @@ async def test_create_breeding_rebreed_after_kidding_full_cycle(client: httpx.As
     # Not eligible from RECOVERY
     resp = await post_breeding(client, headers, doe["id"], buck["id"])
     assert resp.status_code == 400
-    # After the move to RESTING she is a breeding candidate again
+    # After the move to RESTING she is a breeding candidate again — but the
+    # rest-and-flush window gates a same-day re-service (the kidding was 25
+    # days ago, so her earliest re-entry is 10 RESTING days from now).
     await move_to(client, headers, doe["id"], "RESTING", history_override=True)
+    resp = await post_breeding(client, headers, doe["id"], buck["id"], breeding_date=iso(today()))
+    assert resp.status_code == 409
+    # Backdate the RESTING entry past the flush window (coherent with the
+    # 25-day-old kidding) and the service records.
+    await backdate_latest_bucket_move(doe["id"], today() - timedelta(days=12))
     resp = await post_breeding(client, headers, doe["id"], buck["id"], breeding_date=iso(today()))
     assert resp.status_code == 201, resp.text
 
@@ -1474,19 +1486,84 @@ async def test_ultrasound_pregnant_creates_followup_tasks(
     br = await confirm(client, headers, br["id"])
     tasks = await all_tasks(client, headers)
     ekd = date.fromisoformat(br["expected_kidding_date"])
-    vaccine = tasks_by_category(tasks, "VACCINE")
-    moves = tasks_by_category(tasks, "BUCKET_MOVE")
-    kidding = tasks_by_category(tasks, "KIDDING_DUE")
+    # Farm creation seeds a standing husbandry calendar (monthly FMD rounds,
+    # hoof trimming, …), so pin only THIS pregnancy's linked duties.
+    followups = [t for t in tasks if t["breeding_record_id"] == br["id"]]
+    vaccine = [t for t in followups if t["category"] == "VACCINE"]
+    moves = [t for t in followups if t["category"] == "BUCKET_MOVE"]
+    kidding = [t for t in followups if t["category"] == "KIDDING_DUE"]
     # Primary ET+TT dose at EKD-40 and its booster 15 days later (the seeded
     # template promises two doses 15 days apart).
     assert [t["due_date"] for t in vaccine] == [
         iso(ekd - timedelta(days=40)),
         iso(ekd - timedelta(days=25)),
     ]
-    assert [t["due_date"] for t in moves] == [iso(ekd - timedelta(days=15))]
+    # The gestation-day-100 step-up (EKD - 50) plus the pre-kidding pen move.
+    assert [t["due_date"] for t in moves] == [
+        iso(ekd - timedelta(days=50)),
+        iso(ekd - timedelta(days=15)),
+    ]
     assert [t["due_date"] for t in kidding] == [iso(ekd)]
     assert all(t["animal_id"] == doe["id"] for t in vaccine + moves + kidding)
     assert all(t["status"] == "PENDING" for t in vaccine + moves + kidding)
+    # The birthing-kit checklist leads the expected kidding by the profile's
+    # preparation window.
+    kit = [t for t in followups if t["category"] == "BIRTHING_KIT"]
+    assert [t["due_date"] for t in kit] == [iso(ekd - timedelta(days=BIRTHING_KIT_LEAD_DAYS))]
+    assert kit[0]["animal_id"] == doe["id"]
+    assert kit[0]["breeding_record_id"] == br["id"]
+    assert "iodine" in kit[0]["title"]
+    # One watch duty per day from EKD - 5 (kidding window opens at 145 days)
+    # through the due date itself.
+    watch = [t for t in followups if t["category"] == "KIDDING_WATCH"]
+    assert [t["due_date"] for t in watch] == [
+        iso(ekd - timedelta(days=offset)) for offset in range(KIDDING_WATCH_START_DAYS, -1, -1)
+    ]
+    assert all(t["animal_id"] == doe["id"] and t["breeding_record_id"] == br["id"] for t in watch)
+
+
+async def test_breeding_creation_spawns_return_to_heat_watch(
+    client: httpx.AsyncClient,
+) -> None:
+    """The day-18 return-to-heat watch is the service-failure early warning."""
+    headers = await owner_with_farm(client)
+    breeding_date = today() - timedelta(days=1)
+    doe, _buck, br = await bred_doe(client, headers, breeding_date=breeding_date)
+    watch = tasks_by_category(await all_tasks(client, headers), "HEAT_WATCH")
+    assert len(watch) == 1
+    assert watch[0]["due_date"] == iso(breeding_date + timedelta(days=18))
+    assert watch[0]["animal_id"] == doe["id"]
+    assert watch[0]["breeding_record_id"] == br["id"]
+    assert watch[0]["status"] == "PENDING"
+    assert watch[0]["auto_generated"] is True
+    assert "18–21" in watch[0]["title"]
+
+
+async def test_positive_ultrasound_closes_heat_watch_done(
+    client: httpx.AsyncClient,
+) -> None:
+    """She conceived — the heat the window watched for can no longer return."""
+    headers = await owner_with_farm(client)
+    _doe, _buck, br = await bred_doe(client, headers)
+    await confirm(client, headers, br["id"])
+    watch = tasks_by_category(await all_tasks(client, headers), "HEAT_WATCH")
+    assert [t["status"] for t in watch] == ["DONE"]
+    assert watch[0]["completed_by_id"] is not None
+    assert watch[0]["completed_at"] is not None
+
+
+async def test_negative_ultrasound_skips_heat_watch(
+    client: httpx.AsyncClient,
+) -> None:
+    """A not-pregnant result IS the answer the watch was waiting for: the duty
+    is skipped service-side (no user made that call) rather than marked done."""
+    headers = await owner_with_farm(client)
+    _doe, _buck, br = await bred_doe(client, headers)
+    await fail_cycle(client, headers, br["id"])
+    watch = tasks_by_category(await all_tasks(client, headers), "HEAT_WATCH")
+    assert [t["status"] for t in watch] == ["SKIPPED"]
+    assert watch[0]["skipped_by_id"] is None
+    assert watch[0]["skip_reason"] == "assessed by ultrasound"
 
 
 async def test_ultrasound_marks_ultrasound_task_done(client: httpx.AsyncClient) -> None:
@@ -1737,7 +1814,11 @@ async def test_successful_kidding_resets_cull_streak_before_a_new_cycle(
     doe_mid = await get_animal(client, headers, doe["id"])
     assert doe_mid["cull_candidate"] is False
     await kid_on_ekd(client, headers, br2)
+    # The history-override RESTING entry is recorded today; age it past the
+    # 10-day rest-and-flush window (the kidding itself was 25 days ago, so a
+    # 12-day-old rest is coherent) before the next service.
     await move_to(client, headers, doe["id"], "RESTING", history_override=True)
+    await backdate_latest_bucket_move(doe["id"], today() - timedelta(days=12))
     br3 = await make_breeding(client, headers, doe["id"], buck["id"], breeding_date=iso(today()))
     early_confirmation = await ultrasound(client, headers, br3["id"], pregnant=True, kid_count=2)
     assert early_confirmation.status_code == 409
@@ -2020,9 +2101,10 @@ async def test_unassessed_service_refuses_the_dead_end_ultrasound_action(
     unchanged = await get_breeding(client, headers, br["id"])
     assert unchanged["outcome"] == "UNASSESSED"
     assert unchanged["ultrasound_done"] is False
-    # Its ultrasound duty is closed too — no work left pointing at the record.
+    # Its ultrasound duty and return-to-heat watch are closed too — no work
+    # left pointing at the record.
     related = [t for t in await all_tasks(client, headers) if t["breeding_record_id"] == br["id"]]
-    assert {t["category"] for t in related} == {"ULTRASOUND"}
+    assert {t["category"] for t in related} == {"ULTRASOUND", "HEAT_WATCH"}
     assert {t["status"] for t in related} == {"SKIPPED"}
 
 
@@ -2062,10 +2144,14 @@ async def test_abort_skips_open_pregnancy_tasks(client: httpx.AsyncClient) -> No
     resp = await post_abort(client, headers, br["id"])
     assert resp.status_code == 200, resp.text
     tasks = await all_tasks(client, headers)
-    for category in ("VACCINE", "BUCKET_MOVE", "KIDDING_DUE"):
-        statuses = [t["status"] for t in tasks_by_category(tasks, category)]
-        # VACCINE carries two duties (primary + booster), all skipped by the loss.
-        assert statuses and all(status == "SKIPPED" for status in statuses)
+    # Every duty this pregnancy spawned (vaccine pair, both pen moves,
+    # birthing-kit check, the six daily watches, kidding due) is cancelled by
+    # the loss. The farm's own seeded calendar is not pregnancy-linked and
+    # must survive untouched.
+    linked = [t for t in tasks if t["breeding_record_id"] == br["id"]]
+    for category in ("VACCINE", "BUCKET_MOVE", "BIRTHING_KIT", "KIDDING_WATCH", "KIDDING_DUE"):
+        statuses = [t["status"] for t in linked if t["category"] == category]
+        assert statuses and all(status == "SKIPPED" for status in statuses), category
 
 
 async def test_abort_makes_doe_candidate_again(client: httpx.AsyncClient) -> None:
@@ -2862,12 +2948,28 @@ async def test_kidding_closes_pregnancy_tasks(client: httpx.AsyncClient) -> None
     _doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
     await kid_on_ekd(client, headers, br)
     tasks = await all_tasks(client, headers)
-    assert [t["status"] for t in tasks_by_category(tasks, "KIDDING_DUE")] == ["DONE"]
+    # Scope to this pregnancy's duties: the farm's own seeded calendar (FMD
+    # rounds, hoof trimming, …) is not breeding-linked and stays PENDING.
+    linked = [t for t in tasks if t["breeding_record_id"] == br["id"]]
+
+    def linked_of(category: str) -> list[dict]:
+        return [t for t in linked if t["category"] == category]
+
+    assert [t["status"] for t in linked_of("KIDDING_DUE")] == ["DONE"]
     # VACCINE carries two duties (primary + booster), both skipped at kidding.
-    vaccine_statuses = [t["status"] for t in tasks_by_category(tasks, "VACCINE")]
+    vaccine_statuses = [t["status"] for t in linked_of("VACCINE")]
     assert len(vaccine_statuses) == 2
     assert all(status == "SKIPPED" for status in vaccine_statuses)
-    assert [t["status"] for t in tasks_by_category(tasks, "BUCKET_MOVE")] == ["SKIPPED"]
+    # BUCKET_MOVE carries two duties (day-100 step-up + the DELIVERY pen move).
+    move_statuses = [t["status"] for t in linked_of("BUCKET_MOVE")]
+    assert len(move_statuses) == 2
+    assert all(status == "SKIPPED" for status in move_statuses)
+    # The birthing-kit check and every daily watch duty are moot once she has
+    # kidded — the generic breeding-linked sweep cancels them all.
+    assert [t["status"] for t in linked_of("BIRTHING_KIT")] == ["SKIPPED"]
+    watch_statuses = [t["status"] for t in linked_of("KIDDING_WATCH")]
+    assert len(watch_statuses) == KIDDING_WATCH_START_DAYS + 1
+    assert all(status == "SKIPPED" for status in watch_statuses)
 
 
 async def test_double_kidding_conflict(client: httpx.AsyncClient) -> None:
@@ -3035,14 +3137,20 @@ async def test_kidding_invalid_ease(client: httpx.AsyncClient) -> None:
     assert resp.status_code == 422
 
 
-async def test_kidding_caesarean_rejected(client: httpx.AsyncClient) -> None:
-    """SPEC §KiddingRecord defines ease as NORMAL | ASSISTED | DIFFICULT (and
-    models.KiddingEase has exactly those three) — 'CAESAREAN' is out of domain
-    and the schema now rejects it with 422 instead of coercing to NORMAL."""
+async def test_kidding_caesarean_persists(client: httpx.AsyncClient) -> None:
+    """The husbandry-standards release widened the ease vocabulary: a surgical
+    (CAESAREAN) delivery is a recorded fact now — accepted, persisted as-is,
+    and never coerced to another ease value."""
     headers = await owner_with_farm(client)
     _doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
-    resp = await post_kidding(client, headers, br["id"], ease="CAESAREAN")
-    assert resp.status_code == 422
+    record = await kid_on_ekd(client, headers, br, ease="CAESAREAN")
+    assert record["ease"] == "CAESAREAN"
+    # Persisted, not just echoed back by the response serializer.
+    assert (await get_breeding(client, headers, br["id"]))["outcome"] == "CONFIRMED_PREGNANT"
+    async with get_sessionmaker()() as db:
+        stored = await db.get(KiddingRecord, record["id"])
+        assert stored is not None
+        assert stored.ease == "CAESAREAN"
 
 
 async def test_kidding_ease_assisted_and_difficult(client: httpx.AsyncClient) -> None:
@@ -3206,6 +3314,75 @@ async def test_weaning_moves_kids_by_sex_and_doe_to_resting(client: httpx.AsyncC
     assert born["D-1-K2"]["current_bucket"] == "FEMALE_KIDS"  # sex F
     doe_after = await get_animal(client, headers, doe["id"])
     assert doe_after["current_bucket"] == "RESTING"
+
+
+async def test_weaning_completion_schedules_rebreed_prompt(client: httpx.AsyncClient) -> None:
+    """The dam's RESTING exit opens her next-service prompt 30 days out."""
+    headers = await owner_with_farm(client)
+    doe, _buck, _record = await _kidded_doe_with_due_weaning(client, headers)
+    weaning = tasks_by_category(await all_tasks(client, headers), "WEANING")[0]
+    resp = await client.post(f"/api/tasks/{weaning['id']}/complete", headers=headers)
+    assert resp.status_code == 200, resp.text
+    rebreed = tasks_by_category(await all_tasks(client, headers), "REBREED")
+    assert len(rebreed) == 1
+    assert rebreed[0]["status"] == "PENDING"
+    assert rebreed[0]["animal_id"] == doe["id"]
+    assert rebreed[0]["auto_generated"] is True
+    assert rebreed[0]["due_date"] == iso(today() + timedelta(days=REBREED_AFTER_RESTING_DAYS))
+    assert "Re-breed" in rebreed[0]["title"]
+
+
+async def test_postpartum_completion_schedules_rebreed_prompt(client: httpx.AsyncClient) -> None:
+    """The no-survivor recovery exit schedules the same next-service prompt."""
+    headers = await owner_with_farm(client)
+    doe, _buck, br = await pregnant_doe(client, headers, gestation_days=220)
+    await kid_on_ekd(client, headers, br, kids=[{"sex": "F", "status": "STILLBORN"}])
+    postpartum = next(
+        task
+        for task in tasks_by_category(await all_tasks(client, headers), "BUCKET_MOVE")
+        if task["status"] == "PENDING"
+    )
+    resp = await client.post(f"/api/tasks/{postpartum['id']}/complete", headers=headers)
+    assert resp.status_code == 200, resp.text
+    rebreed = tasks_by_category(await all_tasks(client, headers), "REBREED")
+    assert len(rebreed) == 1
+    assert rebreed[0]["animal_id"] == doe["id"]
+    assert rebreed[0]["due_date"] == iso(today() + timedelta(days=REBREED_AFTER_RESTING_DAYS))
+
+
+async def test_rebreed_prompt_reuses_the_pending_row(client: httpx.AsyncClient) -> None:
+    """However many paths schedule a doe's rest, one REBREED duty is ever open:
+    the second scheduling re-dates the pending row instead of adding another.
+
+    White-box (the two RESTING exits cannot both fire for one doe inside a
+    single API-observable history): call the scheduler directly, the same
+    flush-before-dedupe contract spawn_next_occurrence upholds.
+    """
+    headers = await owner_with_farm(client)
+    doe_row, _buck, _br = await bred_doe(client, headers)
+    farm_id = int(headers["X-Farm-Id"])
+    first_due = today() + timedelta(days=REBREED_AFTER_RESTING_DAYS)
+    second_due = today() + timedelta(days=REBREED_AFTER_RESTING_DAYS + 5)
+    async with get_sessionmaker()() as db:
+        doe = await db.get(Animal, doe_row["id"])
+        assert doe is not None
+        await _schedule_rebreed(db, farm_id, doe, first_due)
+        await _schedule_rebreed(db, farm_id, doe, second_due)
+        await db.flush()
+        rows = list(
+            (
+                await db.execute(
+                    select(Task).where(
+                        Task.farm_id == farm_id,
+                        Task.animal_id == doe.id,
+                        Task.category == "REBREED",
+                    )
+                )
+            ).scalars()
+        )
+        assert len(rows) == 1
+        assert rows[0].due_date == second_due
+        assert rows[0].status == "PENDING"
 
 
 async def test_weaning_not_due_yet_conflict(client: httpx.AsyncClient) -> None:

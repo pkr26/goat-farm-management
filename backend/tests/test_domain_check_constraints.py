@@ -321,13 +321,16 @@ _VOCABULARY_CONSTRAINT_SQL: dict[tuple[str, str], str] = {
         "breeding_records",
         "ck_breeding_records_outcome",
     ): "outcome IN ('PENDING', 'CONFIRMED_PREGNANT', 'FAILED', 'ABORTED', 'UNASSESSED')",
-    ("kidding_records", "ck_kidding_records_ease"): "ease IN ('NORMAL', 'ASSISTED', 'DIFFICULT')",
+    (
+        "kidding_records",
+        "ck_kidding_records_ease",
+    ): "ease IN ('NORMAL', 'ASSISTED', 'DIFFICULT', 'CAESAREAN')",
     ("kid_entries", "ck_kid_entries_status"): "status IN ('ALIVE', 'STILLBORN', 'DIED')",
     ("kid_entries", "ck_kid_entries_sex"): "sex IN ('M', 'F')",
     (
         "health_events",
         "ck_health_events_type",
-    ): "type IN ('VACCINE', 'DEWORMING', 'TREATMENT', 'FOOTBATH', 'VITAMIN')",
+    ): "type IN ('VACCINE', 'DEWORMING', 'TREATMENT', 'FOOTBATH', 'VITAMIN', 'EXAM', 'FECAL_EXAM')",
     ("feeding_records", "ck_feeding_records_shift"): "shift IN ('MORNING', 'AFTERNOON', 'NIGHT')",
     ("feeding_records", "ck_feeding_records_bucket"): f"bucket IN ({_BUCKETS_SQL})",
     (
@@ -344,7 +347,10 @@ _VOCABULARY_CONSTRAINT_SQL: dict[tuple[str, str], str] = {
         "ck_tasks_category",
     ): (
         "category IN ('VACCINE', 'DEWORMING', 'ULTRASOUND', 'KIDDING_DUE', "
-        "'WEANING', 'BUCKET_MOVE', 'QUARANTINE', 'FEED', 'CLEANING', 'OTHER')"
+        "'WEANING', 'BUCKET_MOVE', 'QUARANTINE', 'FEED', 'CLEANING', 'OTHER', "
+        "'KIDDING_WATCH', 'BIRTHING_KIT', 'HEALTH_CHECK', 'HEAT_WATCH', "
+        "'HOOF_TRIMMING', 'SPRAYING', 'DISINFECTION', 'WEIGHING', 'REBREED', "
+        "'BUCK_ROTATION', 'INSURANCE')"
     ),
     ("transactions", "ck_transactions_type"): "type IN ('INCOME', 'EXPENSE')",
     (

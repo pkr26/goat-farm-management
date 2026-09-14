@@ -25,6 +25,7 @@ import {
   type TransactionOut,
 } from "@/api/generated/models";
 import { AnimalPicker } from "@/components/animal-picker";
+import { FinanceNav } from "@/components/finance-nav";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -768,6 +769,8 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
         }
       />
 
+      <FinanceNav active="ledger" />
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <StatCard
           label="Total income"
@@ -789,7 +792,10 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
         />
       </div>
 
-      <DataTableCard title="Monthly P&L (last 12 months)">
+      <DataTableCard
+        title="Monthly P&L (last 12 months)"
+        description={`Feed stock on hand ${formatMoney(payload.feed_stock_value)} (memo — not an expense).`}
+      >
         {payload.pnl.length === 0 ? (
           <EmptyState
             icon={ReceiptText}

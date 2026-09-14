@@ -75,6 +75,8 @@ const ANIMAL = {
   status: "ACTIVE",
   status_date: null,
   sale_price: null,
+  sale_weight_kg: null,
+  sale_price_per_kg: null,
   purchase_date: null,
   purchase_price: null,
   seller_name: null,
@@ -89,6 +91,10 @@ const ANIMAL = {
   restriction_clearance_reference: null,
   restriction_version: 0,
   mortality_cause: null,
+  mortality_cause_code: null,
+  disposal_method: null,
+  necropsy_done: false,
+  necropsy_findings: null,
   mortality_reported_at: null,
   notes: "Calm doe, good milker.",
   created_at: "2026-01-01T05:30:00Z",
@@ -1536,7 +1542,7 @@ describe("AnimalProfilePage", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      expect(within(dialog).getByRole("combobox")).toHaveTextContent("SOLD");
+      expect(within(dialog).getByLabelText(/new status/i)).toHaveTextContent("SOLD");
       expect(within(dialog).getByLabelText(/sale price/i)).toBeInTheDocument();
       expect(within(dialog).getByLabelText(/buyer name/i)).toBeInTheDocument();
     });
@@ -1545,7 +1551,7 @@ describe("AnimalProfilePage", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      const combo = () => within(dialog).getByRole("combobox");
+      const combo = () => within(dialog).getByLabelText(/new status/i);
       await user.type(within(dialog).getByLabelText(/sale price/i), "9000");
       await user.type(within(dialog).getByLabelText(/buyer name/i), "Old buyer");
       await pickOption(user, combo(), "DEAD");
@@ -1560,7 +1566,7 @@ describe("AnimalProfilePage", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      const combo = () => within(dialog).getByRole("combobox");
+      const combo = () => within(dialog).getByLabelText(/new status/i);
       await pickOption(user, combo(), "DEAD");
       const checkbox = within(dialog).getByRole("checkbox", {
         name: "Suspected scheduled/notifiable disease",
@@ -1587,7 +1593,7 @@ describe("AnimalProfilePage", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      const combo = () => within(dialog).getByRole("combobox");
+      const combo = () => within(dialog).getByLabelText(/new status/i);
       await pickOption(user, combo(), "DEAD");
       await user.type(within(dialog).getByLabelText("Mortality cause"), "Suspected PPR");
       setInput(within(dialog).getByLabelText("Mortality reported date"), farmToday());
@@ -1605,6 +1611,10 @@ describe("AnimalProfilePage", () => {
       expect(statusBodies[0]).toMatchObject({
         new_status: "CULLED",
         mortality_cause: null,
+        mortality_cause_code: null,
+        disposal_method: null,
+        necropsy_done: false,
+        necropsy_findings: null,
         mortality_reported_at: null,
         suspected_scheduled_disease: false,
         suspected_disease: null,
@@ -1625,9 +1635,15 @@ describe("AnimalProfilePage", () => {
         new_status: "SOLD",
         date: "2026-08-06",
         sale_price: 9000,
+        sale_weight_kg: null,
+        sale_price_per_kg: null,
         buyer_name: "Shinde Traders",
         notes: null,
         mortality_cause: null,
+        mortality_cause_code: null,
+        disposal_method: null,
+        necropsy_done: false,
+        necropsy_findings: null,
         mortality_reported_at: null,
         suspected_scheduled_disease: false,
         suspected_disease: null,
@@ -1636,6 +1652,89 @@ describe("AnimalProfilePage", () => {
       await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith("Marked SOLD."));
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
       await waitFor(() => expect(getCalls).toBeGreaterThanOrEqual(2));
+    });
+
+    it("captures the sale weight and rate for SOLD", async () => {
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Change status");
+      // The rate stays inert until a weight gives it a denominator.
+      const rate = within(dialog).getByLabelText(/price per kg/i);
+      expect(rate).toBeDisabled();
+
+      setInput(within(dialog).getByLabelText(/weight at sale/i), "40");
+      await waitFor(() => expect(rate).toBeEnabled());
+      setInput(rate, "225");
+      await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
+
+      await waitFor(() => expect(statusBodies).toHaveLength(1));
+      expect(statusBodies[0]).toMatchObject({
+        new_status: "SOLD",
+        sale_weight_kg: 40,
+        sale_price_per_kg: 225,
+        // With both present and no total price the server derives it.
+        sale_price: null,
+      });
+    });
+
+    it("keeps the disabled rate off a weightless SOLD payload", async () => {
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Change status");
+      expect(within(dialog).getByLabelText(/price per kg/i)).toBeDisabled();
+
+      await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
+      await waitFor(() => expect(statusBodies).toHaveLength(1));
+      expect(statusBodies[0]).toMatchObject({
+        sale_weight_kg: null,
+        sale_price_per_kg: null,
+      });
+    });
+
+    it("keeps weight and rate off a CULLED payload", async () => {
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Change status");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "CULLED");
+      expect(within(dialog).queryByLabelText(/weight at sale/i)).not.toBeInTheDocument();
+      expect(within(dialog).queryByLabelText(/price per kg/i)).not.toBeInTheDocument();
+
+      await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
+      await waitFor(() => expect(statusBodies).toHaveLength(1));
+      expect(statusBodies[0]).toMatchObject({
+        new_status: "CULLED",
+        sale_weight_kg: null,
+        sale_price_per_kg: null,
+      });
+    });
+
+    it("captures the coded cause, disposal and necropsy facts for DEAD", async () => {
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Change status");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
+      await user.type(within(dialog).getByLabelText("Mortality cause"), "Fever after rain");
+      await pickOption(user, within(dialog).getByLabelText(/cause \(coded\)/i), "Pneumonia");
+      await user.type(within(dialog).getByLabelText(/disposal method/i), "Burial on farm");
+
+      // Findings stay hidden until a necropsy was actually performed.
+      expect(within(dialog).queryByLabelText(/necropsy findings/i)).not.toBeInTheDocument();
+      await user.click(within(dialog).getByRole("checkbox", { name: "Necropsy performed" }));
+      await user.type(
+        within(dialog).getByLabelText(/necropsy findings/i),
+        "Lung consolidation, bronchopneumonia.",
+      );
+
+      await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
+      await waitFor(() => expect(statusBodies).toHaveLength(1));
+      expect(statusBodies[0]).toMatchObject({
+        new_status: "DEAD",
+        mortality_cause: "Fever after rain",
+        mortality_cause_code: "PNEUMONIA",
+        disposal_method: "Burial on farm",
+        necropsy_done: true,
+        necropsy_findings: "Lung consolidation, bronchopneumonia.",
+      });
     });
 
     it("POSTs null price and buyer when SOLD fields are left blank", async () => {
@@ -1648,9 +1747,15 @@ describe("AnimalProfilePage", () => {
         new_status: "SOLD",
         date: null,
         sale_price: null,
+        sale_weight_kg: null,
+        sale_price_per_kg: null,
         buyer_name: null,
         notes: null,
         mortality_cause: null,
+        mortality_cause_code: null,
+        disposal_method: null,
+        necropsy_done: false,
+        necropsy_findings: null,
         mortality_reported_at: null,
         suspected_scheduled_disease: false,
         suspected_disease: null,
@@ -1662,12 +1767,14 @@ describe("AnimalProfilePage", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      await pickOption(user, within(dialog).getByRole("combobox"), "DEAD");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
       await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
       await waitFor(() => expect(statusBodies).toHaveLength(1));
       expect(statusBodies[0]).toMatchObject({
         new_status: "DEAD",
         sale_price: null,
+        sale_weight_kg: null,
+        sale_price_per_kg: null,
         buyer_name: null,
       });
     });
@@ -1676,7 +1783,7 @@ describe("AnimalProfilePage", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      await pickOption(user, within(dialog).getByRole("combobox"), "DEAD");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
       setInput(within(dialog).getByLabelText(/^Date/), "2026-08-08");
       await user.type(within(dialog).getByLabelText("Mortality cause"), "Sudden fever");
       setInput(within(dialog).getByLabelText("Mortality reported date"), "2026-08-07");
@@ -1706,9 +1813,15 @@ describe("AnimalProfilePage", () => {
         new_status: "DEAD",
         date: "2026-08-07",
         sale_price: null,
+        sale_weight_kg: null,
+        sale_price_per_kg: null,
         buyer_name: null,
         notes: null,
         mortality_cause: "Sudden fever",
+        mortality_cause_code: null,
+        disposal_method: null,
+        necropsy_done: false,
+        necropsy_findings: null,
         mortality_reported_at: "2026-08-07",
         suspected_scheduled_disease: true,
         suspected_disease: "PPR",
@@ -1730,7 +1843,7 @@ describe("AnimalProfilePage", () => {
       expect(statusBodies).toHaveLength(0);
 
       setInput(within(dialog).getByLabelText(/^Date/), farmToday());
-      await pickOption(user, within(dialog).getByRole("combobox"), "DEAD");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
       setInput(within(dialog).getByLabelText("Mortality reported date"), tomorrow);
       await user.click(
         within(dialog).getByRole("checkbox", {
@@ -1759,7 +1872,7 @@ describe("AnimalProfilePage", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      await pickOption(user, within(dialog).getByRole("combobox"), "CULLED");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "CULLED");
       setInput(within(dialog).getByLabelText(/sale price/i), "4500");
       await user.type(within(dialog).getByLabelText(/buyer name/i), "Local processor");
       await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
@@ -1829,7 +1942,7 @@ describe("AnimalProfilePage", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      await pickOption(user, within(dialog).getByRole("combobox"), "DEAD");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
       const cause = within(dialog).getByLabelText("Mortality cause");
       setInput(cause, "c".repeat(121));
       await user.click(within(dialog).getByRole("button", { name: "Confirm" }));

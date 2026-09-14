@@ -22,7 +22,8 @@ from ..models import (
 from ..utils import add_months, allocate_money, money, today, utcnow
 
 # HealthEvent.type → TransactionCategory: what P&L bucket the spend belongs in.
-# TREATMENT/FOOTBATH/VITAMIN → VET (vet consultation, hoof care, tonics).
+# TREATMENT/FOOTBATH/VITAMIN/EXAM/FECAL_EXAM → VET (consultation, clinical and
+# dung exams, hoof care, tonics).
 # VACCINE/DEWORMING → MEDICINE (the actual drug/vaccine spend).
 _HEALTH_TYPE_TO_TX_CATEGORY: dict[str, str] = {
     HealthEventType.VACCINE.value: TransactionCategory.MEDICINE.value,
@@ -30,6 +31,8 @@ _HEALTH_TYPE_TO_TX_CATEGORY: dict[str, str] = {
     HealthEventType.TREATMENT.value: TransactionCategory.VET.value,
     HealthEventType.FOOTBATH.value: TransactionCategory.VET.value,
     HealthEventType.VITAMIN.value: TransactionCategory.VET.value,
+    HealthEventType.EXAM.value: TransactionCategory.VET.value,
+    HealthEventType.FECAL_EXAM.value: TransactionCategory.VET.value,
 }
 
 

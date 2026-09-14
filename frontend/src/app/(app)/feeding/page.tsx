@@ -21,6 +21,7 @@ import {
 import {
   DispenseInBucket,
   DispenseInShift,
+  PlanLineOutBasis,
   type FeedSettingInBucket,
   type PlanLineOut,
 } from "@/api/generated/models";
@@ -123,6 +124,19 @@ function toShiftCell(raw: unknown): ShiftCell {
     kg: typeof cell.kg === "number" ? cell.kg : 0,
     time: typeof cell.time === "string" ? cell.time : "",
   };
+}
+
+/** Sub-label notes of a plan line: a "scaled from mean" hint when the ration
+ *  is weight-based, and the plan note when present. Only captured facts
+ *  render — a flat line with no note stays as terse as before. The creep
+ *  band joins the recipe label itself (see the label render sites). */
+function planLineNotes(line: PlanLineOut): string[] {
+  return [
+    line.basis === PlanLineOutBasis.weight && line.mean_weight_kg != null
+      ? `scaled from mean ${formatPersistedKg(line.mean_weight_kg)} kg`
+      : null,
+    line.note ?? null,
+  ].filter((note): note is string => note !== null);
 }
 
 
@@ -678,11 +692,22 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
                   >
                     <p className="font-medium">
                       {enumLabel("bucket", line.bucket, language)} — {line.recipe_name}
+                      {line.creep_band && (
+                        <span className="font-normal text-muted-foreground">
+                          {" "}
+                          ({line.creep_band})
+                        </span>
+                      )}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground tabular-nums">
                       {line.heads} heads · {line.kg_per_head} kg/head ·{" "}
                       {formatPersistedKg(line.daily_kg)} kg/day
                     </p>
+                    {planLineNotes(line).map((note) => (
+                      <p key={note} className="mt-1 text-xs text-muted-foreground tabular-nums">
+                        {note}
+                      </p>
+                    ))}
                     <p className="mt-1 text-xs text-muted-foreground tabular-nums">
                       Recorded {formatPersistedKg(dispensed)} / {formatPersistedKg(line.daily_kg)} kg
                       {lineComplete ? " · Done" : ""}
@@ -736,7 +761,20 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
                     <TableCell className="font-medium">
                       {enumLabel("bucket", line.bucket, language)}
                     </TableCell>
-                    <TableCell>{line.recipe_name}</TableCell>
+                    <TableCell>
+                      {line.recipe_name}
+                      {line.creep_band && (
+                        <span className="text-xs text-muted-foreground">
+                          {" "}
+                          ({line.creep_band})
+                        </span>
+                      )}
+                      {planLineNotes(line).map((note) => (
+                        <span key={note} className="block text-xs text-muted-foreground">
+                          {note}
+                        </span>
+                      ))}
+                    </TableCell>
                     <TableCell className="text-right tabular-nums">{line.heads}</TableCell>
                     <TableCell className="text-right tabular-nums">
                       {line.kg_per_head}

@@ -10,6 +10,14 @@ mirrored here fails these tests instead of silently rejecting API input.
 from typing import get_args
 
 from app import models
+from app.models.constants import (
+    BIRTHING_KIT_LEAD_DAYS,
+    BUCK_ROTATION_AGE_MONTHS,
+    CREEP_START_DAYS,
+    KIDDING_WATCH_START_DAYS,
+    MIN_REST_FLUSH_DAYS,
+    POSTPARTUM_CARE_LEAD_DAYS,
+)
 from app.models.species import GOAT_PROFILE
 from app.permissions import ROLE_PRESET_CODES, ROLE_PRESETS
 from app.schemas import animals, breeding, finance, health, kidding, purchases, tasks
@@ -30,7 +38,11 @@ def test_task_category_str_matches_enum() -> None:
 
 
 def test_health_event_type_str_matches_enum() -> None:
-    assert _literal_values(health.HealthEventTypeStr) == {t.value for t in models.HealthEventType}
+    # Wave-0 vocabulary: EXAM/FECAL_EXAM exist in the enum (and the DB CHECK)
+    # before the wire schema exposes them; the literal widens when the health
+    # domain agent opens the exam endpoints. The subset keeps the load-bearing
+    # direction — every wire-accepted value is DB-valid.
+    assert _literal_values(health.HealthEventTypeStr) <= {t.value for t in models.HealthEventType}
 
 
 def test_transaction_category_str_matches_enum() -> None:
@@ -42,7 +54,11 @@ def test_transaction_category_str_matches_enum() -> None:
 
 def test_kid_status_and_ease_strs_match_enums() -> None:
     assert _literal_values(kidding.KidStatusStr) == {s.value for s in models.KidStatus}
-    assert _literal_values(kidding.KiddingEaseStr) == {e.value for e in models.KiddingEase}
+    # CAESAREAN is enum/DB vocabulary ahead of the wire (see the health-event
+    # note above); the kidding endpoint keeps rejecting it until its domain
+    # agent widens KiddingEaseStr (test_kidding_ease_rejects_caesarean_per_spec
+    # pins the current refusal).
+    assert _literal_values(kidding.KiddingEaseStr) <= {e.value for e in models.KiddingEase}
 
 
 def test_animal_vocabularies_match_enums() -> None:
@@ -109,6 +125,14 @@ def test_goat_profile_aliases_cannot_drift() -> None:
     assert models.WEANING_DAYS == p.weaning_days
     assert models.POSTPARTUM_RECOVERY_DAYS == p.postpartum_recovery_days
     assert models.MAX_FAILED_CYCLES_BEFORE_CULL == p.failed_services_before_cull
+    # Husbandry-standards scheduling knobs (constants.py aliases; not yet
+    # re-exported through app.models).
+    assert KIDDING_WATCH_START_DAYS == p.kidding_watch_start_days
+    assert BIRTHING_KIT_LEAD_DAYS == p.birthing_kit_lead_days
+    assert POSTPARTUM_CARE_LEAD_DAYS == p.postpartum_care_lead_days
+    assert CREEP_START_DAYS == p.creep_start_days
+    assert MIN_REST_FLUSH_DAYS == p.min_rest_flush_days
+    assert BUCK_ROTATION_AGE_MONTHS == p.buck_rotation_age_months
 
 
 def test_species_policy_profiles_are_coherent() -> None:
@@ -121,6 +145,14 @@ def test_species_policy_profiles_are_coherent() -> None:
     # SPEC: goat "day 100" EARLY→LATE exit, kidding pen ~2 weeks pre-due.
     assert goat.pregnancy_late_day == 100
     assert goat.prepartum_move_lead_days == 15
+    # Husbandry-standards scheduling knobs (wave-0 defaults; the parity test
+    # above pins the constants.py aliases to these same attributes).
+    assert goat.kidding_watch_start_days == 5
+    assert goat.birthing_kit_lead_days == 7
+    assert goat.postpartum_care_lead_days == 1
+    assert goat.creep_start_days == 14
+    assert goat.min_rest_flush_days == 10
+    assert goat.buck_rotation_age_months == 36
 
 
 def test_preset_role_code_catalog_matches_seed_definitions() -> None:

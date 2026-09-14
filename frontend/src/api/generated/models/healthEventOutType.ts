@@ -14,4 +14,6 @@ export const HealthEventOutType = {
   TREATMENT: 'TREATMENT',
   FOOTBATH: 'FOOTBATH',
   VITAMIN: 'VITAMIN',
+  EXAM: 'EXAM',
+  FECAL_EXAM: 'FECAL_EXAM',
 } as const;

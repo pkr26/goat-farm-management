@@ -376,8 +376,14 @@ async def test_max_length_supplier_cannot_overflow_quarantine_task_titles(
     detail = await client.get(f"/api/purchases/{response.json()['id']}", headers=owner)
     assert detail.status_code == 200, detail.text
     titles = [task["title"] for task in detail.json()["tasks"]]
-    assert len(titles) == 8
+    assert len(titles) == 11
     assert all(len(title) <= 200 for title in titles)
+    # Worst case is the day-1 arrival-inspection duty: its protocol text alone
+    # (173 chars) plus the widest possible "[Batch #<max-int32>] " prefix
+    # (20 chars) is 193, so even the longest title leaves headroom under the
+    # 200-char column — a max-length supplier cannot push any title over.
+    arrival = max(titles, key=len)
+    assert "arrival inspection" in arrival
 
 
 # ---------------------------------------------------------------------------

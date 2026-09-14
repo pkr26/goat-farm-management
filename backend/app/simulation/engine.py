@@ -138,7 +138,7 @@ from .vocabulary import GOAT_NOUNS, SpeciesNouns
 # insurance valuation, Telangana selling-cost defaults, extended Bakrid
 # calendar with coverage warnings, Monte Carlo confidence intervals and
 # within-run annual price variation.
-MODEL_VERSION = "3.1.0"
+MODEL_VERSION = "3.2.0"
 
 
 def monthly_mortality_rate(annual_fraction: float) -> float:

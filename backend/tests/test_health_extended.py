@@ -1147,7 +1147,7 @@ async def test_event_completes_linked_deworming_task(client: httpx.AsyncClient) 
         task_id=deworm_task["id"],
     )
     batch = await list_batches(client, headers)
-    assert batch[0]["open_tasks"] == 7  # 8 protocol duties minus the completed one
+    assert batch[0]["open_tasks"] == 10  # 11 protocol duties minus the completed one
 
 
 async def test_linked_deworming_duty_validates_target_and_files_the_deworming_template(
@@ -1692,6 +1692,7 @@ SCHEDULE_TEMPLATE_NAMES = {
     "Johne's Disease",
     "Anthrax",
     "CCPP",
+    "Tetanus (TT)",
     "Deworming",
     "Anti-coccidial drench",
 }
@@ -1707,7 +1708,7 @@ async def test_schedule_lists_seeded_templates(client: httpx.AsyncClient) -> Non
     # not the per-animal age schedule
     # ORF was dropped from the default calendar (Indian practice does not
     # vaccinate for sore mouth; control is outbreak-driven).
-    assert len(schedule["rows"]) == 11
+    assert len(schedule["rows"]) == 12
 
 
 async def test_schedule_row_shape(client: httpx.AsyncClient) -> None:
@@ -1817,15 +1818,64 @@ async def test_schedule_overdue_when_repeat_window_lapsed(client: httpx.AsyncCli
 
 
 async def test_schedule_et_tt_abbreviation_matches_et_template(client: httpx.AsyncClient) -> None:
+    """A combined "ET + TT" product used to auto-file uniquely under the ET
+    template. With the standalone Tetanus (TT) template in the catalog that
+    text spans two programmes: write-time inference declines (its uniqueness
+    rule) and leaves the row unlinked, while the schedule's read-time legacy
+    compatibility counts the dose for BOTH programmes it names."""
     headers = await owner_with_farm(client)
     animal = await make_animal(client, headers, date_of_birth=iso(today() - timedelta(days=400)))
     await record_event(
         client, headers, animal_id=animal["id"], type="VACCINE", product_name="ET + TT"
     )
+    # Write time: ambiguous text files under no template id.
+    assert [event["schedule_template_name"] for event in await list_events(client, headers)] == [
+        None
+    ]
+    # Read time: the legacy match still credits each named programme.
+    schedule = await get_schedule(client, headers, animal["id"])
+    for name in ("Enterotoxaemia (ET)", "Tetanus (TT)"):
+        row = row_by_name(schedule, name)
+        assert row["last_done"] == iso(today()), name
+        assert row["status"] == "DONE", name
+    # A labelled event files exactly where it was told to.
+    await record_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="VACCINE",
+        product_name="ET + TT",
+        schedule_template_name="Enterotoxaemia (ET)",
+    )
     schedule = await get_schedule(client, headers, animal["id"])
     et = row_by_name(schedule, "Enterotoxaemia (ET)")
     assert et["last_done"] == iso(today())
     assert et["status"] == "DONE"
+    labelled = [
+        event for event in await list_events(client, headers) if event["product_name"] == "ET + TT"
+    ]
+    assert {event["schedule_template_name"] for event in labelled} == {
+        None,
+        "Enterotoxaemia (ET)",
+    }
+
+
+async def test_schedule_tetanus_product_files_under_standalone_tt_template(
+    client: httpx.AsyncClient,
+) -> None:
+    """A tetanus-only product names exactly one programme now, so the
+    unlabelled-event inference still has a unique answer for it."""
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, date_of_birth=iso(today() - timedelta(days=400)))
+    await record_event(
+        client, headers, animal_id=animal["id"], type="VACCINE", product_name="Tetanus toxoid"
+    )
+    schedule = await get_schedule(client, headers, animal["id"])
+    tt = row_by_name(schedule, "Tetanus (TT)")
+    assert tt["last_done"] == iso(today())
+    assert tt["status"] == "DONE"
+    et = row_by_name(schedule, "Enterotoxaemia (ET)")
+    assert et["last_done"] is None
 
 
 async def test_schedule_done_without_repeat_has_no_next_due(client: httpx.AsyncClient) -> None:
@@ -1917,7 +1967,7 @@ async def test_create_batch_minimal(client: httpx.AsyncClient) -> None:
     assert batch["total_price"] is None
     assert batch["avg_age_months"] is None
     assert batch["animals_created"] == 2  # create_animals defaults to True
-    assert batch["open_tasks"] == 8
+    assert batch["open_tasks"] == 11
 
 
 async def test_create_batch_full_fields_roundtrip(client: httpx.AsyncClient) -> None:
@@ -1928,21 +1978,30 @@ async def test_create_batch_full_fields_roundtrip(client: httpx.AsyncClient) -> 
         headers,
         date=iso(batch_date),
         supplier="Adilabad Goat Mart",
+        origin_market="Adilabad weekly market",
+        transport_hours=6,
+        seller_health_history="Seller reports PPR at source in March; no deworming done",
         count=10,
         avg_age_months=7,
         avg_weight_kg=15.5,
+        individual_weights_kg=[14.0, 14.5, 15.0, 15.5, 15.5, 15.5, 16.0, 16.0, 16.5, 17.0],
         total_price=95000.0,
         notes="foundation stock",
     )
     assert batch["date"] == iso(batch_date)
     assert batch["supplier"] == "Adilabad Goat Mart"
+    assert batch["origin_market"] == "Adilabad weekly market"
+    assert batch["transport_hours"] == 6
+    assert (
+        batch["seller_health_history"] == "Seller reports PPR at source in March; no deworming done"
+    )
     assert batch["count"] == 10
     assert batch["avg_age_months"] == 7
     assert batch["avg_weight_kg"] == 15.5
     assert batch["total_price"] == 95000.0
     assert batch["notes"] == "foundation stock"
     assert batch["animals_created"] == 10
-    assert batch["open_tasks"] == 8
+    assert batch["open_tasks"] == 11
 
 
 async def test_create_batch_without_animals(client: httpx.AsyncClient) -> None:
@@ -2078,9 +2137,9 @@ async def test_batch_detail_counts(client: httpx.AsyncClient) -> None:
     batch = await make_batch(client, headers, count=4)
     detail = await get_batch(client, headers, batch["id"])
     assert detail["batch"]["animals_created"] == 4
-    assert detail["batch"]["open_tasks"] == 8
+    assert detail["batch"]["open_tasks"] == 11
     assert len(detail["animals"]) == 4
-    assert len(detail["tasks"]) == 8
+    assert len(detail["tasks"]) == 11
 
 
 async def test_batch_detail_not_found_404(client: httpx.AsyncClient) -> None:
@@ -2110,17 +2169,21 @@ async def test_quarantine_tasks_match_spec_schedule(client: httpx.AsyncClient) -
     batch = await make_batch(client, headers, count=2, date=iso(batch_date))
     detail = await get_batch(client, headers, batch["id"])
     tasks = detail["tasks"]  # ordered by due_date
-    assert len(tasks) == 8
-    # SPEC: rest days 1–3, deworm day 4, tonic days 5–9, PPR day 10,
-    # ET+TT day 20, Goat Pox day 30, FMD day 40, footbath+release day 45.
+    assert len(tasks) == 11
+    # SPEC: arrival inspection day 0–1, rest days 1–3, deworm day 4, tonic
+    # days 5–9, PPR day 10, fecal exam day 13, ET+TT day 20, Goat Pox + fecal
+    # recheck day 30, FMD day 40, footbath+release day 45.
     # Due date = arrival + (day - 1).
     expected = [
+        (0, "QUARANTINE", "arrival inspection"),
         (0, "QUARANTINE", "rest"),
         (3, "DEWORMING", "deworm"),
         (4, "QUARANTINE", "liver tonic"),
         (9, "VACCINE", "PPR"),
+        (12, "QUARANTINE", "fecal"),
         (19, "VACCINE", "ET + Tetanus"),
         (29, "VACCINE", "Goat Pox"),
+        (29, "QUARANTINE", "fecal recheck"),
         (39, "VACCINE", "FMD"),
         (44, "BUCKET_MOVE", "FOUNDATION"),
     ]
@@ -2921,7 +2984,7 @@ async def test_batch_detail_animals_ordered_by_tag(client: httpx.AsyncClient) ->
 async def test_open_tasks_drop_as_protocol_duties_complete(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     detail = await _backdated_batch_with_tasks(client, headers, days=50, count=1)
-    assert (await list_batches(client, headers))[0]["open_tasks"] == 8
+    assert (await list_batches(client, headers))[0]["open_tasks"] == 11
     ppr_task = next(t for t in detail["tasks"] if "PPR" in t["title"])
     await record_event(
         client,
@@ -2932,7 +2995,7 @@ async def test_open_tasks_drop_as_protocol_duties_complete(client: httpx.AsyncCl
         product_name="PPR vaccine",
         task_id=ppr_task["id"],
     )
-    assert (await list_batches(client, headers))[0]["open_tasks"] == 7
+    assert (await list_batches(client, headers))[0]["open_tasks"] == 10
 
 
 async def test_schedule_ppr_has_no_booster(client: httpx.AsyncClient) -> None:
@@ -3018,7 +3081,7 @@ async def test_two_batches_have_independent_counts(client: httpx.AsyncClient) ->
     batches = {b["id"]: b for b in await list_batches(client, headers)}
     assert batches[detail_a["batch"]["id"]]["open_tasks"] == 0
     assert batches[detail_a["batch"]["id"]]["animals_created"] == 2
-    assert batches[batch_b["id"]]["open_tasks"] == 8  # untouched by A's completion
+    assert batches[batch_b["id"]]["open_tasks"] == 11  # untouched by A's completion
     assert batches[batch_b["id"]]["animals_created"] == 5
 
 
@@ -3210,7 +3273,9 @@ async def test_tag_number_cannot_hijack_the_pre_kidding_vaccine_template(
 
     tabs = await client.get("/api/tasks", headers=headers)
     duties = tabs.json()["today"] + tabs.json()["overdue"] + tabs.json()["upcoming"]
-    pre_kidding = next(t for t in duties if t["category"] == "VACCINE")
+    # The cadence engine also boards herd-level vaccination rounds; this test
+    # is about the doe-scoped pre-kidding template, so select by title.
+    pre_kidding = next(t for t in duties if t["title"].startswith("Pre-kidding ET+TT vaccine:"))
     assert pre_kidding["title"] == "Pre-kidding ET+TT vaccine: PPR-01"
 
     hijack = await post_event(
@@ -3604,3 +3669,87 @@ async def test_schedule_templates_lists_the_only_names_events_accept(
         headers=headers,
     )
     assert recorded.status_code in (200, 201), recorded.text
+
+
+# ---------------------------------------------------------------------------
+# EXAM / FECAL_EXAM clinical event types (husbandry-standards vocabulary)
+# ---------------------------------------------------------------------------
+async def test_exam_and_fecal_exam_events_book_vet_expenses(
+    client: httpx.AsyncClient,
+) -> None:
+    """Arrival/clinical exams and dung exams record like TREATMENT for money:
+    accepted everywhere the type is validated, spend booked as VET."""
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, tag="EXAM-1")
+    exam = await record_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="EXAM",
+        cost=200.0,
+        vet_name="Dr. Rao",
+        notes="Arrival inspection: hydration, gums, injury and lameness triage",
+    )
+    assert exam[0]["type"] == "EXAM"
+    assert exam[0]["cost"] == 200.0
+
+    fecal = await record_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="FECAL_EXAM",
+        cost=150.5,
+        notes="Dung exam: strongyle eggs, moderate load",
+    )
+    assert fecal[0]["type"] == "FECAL_EXAM"
+    assert fecal[0]["cost"] == 150.5
+
+    ledger = await transactions(client, headers)
+    vet_amounts = {row["amount"] for row in ledger if row["category"] == "VET"}
+    assert vet_amounts == {200.0, 150.5}
+    assert not [row for row in ledger if row["category"] == "MEDICINE"]
+
+
+async def test_exam_events_reject_schedule_template_linkage(
+    client: httpx.AsyncClient,
+) -> None:
+    """EXAM/FECAL_EXAM accept no schedule template: the coherence guard
+    (validated_template + ck_health_events_schedule_template_type) pins
+    template ids to VACCINE/DEWORMING, exactly as for TREATMENT."""
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, tag="EXAM-2")
+    from app.models import HealthEvent, HealthEventType
+    from app.services import validated_template
+
+    async with get_sessionmaker()() as db:
+        for event_type in (HealthEventType.EXAM.value, HealthEventType.FECAL_EXAM.value):
+            with pytest.raises(ValueError):
+                await validated_template(db, "FMD", event_type)
+
+    # A named follow-up schedule stays free text and never resolves to a
+    # seeded template row for these types.
+    events = await record_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="EXAM",
+        next_due_date=iso(today() + timedelta(days=30)),
+        schedule_template_name="Clinic re-exam protocol",
+        next_due_authority="Veterinarian advice note",
+    )
+    async with get_sessionmaker()() as db:
+        row = await db.get(HealthEvent, events[0]["id"])
+        assert row is not None
+        assert row.schedule_template_id is None
+        assert row.schedule_template_name == "Clinic re-exam protocol"
+
+
+async def test_unknown_health_event_type_is_rejected(
+    client: httpx.AsyncClient,
+) -> None:
+    """The wire list is closed: the two new clinical types are in, anything
+    else still 422s before touching the database."""
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, tag="EXAM-3")
+    response = await post_event(client, headers, animal_id=animal["id"], type="CHECKUP")
+    assert response.status_code == 422

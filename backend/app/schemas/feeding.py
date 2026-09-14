@@ -157,6 +157,15 @@ class PlanLineOut(BaseModel):
     kg_per_head: float
     daily_kg: float
     shifts: list[dict[str, object]]
+    # Husbandry standards (wave-1G). Creep lines carry their age band
+    # ("14–30 d" / "31–45 d" / "46–60 d"); per-head amounts are either scaled
+    # from the bucket's mean latest weight (basis "weight", mean reported) or
+    # the flat per-head default (basis "flat"). The buck BREEDING line notes
+    # its mating-season supplement.
+    creep_band: str | None = None
+    basis: Literal["weight", "flat"] = "flat"
+    mean_weight_kg: float | None = None
+    note: str | None = None
 
 
 class DispensingAggregateOut(BaseModel):

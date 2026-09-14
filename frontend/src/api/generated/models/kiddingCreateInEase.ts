@@ -12,4 +12,5 @@ export const KiddingCreateInEase = {
   NORMAL: 'NORMAL',
   ASSISTED: 'ASSISTED',
   DIFFICULT: 'DIFFICULT',
+  CAESAREAN: 'CAESAREAN',
 } as const;

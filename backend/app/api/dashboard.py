@@ -25,6 +25,7 @@ from ..models import (
     BreedingOutcome,
     BreedingRecord,
     BucketDefinition,
+    InsurancePolicy,
     KiddingRecord,
     KidEntry,
     KidStatus,
@@ -33,6 +34,7 @@ from ..models import (
     TaskCategory,
     WeightRecord,
 )
+from ..models.finance import INSURANCE_STATUS_ACTIVE
 from ..models.helpers import ASSESSED_OUTCOMES, CONCEIVED_OUTCOMES
 from ..schemas.common import COMMON_ERROR_RESPONSES
 from ..schemas.dashboard import (
@@ -40,6 +42,7 @@ from ..schemas.dashboard import (
     BucketCountOut,
     BucketReportRow,
     DashboardOut,
+    InsuranceExpiringOut,
     MortalityOut,
     MoveSuggestionOut,
     ReportsOut,
@@ -66,6 +69,9 @@ DASHBOARD_PREVIEW_LIMIT = 100
 _CLINICAL_OUTCOME_STATUSES = frozenset({AnimalStatus.DEAD.value, AnimalStatus.CULLED.value})
 RECENT_WEIGHTS_LIMIT = 10
 KIDDING_DUE_WINDOW_DAYS = 14
+# Insurance is money at risk: policies renewing inside this window are the
+# dashboard's cue to start the insurer's paperwork.
+INSURANCE_EXPIRING_WINDOW_DAYS = 60
 
 DASHBOARD_TASK_LOADS = (
     joinedload(Task.assigned_role),
@@ -237,6 +243,10 @@ async def dashboard(
     Recent weights are per-animal weight/BCS rows with the animal's identity,
     so they need ``animals.view`` — the permission that guards weight history
     on the animal pages — and are withheld (empty list, null total) without it.
+
+    The insurance-expiring block summarizes the finance register (policy
+    numbers, cover, renewal dates), so it follows the register's own
+    ``finance.view`` gate with the same withheld-not-empty convention.
     """
     can_view_animals = "animals.view" in perms
     buckets: list[BucketCountOut] | None = None
@@ -299,6 +309,51 @@ async def dashboard(
             ),
             order_by=(Task.due_date, Task.id),
         )
+
+    # Active policies renewing inside the window — including one whose
+    # renewal date has already passed, the same "overdue stays on the panel"
+    # rule as kiddings_due: a still-active policy past its renewal is the
+    # most urgent money at risk the block exists to surface. Insurance sums
+    # are finance facts, so the section follows the finance.view gate of the
+    # register it summarizes (withheld = empty list, None total — the
+    # permission gate must never render as a factual "no policies").
+    insurance_expiring: list[InsuranceExpiringOut] = []
+    insurance_expiring_total: int | None = None
+    if "finance.view" in perms:
+        expiring = (
+            select(
+                InsurancePolicy.id,
+                InsurancePolicy.policy_number,
+                InsurancePolicy.insurer,
+                InsurancePolicy.renewal_date,
+                Animal.tag_number.label("animal_tag"),
+            )
+            .outerjoin(Animal, InsurancePolicy.animal_id == Animal.id)
+            .where(
+                InsurancePolicy.farm_id == farm.id,
+                InsurancePolicy.status == INSURANCE_STATUS_ACTIVE,
+                InsurancePolicy.renewal_date
+                <= now + timedelta(days=INSURANCE_EXPIRING_WINDOW_DAYS),
+            )
+        )
+        expiring_rows = (
+            await db.execute(
+                expiring.add_columns(_exact_total(expiring).label("preview_total"))
+                .order_by(InsurancePolicy.renewal_date, InsurancePolicy.id)
+                .limit(DASHBOARD_PREVIEW_LIMIT)
+            )
+        ).all()
+        insurance_expiring_total = int(expiring_rows[0].preview_total) if expiring_rows else 0
+        insurance_expiring = [
+            InsuranceExpiringOut(
+                id=row.id,
+                policy_number=row.policy_number,
+                insurer=row.insurer,
+                renewal_date=row.renewal_date,
+                animal_tag=row.animal_tag,
+            )
+            for row in expiring_rows
+        ]
 
     can_view_breeding = "breeding.view" in perms
     kiddings_due: list[DashboardKiddingDueOut] = []
@@ -461,6 +516,8 @@ async def dashboard(
             for row in recent_weight_rows
         ],
         recent_weights_total=recent_weights_total,
+        insurance_expiring=insurance_expiring,
+        insurance_expiring_total=insurance_expiring_total,
         preview_limit=DASHBOARD_PREVIEW_LIMIT,
         recent_weights_limit=RECENT_WEIGHTS_LIMIT,
     )

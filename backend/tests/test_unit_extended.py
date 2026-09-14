@@ -286,6 +286,20 @@ def test_task_category_role_map_targets_valid_categories_and_presets() -> None:
         ("WEANING", "MOVER"),
         ("FEED", "FEEDER"),
         ("CLEANING", "CLEANER"),
+        # Husbandry-standards wave: watch/disinfection rounds → CLEANER,
+        # clinical protocols → VET, weighing/moves → MOVER, planning and
+        # squad rotation → MANAGER, policy paperwork → ACCOUNTANT.
+        ("KIDDING_WATCH", "CLEANER"),
+        ("BIRTHING_KIT", "MANAGER"),
+        ("HEALTH_CHECK", "VET"),
+        ("HEAT_WATCH", "CLEANER"),
+        ("HOOF_TRIMMING", "VET"),
+        ("SPRAYING", "VET"),
+        ("DISINFECTION", "CLEANER"),
+        ("WEIGHING", "MOVER"),
+        ("REBREED", "MANAGER"),
+        ("BUCK_ROTATION", "MANAGER"),
+        ("INSURANCE", "ACCOUNTANT"),
     ],
 )
 def test_task_category_role_map_matches_spec(category: str, role_code: str) -> None:
@@ -320,9 +334,14 @@ ENUM_CASES = [
     # UNASSESSED closes a service that could never be scanned because the doe
     # left the herd; it asserts neither a conception nor a failure to conceive.
     (BreedingOutcome, {"PENDING", "CONFIRMED_PREGNANT", "FAILED", "ABORTED", "UNASSESSED"}),
-    (KiddingEase, {"NORMAL", "ASSISTED", "DIFFICULT"}),  # SPEC §KiddingRecord
+    # SPEC §KiddingRecord originally defined ease as NORMAL/ASSISTED/DIFFICULT;
+    # CAESAREAN was re-admitted with the husbandry-standards vocabulary wave.
+    (KiddingEase, {"NORMAL", "ASSISTED", "DIFFICULT", "CAESAREAN"}),
     (KidStatus, {"ALIVE", "STILLBORN", "DIED"}),
-    (HealthEventType, {"VACCINE", "DEWORMING", "TREATMENT", "FOOTBATH", "VITAMIN"}),
+    (
+        HealthEventType,
+        {"VACCINE", "DEWORMING", "TREATMENT", "FOOTBATH", "VITAMIN", "EXAM", "FECAL_EXAM"},
+    ),
     (IngredientCategory, {"ROUGHAGE_WET", "ROUGHAGE_DRY", "CONCENTRATE"}),
     (FeedingShift, {"MORNING", "AFTERNOON", "NIGHT"}),
     (TransactionType, {"INCOME", "EXPENSE"}),
@@ -354,6 +373,17 @@ ENUM_CASES = [
             "FEED",
             "CLEANING",
             "OTHER",
+            "KIDDING_WATCH",
+            "BIRTHING_KIT",
+            "HEALTH_CHECK",
+            "HEAT_WATCH",
+            "HOOF_TRIMMING",
+            "SPRAYING",
+            "DISINFECTION",
+            "WEIGHING",
+            "REBREED",
+            "BUCK_ROTATION",
+            "INSURANCE",
         },
     ),
 ]
@@ -931,21 +961,24 @@ def _batch(
     return batch
 
 
-def test_quarantine_schedule_has_8_steps() -> None:
-    assert len(quarantine_schedule(_batch())) == 8
+def test_quarantine_schedule_has_11_steps() -> None:
+    assert len(quarantine_schedule(_batch())) == 11
 
 
 @pytest.mark.parametrize(
     ("index", "day_offset", "category"),
     [
         (0, 1, "QUARANTINE"),  # SPEC §45-Day Quarantine Protocol
-        (1, 4, "DEWORMING"),
-        (2, 5, "QUARANTINE"),
-        (3, 10, "VACCINE"),
-        (4, 20, "VACCINE"),
-        (5, 30, "VACCINE"),
-        (6, 40, "VACCINE"),
-        (7, 45, "BUCKET_MOVE"),
+        (1, 1, "QUARANTINE"),
+        (2, 4, "DEWORMING"),
+        (3, 5, "QUARANTINE"),
+        (4, 10, "VACCINE"),
+        (5, 13, "QUARANTINE"),
+        (6, 20, "VACCINE"),
+        (7, 30, "VACCINE"),
+        (8, 30, "QUARANTINE"),
+        (9, 40, "VACCINE"),
+        (10, 45, "BUCKET_MOVE"),
     ],
 )
 def test_quarantine_schedule_protocol_steps(index: int, day_offset: int, category: str) -> None:
@@ -1658,7 +1691,15 @@ def test_kidding_create_missing_required(missing: str) -> None:
 # ---------------------------------------------------------------------------
 # app.schemas — health
 # ---------------------------------------------------------------------------
-HEALTH_TYPES = ["VACCINE", "DEWORMING", "TREATMENT", "FOOTBATH", "VITAMIN"]
+HEALTH_TYPES = [
+    "VACCINE",
+    "DEWORMING",
+    "TREATMENT",
+    "FOOTBATH",
+    "VITAMIN",
+    "EXAM",
+    "FECAL_EXAM",
+]
 VALID_HEALTH = {"scope": "animal", "animal_id": 1, "type": "TREATMENT"}
 
 

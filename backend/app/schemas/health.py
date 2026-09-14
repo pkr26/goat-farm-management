@@ -20,7 +20,11 @@ from .summaries import AnimalIdentityOut
 
 # Mirrors models.HealthEventType (v1 coerced anything else to TREATMENT;
 # the JSON API rejects unknown types with 422 instead).
-HealthEventTypeStr = Literal["VACCINE", "DEWORMING", "TREATMENT", "FOOTBATH", "VITAMIN"]
+# EXAM (arrival/clinical inspection) and FECAL_EXAM (dung exam result) share
+# TREATMENT's rules: no schedule-template linkage, spend booked as VET.
+HealthEventTypeStr = Literal[
+    "VACCINE", "DEWORMING", "TREATMENT", "FOOTBATH", "VITAMIN", "EXAM", "FECAL_EXAM"
+]
 # Ad-hoc bucket treatments stay at 250 in the API. Batch-linked quarantine
 # protocols must cover every schema-valid purchase batch; otherwise counts
 # 251..MAX_BATCH_COUNT create duties that can never be completed.

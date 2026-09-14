@@ -160,6 +160,48 @@ describe("FeedingPage plan table", () => {
     expect(cells[4]).toHaveTextContent("20"); // daily kg
   });
 
+  it("labels the creep band and the weight-basis hint with the recipe", async () => {
+    server.use(
+      planHandler({
+        lines: [
+          {
+            ...LINE_MALE_KIDS,
+            creep_band: "14–30 d",
+            basis: "weight",
+            mean_weight_kg: 18.5,
+            note: "Bunk-sweep before the night shift.",
+          },
+        ],
+        records: [],
+      }),
+      recipesHandler(),
+    );
+    renderWithProviders(<FeedingPage />);
+
+    const row = (await screen.findByText("Fattening 50/50")).closest("tr") as HTMLElement;
+    // The band joins the recipe label; the mean and note ride under it.
+    expect(within(row).getByText("(14–30 d)")).toBeInTheDocument();
+    expect(within(row).getByText("scaled from mean 18.5 kg")).toBeInTheDocument();
+    expect(within(row).getByText("Bunk-sweep before the night shift.")).toBeInTheDocument();
+  });
+
+  it("keeps a flat unnoted line as terse as before", async () => {
+    server.use(
+      planHandler({
+        lines: [
+          { ...LINE_BREEDING, basis: "flat", mean_weight_kg: null, note: null },
+        ],
+        records: [],
+      }),
+      recipesHandler(),
+    );
+    renderWithProviders(<FeedingPage />);
+
+    const row = (await screen.findByText("Lactating 60/40")).closest("tr") as HTMLElement;
+    expect(within(row).queryByText(/scaled from mean/)).not.toBeInTheDocument();
+    expect(within(row).getAllByRole("cell")[1]).toHaveTextContent("Lactating 60/40");
+  });
+
   it("renders the 40/20/40 shift cells with their times in the title", async () => {
     await renderLoaded();
 

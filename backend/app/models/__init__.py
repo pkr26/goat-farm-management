@@ -50,6 +50,7 @@ from .enums import (
     IngredientCategory,
     KiddingEase,
     KidStatus,
+    MortalityCause,
     Sex,
     TaskCategory,
     TaskStatus,
@@ -57,7 +58,7 @@ from .enums import (
     TransactionType,
 )
 from .feeding import FeedFinishedStock, FeedingRecord, FeedInventory, FeedRecipe, FeedRecipeLine
-from .finance import Transaction
+from .finance import InsurancePolicy, Transaction
 from .health import HealthEvent, MovementRestrictionAction, VaccineTemplate
 from .helpers import (
     QUARANTINE_PROTOCOL,
@@ -129,10 +130,12 @@ __all__ = [
     "HealthEventType",
     "IdempotencyRecord",
     "IngredientCategory",
+    "InsurancePolicy",
     "KidEntry",
     "KidStatus",
     "KiddingEase",
     "KiddingRecord",
+    "MortalityCause",
     "MovementRestrictionAction",
     "PlannerPlan",
     "PurchaseBatch",

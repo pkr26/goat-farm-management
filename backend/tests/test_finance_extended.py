@@ -2422,7 +2422,10 @@ async def test_dashboard_ultrasound_due_within_7_days(client: httpx.AsyncClient)
     assert len(dash["ultrasounds_due"]) == 1
     assert dash["ultrasounds_due"][0]["category"] == "ULTRASOUND"
     assert dash["ultrasounds_due"][0]["due_date"] == iso(today() + timedelta(days=7))
-    assert dash["overdue_tasks"] == []
+    # With the scan due in exactly 7 days, the breeding's return-to-heat watch
+    # (day 18–21 window) closed a week ago unobserved — it is the one
+    # legitimately overdue duty; the ultrasound itself is upcoming, not late.
+    assert [t["category"] for t in dash["overdue_tasks"]] == ["HEAT_WATCH"]
 
 
 async def test_dashboard_ultrasound_far_future_not_listed(client: httpx.AsyncClient) -> None:
