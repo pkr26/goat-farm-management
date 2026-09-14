@@ -170,6 +170,10 @@ jobs:
           # each residual (fix published upstream, image not yet rebuilt)
           # and its refresh policy. Scoped to these two steps only.
           trivyignores: .trivyignore.compose-images
+          # Debian's ssl-cert package ships a build-time-generated self-signed
+          # "snakeoil" key pair at this path on every install — public
+          # placeholder material, not a deployment secret.
+          skip-files: /etc/ssl/private/ssl-cert-snakeoil.key
       - name: Scan Compose nginx image for fixable high/critical vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
