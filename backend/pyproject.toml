@@ -69,6 +69,16 @@ testpaths = ["tests"]
 # silent no-op. --strict-config: any misspelled config key fails the run.
 addopts = ["--strict-markers", "--strict-config"]
 
+[tool.coverage.run]
+# SQLAlchemy's AsyncSession bridges async/sync through greenlet: under the
+# default tracer, line events after each greenlet switch are silently lost,
+# which under-reported exactly the service-layer modules the tests drive the
+# hardest (services/kidding.py measured 23% app-wide while its suite plainly
+# exercised it — verified with a probe line). greenlet-aware tracing fixes
+# the attribution; the measured app-wide number only goes up, so the 75%
+# ratchet below stays honest.
+concurrency = ["greenlet", "thread"]
+
 [tool.coverage.report]
 # Coverage ratchet floor for `pytest --cov=app` (ci.yml). Single-sourced here
 # so pytest-cov enforces the same floor for local instrumented runs as for CI

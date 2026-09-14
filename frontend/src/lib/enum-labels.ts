@@ -121,6 +121,13 @@ const SIMPLE_LABELS: Record<string, Record<string, string>> = {
     ABORTED: "Aborted",
     UNASSESSED: "Left the herd unassessed",
   },
+  // Insurance register lifecycle (finance.InsurancePolicyOut.status).
+  insuranceStatus: {
+    active: "Active",
+    renewed: "Renewed",
+    lapsed: "Lapsed",
+    claimed: "Claimed",
+  },
 };
 
 /** Bucket short labels for the goat herd-flow wards. */
@@ -148,6 +155,18 @@ const TE_LABELS: { [K in EnumKind]?: Record<string, string> } = {
     VACCINE: "టీకా",
     DEWORMING: "పురుగుల మందు",
     KIDDING_DUE: "పిల్లల పుట్టుక",
+    KIDDING_WATCH: "పిల్లల కోసం గమనింపు",
+    BIRTHING_KIT: "జనన కిట్ సరిచూడటం",
+    HEALTH_CHECK: "ఆరోగ్య పరీక్ష",
+    HEAT_WATCH: "తప్తు కోసం గమనింపు",
+    WEANING: "పాలు తొలగింపు",
+    HOOF_TRIMMING: "గిట్టు కత్తిరింపు",
+    SPRAYING: "మందు పిచికలు",
+    DISINFECTION: "వ్యాధి నివారణ శుభ్రం",
+    WEIGHING: "బరువు చూడటం",
+    REBREED: "తిరిగి సంతానం",
+    BUCK_ROTATION: "మగ మేక మార్పు",
+    INSURANCE: "భీమా",
     FEED: "మేత",
     CLEANING: "శుభ్రం చేయడం",
     OTHER: "ఇతర",
@@ -158,6 +177,12 @@ const TE_LABELS: { [K in EnumKind]?: Record<string, string> } = {
     MALE_KIDS: "మగ పిల్లలు",
     FEMALE_KIDS: "ఆడ పిల్లలు",
     BREEDING: "సంతానోత్పత్తి",
+  },
+  insuranceStatus: {
+    active: "అమలులో",
+    renewed: "నవీకరించబడింది",
+    lapsed: "రద్దైంది",
+    claimed: "పరిహారం అయింది",
   },
 };
 
@@ -177,6 +202,7 @@ export type EnumKind =
   | "mortalityCause"
   | "outcome"
   | "lossCause"
+  | "insuranceStatus"
   | "bucket";
 
 /**

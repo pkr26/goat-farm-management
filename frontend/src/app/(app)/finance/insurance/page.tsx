@@ -15,6 +15,7 @@ import { z } from "zod";
 
 import {
   useAddInsurancePolicyApiFinanceInsurancePost,
+  useClaimPolicyApiFinanceInsurancePolicyIdClaimPost,
   useListInsurancePoliciesApiFinanceInsuranceGet,
   useRenewPolicyApiFinanceInsurancePolicyIdRenewPost,
 } from "@/api/generated/endpoints";
@@ -29,6 +30,7 @@ import { PermissionGate } from "@/components/permission-gate";
 import { PageSkeleton } from "@/components/skeletons";
 import { StaleDataNotice } from "@/components/stale-data-notice";
 import { StatusBadge } from "@/components/status-badge";
+import { enumLabel } from "@/lib/enum-labels";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -515,6 +517,76 @@ function RenewPolicyDialog({
   );
 }
 
+function ClaimPolicyDialog({
+  policy,
+  onClose,
+  onSaved,
+}: {
+  policy: InsurancePolicyOut;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const mutation = useClaimPolicyApiFinanceInsurancePolicyIdClaimPost();
+  const claimFlight = useSingleFlight();
+  const [formError, setFormError] = useState<string | null>(null);
+
+  async function onConfirm() {
+    await claimFlight.run(async () => {
+      const farmScope = captureFarmScope();
+      setFormError(null);
+      try {
+        // No body: the claim is dated today server-side. A payout the
+        // insurer settles is booked through the ledger, never here.
+        await mutation.mutateAsync({ policyId: policy.id, data: {} });
+        if (!farmScope()) return;
+        toast.success(`Claim recorded on policy ${policy.policy_number}.`);
+        onSaved();
+        onClose();
+      } catch (err) {
+        if (!farmScope()) return;
+        const message = mutationError(err);
+        setFormError(message);
+        toast.error(message);
+      }
+    });
+  }
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && claimFlight.pending) return;
+        onClose();
+      }}
+    >
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Record claim on {policy.policy_number}</DialogTitle>
+          <DialogDescription>
+            The register&apos;s terminal event — the policy keeps its history and
+            cannot be claimed twice. Any payout the insurer settles belongs in
+            the ledger as income, not here.
+          </DialogDescription>
+        </DialogHeader>
+        {formError && <p role="alert" className="text-sm text-destructive">{formError}</p>}
+        <DialogFooter>
+          <Button type="button" variant="outline" disabled={claimFlight.pending} onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={claimFlight.pending}
+            onClick={() => void onConfirm()}
+          >
+            {claimFlight.pending ? "Recording…" : "Record claim"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function InsurancePageContent({ perms }: { perms: PermissionsState }) {
   const { can } = perms;
   const allowed = can("finance.view");
@@ -524,6 +596,7 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
   const [offset, setOffset] = useState(0);
   const [creating, setCreating] = useState(false);
   const [renewing, setRenewing] = useState<InsurancePolicyOut | null>(null);
+  const [claiming, setClaiming] = useState<InsurancePolicyOut | null>(null);
 
   const query = useListInsurancePoliciesApiFinanceInsuranceGet(
     { limit: INSURANCE_PAGE_LIMIT, offset },
@@ -648,18 +721,30 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
                   </TableCell>
                   <TableCell>{formatDate(policy.renewal_date)}</TableCell>
                   <TableCell>
-                    <StatusBadge status={policy.status} />
+                    <StatusBadge status={policy.status}>
+                      {enumLabel("insuranceStatus", policy.status)}
+                    </StatusBadge>
                   </TableCell>
                   {canManage && (
                     <TableCell className="text-right">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={settling}
-                        onClick={() => setRenewing(policy)}
-                      >
-                        Renew
-                      </Button>
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={settling || policy.status === "claimed"}
+                          onClick={() => setRenewing(policy)}
+                        >
+                          Renew
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={settling || policy.status === "claimed"}
+                          onClick={() => setClaiming(policy)}
+                        >
+                          Claim
+                        </Button>
+                      </div>
                     </TableCell>
                   )}
                 </TableRow>
@@ -688,6 +773,13 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
         <RenewPolicyDialog
           policy={renewing}
           onClose={() => setRenewing(null)}
+          onSaved={refresh}
+        />
+      )}
+      {claiming && (
+        <ClaimPolicyDialog
+          policy={claiming}
+          onClose={() => setClaiming(null)}
           onSaved={refresh}
         />
       )}

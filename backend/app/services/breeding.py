@@ -632,6 +632,18 @@ async def create_breeding_record(
         animal_id=doe.id,
         breeding_record_id=br.id,
     )
+    # This service answers the doe's re-breeding prompt — the REBREED duty's
+    # purpose is exactly this record. Complete it now (attributed to the
+    # recorder, like the ultrasound duty on a confirmed pregnancy) instead of
+    # letting it linger overdue through her next pregnancy.
+    for task in await _pending_tasks_for(
+        db, farm.id, for_update=True, animal_id=doe.id, category=TaskCategory.REBREED.value
+    ):
+        if task.status == TaskStatus.PENDING.value:
+            task.status = TaskStatus.DONE.value
+            task.completed_by_id = created_by_id
+            task.completed_at = utcnow()
+            _clear_task_rejection(task)
     # The flush-window guard needs the doe's RESTING residency date; sessions
     # run autoflush=False and the request path does not load bucket_moves.
     resting_since: date | None = None
@@ -879,16 +891,25 @@ async def record_ultrasound_result(
         # One watch duty per day across the final week: the kidding window
         # opens at 145 days (EKD − 5), and the signs (udder fill, tail-head
         # ligaments, vulva discharge) are only meaningful as a daily look.
+        # The due-day duty additionally carries the dystocia escalation rule
+        # (assist after 30 min of straining without progress; vet if not
+        # corrected in 15–20 min) — the one day labor can actually start.
         for watch_offset in range(profile.kidding_watch_start_days, -1, -1):
+            if watch_offset == 0:
+                watch_suffix = (
+                    f" (due {ekd.strftime('%d-%m')}) — labor watch through the night; "
+                    "assist after 30 min straining w/o progress; "
+                    "call vet if 15–20 min unresolved"
+                )
+            else:
+                watch_suffix = (
+                    f" (due {ekd.strftime('%d-%m')}) — check udder fill, tail-head "
+                    "ligaments, vulva discharge"
+                )
             await _add_task(
                 db,
                 br.farm_id,
-                _fit_generated_title(
-                    "Kidding watch: ",
-                    doe.tag_number,
-                    f" (due {ekd.strftime('%d-%m')}) — check udder fill, tail-head "
-                    "ligaments, vulva discharge; monitor through the night if due today",
-                ),
+                _fit_generated_title("Kidding watch: ", doe.tag_number, watch_suffix),
                 ekd - timedelta(days=watch_offset),
                 TaskCategory.KIDDING_WATCH,
                 animal_id=doe.id,

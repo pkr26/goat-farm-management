@@ -212,6 +212,9 @@ def animal_out(
         out.purchase_price = None
     if "finance.view" not in permissions:
         out.sale_price = None
+        # Buyer identity is a commercial fact of the sale, priced like the
+        # rest of the sale economics.
+        out.buyer_name = None
     if "purchases.view" not in permissions:
         # Supplier identity and acquisition timing belong to procurement,
         # independently of permission to see aggregate financial values.
@@ -242,6 +245,10 @@ def animal_out(
         # requires health permissions — so fail closed alongside the rest.
         out.restriction_version = 0
         out.mortality_cause = None
+        out.mortality_cause_code = None
+        out.disposal_method = None
+        out.necropsy_done = False
+        out.necropsy_findings = None
         out.mortality_reported_at = None
         # Free text has no enforceable domain classification and commonly
         # carries clinical or commercial narrative; fail closed.
@@ -256,9 +263,12 @@ def task_action_url(task: Task) -> str | None:
         return f"/breeding/{task.breeding_record_id}/ultrasound"
     if task.category == TaskCategory.KIDDING_DUE.value and task.breeding_record_id:
         return f"/kidding/new?breeding_id={task.breeding_record_id}"
-    if task.category in (TaskCategory.VACCINE.value, TaskCategory.DEWORMING.value) and (
-        task.animal_id or task.purchase_batch_id
-    ):
+    if task.category in (TaskCategory.VACCINE.value, TaskCategory.DEWORMING.value):
+        # Animal/batch duties deep-link with their target pre-filled; a
+        # herd-level cadence round carries no target, but its only sanctioned
+        # close path is still the health-event form (a bucket/batch-scoped
+        # round event) — a bare-button complete is 409-blocked — so link the
+        # form with the task alone and let the operator pick the scope.
         params = f"task_id={task.id}"
         if task.animal_id:
             params += f"&animal_id={task.animal_id}"

@@ -44,7 +44,9 @@ from app.models import (
     FeedRecipeLine,
     Sex,
     User,
+    WeightRecord,
 )
+from app.models.enums import IngredientCategory
 from app.models.feed_rules import (
     CREEP_KG_PER_HEAD,
     creep_band_label,
@@ -1469,8 +1471,17 @@ async def test_dispense_explicit_today_and_past_dates(client: httpx.AsyncClient)
     assert resp.status_code == 201, resp.text
     assert resp.json()["date"] == today().isoformat()
     # RT-HIJ-4: the farm was created moments ago, so pre-creation dates are
-    # hardening-floor rejections, not accepted backdates.
-    for d in (today() - timedelta(days=1), date(2000, 1, 1)):
+    # hardening-floor rejections, not accepted backdates. The floor compares
+    # against the UTC calendar date of created_at (documented in the guard:
+    # east-of-UTC farms are loosened by a day), so the reject date is derived
+    # from the farm's actual created_at — a fixed today()-1 would flake in
+    # the daily window where the farm-local date is already tomorrow in UTC.
+    async with get_sessionmaker()() as db:
+        created = (
+            await db.execute(select(Farm).where(Farm.id == int(headers["X-Farm-Id"])))
+        ).scalar_one()
+    floor = created.created_at.date()  # the UTC date the guard compares to
+    for d in (floor - timedelta(days=1), date(2000, 1, 1)):
         resp = await dispense(client, headers, date=d.isoformat())
         assert resp.status_code == 422, d
         assert "before the farm was created" in resp.text
@@ -3057,3 +3068,76 @@ async def test_add_stock_zero_price_books_zero_expense(client: httpx.AsyncClient
     feed_txns = [t for t in await finance_txns(client, headers) if t["category"] == "FEED"]
     assert len(feed_txns) == 1
     assert feed_txns[0]["amount"] == 0  # an explicit ₹0 books a ₹0 expense
+
+
+async def test_plan_recovery_mean_excludes_pre_weaning_kids(
+    client: httpx.AsyncClient,
+) -> None:
+    """A weighed dependent kid must not drag the lactating doe's ration
+    toward the kid's weight: the doe 40 kg + three 8 kg kids used to yield a
+    16 kg mean (ration floored at half the flat default). Kids price only
+    the creep line, never the adult TMR."""
+    headers = await owner_with_farm(client)
+    farm_id = int(headers["X-Farm-Id"])
+    async with get_sessionmaker()() as db:
+        doe = _orm_animal(farm_id, "RM-DOE", sex="F", bucket="RECOVERY", dob_days=700)
+        db.add(doe)
+        await db.flush()
+        kids = [
+            _orm_animal(farm_id, f"RM-K{i}", sex="F", bucket="RECOVERY", dob_days=30, dam_id=doe.id)
+            for i in range(3)
+        ]
+        db.add_all(kids)
+        await db.flush()
+        db.add_all(
+            [
+                WeightRecord(farm_id=farm_id, animal_id=doe.id, date=today(), weight_kg=40.0),
+                *[
+                    WeightRecord(farm_id=farm_id, animal_id=kid.id, date=today(), weight_kg=8.0)
+                    for kid in kids
+                ],
+            ]
+        )
+        await db.commit()
+    lines = (await get_plan(client, headers))["lines"]
+    adult_recovery = next(
+        line for line in lines if line["bucket"] == "RECOVERY" and line["recipe_code"] != "CREEP"
+    )
+    # The mean prices only the doe: 40 kg × 4.0% (lactation class).
+    assert adult_recovery["basis"] == "weight"
+    assert adult_recovery["mean_weight_kg"] == pytest.approx(40.0)
+    assert adult_recovery["kg_per_head"] == pytest.approx(1.6)
+    assert adult_recovery["heads"] == 1
+    # The kids still get their creep line, flat and unclamped.
+    creep = next(line for line in lines if line["recipe_code"] == "CREEP")
+    assert creep["heads"] == 3
+    assert creep["kg_per_head"] == pytest.approx(0.1)  # day 30 closes the 14–30 band
+    assert creep["basis"] == "flat"
+
+
+async def test_seeded_maintenance_recipe_meets_the_mineral_standard(
+    client: httpx.AsyncClient,
+) -> None:
+    """Fresh installs get the audited composition (ICAR ~2% mineral mixture
+    plus a salt line, concentrates still totalling the same share); the
+    f2a3b4c5d6e7 data migration carries the same fix to existing farms."""
+    await owner_with_farm(client)
+    async with get_sessionmaker()() as db:
+        recipe = (
+            await db.execute(select(FeedRecipe).where(FeedRecipe.code == "MAINTENANCE_75_25"))
+        ).scalar_one()
+        await db.refresh(recipe, attribute_names=["lines"])
+        lines = {line.ingredient: line for line in recipe.lines}
+    assert lines["Mineral mix"].kg_per_100kg == pytest.approx(2.0)
+    assert lines["Salt"].kg_per_100kg == pytest.approx(1.0)
+    # Roughage 75 (45+30) and concentrates 25 (5.25+2.5+3+3.75+3+2+1 = 25.5…
+    # the seed's exact arithmetic: concentrates total what the recipe says).
+    roughage = (
+        lines["Super Napier green fodder"].kg_per_100kg + lines["Dry jowar stover"].kg_per_100kg
+    )
+    concentrates = sum(
+        line.kg_per_100kg
+        for line in recipe.lines
+        if line.category == IngredientCategory.CONCENTRATE.value
+    )
+    assert roughage + concentrates == pytest.approx(100.0)

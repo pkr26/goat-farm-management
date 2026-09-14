@@ -150,6 +150,8 @@ Index(
 # fact or deleted — corrections happen by renewing, not rewriting.
 INSURANCE_POLICY_STATUSES: tuple[str, ...] = ("active", "renewed", "lapsed", "claimed")
 INSURANCE_STATUS_ACTIVE = "active"
+INSURANCE_STATUS_CLAIMED = "claimed"
+INSURANCE_STATUS_LAPSED = "lapsed"
 
 
 class InsurancePolicy(Base):
@@ -225,3 +227,45 @@ class InsurancePolicy(Base):
     )
 
     animal: Mapped[Animal | None] = relationship(foreign_keys=[animal_id])
+
+
+class InsurancePremium(Base):
+    """One premium payment against a policy — the register's audit ledger.
+
+    ``InsurancePolicy.premium`` is only the CURRENT period's price: renewal
+    overwrites it (a policy is one row, not a history), so the sum actually
+    paid lives here. A row is booked at registration (covering start → first
+    renewal) and at every renewal (covering the previous horizon → the new
+    one); the per-animal lifetime P&L sums this table, never the column.
+    """
+
+    __tablename__ = "insurance_premiums"
+    __table_args__ = (
+        # Candidate key for the tenant composite policy FK below.
+        UniqueConstraint("farm_id", "id", name="uq_insurance_premiums_farm_id_id"),
+        CheckConstraint(
+            "premium >= 0 AND premium <= 1000000000",
+            name="ck_insurance_premiums_premium",
+        ),
+        CheckConstraint(
+            "covered_until > covered_from",
+            name="ck_insurance_premiums_covered_period",
+        ),
+        ForeignKeyConstraint(
+            ["farm_id", "policy_id"],
+            ["insurance_policies.farm_id", "insurance_policies.id"],
+            name="fk_insurance_premiums_farm_policy",
+        ),
+        Index("ix_insurance_premiums_farm_policy", "farm_id", "policy_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
+    policy_id: Mapped[int] = mapped_column(ForeignKey("insurance_policies.id"))
+    premium: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    covered_from: Mapped[date]
+    covered_until: Mapped[date]
+    recorded_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )

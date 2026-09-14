@@ -640,3 +640,251 @@ async def test_insurance_has_no_edit_or_delete_route(
     owner = await owner_with_farm(client, email="ins-noroute@farm.in")
     resp = await client.request(method, path, headers=owner)
     assert resp.status_code == 404, f"{method} {path} must not exist"
+
+
+# ---------------------------------------------------------------------------
+# Premium payment history (the audit fix: renewal used to overwrite the
+# premium column, hiding every earlier payment from the lifetime P&L)
+# ---------------------------------------------------------------------------
+async def test_renewal_books_premium_history_and_pnl_sums_payments(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client, email="ins-hist@farm.in")
+    animal = await make_animal(client, owner, tag="INS-H-1")
+
+    created = await add_policy(
+        client, owner, policy_number="POL-H-1", animal_id=animal["id"], premium=450.0
+    )
+    assert created.status_code == 201, created.text
+    policy_id = created.json()["id"]
+
+    renewed = await client.post(
+        f"/api/finance/insurance/{policy_id}/renew",
+        json={
+            "renewal_date": iso(today() + timedelta(days=730)),
+            "premium": 500.0,
+        },
+        headers=owner,
+    )
+    assert renewed.status_code == 200, renewed.text
+
+    from app.models import InsurancePremium
+
+    async with get_sessionmaker()() as db:
+        payments = list(
+            (
+                await db.execute(
+                    select(InsurancePremium)
+                    .where(InsurancePremium.policy_id == policy_id)
+                    .order_by(InsurancePremium.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert [(p.premium, p.covered_from, p.covered_until) for p in payments] == [
+        (
+            Decimal("450.00"),
+            today() - timedelta(days=10),
+            today() + timedelta(days=365),
+        ),
+        (
+            Decimal("500.00"),
+            today() + timedelta(days=365),
+            today() + timedelta(days=730),
+        ),
+    ]
+
+    # The lifetime P&L sums what was actually payable across both periods —
+    # not the renewal-overwritten column value (which reads 500).
+    pnl = await client.get(f"/api/finance/animals/{animal['id']}/lifetime-pnl", headers=owner)
+    assert pnl.status_code == 200, pnl.text
+    assert pnl.json()["insurance_premiums"] == 950.0
+
+
+async def test_claim_endpoint_is_terminal_and_single_shot(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client, email="ins-claim@farm.in")
+    animal = await make_animal(client, owner, tag="INS-C-1")
+    created = await add_policy(client, owner, policy_number="POL-C-1", animal_id=animal["id"])
+    assert created.status_code == 201, created.text
+    policy_id = created.json()["id"]
+
+    claimed = await client.post(
+        f"/api/finance/insurance/{policy_id}/claim",
+        json={"claim_date": iso(today())},
+        headers=owner,
+    )
+    assert claimed.status_code == 200, claimed.text
+    assert claimed.json()["status"] == "claimed"
+
+    again = await client.post(
+        f"/api/finance/insurance/{policy_id}/claim",
+        json={"claim_date": iso(today())},
+        headers=owner,
+    )
+    assert again.status_code == 409, again.text
+
+    # A claim is a register fact, not a money movement: nothing booked.
+    async with get_sessionmaker()() as db:
+        count = await db.execute(
+            select(Transaction).where(
+                Transaction.farm_id == int(owner["X-Farm-Id"]),
+                Transaction.category == "OTHER",
+            )
+        )
+        assert len(list(count.scalars())) == 0
+
+    # A claim before the policy started is a chronology error.
+    early = await add_policy(client, owner, policy_number="POL-C-2")
+    assert early.status_code == 201, early.text
+    too_early = await client.post(
+        f"/api/finance/insurance/{early.json()['id']}/claim",
+        json={"claim_date": iso(today() - timedelta(days=30))},
+        headers=owner,
+    )
+    assert too_early.status_code == 422, too_early.text
+
+
+async def test_animal_exit_lapses_active_cover_and_blocks_renewal(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client, email="ins-lapse@farm.in")
+    animal = await make_animal(
+        client, owner, tag="INS-L-1", sex="M", date_of_birth=iso(today() - timedelta(days=400))
+    )
+    # Renewal inside the 60-day dashboard window so both start on the card.
+    soon = {"renewal_date": iso(today() + timedelta(days=30))}
+    created = await add_policy(
+        client, owner, policy_number="POL-L-1", animal_id=animal["id"], **soon
+    )
+    assert created.status_code == 201, created.text
+    policy_id = created.json()["id"]
+    # A herd-level policy must survive any single animal's exit untouched.
+    herd = await add_policy(client, owner, policy_number="POL-L-2", **soon)
+    assert herd.status_code == 201, herd.text
+
+    dashboard = await get_dashboard(client, owner)
+    assert dashboard["insurance_expiring_total"] == 2
+
+    sold = await change_status(
+        client,
+        owner,
+        animal["id"],
+        "SOLD",
+        sale_price=6000.0,
+        sale_weight_kg=25.0,
+        sale_price_per_kg=240.0,
+    )
+    assert sold["status"] == "SOLD"
+
+    policies = (await list_policies(client, owner)).json()["policies"]
+    by_number = {p["policy_number"]: p for p in policies}
+    assert by_number["POL-L-1"]["status"] == "lapsed"
+    assert by_number["POL-L-2"]["status"] == "active"
+
+    # Lapsed cover leaves the expiry card (only live cover nags)...
+    dashboard = await get_dashboard(client, owner)
+    assert dashboard["insurance_expiring_total"] == 1
+    # ...cannot be renewed for stock that has left the herd...
+    blocked = await client.post(
+        f"/api/finance/insurance/{policy_id}/renew",
+        json={"renewal_date": iso(today() + timedelta(days=400))},
+        headers=owner,
+    )
+    assert blocked.status_code == 422, blocked.text
+    assert "left the herd" in blocked.json()["detail"]
+    # ...but its claim window is still open.
+    claimed = await client.post(f"/api/finance/insurance/{policy_id}/claim", json={}, headers=owner)
+    assert claimed.status_code == 200, claimed.text
+    assert claimed.json()["status"] == "claimed"
+
+    # New cover cannot be registered against the exited animal either.
+    refused = await add_policy(client, owner, policy_number="POL-L-3", animal_id=animal["id"])
+    assert refused.status_code == 422, refused.text
+    assert "left the herd" in refused.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Mortality memo (audit backlog #31: deaths visible on the finance summary,
+# valued at the farm's own realized rate — a memo, never a transaction)
+# ---------------------------------------------------------------------------
+async def test_mortality_memo_values_deaths_at_the_realized_rate(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client, email="memo@farm.in")
+    dead = await make_animal(
+        client,
+        owner,
+        tag="M-DEAD",
+        sex="F",
+        date_of_birth=iso(today() - timedelta(days=400)),
+        weight_kg=30.0,
+        weight_date=iso(today() - timedelta(days=5)),
+    )
+    buyer_lot = await make_animal(
+        client,
+        owner,
+        tag="M-SOLD",
+        sex="M",
+        date_of_birth=iso(today() - timedelta(days=300)),
+    )
+    await change_status(
+        client,
+        owner,
+        dead["id"],
+        "DEAD",
+        mortality_cause="pneumonia",
+        mortality_cause_code="PNEUMONIA",
+    )
+    sold = await change_status(
+        client,
+        owner,
+        buyer_lot["id"],
+        "SOLD",
+        sale_price=12500.0,
+        sale_weight_kg=25.0,
+        sale_price_per_kg=500.0,
+    )
+    assert sold["status"] == "SOLD"
+
+    summary = await get_finance(client, owner)
+    memo = summary["mortality_loss"]
+    assert memo["window_months"] == 12
+    assert memo["head_count"] == 1
+    # 30 kg (last recorded weight) × ₹500/kg (realized rate) = ₹15,000.
+    assert memo["estimated_loss"] == 15000.0
+    assert "last recorded weight" in memo["basis"]
+    # Ledger-neutral: the memo never touches the P&L totals.
+    assert summary["total_expense"] == 0.0
+    assert summary["total_income"] == 12500.0
+
+
+async def test_mortality_memo_stays_unvalued_without_a_weighed_sale(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client, email="memo2@farm.in")
+    dead = await make_animal(
+        client,
+        owner,
+        tag="M-DEAD-2",
+        sex="F",
+        weight_kg=28.0,
+        weight_date=iso(today() - timedelta(days=2)),
+    )
+    await change_status(client, owner, dead["id"], "DEAD", mortality_cause_code="DIARRHOEA")
+    # A sale recorded with no weight cannot price the mortality either.
+    unweighed = await make_animal(
+        client,
+        owner,
+        tag="M-SOLD-2",
+        sex="M",
+        date_of_birth=iso(today() - timedelta(days=300)),
+    )
+    await change_status(client, owner, unweighed["id"], "SOLD", sale_price=9000.0)
+
+    memo = (await get_finance(client, owner))["mortality_loss"]
+    assert memo["head_count"] == 1
+    assert memo["estimated_loss"] is None
+    assert "unvalued" in memo["basis"]

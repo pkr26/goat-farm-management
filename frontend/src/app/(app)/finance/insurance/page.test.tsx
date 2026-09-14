@@ -277,3 +277,74 @@ describe("InsurancePage", () => {
     });
   });
 });
+
+describe("InsurancePage — claim action", () => {
+  let claimBody: Record<string, unknown> | null;
+  let claimId: number | null;
+
+  beforeEach(() => {
+    claimBody = null;
+    claimId = null;
+    server.use(
+      http.get("/api/finance/insurance", () =>
+        HttpResponse.json({ policies: [makePolicy()], total: 1, limit: 50, offset: 0 }),
+      ),
+      http.post("/api/finance/insurance/:policyId/claim", async ({ request }) => {
+        claimId = Number(new URL(request.url).pathname.split("/").at(-2));
+        claimBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makePolicy({ status: "claimed" }));
+      }),
+    );
+  });
+
+  it("records a claim from the register row and shows the terminal chip", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<InsurancePage />);
+    await screen.findByText("POL-2026-001");
+
+    await user.click(screen.getByRole("button", { name: "Claim" }));
+    const dialog = screen.getByRole("dialog");
+    expect(
+      within(dialog).getByText(/terminal event/i, { ignore: ".sr-only" }),
+    ).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Record claim" }));
+
+    await waitFor(() => expect(claimId).toBe(1));
+    expect(claimBody).toEqual({});
+  });
+
+  it("disables both actions on an already-claimed policy", async () => {
+    server.use(
+      http.get("/api/finance/insurance", () =>
+        HttpResponse.json({
+          policies: [makePolicy({ status: "claimed" })],
+          total: 1,
+          limit: 50,
+          offset: 0,
+        }),
+      ),
+    );
+    renderWithProviders(<InsurancePage />);
+    await screen.findByText("Claimed");
+
+    expect(screen.getByRole("button", { name: "Renew" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Claim" })).toBeDisabled();
+  });
+
+  it("labels a lapsed policy (auto-lapsed on herd exit) as a warning chip", async () => {
+    server.use(
+      http.get("/api/finance/insurance", () =>
+        HttpResponse.json({
+          policies: [makePolicy({ status: "lapsed" })],
+          total: 1,
+          limit: 50,
+          offset: 0,
+        }),
+      ),
+    );
+    renderWithProviders(<InsurancePage />);
+    const chip = await screen.findByText("Lapsed");
+    const badge = chip.closest('[data-slot="badge"]');
+    expect(badge?.className).toMatch(/warning|amber|yellow|orange/i);
+  });
+});

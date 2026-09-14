@@ -1,7 +1,7 @@
 """Feeding."""
 
 import math
-from datetime import date
+from datetime import date, timedelta
 from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal
 from typing import Any
 
@@ -385,13 +385,29 @@ async def feeding_plan(
     # A separate lightweight source over Animal + the weight LATERAL — not
     # the feeding_contexts subquery — so the movement LATERAL is still
     # rendered by exactly one statement per plan.
+    #
+    # Pre-weaning animals are excluded from the mean: in RECOVERY a weighed
+    # dependent kid would otherwise drag the lactating doe's ration toward
+    # the kid's weight (doe 40 kg + three 8 kg kids ⇒ mean 16 kg ⇒ a ration
+    # floored at half the flat default). Kids never consume the adult TMR —
+    # they get the creep line — so they must not price it. Unknown-DOB
+    # animals (no coalesced DOB) stay in: presumptive adults, exactly how
+    # the recipe classification treats them.
     weight_source = (
         select(
             Animal.current_bucket.label("bucket"),
             latest_weight.c.weight_kg.label("weight_kg"),
         )
         .outerjoin(latest_weight, true())
-        .where(Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value)
+        .where(
+            Animal.farm_id == farm.id,
+            Animal.status == AnimalStatus.ACTIVE.value,
+            or_(
+                func.coalesce(Animal.date_of_birth, Animal.estimated_dob).is_(None),
+                func.coalesce(Animal.date_of_birth, Animal.estimated_dob)
+                <= ref - timedelta(days=GOAT_PROFILE.weaning_days),
+            ),
+        )
         .subquery("feeding_weights")
     )
     mean_weight_by_bucket = {

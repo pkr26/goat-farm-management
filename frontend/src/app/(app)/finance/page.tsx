@@ -21,6 +21,7 @@ import {
   TransactionInCategory,
   TransactionInType,
   type ListTransactionsApiFinanceGetParams,
+  type MortalityMemoOut,
   type TransactionCorrectionIn,
   type TransactionOut,
 } from "@/api/generated/models";
@@ -183,6 +184,30 @@ const SOURCE_LABELS: Record<string, string> = {
   HEALTH_EVENT: "Health event",
   PURCHASE_BATCH: "Purchase batch",
 };
+
+/** The P&L card's memo line: ledger-neutral facts that must never read as
+ * transactions — feed stock valued at last purchase price, and deaths in the
+ * window valued at the farm's own realized ₹/kg (kept unvalued, not zero,
+ * when no weighed sale can price them). */
+function memoDescription(
+  feedStock: number,
+  mortality: MortalityMemoOut | undefined,
+): string {
+  const parts = [
+    `Feed stock on hand ${formatMoney(feedStock)} (memo — not an expense).`,
+  ];
+  if (mortality && mortality.head_count > 0) {
+    const loss =
+      mortality.estimated_loss === null
+        ? "loss unvalued — no weighed sale in the window"
+        : formatMoney(mortality.estimated_loss);
+    parts.push(
+      `${mortality.head_count} death${mortality.head_count === 1 ? "" : "s"} in the last ` +
+        `${mortality.window_months} months, est. ${loss} (memo — not an expense).`,
+    );
+  }
+  return parts.join(" ");
+}
 
 function sourceLabel(transaction: TransactionOut): string | null {
   if (!transaction.source_type || transaction.source_id === null) return null;
@@ -794,7 +819,10 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
 
       <DataTableCard
         title="Monthly P&L (last 12 months)"
-        description={`Feed stock on hand ${formatMoney(payload.feed_stock_value)} (memo — not an expense).`}
+        description={memoDescription(
+          payload.feed_stock_value,
+          payload.mortality_loss,
+        )}
       >
         {payload.pnl.length === 0 ? (
           <EmptyState

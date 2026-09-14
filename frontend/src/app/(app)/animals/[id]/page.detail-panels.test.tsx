@@ -303,6 +303,47 @@ describe("AnimalProfilePage guards", () => {
       ).toBeInTheDocument();
     });
 
+    it("shows the coded cause, disposal and necropsy facts for a death", async () => {
+      useProfileHandler(
+        profileWith({
+          status: "DEAD",
+          status_date: "2026-07-30",
+          mortality_cause: "enterotoxaemia",
+          mortality_cause_code: "ENTEROTOXAEMIA",
+          disposal_method: "buried",
+          necropsy_done: true,
+          necropsy_findings: "Gut haemorrhage consistent with ET",
+          mortality_reported_at: "2026-07-31",
+        }),
+      );
+      await renderProfile();
+
+      expect(detailValue("Cause code")).toBe("Enterotoxaemia");
+      expect(detailValue("Disposal method")).toBe("buried");
+      expect(detailValue("Necropsy performed")).toBe("Yes");
+      expect(detailValue("Necropsy findings")).toBe("Gut haemorrhage consistent with ET");
+    });
+
+    it("shows the buyer next to the sale economics and hides absent facts", async () => {
+      useProfileHandler(
+        profileWith({
+          status: "SOLD",
+          status_date: "2026-07-30",
+          sale_price: 9000,
+          sale_weight_kg: 40,
+          buyer_name: "Kurla trader",
+        }),
+      );
+      await renderProfile();
+
+      expect(detailValue("Sale price")).toBe("₹9,000");
+      expect(detailValue("Sale weight")).toBe("40 kg");
+      expect(detailValue("Buyer")).toBe("Kurla trader");
+      // Death-audit rows never render for a sale.
+      expect(screen.queryByText("Disposal method")).not.toBeInTheDocument();
+      expect(screen.queryByText("Necropsy performed")).not.toBeInTheDocument();
+    });
+
     it("reports a suspected scheduled disease for a death", async () => {
       useProfileHandler(
         profileWith({

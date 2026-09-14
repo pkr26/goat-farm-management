@@ -101,6 +101,17 @@ class PnlRowOut(BaseModel):
     categories: dict[str, dict[str, float]]
 
 
+class MortalityMemoOut(BaseModel):
+    """Ledger-neutral mortality visibility (audit backlog #31): deaths in the
+    P&L window with an optional estimated loss. A memo — deliberately NOT a
+    transaction and never part of the income/expense totals."""
+
+    window_months: int
+    head_count: int
+    estimated_loss: float | None
+    basis: str
+
+
 class FinanceOut(BaseModel):
     transactions: list[TransactionOut]
     transactions_total: int
@@ -113,6 +124,10 @@ class FinanceOut(BaseModel):
     # out of the income/expense totals above — an unsold stockpile is an
     # asset, not a transaction.
     feed_stock_value: float
+    # Memo line, not an expense: deaths in the rolling P&L window, valued at
+    # the farm's own realized ₹/kg when both weights and a weighed sale
+    # exist. Kept out of the totals — a death books no cash flow.
+    mortality_loss: MortalityMemoOut
     pnl: list[PnlRowOut]
 
 
@@ -172,6 +187,15 @@ class InsuranceRenewalIn(StrictInputModel):
 
     renewal_date: date
     premium: NonNegativeMoneyFloat | None = None
+
+
+class InsuranceClaimIn(StrictInputModel):
+    """Record a claim against a policy — the register's terminal event.
+
+    A claim is a status fact, not a money movement: any payout the insurer
+    settles is booked through the ledger like any other income."""
+
+    claim_date: PastOrTodayDate | None = None  # defaults to today
 
 
 class LifetimePnlOut(BaseModel):

@@ -156,6 +156,12 @@ class AnimalOut(BaseModel):
     # Operational sale fact (like latest_weight_kg); paired with sale_price in
     # the ledger note for realized ₹/kg benchmarking.
     sale_weight_kg: float | None
+    buyer_name: str | None
+    mortality_cause: str | None
+    mortality_cause_code: MortalityCauseStr | None
+    disposal_method: str | None
+    necropsy_done: bool
+    necropsy_findings: str | None
     purchase_date: date | None
     purchase_price: float | None
     seller_name: str | None
@@ -169,7 +175,6 @@ class AnimalOut(BaseModel):
     restriction_cleared_by_id: int | None
     restriction_clearance_reference: str | None
     restriction_version: int
-    mortality_cause: str | None
     mortality_reported_at: date | None
     notes: str | None
     created_at: datetime
@@ -277,6 +282,11 @@ class StatusChangeIn(StrictInputModel):
     mortality_cause_code: MortalityCauseStr | None = None
     disposal_method: PostgresText | None = Field(default=None, max_length=60)
     mortality_reported_at: PastOrTodayDate | None = None
+    # A male sold with no birth or estimated date on record must have his age
+    # fixed at sale time — the endpoint stamps this onto the animal before
+    # the meat-sale age floor runs, so the estimate becomes part of the
+    # permanent record instead of an unverifiable pass.
+    estimated_dob: PastOrTodayDate | None = None
     necropsy_done: StrictBool = False
     necropsy_findings: PostgresText | None = Field(
         default=None, max_length=MAX_FREE_TEXT_LENGTH
@@ -295,6 +305,8 @@ class StatusChangeIn(StrictInputModel):
             self.sale_weight_kg is not None or self.sale_price_per_kg is not None
         ):
             raise ValueError("Sale weight and price-per-kg require SOLD status")
+        if self.new_status != "SOLD" and self.estimated_dob is not None:
+            raise ValueError("estimated_dob requires SOLD status")
         if self.new_status != "DEAD" and any(
             value is not None
             for value in (

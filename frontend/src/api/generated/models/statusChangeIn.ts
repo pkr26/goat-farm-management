@@ -19,6 +19,7 @@ export interface StatusChangeIn {
   mortality_cause_code?: StatusChangeInMortalityCauseCode;
   disposal_method?: string | null;
   mortality_reported_at?: string | null;
+  estimated_dob?: string | null;
   necropsy_done?: boolean;
   necropsy_findings?: string | null;
   suspected_scheduled_disease?: boolean;

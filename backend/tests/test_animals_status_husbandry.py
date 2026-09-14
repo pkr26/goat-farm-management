@@ -435,15 +435,65 @@ async def test_sold_male_below_weight_window_gets_advisory_note(
     assert notes is not None and "sold below the 24–28 kg market window" in notes
 
 
-async def test_sold_male_without_dob_gets_age_advisory_and_proceeds(
+async def test_sold_male_without_dob_requires_a_sale_time_estimate(
     client: httpx.AsyncClient,
 ) -> None:
     headers = await owner_with_farm(client, "sale4@farm.in", "Sale No Dob Farm")
     male = await make_animal(client, headers, "SAL-M-4", sex="M")
+    # No effective DOB and no estimate in the payload: the age floor cannot
+    # run, so the sale is refused outright.
     resp = await change_status(client, headers, male["id"], "SOLD", sale_price=5000)
+    assert resp.status_code == 422, resp.text
+    assert "no birth or estimated date" in resp.json()["detail"]
+    # The sale itself carries the estimate; an old-enough one passes and is
+    # stamped onto the animal's permanent record.
+    resp = await change_status(
+        client,
+        headers,
+        male["id"],
+        "SOLD",
+        sale_price=5000,
+        estimated_dob=iso(today() - timedelta(days=300)),
+    )
     assert resp.status_code == 200, resp.text
-    (notes,) = await fetch_animal_columns(male["id"], Animal.status_notes)
-    assert notes is not None and "age unverifiable — no birth/estimated date" in notes
+    (stamp,) = await fetch_animal_columns(male["id"], Animal.estimated_dob)
+    assert stamp == today() - timedelta(days=300)
+
+
+async def test_sold_male_estimate_is_age_gated_and_conflict_refused(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client, "sale4b@farm.in", "Sale Est At Sale Farm")
+    young = await make_animal(client, headers, "SAL-M-4B", sex="M")
+    resp = await change_status(
+        client,
+        headers,
+        young["id"],
+        "SOLD",
+        sale_price=4000,
+        estimated_dob=iso(today() - timedelta(days=90)),
+    )
+    assert resp.status_code == 422, resp.text
+    assert "meat-sale window" in resp.json()["detail"]
+    # An estimate is only for animals that have no birth/estimated date:
+    # supplying one alongside an existing DOB is a conflict, not an override.
+    dated = await make_animal(
+        client,
+        headers,
+        "SAL-M-4C",
+        sex="M",
+        date_of_birth=iso(today() - timedelta(days=300)),
+    )
+    resp = await change_status(
+        client,
+        headers,
+        dated["id"],
+        "SOLD",
+        sale_price=4000,
+        estimated_dob=iso(today() - timedelta(days=300)),
+    )
+    assert resp.status_code == 422, resp.text
+    assert "only for animals with no birth or estimated date" in resp.json()["detail"]
 
 
 async def test_sold_male_with_only_estimated_dob_hits_meat_sale_gate(
@@ -465,7 +515,13 @@ async def test_sold_male_with_only_estimated_dob_hits_meat_sale_gate(
 
 async def test_sold_advisories_compose_with_operator_notes(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client, "sale6@farm.in", "Sale Notes Farm")
-    male = await make_animal(client, headers, "SAL-M-6", sex="M")
+    male = await make_animal(
+        client,
+        headers,
+        "SAL-M-6",
+        sex="M",
+        date_of_birth=iso(today() - timedelta(days=300)),
+    )
     resp = await change_status(
         client,
         headers,
@@ -479,7 +535,6 @@ async def test_sold_advisories_compose_with_operator_notes(client: httpx.AsyncCl
     (notes,) = await fetch_animal_columns(male["id"], Animal.status_notes)
     assert notes is not None
     assert notes.startswith("emergency sale")
-    assert "age unverifiable — no birth/estimated date" in notes
     assert "sold below the 24–28 kg market window" in notes
 
 
@@ -571,3 +626,58 @@ async def test_status_change_field_coherence_rejections(
     else:
         assert resp.status_code == 422, resp.text
         assert fragment in validation_error_text(resp)
+
+
+async def test_sale_and_death_facts_are_exposed_on_animal_out(
+    client: httpx.AsyncClient,
+) -> None:
+    """The terminal facts are readable over the API after the exit — they
+    used to be write-only (invisible and uncorrectable-by-inspection)."""
+    headers = await owner_with_farm(client, "sale7@farm.in", "Sale Facts Farm")
+    sold = await make_animal(
+        client,
+        headers,
+        "SAL-F-1",
+        sex="M",
+        date_of_birth=iso(today() - timedelta(days=300)),
+    )
+    resp = await change_status(
+        client,
+        headers,
+        sold["id"],
+        "SOLD",
+        sale_price=14750.0,
+        sale_weight_kg=25.0,
+        sale_price_per_kg=590.0,
+        buyer_name="Kurla trader",
+    )
+    assert resp.status_code == 200, resp.text
+    detail = (await client.get(f"/api/animals/{sold['id']}", headers=headers)).json()["animal"]
+    assert detail["sale_weight_kg"] == 25.0
+    assert detail["buyer_name"] == "Kurla trader"
+    assert detail["necropsy_done"] is False
+
+    dead = await make_animal(
+        client,
+        headers,
+        "SAL-F-2",
+        sex="F",
+        date_of_birth=iso(today() - timedelta(days=400)),
+    )
+    resp = await change_status(
+        client,
+        headers,
+        dead["id"],
+        "DEAD",
+        mortality_cause="enterotoxaemia",
+        mortality_cause_code="ENTEROTOXAEMIA",
+        disposal_method="buried",
+        necropsy_done=True,
+        necropsy_findings="Gut haemorrhage consistent with ET",
+    )
+    assert resp.status_code == 200, resp.text
+    detail = (await client.get(f"/api/animals/{dead['id']}", headers=headers)).json()["animal"]
+    assert detail["mortality_cause_code"] == "ENTEROTOXAEMIA"
+    assert detail["disposal_method"] == "buried"
+    assert detail["necropsy_done"] is True
+    assert detail["necropsy_findings"] == "Gut haemorrhage consistent with ET"

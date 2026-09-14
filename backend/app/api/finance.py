@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
 from ..models import (
     Animal,
+    AnimalStatus,
     BreedingOutcome,
     BreedingRecord,
     Bucket,
@@ -27,12 +28,14 @@ from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFS
 from ..schemas.finance import (
     SYSTEM_ONLY_CATEGORIES,
     FinanceOut,
+    InsuranceClaimIn,
     InsuranceListOut,
     InsurancePolicyIn,
     InsurancePolicyOut,
     InsuranceRenewalIn,
     InsuranceStatusStr,
     LifetimePnlOut,
+    MortalityMemoOut,
     PnlRowOut,
     TransactionCategoryStr,
     TransactionCorrectionIn,
@@ -51,12 +54,14 @@ from ..services import (
     require_status_after_recorded_facts,
 )
 from ..services.finance import (
+    claim_insurance_policy,
     create_insurance_policy,
     feed_stock_value,
     lifetime_pnl,
+    mortality_memo,
     renew_insurance_policy,
 )
-from ..utils import add_months, money, utcnow
+from ..utils import add_months, money, today, utcnow
 from ._shared import unique_constraint_name
 
 router = APIRouter(prefix="/api/finance", tags=["finance"], responses=COMMON_ERROR_RESPONSES)
@@ -586,6 +591,7 @@ async def list_transactions(
         total_income=float(total_income),
         total_expense=float(total_expense),
         feed_stock_value=float(await feed_stock_value(db, farm)),
+        mortality_loss=MortalityMemoOut.model_validate(await mortality_memo(db, farm)),
         pnl=[PnlRowOut.model_validate(row) for row in pnl],
     )
 
@@ -819,6 +825,16 @@ async def add_insurance_policy(
     The (farm, policy_number) natural key makes a double-submit a 409, so no
     Idempotency-Key is demanded here (unlike the manual ledger row)."""
     animal_id, animal_tag = await _resolve_related_animal(db, farm, payload.animal_id)
+    if animal_id is not None:
+        linked = await db.get(Animal, animal_id)
+        if linked is not None and linked.status != AnimalStatus.ACTIVE.value:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"{linked.tag_number} has left the herd — insurance cover can only be "
+                    "registered for active animals"
+                ),
+            )
     try:
         policy = await create_insurance_policy(
             db,
@@ -853,6 +869,7 @@ async def renew_policy(
     policy_id: int,
     payload: InsuranceRenewalIn,
     db: DbSession,
+    user: CurrentUser,
     farm: CurrentFarm,
     perms: FinanceManage,
 ) -> InsurancePolicyOut:
@@ -881,12 +898,56 @@ async def renew_policy(
             policy,
             renewal_date=payload.renewal_date,
             premium=Decimal(str(payload.premium)) if payload.premium is not None else None,
+            recorded_by_id=user.id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
     await db.commit()
     # expire_on_commit=False keeps the row valid; the animal link is loaded
     # explicitly (async sessions forbid implicit lazy loads).
+    linked = (
+        await db.get(Animal, policy.animal_id)
+        if policy.animal_id is not None and policy.animal_id > 0
+        else None
+    )
+    out = InsurancePolicyOut.model_validate(policy)
+    out.animal_tag = linked.tag_number if linked is not None and linked.farm_id == farm.id else None
+    return out
+
+
+@router.post("/insurance/{policy_id}/claim")
+async def claim_policy(
+    policy_id: int,
+    payload: InsuranceClaimIn,
+    db: DbSession,
+    farm: CurrentFarm,
+    perms: FinanceManage,
+) -> InsurancePolicyOut:
+    """Record a claim against a policy — the register's terminal event.
+
+    A claim is a status fact, not a money movement: any payout the insurer
+    actually settles belongs in the ledger (a manual income row), never
+    fabricated here. Allowed from any unclaimed status, including lapsed —
+    lapse ends the cover, not the claim window."""
+    if not 1 <= policy_id <= MAX_INT32_ID:
+        policy = None
+    else:
+        policy = (
+            await db.execute(
+                select(InsurancePolicy)
+                .where(InsurancePolicy.id == policy_id, InsurancePolicy.farm_id == farm.id)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+    if policy is None or policy.farm_id != farm.id:
+        raise HTTPException(status_code=404, detail="Insurance policy not found")
+    claim_date = payload.claim_date or today(farm.timezone)
+    try:
+        await claim_insurance_policy(db, farm, policy, claim_date=claim_date)
+    except ValueError as exc:
+        status_code = 409 if "already been claimed" in str(exc) else 422
+        raise HTTPException(status_code=status_code, detail=str(exc)) from None
+    await db.commit()
     linked = (
         await db.get(Animal, policy.animal_id)
         if policy.animal_id is not None and policy.animal_id > 0

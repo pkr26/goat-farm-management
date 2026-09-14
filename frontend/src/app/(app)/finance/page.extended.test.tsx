@@ -131,9 +131,22 @@ const ANIMAL = {
   created_at: "2026-01-01T05:30:00Z",
 };
 
+const NO_MORTALITY = {
+  window_months: 12,
+  head_count: 0,
+  estimated_loss: null,
+  basis: "Deaths in the last 12 months valued at each animal's last recorded weight.",
+};
+
 function financeHandler(payload: Record<string, unknown>) {
   return http.get("/api/finance", () =>
-    HttpResponse.json({ transactions_total: 0, limit: 50, offset: 0, ...payload }),
+    HttpResponse.json({
+      transactions_total: 0,
+      limit: 50,
+      offset: 0,
+      mortality_loss: NO_MORTALITY,
+      ...payload,
+    }),
   );
 }
 
@@ -1091,5 +1104,62 @@ describe("FinancePage new-transaction dialog", () => {
     expect(newAmount).toHaveValue(200);
     expect(getCalls).toBeGreaterThan(1);
     expect(postBody).toMatchObject({ amount: 100 });
+  });
+});
+
+describe("FinancePage — mortality memo", () => {
+  it("carries the ledger-neutral mortality loss beside the feed-stock memo", async () => {
+    server.use(
+      financeHandler({
+        transactions: [],
+        transactions_total: 0,
+        total_income: 12500,
+        total_expense: 0,
+        feed_stock_value: 12000,
+        pnl: [],
+        mortality_loss: {
+          window_months: 12,
+          head_count: 1,
+          estimated_loss: 15000,
+          basis: "Deaths in the last 12 months valued at each animal's last recorded weight.",
+        },
+      }),
+    );
+    renderWithProviders(<FinancePage />);
+    expect(
+      await screen.findByText(
+        "Feed stock on hand ₹12,000 (memo — not an expense). 1 death in the last 12 months, est. ₹15,000 (memo — not an expense).",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps an unvalued memo honest instead of pricing deaths at zero", async () => {
+    server.use(
+      financeHandler({
+        transactions: [],
+        transactions_total: 0,
+        total_income: 0,
+        total_expense: 0,
+        feed_stock_value: 0,
+        pnl: [],
+        mortality_loss: {
+          window_months: 12,
+          head_count: 2,
+          estimated_loss: null,
+          basis: "No weighed sale in the window — the loss stays unvalued.",
+        },
+      }),
+    );
+    renderWithProviders(<FinancePage />);
+    expect(
+      await screen.findByText(/2 deaths in the last 12 months, est\. loss unvalued/),
+    ).toBeInTheDocument();
+  });
+
+  it("omits the mortality sentence entirely when the window had no deaths", async () => {
+    server.use(financeHandler({ transactions: [], pnl: [] }));
+    renderWithProviders(<FinancePage />);
+    await screen.findByText("Total income");
+    expect(screen.queryByText(/death/i)).not.toBeInTheDocument();
   });
 });

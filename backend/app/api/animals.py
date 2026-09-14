@@ -58,6 +58,7 @@ from ..services import (
     doe_has_open_breeding,
     execute_idempotent,
     generate_unique_tag,
+    lapse_policies_for_animal,
     mark_aborted,
     move_animal,
     place_movement_restriction,
@@ -1133,26 +1134,44 @@ async def change_status(
         # unweaned kid still riding in RECOVERY with its dam cannot slip the
         # gate (RT-C-2). Culling remains open (injury/illness), and the owner
         # can still record the exit through a cull with notes. The gate reads
-        # the effective DOB (recorded or estimated), so an estimated birth
-        # date closes the old unknown-DOB loophole.
+        # the effective DOB (recorded or estimated). A male with neither has
+        # no provable age at all: animals are not field-editable after
+        # creation, so the sale itself carries the estimate — the payload's
+        # estimated_dob is stamped onto the animal and the age floor runs
+        # against it. Refusing without that remedy would brick every
+        # legacy no-DOB male behind a cull.
         if animal.sex == "M":
             if animal.effective_dob is None:
-                # Age is provable only when an effective DOB exists; the sale
-                # proceeds, but the unverifiable age stays visible on the
-                # record instead of silently passing the gate.
-                status_note_advisories.append("age unverifiable — no birth/estimated date")
-            else:
-                age_months = animal.age_months_on(status_date)
-                if age_months is not None and age_months < MEAT_SALE_AGE_MONTHS[0]:
+                if payload.estimated_dob is None:
                     raise HTTPException(
                         status_code=422,
                         detail=(
-                            f"{animal.tag_number} is {age_months} months old — the meat-sale "
-                            f"window opens at {MEAT_SALE_AGE_MONTHS[0]} months and "
-                            f"{MEAT_SALE_WEIGHT_KG[0]:.0f} kg (record a cull instead if the "
-                            "animal must leave the herd now)"
+                            f"{animal.tag_number} has no birth or estimated date — the "
+                            "meat-sale age floor cannot be verified. Send estimated_dob "
+                            "with the sale (or record a cull instead if the animal must "
+                            "leave the herd now)"
                         ),
                     )
+                animal.estimated_dob = payload.estimated_dob
+            elif payload.estimated_dob is not None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "estimated_dob is only for animals with no birth or estimated "
+                        "date on record"
+                    ),
+                )
+            age_months = animal.age_months_on(status_date)
+            if age_months is not None and age_months < MEAT_SALE_AGE_MONTHS[0]:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"{animal.tag_number} is {age_months} months old — the meat-sale "
+                        f"window opens at {MEAT_SALE_AGE_MONTHS[0]} months and "
+                        f"{MEAT_SALE_WEIGHT_KG[0]:.0f} kg (record a cull instead if the "
+                        "animal must leave the herd now)"
+                    ),
+                )
             if (
                 payload.sale_weight_kg is not None
                 and payload.sale_weight_kg < MEAT_SALE_WEIGHT_KG[0]
@@ -1402,5 +1421,9 @@ async def change_status(
                 source_id=animal.id,
             )
         )
+    # An animal leaving the herd ends its active insurance cover: without
+    # this, a policy for sold/dead stock keeps nagging the dashboard expiry
+    # card forever (the register has no edit path to close it by hand).
+    await lapse_policies_for_animal(db, farm, animal)
     await db.commit()
     return await _animal_out(db, animal, today(farm.timezone), farm.timezone, perms)

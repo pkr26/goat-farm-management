@@ -27,8 +27,9 @@ KIDDING_LOCK_ORDER_PARENT = PRESET_ROLE_INTEGRITY
 KIDDING_LOCK_ORDER = "e7f9a1b3c5d8"
 # Autogenerate-drift checks must run at the CURRENT head (husbandry-standards
 # chain: vocabulary CHECK widenings → kidding care fields → purchase
-# provenance → sale/death audit fields → insurance register).
-HEAD = "d0e1f2a3b4c5"
+# provenance → sale/death audit fields → insurance register → premium
+# history → maintenance-recipe data fix).
+HEAD = "f2a3b4c5d6e7"
 LEGACY_LOSS_NOTE = "Legacy pregnancy-loss row; original date and cause were not captured."
 ADMIN_URL = "postgresql://localhost:5432/postgres"
 

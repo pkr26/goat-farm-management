@@ -64,4 +64,22 @@ describe("enumLabel", () => {
     expect(humanizeEnum("BUCKET_MOVE")).toBe("Bucket Move");
     expect(humanizeEnum(null)).toBe("—");
   });
+
+  it("labels the insurance register lifecycle", () => {
+    expect(enumLabel("insuranceStatus", "active")).toBe("Active");
+    expect(enumLabel("insuranceStatus", "renewed")).toBe("Renewed");
+    expect(enumLabel("insuranceStatus", "lapsed")).toBe("Lapsed");
+    expect(enumLabel("insuranceStatus", "claimed")).toBe("Claimed");
+  });
+
+  it("translates the worker-facing duty categories to Telugu", () => {
+    expect(enumLabel("taskCategory", "KIDDING_WATCH", "te")).toBe("పిల్లల కోసం గమనింపు");
+    expect(enumLabel("taskCategory", "BIRTHING_KIT", "te")).toBe("జనన కిట్ సరిచూడటం");
+    expect(enumLabel("taskCategory", "HOOF_TRIMMING", "te")).toBe("గిట్టు కత్తిరింపు");
+    expect(enumLabel("taskCategory", "WEIGHING", "te")).toBe("బరువు చూడటం");
+    expect(enumLabel("taskCategory", "INSURANCE", "te")).toBe("భీమా");
+    // A kind with no Telugu map falls back to English, never the raw code.
+    expect(enumLabel("mortalityCause", "PNEUMONIA", "te")).toBe("Pneumonia");
+    expect(enumLabel("insuranceStatus", "lapsed", "te")).toBe("రద్దైంది");
+  });
 });

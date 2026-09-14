@@ -307,3 +307,89 @@ The P0/P1 backlogs below were implemented the same day via a staged remediation 
 - **Milk**: still unmodeled operationally (correct for a meat breed).
 
 **Verification**: backend 4,326 tests green on the final full run, `ruff format/check` clean, `mypy --strict` 0 errors across 100 files; five chained Alembic migrations (`f1e2d3c4b5a6` → `d0e1f2a3b4c5`, single head); OpenAPI re-exported (79 paths) and the Orval client regenerated; frontend forms updated for every new field.
+
+---
+
+## 8. Post-remediation audit corrections + second pass (2026-09-14)
+
+An independent audit of commit `9aad14a` re-verified every claim above
+against the working tree and re-ran all gates (4,326 backend tests, ruff,
+mypy --strict, 4,506 frontend tests, production build, OpenAPI/orval
+freshness — all reproduced). It found the remediation substantively sound
+but the addendum (§7) overstated four points, and flagged a set of real
+defects that the same-day second pass below now fixes. Recorded here —
+rather than by editing §7 — because an audit document must not be
+retroactively rewritten into agreement with the code.
+
+**§7 corrections:**
+
+- **#7 dystocia text was absent, not "riding the watch titles"** — grep found
+  no assist/escalation rule in any generated title or form. The second pass
+  adds it to the due-day KIDDING_WATCH title ("assist after 30 min straining
+  w/o progress; call vet if 15–20 min unresolved").
+- **#31's mortality-loss memo line was not implemented** while §"P2 #30–34 —
+  DONE" implied completeness; deaths booked nothing anywhere. Implemented
+  now as a ledger-neutral `mortality_loss` memo on the finance summary
+  (last-12-month deaths × last recorded weight × the farm's volume-weighted
+  realized ₹/kg from weighed sales; unvalued — not zero — when no weighed
+  sale exists).
+- **#30's "unknown-DOB male gate closed via estimated DOB" was narrowed, not
+  closed** — a male with neither birth nor estimated date still passed with
+  only an advisory. Now the sale itself must carry `estimated_dob` (stamped
+  onto the animal, then age-gated); supplying one alongside an existing DOB
+  is a 422.
+- **Cadence wording drift** — "monthly weighing" was a 45-day lookback
+  (~8 rounds/yr) and "quarterly" disinfection ~123-day (~3/yr). Now 30/91.
+- **#33's "feed-share"** remains deliberately unimplemented (documented
+  farm-level-only in the endpoint note) — disclosed here as a scope choice,
+  not silently dropped.
+- Insurance "register with renewal duties" is C+R+renew by design
+  (append-only); this section previously implied broader CRUD.
+
+**Second-pass fixes (each with tests):**
+
+1. Cadence daily routine no longer re-mints a same-day duplicate after
+   completion (dedupe is now any-status on the exact title+due date).
+2. ET+HS and CCPP herd rounds now validate their own diseases on close
+   (`template_names_for_task`): a PPR event can no longer satisfy the
+   pre-monsoon round; either ET or HS closes it, CCPP binds CCPP.
+3. `MAINTENANCE_75_25` recipe fix propagates to existing databases
+   (data migration `f2a3b4c5d6e7`, guarded on pre-fix values; no-ops on
+   never-seeded databases).
+4. Insurance premium payment history (`insurance_premiums`,
+   migration `e1f2a3b4c5d6`): renewal no longer destroys premium history —
+   lifetime P&L sums actual payments (450→500 renewal now reports 950), and
+   existing policies are backfilled one row each.
+5. Insurance lifecycle writers: animal exit (SOLD/DEAD/CULLED) auto-lapses
+   its active policies (herd-level untouched); a `claim` endpoint marks the
+   terminal status (single-shot, date-validated, books no money); renewal
+   and new cover are refused for animals that have left the herd.
+6. REBREED prompts complete (attributed to the recorder) when the doe is
+   actually re-served instead of lingering overdue through the pregnancy.
+7. Herd-level rounds deep-link the health form (`action_url`
+   `/health/new?task_id=…`) — previously their only sanctioned close path
+   had no board link.
+8. Missed seasonal rounds backfill late (due at the missed month's end,
+   bounded by one cycle and the farm's creation date) instead of vanishing
+   when nobody loaded the board in the round's month.
+9. Feed-reorder dedupe is a prefix match on the generated title — a pending
+   note merely mentioning an ingredient no longer swallows the alert.
+10. Sale/death facts (`buyer_name`, `mortality_cause_code`, `disposal_method`,
+    necropsy fields) are exposed on `AnimalOut` (permission-scrubbed like the
+    other clinical/commercial narrative) instead of being write-only.
+11. Feeding bucket means exclude pre-weaning animals: a weighed dependent kid
+    no longer drags the RECOVERY doe's ration toward the kid's weight.
+12. Coverage config now sets `concurrency = ["greenlet", "thread"]` — the
+    service layer's per-file numbers were fiction (line events lost across
+    SQLAlchemy's greenlet bridge); measured coverage only rises.
+13. Pre-existing (not this release): migration `bd201c1cdc1b` (goat-only)
+    deleted buffalo-dairy `animals` before their `bucket_moves`/
+    `weight_records`, so it could never run on a database holding buffalo
+    data — the dev database was stuck at `a1b2c3d4e5f6` behind exactly this.
+    The grandchild deletes now run first (verified on a scratch database
+    seeded with buffalo rows; upgrade to head completes).
+
+**Frontend follow-through:** insurance-status labels and badge tones
+(lapsed renders as a warning, not a neutral chip), Telugu labels for the new
+task categories, the mortality memo on the finance summary, and the
+sale/death facts on the animal profile.

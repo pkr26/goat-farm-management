@@ -23,9 +23,13 @@ from app.models import (
 )
 from app.services.health import (
     _legacy_event_matches,
+    canonical_target_for_task,
+    preferred_template_for_target,
     protocol_phrase_of,
+    target_matches_task,
     target_matches_template,
     template_name_for_task,
+    template_names_for_task,
 )
 from app.utils import today, utcnow
 
@@ -1739,3 +1743,159 @@ async def test_clearing_a_mortality_hold_keeps_the_authority_notification_date(
     assert body["suspected_disease"] is None
     # ...but the notification date, whose only copy this is, survives.
     assert body["authority_notified_at"] == notified_on.isoformat()
+
+
+def test_combined_et_hs_round_maps_to_both_component_templates() -> None:
+    """The cadence engine's combined pre-monsoon round administers two
+    vaccines: either component's template may record it, nothing else."""
+    title = "ET + HS pre-monsoon round (2026) — all animals"
+    assert template_names_for_task(title, "VACCINE") == (
+        "Enterotoxaemia (ET)",
+        "Haemorrhagic Septicaemia (HS)",
+    )
+    assert template_name_for_task(title, "VACCINE") == "Enterotoxaemia (ET)"
+    # A target naming one component binds that component's template.
+    assert preferred_template_for_target("HS", template_names_for_task(title, "VACCINE")) == (
+        "Haemorrhagic Septicaemia (HS)"
+    )
+    assert preferred_template_for_target("ET", template_names_for_task(title, "VACCINE")) == (
+        "Enterotoxaemia (ET)"
+    )
+    # A blank or unmatched target falls back to the primary.
+    assert preferred_template_for_target("", template_names_for_task(title, "VACCINE")) == (
+        "Enterotoxaemia (ET)"
+    )
+    # The explicitly recorded target must name a component of the round.
+    assert target_matches_task("HS", title, "VACCINE")
+    assert target_matches_task("ET", title, "VACCINE")
+    assert not target_matches_task("PPR", title, "VACCINE")
+    assert canonical_target_for_task(title, "VACCINE") == (
+        "Enterotoxaemia (ET) + Haemorrhagic Septicaemia (HS)"
+    )
+    # Single-component rounds the cadence engine also mints.
+    assert template_names_for_task("CCPP round (2027)", "VACCINE") == ("CCPP",)
+    assert template_names_for_task("CCPP round (2027)", "VACCINE") != ("PPR",)
+    assert canonical_target_for_task("CCPP round (2027)", "VACCINE") == "CCPP"
+
+
+async def _seed_herd_round_task(headers: dict, title: str) -> int:
+    async with get_sessionmaker()() as db:
+        task = Task(
+            farm_id=int(headers["X-Farm-Id"]),
+            title=title,
+            due_date=today(),
+            status="PENDING",
+            category="VACCINE",
+            auto_generated=True,
+        )
+        db.add(task)
+        await db.commit()
+        return task.id
+
+
+async def test_combined_round_rejects_foreign_templates_and_accepts_either_component(
+    client: httpx.AsyncClient,
+) -> None:
+    """Before the template set existed for the combined ET+HS round, ANY
+    bucket-scoped vaccine event closed it — a PPR record could silently
+    satisfy the pre-monsoon sweep. Either genuine component still closes it."""
+    owner = await owner_with_farm(client)
+    await make_animal(client, owner, tag="ET-HS-1")
+    reviewed = await preview(client, owner, scope="bucket", bucket="FOUNDATION")
+    assert reviewed.status_code == 200, reviewed.text
+
+    wrong = await _seed_herd_round_task(owner, "ET + HS pre-monsoon round (2026) — all animals")
+    rejected = await client.post(
+        "/api/health/events",
+        json={
+            "scope": "bucket",
+            "bucket": "FOUNDATION",
+            "expected_animal_ids": reviewed.json()["target_animal_ids"],
+            "type": "VACCINE",
+            "disease_target": "PPR",
+            "schedule_template_name": "PPR",
+            "task_id": wrong,
+        },
+        headers=owner,
+    )
+    assert rejected.status_code == 422, rejected.text
+    assert rejected.json()["detail"] == "Health template does not match the linked task"
+    async with get_sessionmaker()() as db:
+        stored = await db.get(Task, wrong)
+        assert stored is not None and stored.status == "PENDING"
+
+    # An explicitly recorded HS event binds the HS template and closes it.
+    hs_round = await _seed_herd_round_task(owner, "ET + HS pre-monsoon round (2026) — all animals")
+    closed_hs = await client.post(
+        "/api/health/events",
+        json={
+            "scope": "bucket",
+            "bucket": "FOUNDATION",
+            "expected_animal_ids": reviewed.json()["target_animal_ids"],
+            "type": "VACCINE",
+            "disease_target": "HS",
+            "schedule_template_name": "Haemorrhagic Septicaemia (HS)",
+            "task_id": hs_round,
+        },
+        headers=owner,
+    )
+    assert closed_hs.status_code == 201, closed_hs.text
+
+    # A blank target names no component: the primary (ET) template binds and
+    # the canonical combined target is recorded.
+    et_round = await _seed_herd_round_task(owner, "ET + HS pre-monsoon round (2026) — all animals")
+    closed_et = await client.post(
+        "/api/health/events",
+        json={
+            "scope": "bucket",
+            "bucket": "FOUNDATION",
+            "expected_animal_ids": reviewed.json()["target_animal_ids"],
+            "type": "VACCINE",
+            "task_id": et_round,
+        },
+        headers=owner,
+    )
+    assert closed_et.status_code == 201, closed_et.text
+    assert closed_et.json()[0]["disease_target"] == (
+        "Enterotoxaemia (ET) + Haemorrhagic Septicaemia (HS)"
+    )
+
+
+async def test_ccpp_round_binds_its_own_template(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    await make_animal(client, owner, tag="CCPP-1")
+    reviewed = await preview(client, owner, scope="bucket", bucket="FOUNDATION")
+    assert reviewed.status_code == 200, reviewed.text
+
+    ccpp = await _seed_herd_round_task(owner, "CCPP round (2027)")
+    wrong_target = await client.post(
+        "/api/health/events",
+        json={
+            "scope": "bucket",
+            "bucket": "FOUNDATION",
+            "expected_animal_ids": reviewed.json()["target_animal_ids"],
+            "type": "VACCINE",
+            "disease_target": "FMD",
+            "task_id": ccpp,
+        },
+        headers=owner,
+    )
+    assert wrong_target.status_code == 422, wrong_target.text
+    assert wrong_target.json()["detail"] == "Disease target does not match the linked task"
+
+    closed = await client.post(
+        "/api/health/events",
+        json={
+            "scope": "bucket",
+            "bucket": "FOUNDATION",
+            "expected_animal_ids": reviewed.json()["target_animal_ids"],
+            "type": "VACCINE",
+            "disease_target": "CCPP",
+            "task_id": ccpp,
+        },
+        headers=owner,
+    )
+    assert closed.status_code == 201, closed.text
+    assert closed.json()[0]["schedule_template_name"] == "CCPP"

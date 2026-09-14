@@ -53,6 +53,12 @@ const STATUS_TONES: Record<string, StatusTone> = {
   ABORTED: "destructive",
   // A caesarean delivery is as adverse as a difficult one.
   CAESAREAN: "destructive",
+  // Insurance register lifecycle: renewal is a completed money event; a
+  // lapsed policy is cover that has ended (attention, not disaster — the
+  // dashboard stops nagging it); a claim is the terminal settlement.
+  RENEWED: "success",
+  LAPSED: "warning",
+  CLAIMED: "info",
 };
 /** Resolve any status string to its semantic tone (neutral → null). */
 export function statusTone(status: string): StatusTone | null {

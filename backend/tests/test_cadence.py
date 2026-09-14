@@ -357,8 +357,8 @@ async def test_reorder_fires_for_under_level_ingredients_only(
     frozen = freeze_business_date(monkeypatch, date(2026, 9, 14))
 
     # Seeded inventory starts every canonical ingredient at 0 kg against a
-    # 100 kg reorder level. Refill one ingredient above its level and reserve
-    # another with an already-pending duty that names it.
+    # 100 kg reorder level. Refill one ingredient above its level; leave a
+    # pending owner note that merely MENTIONS another ingredient.
     await set_inventory(farm_id, "Crushed maize", 150.0)
     await seed_history_task(
         farm_id,
@@ -372,12 +372,15 @@ async def test_reorder_fires_for_under_level_ingredients_only(
     feed_titles = [t.title for t in await farm_tasks(farm_id, "FEED")]
     assert "Reorder Salt: 0 kg on hand (reorder level 100 kg)" in feed_titles
     assert not any("Crushed maize" in title for title in feed_titles)
-    # The pending owner note names the ingredient, so it suppresses the
-    # generated duty — it must remain the only Groundnut haulms FEED row.
-    # (The note itself contains the ingredient name, so the check has to be
-    # "no second, engine-generated copy", not "the name appears nowhere".)
-    groundnut = [title for title in feed_titles if "Groundnut haulms" in title]
-    assert groundnut == ["Owner note: reorder Groundnut haulms this week"]
+    # Dedupe is a PREFIX match on the generated "Reorder {ingredient}: "
+    # title: a pending note that merely mentions the ingredient does not
+    # suppress the engine's own duty (the morning routine talks about bunks
+    # and water; a substring match swallowed real alerts).
+    groundnut = sorted(title for title in feed_titles if "Groundnut haulms" in title)
+    assert groundnut == [
+        "Owner note: reorder Groundnut haulms this week",
+        "Reorder Groundnut haulms: 0 kg on hand (reorder level 100 kg)",
+    ]
 
 
 async def test_reorder_dedupe_is_pending_only(
@@ -520,3 +523,169 @@ async def test_task_board_load_materializes_cadence_idempotently(
     assert len(fmd_tasks) == 1
     routine = [t for t in await farm_tasks(farm_id, "FEED") if t.title == ROUTINE_TITLE]
     assert len(routine) == 1
+
+
+async def test_daily_routine_completed_today_is_not_re_minted(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Completing the routine and reloading the board must not duplicate it.
+
+    The dedupe is any-status on the exact (title, due date): yesterday's
+    DONE row has a different due date, but today's completed copy still
+    proves today's routine exists.
+    """
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "D-003")
+    farm_id = int(headers["X-Farm-Id"])
+    day = freeze_business_date(monkeypatch, date(2026, 9, 14))
+
+    await run_ensure(farm_id)
+    async with get_sessionmaker()() as db:
+        routine = (
+            await db.execute(
+                select(Task).where(
+                    Task.farm_id == farm_id,
+                    Task.title == ROUTINE_TITLE,
+                    Task.due_date == day,
+                )
+            )
+        ).scalar_one()
+        routine.status = TaskStatus.DONE.value
+        routine.completed_at = utcnow()
+        await db.commit()
+
+    await run_ensure(farm_id)
+    await run_ensure(farm_id)
+    routine_rows = [t for t in await farm_tasks(farm_id, "FEED") if t.title == ROUTINE_TITLE]
+    assert len(routine_rows) == 1
+    assert routine_rows[0].status == TaskStatus.DONE.value
+
+
+async def test_weighing_cadence_is_monthly_and_disinfection_quarterly(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The lookbacks match their titles: 30 days for the monthly weighing
+    round, 91 for quarterly disinfection — not the drifted 45/122 that made
+    "monthly" fire ~8×/yr and "quarterly" ~3×/yr."""
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "I-003")
+    farm_id = int(headers["X-Farm-Id"])
+    frozen = freeze_business_date(monkeypatch, date(2026, 9, 14))
+
+    # 30 days back: inside the monthly window → suppressed; 31: regenerate.
+    await seed_history_task(
+        farm_id,
+        category="WEIGHING",
+        title="Monthly weighing round (crew A)",
+        due_date=frozen - timedelta(days=30),
+    )
+    # 91 days back: inside the quarterly window → suppressed; 92: regenerate.
+    await seed_history_task(
+        farm_id,
+        category="DISINFECTION",
+        title="Shed disinfection round (previous quarter)",
+        due_date=frozen - timedelta(days=91),
+    )
+    await run_ensure(farm_id)
+    assert [t.title for t in await farm_tasks(farm_id, "WEIGHING")] == [
+        "Monthly weighing round (crew A)"
+    ]
+    assert [t.title for t in await farm_tasks(farm_id, "DISINFECTION")] == [
+        "Shed disinfection round (previous quarter)"
+    ]
+
+    # Nudge both one day past their windows: both rounds regenerate.
+    async with get_sessionmaker()() as db:
+        await db.execute(
+            update(Task)
+            .where(
+                Task.farm_id == farm_id,
+                Task.title.in_(
+                    (
+                        "Monthly weighing round (crew A)",
+                        "Shed disinfection round (previous quarter)",
+                    )
+                ),
+            )
+            .values(due_date=frozen - timedelta(days=92))
+        )
+        await db.commit()
+    await run_ensure(farm_id)
+    assert len(await farm_tasks(farm_id, "WEIGHING")) == 2
+    assert len(await farm_tasks(farm_id, "DISINFECTION")) == 2
+
+
+async def age_farm_creation(farm_id: int, created: date) -> None:
+    """Backfill must not resurrect rounds from before the farm existed."""
+    async with get_sessionmaker()() as db:
+        await db.execute(update(Farm).where(Farm.id == farm_id).values(created_at=created))
+        await db.commit()
+
+
+async def test_missed_seasonal_round_is_backfilled_late(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A round whose month passed without a board load is not silently
+    dropped: the series' latest occurrence materializes late, due at that
+    month's end (overdue), once per series."""
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "C-010")
+    farm_id = int(headers["X-Farm-Id"])
+    freeze_business_date(monkeypatch, date(2026, 9, 14))
+    await age_farm_creation(farm_id, date(2025, 1, 1))
+
+    await run_ensure(farm_id)
+    rounds = sorted(
+        (t.category, t.title, t.due_date)
+        for t in await farm_tasks(farm_id)
+        if t.category in ("VACCINE", "DEWORMING")
+    )
+    assert rounds == [
+        (
+            "DEWORMING",
+            DEWORM_TITLE_TEMPLATE.format(month="January", year=2026),
+            date(2026, 1, 31),
+        ),
+        (
+            "DEWORMING",
+            DEWORM_TITLE_TEMPLATE.format(month="June", year=2026),
+            date(2026, 6, 30),
+        ),
+        ("VACCINE", "CCPP round (2026)", date(2026, 1, 31)),
+        ("VACCINE", "ET + HS pre-monsoon round (2026) — all animals", date(2026, 5, 31)),
+        (
+            "VACCINE",
+            FMD_TITLE_TEMPLATE.format(month="March", year=2026),
+            date(2026, 3, 31),
+        ),
+        (
+            "VACCINE",
+            FMD_TITLE_TEMPLATE.format(month="September", year=2026),
+            date(2026, 9, 14),
+        ),
+        ("VACCINE", "Goat Pox round (2025)", date(2025, 11, 30)),
+    ]
+
+    # The late copies are the series' record now: no second mint on reload.
+    await run_ensure(farm_id)
+    again = [t for t in await farm_tasks(farm_id) if t.category in ("VACCINE", "DEWORMING")]
+    assert len(again) == len(rounds)
+
+
+async def test_backfill_never_precedes_farm_creation(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rounds older than the farm itself are history, not duties: the floor
+    is the later of one cycle ago and the farm's creation date."""
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "C-011")
+    farm_id = int(headers["X-Farm-Id"])
+    freeze_business_date(monkeypatch, date(2026, 9, 14))
+    await age_farm_creation(farm_id, date(2026, 6, 1))
+
+    await run_ensure(farm_id)
+    titles = [t.title for t in await farm_tasks(farm_id) if t.category in ("VACCINE", "DEWORMING")]
+    assert sorted(titles) == [
+        DEWORM_TITLE_TEMPLATE.format(month="June", year=2026),
+        FMD_TITLE_TEMPLATE.format(month="September", year=2026),
+    ]

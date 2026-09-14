@@ -1545,11 +1545,27 @@ function ProfileBody({
                     {a.sale_weight_kg != null && (
                       <Detail label="Sale weight">{a.sale_weight_kg} kg</Detail>
                     )}
+                    {/* Buyer identity is finance-gated on the API; the "—"
+                        fallback covers both "none recorded" and "withheld". */}
+                    <Detail label="Buyer">{a.buyer_name ?? "—"}</Detail>
                   </>
                 )}
                 {a.status === "DEAD" && (
                   <>
                     <Detail label="Mortality cause">{a.mortality_cause ?? "—"}</Detail>
+                    {a.mortality_cause_code && (
+                      <Detail label="Cause code">
+                        {enumLabel("mortalityCause", a.mortality_cause_code)}
+                      </Detail>
+                    )}
+                    <Detail label="Disposal method">{a.disposal_method ?? "—"}</Detail>
+                    <Detail label="Necropsy performed">
+                      {/* Clinical facts fail closed without health.view. */}
+                      {!canViewHealth ? "—" : a.necropsy_done ? "Yes" : "No"}
+                    </Detail>
+                    {a.necropsy_done && a.necropsy_findings && (
+                      <Detail label="Necropsy findings">{a.necropsy_findings}</Detail>
+                    )}
                     <Detail label="Mortality reported">
                       {formatDate(a.mortality_reported_at)}
                     </Detail>

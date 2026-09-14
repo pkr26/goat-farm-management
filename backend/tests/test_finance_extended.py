@@ -2211,7 +2211,14 @@ async def test_pnl_present_despite_filters(client: httpx.AsyncClient) -> None:
 # ---------------------------------------------------------------------------
 async def test_sale_creates_income_transaction(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    animal = await make_animal(client, owner, tag="MEAT-1", sex="M", bucket="MALE_KIDS")
+    animal = await make_animal(
+        client,
+        owner,
+        tag="MEAT-1",
+        sex="M",
+        bucket="MALE_KIDS",
+        date_of_birth=iso(today() - timedelta(days=400)),
+    )
     await change_status(client, owner, animal["id"], "SOLD", sale_price=15000.0, buyer_name="Raju")
     data = await get_finance(client, owner)
     assert data["total_income"] == 15000.0
@@ -2229,7 +2236,14 @@ async def test_sale_without_price_books_flagged_zero_transaction(client: httpx.A
     """An unpriced sale can no longer vanish from the ledger (off-ledger-sale
     hole): it books a ₹0 ANIMAL_SALE row whose note says the price is missing."""
     owner = await owner_with_farm(client)
-    animal = await make_animal(client, owner, tag="MEAT-2", sex="M", bucket="MALE_KIDS")
+    animal = await make_animal(
+        client,
+        owner,
+        tag="MEAT-2",
+        sex="M",
+        bucket="MALE_KIDS",
+        date_of_birth=iso(today() - timedelta(days=400)),
+    )
     await change_status(client, owner, animal["id"], "SOLD")
     rows = (await get_finance(client, owner))["transactions"]
     assert len(rows) == 1
@@ -2242,7 +2256,14 @@ async def test_sale_with_zero_price_creates_zero_audit_transaction(
     client: httpx.AsyncClient,
 ) -> None:
     owner = await owner_with_farm(client)
-    animal = await make_animal(client, owner, tag="MEAT-3", sex="M", bucket="MALE_KIDS")
+    animal = await make_animal(
+        client,
+        owner,
+        tag="MEAT-3",
+        sex="M",
+        bucket="MALE_KIDS",
+        date_of_birth=iso(today() - timedelta(days=400)),
+    )
     await change_status(client, owner, animal["id"], "SOLD", sale_price=0)
     data = await get_finance(client, owner)
     assert len(data["transactions"]) == 1

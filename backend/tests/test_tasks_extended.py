@@ -3318,3 +3318,31 @@ async def test_manual_queue_lock_does_not_deadlock_with_an_animal_first_sale(
     # the farm ROW lock produced.
     assert complete_response.status_code == 400, complete_response.text
     assert complete_response.json()["detail"] == "Task is not pending"
+
+
+def test_herd_round_duty_links_to_the_health_form() -> None:
+    """A herd-level VACCINE/DEWORMING round carries no animal/batch target,
+    but its only sanctioned close path is the health-event form (a bare
+    complete is 409-blocked) — so the board deep-links the form with the
+    task id alone and the operator picks the scope there."""
+    herd_round = Task(
+        farm_id=1,
+        title="ET + HS pre-monsoon round (2026) — all animals",
+        due_date=today(),
+        category="VACCINE",
+    )
+    assert herd_round.id is None  # not persisted; only the shape matters
+    url = task_action_url(herd_round)
+    assert url is not None and url.startswith("/health/new?task_id=")
+    deworm_round = Task(
+        farm_id=1,
+        title="Deworming round (June 2026) — adults",
+        due_date=today(),
+        category="DEWORMING",
+    )
+    assert task_action_url(deworm_round) is not None
+    # Untargeted duties of other categories still have no form to link.
+    assert (
+        task_action_url(Task(farm_id=1, title="x", due_date=today(), category="HOOF_TRIMMING"))
+        is None
+    )

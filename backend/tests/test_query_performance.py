@@ -225,7 +225,11 @@ async def test_reports_match_old_python_aggregation(client: httpx.AsyncClient) -
         birth_weight=3.0,
     )  # falls back to birth_weight
     assert born["latest_weight_kg"] == 3.0
-    sold = await make_animal(client, owner, "G-6", sex="M")
+    # A dated male clears the meat-sale age floor (the gate refuses a sale
+    # with no birth or estimated date at all).
+    sold = await make_animal(
+        client, owner, "G-6", sex="M", date_of_birth=iso(now - timedelta(days=400))
+    )
     await change_status(client, owner, sold["id"], "SOLD", sale_price=9000.0)
     dead1 = await make_animal(client, owner, "G-7", sex="M")
     await change_status(client, owner, dead1["id"], "DEAD", date=iso(now - timedelta(days=3)))

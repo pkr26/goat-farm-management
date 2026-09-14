@@ -6,6 +6,7 @@
  */
 import type { AnimalOutBirthType } from './animalOutBirthType';
 import type { AnimalOutCurrentBucket } from './animalOutCurrentBucket';
+import type { AnimalOutMortalityCauseCode } from './animalOutMortalityCauseCode';
 import type { AnimalOutSex } from './animalOutSex';
 import type { AnimalOutSource } from './animalOutSource';
 import type { AnimalOutStatus } from './animalOutStatus';
@@ -28,6 +29,12 @@ export interface AnimalOut {
   status_date: string | null;
   sale_price: number | null;
   sale_weight_kg: number | null;
+  buyer_name: string | null;
+  mortality_cause: string | null;
+  mortality_cause_code: AnimalOutMortalityCauseCode;
+  disposal_method: string | null;
+  necropsy_done: boolean;
+  necropsy_findings: string | null;
   purchase_date: string | null;
   purchase_price: number | null;
   seller_name: string | null;
@@ -41,7 +48,6 @@ export interface AnimalOut {
   restriction_cleared_by_id: number | null;
   restriction_clearance_reference: string | null;
   restriction_version: number;
-  mortality_cause: string | null;
   mortality_reported_at: string | null;
   notes: string | null;
   created_at: string;

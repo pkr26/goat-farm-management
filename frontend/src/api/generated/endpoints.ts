@@ -76,6 +76,7 @@ import type {
   HealthStatusOut,
   HerdSnapshotApiSimulationHerdSnapshotGetParams,
   HerdSnapshotOut,
+  InsuranceClaimIn,
   InsuranceListOut,
   InsurancePolicyIn,
   InsurancePolicyOut,
@@ -8363,6 +8364,133 @@ export const useRenewPolicyApiFinanceInsurancePolicyIdRenewPost = <TError = Erro
         TContext
       > => {
       return useMutation(getRenewPolicyApiFinanceInsurancePolicyIdRenewPostMutationOptions(options), queryClient);
+    }
+
+export type claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse200 = {
+  data: InsurancePolicyOut
+  status: 200
+}
+
+export type claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type claimPolicyApiFinanceInsurancePolicyIdClaimPostResponseSuccess = (claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse200) & {
+  headers: Headers;
+};
+export type claimPolicyApiFinanceInsurancePolicyIdClaimPostResponseError = (claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse400 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse401 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse403 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse404 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse409 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse422 | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse429) & {
+  headers: Headers;
+};
+
+export type claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse = (claimPolicyApiFinanceInsurancePolicyIdClaimPostResponseSuccess | claimPolicyApiFinanceInsurancePolicyIdClaimPostResponseError)
+
+export const getClaimPolicyApiFinanceInsurancePolicyIdClaimPostUrl = (policyId: number,) => {
+
+
+
+
+  return `/api/finance/insurance/${policyId}/claim`
+}
+
+/**
+ * Record a claim against a policy — the register's terminal event.
+ *
+ * A claim is a status fact, not a money movement: any payout the insurer
+ * actually settles belongs in the ledger (a manual income row), never
+ * fabricated here. Allowed from any unclaimed status, including lapsed —
+ * lapse ends the cover, not the claim window.
+ * @summary Claim Policy
+ */
+export const claimPolicyApiFinanceInsurancePolicyIdClaimPost = async (policyId: number,
+    insuranceClaimIn: InsuranceClaimIn, options?: Parameters<typeof customInstance>[1]): Promise<claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse> => {
+
+  return customInstance<claimPolicyApiFinanceInsurancePolicyIdClaimPostResponse>(getClaimPolicyApiFinanceInsurancePolicyIdClaimPostUrl(policyId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(insuranceClaimIn)
+  }
+);}
+
+
+
+
+
+export const getClaimPolicyApiFinanceInsurancePolicyIdClaimPostMutationOptions = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof claimPolicyApiFinanceInsurancePolicyIdClaimPost>>, TError,{policyId: number;data: InsuranceClaimIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof claimPolicyApiFinanceInsurancePolicyIdClaimPost>>, TError,{policyId: number;data: InsuranceClaimIn}, TContext> => {
+
+const mutationKey = ['claimPolicyApiFinanceInsurancePolicyIdClaimPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof claimPolicyApiFinanceInsurancePolicyIdClaimPost>>, {policyId: number;data: InsuranceClaimIn}> = (props) => {
+          const {policyId,data} = props ?? {};
+
+          return  claimPolicyApiFinanceInsurancePolicyIdClaimPost(policyId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ClaimPolicyApiFinanceInsurancePolicyIdClaimPostMutationResult = NonNullable<Awaited<ReturnType<typeof claimPolicyApiFinanceInsurancePolicyIdClaimPost>>>
+    export type ClaimPolicyApiFinanceInsurancePolicyIdClaimPostMutationBody = InsuranceClaimIn
+    export type ClaimPolicyApiFinanceInsurancePolicyIdClaimPostMutationError = ErrorType<ErrorOut | HTTPValidationError>
+
+    /**
+ * @summary Claim Policy
+ */
+export const useClaimPolicyApiFinanceInsurancePolicyIdClaimPost = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof claimPolicyApiFinanceInsurancePolicyIdClaimPost>>, TError,{policyId: number;data: InsuranceClaimIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof claimPolicyApiFinanceInsurancePolicyIdClaimPost>>,
+        TError,
+        {policyId: number;data: InsuranceClaimIn},
+        TContext
+      > => {
+      return useMutation(getClaimPolicyApiFinanceInsurancePolicyIdClaimPostMutationOptions(options), queryClient);
     }
 
 export type animalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGetResponse200 = {

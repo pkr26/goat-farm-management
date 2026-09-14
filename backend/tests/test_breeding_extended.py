@@ -26,7 +26,7 @@ from datetime import date, timedelta
 
 import httpx
 import pytest
-from sqlalchemy import event, select
+from sqlalchemy import event, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.db import get_engine, get_sessionmaker
@@ -3760,3 +3760,64 @@ async def test_sold_sibling_does_not_strand_the_dam_in_recovery(
     completed = await client.post(f"/api/tasks/{postpartum['id']}/complete", headers=headers)
     assert completed.status_code == 200, completed.text
     assert (await get_animal(client, headers, doe["id"]))["current_bucket"] == "RESTING"
+
+
+async def test_kidding_watch_due_day_title_carries_the_dystocia_rule(
+    client: httpx.AsyncClient,
+) -> None:
+    """The due-day watch carries the escalation rule (assist after 30 min of
+    straining without progress; vet if 15–20 min unresolved); the earlier
+    watches stay sign-scanning duties."""
+    headers = await owner_with_farm(client)
+    _doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
+    ekd = br["expected_kidding_date"]
+    watch = tasks_by_category(await all_tasks(client, headers), "KIDDING_WATCH")
+    assert len(watch) == 6
+    due_day = next(t for t in watch if t["due_date"] == ekd)
+    assert "assist after 30 min straining w/o progress" in due_day["title"]
+    assert "call vet if 15–20 min unresolved" in due_day["title"]
+    earlier = [t for t in watch if t["due_date"] != ekd]
+    assert len(earlier) == 5
+    for task in earlier:
+        assert "udder fill" in task["title"]
+        assert "assist" not in task["title"]
+
+
+async def test_rebreed_prompt_completes_when_the_doe_is_reserviced(
+    client: httpx.AsyncClient,
+) -> None:
+    """Recording the next service answers the re-breeding prompt: the duty
+    completes with the recorder's attribution instead of lingering overdue
+    through the following pregnancy."""
+    headers = await owner_with_farm(client)
+    doe, buck, _record = await _kidded_doe_with_due_weaning(client, headers, tag="RB-1")
+    weaning = tasks_by_category(await all_tasks(client, headers), "WEANING")[0]
+    resp = await client.post(f"/api/tasks/{weaning['id']}/complete", headers=headers)
+    assert resp.status_code == 200, resp.text
+    rebreed = tasks_by_category(await all_tasks(client, headers), "REBREED")
+    assert len(rebreed) == 1 and rebreed[0]["status"] == "PENDING"
+
+    # Eleven days of rest clears the flush window; then she is re-served.
+    async with get_sessionmaker()() as db:
+        await db.execute(
+            update(BucketMove)
+            .where(
+                BucketMove.animal_id == doe["id"],
+                BucketMove.to_bucket == "RESTING",
+            )
+            .values(effective_date=today() - timedelta(days=11))
+        )
+        await db.commit()
+    moved = await client.post(
+        f"/api/animals/{doe['id']}/move",
+        json={"to_bucket": "BREEDING"},
+        headers=headers,
+    )
+    assert moved.status_code == 200, moved.text
+    br = await make_breeding(client, headers, doe["id"], buck["id"], breeding_date=iso(today()))
+    assert br["outcome"] == "PENDING"
+
+    rebreed = tasks_by_category(await all_tasks(client, headers), "REBREED")
+    assert len(rebreed) == 1
+    assert rebreed[0]["status"] == "DONE"
+    assert rebreed[0]["completed_by_id"] is not None

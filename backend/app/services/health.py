@@ -88,29 +88,63 @@ def protocol_phrase_of(title: str) -> str:
     return phrase
 
 
-def template_name_for_task(title: str, category: str) -> str | None:
-    """Canonical template inferred from an auto-generated health task.
+def template_names_for_task(title: str, category: str) -> tuple[str, ...]:
+    """Seeded templates an auto-generated health duty may be recorded against.
 
     The task is the authoritative link; free text remains useful as a product
     note but cannot silently complete a different programme item — which is
-    also why only the protocol phrase of the title is scanned.
+    also why only the protocol phrase of the title is scanned. Most duties map
+    to exactly one item; the cadence engine's combined "ET + HS pre-monsoon"
+    round administers two vaccines in one sweep, so either component closes
+    the round but nothing outside the pair does.
     """
     words = _words(protocol_phrase_of(title))
     if category == HealthEventType.DEWORMING.value:
-        return "Deworming"
+        return ("Deworming",)
     if _has_alias(words, "ppr", "peste des petits"):
-        return "PPR"
+        return ("PPR",)
     if _has_alias(words, "goat pox", "goatpox"):
-        return "Goat Pox"
+        return ("Goat Pox",)
     if _has_alias(words, "fmd", "foot and mouth"):
-        return "FMD"
+        return ("FMD",)
     et_matches = _has_alias(words, "et", "enterotoxaemia", "enterotoxemia")
     tt_matches = _has_alias(words, "tt", "tetanus", "tetanus toxoid")
+    hs_matches = _has_alias(words, "hs", "haemorrhagic septicaemia", "hemorrhagic septicemia")
     if _has_alias(words, "pre kidding") and et_matches and tt_matches:
-        return "ET + TT pre-kidding"
+        return ("ET + TT pre-kidding",)
+    if et_matches and hs_matches:
+        return ("Enterotoxaemia (ET)", "Haemorrhagic Septicaemia (HS)")
+    if hs_matches:
+        return ("Haemorrhagic Septicaemia (HS)",)
+    if _has_alias(words, "ccpp", "contagious caprine pleuropneumonia"):
+        return ("CCPP",)
     if et_matches and tt_matches:
-        return "Enterotoxaemia (ET)"
-    return None
+        return ("Enterotoxaemia (ET)",)
+    return ()
+
+
+def template_name_for_task(title: str, category: str) -> str | None:
+    """Canonical (primary) template inferred from an auto-generated health task."""
+    names = template_names_for_task(title, category)
+    return names[0] if names else None
+
+
+def preferred_template_for_target(target: str, template_names: tuple[str, ...]) -> str:
+    """Component template an explicitly recorded target names, when it names one.
+
+    For a combined round (ET + HS) the closing event usually records a single
+    component: bind the template whose programme the target actually names
+    instead of defaulting to the pair's first element. A blank or unmatched
+    target falls back to the primary.
+    """
+    if template_names:
+        target_words = _words(target)
+        if target_words:
+            for name in template_names:
+                if target_matches_template(target, name):
+                    return name
+        return template_names[0]
+    return ""
 
 
 def target_matches_template(target: str, template_name: str) -> bool:
@@ -151,7 +185,8 @@ def canonical_target_for_task(title: str, category: str) -> str | None:
     """Disease/programme target represented by an auto-generated duty.
 
     Quarantine's ET + Tetanus duty is stored against the seeded ET schedule
-    template, but its factual target still has two required components.
+    template, but its factual target still has two required components. The
+    combined ET + HS pre-monsoon round names both of its components too.
     """
     template_name = template_name_for_task(title, category)
     if template_name is None:
@@ -159,8 +194,11 @@ def canonical_target_for_task(title: str, category: str) -> str | None:
     words = _words(protocol_phrase_of(title))
     et_matches = _has_alias(words, "et", "enterotoxaemia", "enterotoxemia")
     tt_matches = _has_alias(words, "tt", "tetanus", "tetanus toxoid")
+    hs_matches = _has_alias(words, "hs", "haemorrhagic septicaemia", "hemorrhagic septicemia")
     if et_matches and tt_matches:
         return "Enterotoxaemia (ET) + Tetanus (TT)"
+    if et_matches and hs_matches:
+        return "Enterotoxaemia (ET) + Haemorrhagic Septicaemia (HS)"
     return template_name
 
 
@@ -177,10 +215,19 @@ def target_matches_task(target: str, title: str, category: str) -> bool:
     task_words = _words(protocol_phrase_of(title))
     task_has_et = _has_alias(task_words, "et", "enterotoxaemia", "enterotoxemia")
     task_has_tt = _has_alias(task_words, "tt", "tetanus", "tetanus toxoid")
+    task_has_hs = _has_alias(task_words, "hs", "haemorrhagic septicaemia", "hemorrhagic septicemia")
     if task_has_et and task_has_tt:
         target_has_et = _has_alias(target_words, "et", "enterotoxaemia", "enterotoxemia")
         target_has_tt = _has_alias(target_words, "tt", "tetanus", "tetanus toxoid")
         return target_has_et and target_has_tt
+    if task_has_et and task_has_hs:
+        # Either component of the combined pre-monsoon round is a faithful
+        # record of (half of) the sweep; a target naming neither is wrong.
+        target_has_et = _has_alias(target_words, "et", "enterotoxaemia", "enterotoxemia")
+        target_has_hs = _has_alias(
+            target_words, "hs", "haemorrhagic septicaemia", "hemorrhagic septicemia"
+        )
+        return target_has_et or target_has_hs
     template_name = template_name_for_task(title, category)
     return template_name is None or target_matches_template(target, template_name)
 

@@ -56,12 +56,13 @@ from ..services import (
     execute_idempotent,
     inferred_schedule_template,
     lock_manual_task_queue,
+    preferred_template_for_target,
     record_health_event,
     require_animal_event_chronology,
     require_farm_not_future,
     target_matches_task,
     target_matches_template,
-    template_name_for_task,
+    template_names_for_task,
     vaccination_schedule_for_animal,
     validated_template,
 )
@@ -888,9 +889,9 @@ async def _record_event_mutation(
                     status_code=422,
                     detail=("A herd-level round closes via a bucket- or batch-scoped health event"),
                 )
-        expected_template = template_name_for_task(task.title, task.category)
-        if expected_template:
-            if template_name is not None and template_name != expected_template:
+        expected_templates = template_names_for_task(task.title, task.category)
+        if expected_templates:
+            if template_name is not None and template_name not in expected_templates:
                 raise HTTPException(
                     status_code=422, detail="Health template does not match the linked task"
                 )
@@ -898,11 +899,12 @@ async def _record_event_mutation(
                 raise HTTPException(
                     status_code=422, detail="Disease target does not match the linked task"
                 )
+            chosen_template = preferred_template_for_target(disease_target, expected_templates)
             try:
-                template = await validated_template(db, expected_template, payload.type)
+                template = await validated_template(db, chosen_template, payload.type)
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from None
-            template_name = expected_template
+            template_name = chosen_template
             if not disease_target:
                 disease_target = canonical_target_for_task(task.title, task.category) or ""
         await complete_task(db, task, user)

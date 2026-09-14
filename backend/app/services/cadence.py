@@ -36,6 +36,10 @@ from .tasks import lock_manual_task_queue
 _MAX_REORDER_INGREDIENTS = 100
 _MAX_BUCK_SCAN = 500
 _BUCK_ROTATION_LOOKBACK_DAYS = 365
+# A missed seasonal round is only worth resurrecting while it is still the
+# series' current cycle: an FMD gap from 18 months ago is stale history (the
+# animal-level schedule has moved on), not an actionable duty.
+_BACKFALL_MAX_AGE_DAYS = 365
 
 _MONTH_NAMES = (
     "January",
@@ -100,10 +104,10 @@ _INTERVAL_ROUNDS: tuple[_IntervalRound, ...] = (
     ),
     (
         TaskCategory.DISINFECTION,
-        122,
+        91,
         "Shed disinfection round — disinfect + lime; extra attention to kidding pens",
     ),
-    (TaskCategory.WEIGHING, 45, "Monthly weighing round — record weights; grow-out buckets first"),
+    (TaskCategory.WEIGHING, 30, "Monthly weighing round — record weights; grow-out buckets first"),
 )
 
 _DAILY_MORNING_FEED_TITLE = (
@@ -117,10 +121,21 @@ def _month_bounds(reference: date) -> tuple[date, date]:
     return reference.replace(day=1), reference.replace(day=last_day)
 
 
-def _contains_pattern(raw: str) -> str:
-    """Literal, case-insensitive SQL substring pattern (no wildcard injection)."""
+def _latest_occurrence(round_month: int, reference: date) -> date:
+    """First day of a round series' most recent occurrence.
+
+    Each calendar entry is a yearly series (FMD-March, FMD-September, the May
+    ET+HS round, …): its latest occurrence is this year's month when it has
+    already arrived, otherwise last year's.
+    """
+    year = reference.year if reference.month >= round_month else reference.year - 1
+    return date(year, round_month, 1)
+
+
+def _prefix_pattern(raw: str) -> str:
+    """Literal, case-insensitive SQL prefix pattern (no wildcard injection)."""
     escaped = raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return f"%{escaped}%"
+    return f"{escaped}%"
 
 
 async def _task_exists(db: AsyncSession, farm_id: int, *conditions: ColumnElement[bool]) -> bool:
@@ -142,21 +157,35 @@ async def _farm_has_active_animals(db: AsyncSession, farm_id: int) -> bool:
     return probe is not None
 
 
-async def _ensure_calendar_rounds(db: AsyncSession, farm_id: int, reference: date) -> bool:
+async def _ensure_calendar_rounds(
+    db: AsyncSession, farm_id: int, reference: date, backfill_floor: date
+) -> bool:
     """Seasonal vaccination/deworming rounds due in ``reference``'s month.
 
     Dedupe: any task of the round's category whose due date falls in the same
     calendar month and whose title carries the year suppresses creation, so a
     round appears once per (category, month, year) even across many board
     loads, and last year's differently-titled round never blocks this one.
+
+    A round whose month passed without a board load is not silently dropped:
+    the series' latest occurrence is materialized late (due at that month's
+    end, so it surfaces as overdue) when it is still inside the backfill
+    window and the farm already existed. Rounds older than that — or from
+    before the farm was created — stay history; one late round per series is
+    ever pending, because the probe finds the late copy on the next load.
     """
-    month_start, month_end = _month_bounds(reference)
-    month_name = _MONTH_NAMES[reference.month - 1]
-    year_text = str(reference.year)
     created = False
     for round_month, category, title_template in _CALENDAR_ROUNDS:
-        if round_month != reference.month:
+        occurrence = _latest_occurrence(round_month, reference)
+        is_current_month = (occurrence.year, occurrence.month) == (
+            reference.year,
+            reference.month,
+        )
+        month_start, month_end = _month_bounds(occurrence)
+        if not is_current_month and month_end < backfill_floor:
             continue
+        month_name = _MONTH_NAMES[occurrence.month - 1]
+        year_text = str(occurrence.year)
         title = title_template.format(month=month_name, year=year_text)
         already = await _task_exists(
             db,
@@ -168,7 +197,7 @@ async def _ensure_calendar_rounds(db: AsyncSession, farm_id: int, reference: dat
         )
         if already:
             continue
-        await _add_task(db, farm_id, title, reference, category)
+        await _add_task(db, farm_id, title, reference if is_current_month else month_end, category)
         created = True
     return created
 
@@ -200,14 +229,15 @@ async def _ensure_interval_rounds(db: AsyncSession, farm_id: int, reference: dat
 async def _ensure_daily_feed_routine(db: AsyncSession, farm_id: int, reference: date) -> bool:
     """The feed-room morning routine, once per business day.
 
-    Dedupe is deliberately PENDING-only on the exact (title, due date): a
-    completed routine is yesterday's history and must not stop today's copy.
+    Dedupe is any-status on the exact (title, due date). Yesterday's completed
+    routine has a different due date, so it never stops today's copy — but a
+    routine already completed (or skipped) today does, where a PENDING-only
+    probe would re-mint a same-day duplicate on every later board load.
     """
     already = await _task_exists(
         db,
         farm_id,
         Task.category == TaskCategory.FEED.value,
-        Task.status == TaskStatus.PENDING.value,
         Task.due_date == reference,
         Task.title == _DAILY_MORNING_FEED_TITLE,
     )
@@ -250,12 +280,16 @@ async def _ensure_feed_reorders(db: AsyncSession, farm_id: int, reference: date)
             f"Reorder {item.ingredient}: {item.qty_on_hand:.0f} kg on hand "
             f"(reorder level {level:.0f} kg)"
         )
+        # Prefix match on the generated "Reorder {ingredient}: " title: a bare
+        # substring would let any pending FEED duty that merely mentions the
+        # ingredient (the morning routine talks about bunks and water) swallow
+        # the alert, and "Maize" must not suppress "Maize DDGS".
         already = await _task_exists(
             db,
             farm_id,
             Task.category == TaskCategory.FEED.value,
             Task.status == TaskStatus.PENDING.value,
-            Task.title.ilike(_contains_pattern(item.ingredient), escape="\\"),
+            Task.title.ilike(_prefix_pattern(f"Reorder {item.ingredient}:"), escape="\\"),
         )
         if already:
             continue
@@ -353,8 +387,14 @@ async def ensure_cadence_tasks(db: AsyncSession, farm: Farm) -> None:
     business_today = today(farm.timezone)
     if not await _farm_has_active_animals(db, farm.id):
         return
+    # A round missed before the farm existed (or beyond one cycle ago) is
+    # history, not a duty: late materialization never reaches past this date.
+    backfill_floor = max(
+        business_today - timedelta(days=_BACKFALL_MAX_AGE_DAYS),
+        farm.created_at.date() if farm.created_at is not None else business_today,
+    )
     created = False
-    created |= await _ensure_calendar_rounds(db, farm.id, business_today)
+    created |= await _ensure_calendar_rounds(db, farm.id, business_today, backfill_floor)
     created |= await _ensure_interval_rounds(db, farm.id, business_today)
     created |= await _ensure_daily_feed_routine(db, farm.id, business_today)
     created |= await _ensure_feed_reorders(db, farm.id, business_today)

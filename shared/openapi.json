@@ -7481,6 +7481,133 @@
         }
       }
     },
+    "/api/finance/insurance/{policy_id}/claim": {
+      "post": {
+        "tags": [
+          "finance"
+        ],
+        "summary": "Claim Policy",
+        "description": "Record a claim against a policy \u2014 the register's terminal event.\n\nA claim is a status fact, not a money movement: any payout the insurer\nactually settles belongs in the ledger (a manual income row), never\nfabricated here. Allowed from any unclaimed status, including lapsed \u2014\nlapse ends the cover, not the claim window.",
+        "operationId": "claim_policy_api_finance_insurance__policy_id__claim_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "policy_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Policy Id"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InsuranceClaimIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InsurancePolicyOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected (invalid state or values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (state, replay, or race)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/finance/animals/{animal_id}/lifetime-pnl": {
       "get": {
         "tags": [
@@ -12277,6 +12404,84 @@
             ],
             "title": "Sale Weight Kg"
           },
+          "buyer_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buyer Name"
+          },
+          "mortality_cause": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mortality Cause"
+          },
+          "mortality_cause_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "PNEUMONIA",
+                  "DIARRHOEA",
+                  "COLIBACILLOSIS",
+                  "ENTEROTOXAEMIA",
+                  "PPR_SUSPECTED",
+                  "FMD_SUSPECTED",
+                  "GOAT_POX_SUSPECTED",
+                  "PARASITISM",
+                  "COCCIDIOSIS",
+                  "NUTRITIONAL",
+                  "HEAT_STRESS",
+                  "PREDATION",
+                  "ACCIDENT",
+                  "DYSTOCIA",
+                  "OLD_AGE",
+                  "OTHER",
+                  "UNKNOWN"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mortality Cause Code"
+          },
+          "disposal_method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disposal Method"
+          },
+          "necropsy_done": {
+            "type": "boolean",
+            "title": "Necropsy Done"
+          },
+          "necropsy_findings": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Necropsy Findings"
+          },
           "purchase_date": {
             "anyOf": [
               {
@@ -12395,17 +12600,6 @@
             "type": "integer",
             "title": "Restriction Version"
           },
-          "mortality_cause": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Mortality Cause"
-          },
           "mortality_reported_at": {
             "anyOf": [
               {
@@ -12491,6 +12685,12 @@
           "status_date",
           "sale_price",
           "sale_weight_kg",
+          "buyer_name",
+          "mortality_cause",
+          "mortality_cause_code",
+          "disposal_method",
+          "necropsy_done",
+          "necropsy_findings",
           "purchase_date",
           "purchase_price",
           "seller_name",
@@ -12504,7 +12704,6 @@
           "restriction_cleared_by_id",
           "restriction_clearance_reference",
           "restriction_version",
-          "mortality_cause",
           "mortality_reported_at",
           "notes",
           "created_at"
@@ -15897,6 +16096,9 @@
             "type": "number",
             "title": "Feed Stock Value"
           },
+          "mortality_loss": {
+            "$ref": "#/components/schemas/MortalityMemoOut"
+          },
           "pnl": {
             "items": {
               "$ref": "#/components/schemas/PnlRowOut"
@@ -15914,6 +16116,7 @@
           "total_income",
           "total_expense",
           "feed_stock_value",
+          "mortality_loss",
           "pnl"
         ],
         "title": "FinanceOut"
@@ -17284,6 +17487,26 @@
         ],
         "title": "HerdSnapshotOut",
         "description": "The farm's ACTIVE animals grouped into simulation starting cohorts."
+      },
+      "InsuranceClaimIn": {
+        "properties": {
+          "claim_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Claim Date"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "InsuranceClaimIn",
+        "description": "Record a claim against a policy \u2014 the register's terminal event.\n\nA claim is a status fact, not a money movement: any payout the insurer\nsettles is booked through the ledger like any other income."
       },
       "InsuranceExpiringOut": {
         "properties": {
@@ -18828,6 +19051,42 @@
         "type": "object",
         "title": "MortalityAssumptions",
         "description": "Mortality fractions per class.\n\n``kid_pre_weaning`` and ``kid_post_weaning`` are WHOLE-PHASE rates: the\nfraction of a crop lost across the entire 3-month kid (0-2 m) / weaner\n(3-5 m) class, which is how the literature quotes them (5-15% pre-weaning\nstall-fed; NABARD bankable models use 15%). The engine spreads each rate\nover exactly its three monthly slots, so a documented 10% removes 10% of\nthe crop \u2014 not the 2.6% an annual-rate conversion over three months\nrealized. ``grower`` and ``adult`` are ANNUAL rates (compounded monthly):\nthose classes have breed-dependent, open-ended durations, and survivors\nstay in them indefinitely."
+      },
+      "MortalityMemoOut": {
+        "properties": {
+          "window_months": {
+            "type": "integer",
+            "title": "Window Months"
+          },
+          "head_count": {
+            "type": "integer",
+            "title": "Head Count"
+          },
+          "estimated_loss": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Loss"
+          },
+          "basis": {
+            "type": "string",
+            "title": "Basis"
+          }
+        },
+        "type": "object",
+        "required": [
+          "window_months",
+          "head_count",
+          "estimated_loss",
+          "basis"
+        ],
+        "title": "MortalityMemoOut",
+        "description": "Ledger-neutral mortality visibility (audit backlog #31): deaths in the\nP&L window with an optional estimated loss. A memo \u2014 deliberately NOT a\ntransaction and never part of the income/expense totals."
       },
       "MortalityOut": {
         "properties": {
@@ -22766,6 +23025,18 @@
               }
             ],
             "title": "Mortality Reported At"
+          },
+          "estimated_dob": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Dob"
           },
           "necropsy_done": {
             "type": "boolean",

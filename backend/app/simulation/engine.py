@@ -138,6 +138,10 @@ from .vocabulary import GOAT_NOUNS, SpeciesNouns
 # insurance valuation, Telangana selling-cost defaults, extended Bakrid
 # calendar with coverage warnings, Monte Carlo confidence intervals and
 # within-run annual price variation.
+# 3.2.0: Osmanabadi husbandry-standards release — adult buck weight 42 -> 35 kg
+# (NBAGR/TNAU breed standard) and the breed_price_premium_pct toggle (folded
+# once into meat_price_per_kg, never re-applied on a round trip; default 0 is
+# bit-identical to the 3.1.0 baseline).
 MODEL_VERSION = "3.2.0"
 
 

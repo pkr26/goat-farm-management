@@ -55,6 +55,17 @@ _FARM_CHILD_TABLES = (
 
 
 def upgrade() -> None:
+    # 0. Grandchild rows keyed by animal_id only: at this revision
+    # bucket_moves and weight_records carry no farm_id (their tenant
+    # composite FKs arrive in e8b0d2f4a6c1), so they cannot join the
+    # farm_id sweep below — but their animals FK blocks that sweep's
+    # DELETE FROM animals unless they go first. No-op on a fresh database.
+    for table in ("bucket_moves", "weight_records"):
+        op.execute(
+            f"DELETE FROM {table} WHERE animal_id IN "
+            "(SELECT id FROM animals WHERE farm_id IN "
+            "(SELECT id FROM farms WHERE farm_type = 'BUFFALO_DAIRY'))"
+        )
     # 1. Remove buffalo-dairy tenants entirely (no-op on a fresh database).
     for table in _FARM_CHILD_TABLES:
         op.execute(
