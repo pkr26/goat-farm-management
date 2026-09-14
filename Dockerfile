@@ -32,14 +32,12 @@ WORKDIR /app
 
 # CVE sweep at build time: the digest-pinned base above anchors every layer,
 # but its build date can lag the latest Debian security point releases
-# (gzip/libpcre2/libsqlite3/perl) and it bundles outdated pip packages
-# (msgpack, setuptools). Upgrading here keeps the Trivy fixable
-# HIGH/CRITICAL gate at zero between base-image republishes; the pinned
-# digest still anchors everything the point releases do not touch.
+# (gzip/libpcre2/libsqlite3/openssl/perl). Upgrading here keeps the Trivy
+# fixable HIGH/CRITICAL gate at zero between base-image republishes; the
+# pinned digest still anchors everything the point releases do not touch.
 RUN apt-get update \
     && apt-get -y --no-install-recommends upgrade \
-    && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir --upgrade "msgpack>=1.2.1" "setuptools>=78.1.1"
+    && rm -rf /var/lib/apt/lists/*
 
 # Layer order: install deps from the manifest FIRST (cached across app-only
 # code changes), then copy the app source. Any change under backend/app/ no
@@ -58,6 +56,17 @@ COPY backend/app ./app
 COPY backend/alembic ./alembic
 COPY backend/alembic.ini ./
 COPY backend/scripts/healthcheck.py ./healthcheck.py
+
+# pip and uv are build-time tools: the runtime executes only /app/.venv.
+# pip vendors its own dependency copies (msgpack, setuptools, requests, …)
+# that pip itself cannot upgrade, so the base image's pip pins a vendored
+# msgpack/setuptools pair with open CVEs. Strip both tools — and with them
+# the entire vendored-CVE surface — from the final image (the same
+# rationale as removing the global npm tree from the frontend image).
+RUN rm -rf /usr/local/lib/python3.13/site-packages/pip \
+        /usr/local/lib/python3.13/site-packages/pip-*.dist-info \
+    && rm -f /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.13 \
+        /usr/local/bin/uv /usr/local/bin/uvx
 
 USER goatfarm
 
