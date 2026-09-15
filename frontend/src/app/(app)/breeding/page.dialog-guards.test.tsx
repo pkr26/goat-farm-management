@@ -114,7 +114,9 @@ async function pickOption(user: User, trigger: HTMLElement, name: string | RegEx
 }
 
 function rowOfText(text: string): HTMLElement {
-  const row = screen.getByText(text).closest("tr");
+  // Record content also renders in the below-md card list — scope to the
+  // desktop table so duplicated text stays unambiguous.
+  const row = within(screen.getByRole("table")).getByText(text).closest("tr");
   expect(row).not.toBeNull();
   return row as HTMLElement;
 }
@@ -216,7 +218,9 @@ describe("BreedingPage branches", () => {
     listPayload.records = [record];
     const user = userEvent.setup();
     await renderLoaded();
-    await user.click(screen.getByRole("button", { name: "Record loss" }));
+    await user.click(
+      within(screen.getByRole("table")).getByRole("button", { name: "Record loss" }),
+    );
     return { user, dialog: await screen.findByRole("dialog", { name: "Record pregnancy loss" }) };
   }
 
@@ -239,7 +243,7 @@ describe("BreedingPage branches", () => {
 
       await renderLoaded();
 
-      expect(screen.getByText("G-100")).toBeInTheDocument();
+      expect(within(screen.getByRole("table")).getByText("G-100")).toBeInTheDocument();
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
       expect(detailCalls).toBe(0);
     },

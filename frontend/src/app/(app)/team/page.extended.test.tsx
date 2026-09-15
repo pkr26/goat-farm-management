@@ -134,7 +134,10 @@ function teamHandler(payload: Record<string, unknown> = TEAM_PAYLOAD) {
 }
 
 function workerRow(email: string): HTMLElement {
-  const row = screen.getByText(email).closest("tr");
+  // Worker content also renders in the below-md card list (md:hidden) — scope
+  // to the desktop table so duplicated text stays unambiguous.
+  const table = document.querySelector('[class~="md:block"] table') as HTMLElement;
+  const row = within(table).getByText(email).closest("tr");
   expect(row).not.toBeNull();
   return row as HTMLElement;
 }
@@ -152,7 +155,7 @@ async function confirmDialog(
 
 async function renderLoaded() {
   const rendered = renderWithProviders(<TeamPage />);
-  expect(await screen.findByText(MEMBER_RAVI.email)).toBeInTheDocument();
+  expect((await screen.findAllByText(MEMBER_RAVI.email)).length).toBeGreaterThan(0);
   return rendered;
 }
 
@@ -1971,7 +1974,7 @@ describe("TeamPage global team-snapshot authority", () => {
     );
     // The successful initial snapshot remains rendered, but it is explicitly
     // stale: even controls unrelated to the completed status write are inert.
-    expect(screen.getByText(MEMBER_RAVI.email)).toBeInTheDocument();
+    expect(screen.getAllByText(MEMBER_RAVI.email).length).toBeGreaterThan(0);
     expectMutablePageControlsToBeDisabled();
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
 
@@ -2060,7 +2063,7 @@ describe("TeamPage RBAC and errors", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("team temporarily unavailable");
     fail = false;
     await user.click(screen.getByRole("button", { name: "Retry team" }));
-    expect(await screen.findByText(MEMBER_RAVI.email)).toBeInTheDocument();
+    expect((await screen.findAllByText(MEMBER_RAVI.email)).length).toBeGreaterThan(0);
     expect(calls).toBe(2);
   });
 

@@ -139,7 +139,10 @@ function teamHandler(payload: Record<string, unknown> = TEAM_PAYLOAD) {
 }
 
 function workerRow(email: string): HTMLElement {
-  const row = screen.getByText(email).closest("tr");
+  // Worker content also renders in the below-md card list (md:hidden) — scope
+  // to the desktop table so duplicated text stays unambiguous.
+  const table = document.querySelector('[class~="md:block"] table') as HTMLElement;
+  const row = within(table).getByText(email).closest("tr");
   expect(row).not.toBeNull();
   return row as HTMLElement;
 }
@@ -167,7 +170,7 @@ function permissionRow(dialog: HTMLElement, label: string): HTMLElement {
 
 async function renderLoaded() {
   const rendered = renderWithProviders(<TeamPage />);
-  expect(await screen.findByText(MEMBER_RAVI.email)).toBeInTheDocument();
+  expect((await screen.findAllByText(MEMBER_RAVI.email)).length).toBeGreaterThan(0);
   await waitFor(() => expect(screen.getByRole("button", { name: "New role" })).toBeEnabled());
   return rendered;
 }
@@ -381,7 +384,7 @@ describe("TeamPage worker row branches", () => {
       }),
     );
     renderWithProviders(<TeamPage />);
-    expect(await screen.findByText(MEMBER_SITA.email)).toBeInTheDocument();
+    expect((await screen.findAllByText(MEMBER_SITA.email)).length).toBeGreaterThan(0);
     await waitFor(() => expect(screen.getByRole("button", { name: "New role" })).toBeEnabled());
 
     // The Helper role stays inside the delegate's ceiling, so the row is
@@ -404,7 +407,7 @@ describe("TeamPage worker row branches", () => {
       }),
     );
     renderWithProviders(<TeamPage />);
-    expect(await screen.findByText(MEMBER_RAVI.email)).toBeInTheDocument();
+    expect((await screen.findAllByText(MEMBER_RAVI.email)).length).toBeGreaterThan(0);
     await waitFor(() => expect(screen.getByRole("button", { name: "New role" })).toBeEnabled());
     const guard = "You can only manage workers whose current role stays within your own permissions.";
 
@@ -742,7 +745,7 @@ describe("TeamPage role dialog branches", () => {
     );
     const user = userEvent.setup();
     renderWithProviders(<TeamPage />);
-    expect(await screen.findByText(TEST_USER.email)).toBeInTheDocument();
+    expect((await screen.findAllByText(TEST_USER.email)).length).toBeGreaterThan(0);
     await waitFor(() => expect(screen.getByRole("button", { name: "New role" })).toBeEnabled());
     await user.click(within(roleCard(legacyRole.name)).getByRole("button", { name: "Edit" }));
     const dialog = await screen.findByRole("dialog", { name: `Edit role: ${legacyRole.name}` });
@@ -776,7 +779,7 @@ describe("TeamPage role dialog branches", () => {
     );
     const user = userEvent.setup();
     renderWithProviders(<TeamPage />);
-    expect(await screen.findByText(TEST_USER.email)).toBeInTheDocument();
+    expect((await screen.findAllByText(TEST_USER.email)).length).toBeGreaterThan(0);
     await waitFor(() => expect(screen.getByRole("button", { name: "New role" })).toBeEnabled());
 
     await user.click(screen.getByRole("button", { name: "New role" }));
@@ -915,7 +918,7 @@ describe("TeamPage role card and page state branches", () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
     // The workers table is unaffected by the empty role list.
-    expect(screen.getByText(MEMBER_PRIYA.email)).toBeInTheDocument();
+    expect(screen.getAllByText(MEMBER_PRIYA.email).length).toBeGreaterThan(0);
   });
 
   it("waits for permissions instead of flashing an access denial", async () => {
@@ -938,7 +941,7 @@ describe("TeamPage role card and page state branches", () => {
     await act(async () => {
       releasePerms();
     });
-    expect(await screen.findByText(MEMBER_RAVI.email)).toBeInTheDocument();
+    expect((await screen.findAllByText(MEMBER_RAVI.email)).length).toBeGreaterThan(0);
   });
 
   it("hands the reset dialog on to each row that claims it", async () => {

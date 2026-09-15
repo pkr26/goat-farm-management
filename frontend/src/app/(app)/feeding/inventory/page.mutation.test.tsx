@@ -60,11 +60,14 @@ function inventoryHandler(items: unknown[]) {
 
 async function renderLoaded() {
   renderWithProviders(<InventoryPage />);
-  expect(await screen.findByText("Crushed maize")).toBeInTheDocument();
+  expect((await screen.findAllByText("Crushed maize")).length).toBeGreaterThan(0);
 }
 
 function rowOf(ingredient: string) {
-  return screen.getByText(ingredient).closest("tr") as HTMLElement;
+  // Stock rows also render in the below-md card list (md:hidden) — scope to
+  // the desktop stock table.
+  const table = document.querySelector('[class~="md:block"] table[class*="min-w-[640px]"]') as HTMLElement;
+  return within(table).getByText(ingredient).closest("tr") as HTMLElement;
 }
 
 describe("InventoryPage add-stock — optional price preprocess", () => {
@@ -355,7 +358,7 @@ describe("InventoryPage — permissions failure and retry", () => {
     expect(screen.queryByRole("heading", { name: "Feed inventory" })).not.toBeInTheDocument();
 
     await user.click(retry);
-    expect(await screen.findByText("Crushed maize")).toBeInTheDocument();
+    expect((await screen.findAllByText("Crushed maize")).length).toBeGreaterThan(0);
   });
 });
 
@@ -402,7 +405,7 @@ describe("InventoryPage — first-load, non-200 fallback and inventory error ret
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("inventory unavailable");
     await user.click(screen.getByRole("button", { name: "Retry inventory" }));
-    expect(await screen.findByText("Crushed maize")).toBeInTheDocument();
+    expect((await screen.findAllByText("Crushed maize")).length).toBeGreaterThan(0);
     expect(calls).toBe(2);
   });
 });

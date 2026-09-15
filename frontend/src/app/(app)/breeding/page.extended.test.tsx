@@ -173,15 +173,21 @@ const ABORTED_REC = makeRecord({
   loss_recorded_at: "2026-08-04T12:00:00Z",
 });
 
-function rowOf(text: string): HTMLElement {
-  const row = screen.getByText(text).closest("tr");
+/** The desktop register table — record content also renders in the below-md
+ * card list (md:hidden), so row lookups must scope here to stay unambiguous. */
+async function tableScope() {
+  return within(await screen.findByRole("table"));
+}
+
+async function rowOf(text: string): Promise<HTMLElement> {
+  const row = (await tableScope()).getByText(text).closest("tr");
   expect(row).not.toBeNull();
   return row as HTMLElement;
 }
 
 /** Row containing the first match of possibly-duplicated text. */
-function firstRowOf(text: string): HTMLElement {
-  const row = screen.getAllByText(text)[0].closest("tr");
+async function firstRowOf(text: string): Promise<HTMLElement> {
+  const row = (await tableScope()).getAllByText(text)[0].closest("tr");
   expect(row).not.toBeNull();
   return row as HTMLElement;
 }
@@ -281,7 +287,7 @@ describe("BreedingPage", () => {
 
   it("renders the records table with formatted dates and animal links", async () => {
     await renderLoaded();
-    const row = firstRowOf("Confirmed Pregnant");
+    const row = await firstRowOf("Confirmed Pregnant");
     const doeLink = within(row).getByRole("link", { name: "G-010" });
     expect(doeLink).toHaveAttribute("href", "/animals/10");
     const buckLink = within(row).getByRole("link", { name: "G-020" });
@@ -292,30 +298,30 @@ describe("BreedingPage", () => {
 
   it("renders outcome badge text with underscores replaced", async () => {
     await renderLoaded();
-    expect(screen.getByText("Pending")).toBeInTheDocument();
-    expect(screen.getAllByText("Confirmed Pregnant")).toHaveLength(2);
-    expect(screen.getByText("Failed")).toBeInTheDocument();
-    expect(screen.getByText("Aborted")).toBeInTheDocument();
+    expect((await tableScope()).getByText("Pending")).toBeInTheDocument();
+    expect((await tableScope()).getAllByText("Confirmed Pregnant")).toHaveLength(2);
+    expect((await tableScope()).getByText("Failed")).toBeInTheDocument();
+    expect((await tableScope()).getByText("Aborted")).toBeInTheDocument();
   });
 
   it("renders the recorded pregnancy-loss facts", async () => {
     await renderLoaded();
-    const row = rowOf("Aborted");
+    const row = await rowOf("Aborted");
     expect(within(row).getByText("4 Aug 2026 · Injury")).toBeInTheDocument();
     expect(within(row).getByText("Fence accident")).toBeInTheDocument();
   });
 
   it("ultrasound cell shows done / due date / dash per record state", async () => {
     await renderLoaded();
-    expect(within(rowOf("Pending")).getByText("due 2 Aug 2026")).toBeInTheDocument();
-    expect(within(firstRowOf("Confirmed Pregnant")).getByText("done")).toBeInTheDocument();
+    expect(within(await rowOf("Pending")).getByText("due 2 Aug 2026")).toBeInTheDocument();
+    expect(within(await firstRowOf("Confirmed Pregnant")).getByText("done")).toBeInTheDocument();
   });
 
   it("kid count and expected-kidding cells fall back to a dash", async () => {
     await renderLoaded();
-    const pendingRow = rowOf("Pending");
+    const pendingRow = await rowOf("Pending");
     expect(within(pendingRow).getAllByText("—").length).toBeGreaterThanOrEqual(2);
-    expect(within(firstRowOf("Confirmed Pregnant")).getByText("2")).toBeInTheDocument();
+    expect(within(await firstRowOf("Confirmed Pregnant")).getByText("2")).toBeInTheDocument();
   });
 
   it("falls back to 'Doe #id' / 'Buck #id' when tags are absent", async () => {
@@ -323,11 +329,11 @@ describe("BreedingPage", () => {
       makeRecord({ id: 9, doe_id: 77, buck_id: 88, doe_tag: null, buck_tag: null }),
     ];
     renderWithProviders(<BreedingPage />);
-    expect(await screen.findByRole("link", { name: "Doe #77" })).toHaveAttribute(
+    expect(await (await tableScope()).findByRole("link", { name: "Doe #77" })).toHaveAttribute(
       "href",
       "/animals/77",
     );
-    expect(screen.getByRole("link", { name: "Buck #88" })).toHaveAttribute(
+    expect((await tableScope()).getByRole("link", { name: "Buck #88" })).toHaveAttribute(
       "href",
       "/animals/88",
     );
@@ -431,24 +437,24 @@ describe("BreedingPage", () => {
 
   it("shows management actions per row state with breeding.manage", async () => {
     await renderLoaded();
-    expect(within(rowOf("Pending")).getByRole("button", { name: "Ultrasound result" }))
+    expect(within(await rowOf("Pending")).getByRole("button", { name: "Ultrasound result" }))
       .toBeInTheDocument();
-    const pregnantRow = screen.getAllByText("Confirmed Pregnant")[0].closest("tr")!;
+    const pregnantRow = (await tableScope()).getAllByText("Confirmed Pregnant")[0].closest("tr")!;
     expect(within(pregnantRow).getByRole("button", { name: "Record loss" })).toBeInTheDocument();
-    const kiddedRow = screen.getAllByText("Confirmed Pregnant")[1].closest("tr")!;
+    const kiddedRow = (await tableScope()).getAllByText("Confirmed Pregnant")[1].closest("tr")!;
     expect(within(kiddedRow).getByText("Kidded")).toBeInTheDocument();
     expect(
       within(kiddedRow).queryByRole("button", { name: "Record loss" }),
     ).not.toBeInTheDocument();
     expect(
-      within(rowOf("Failed")).queryByRole("button"),
+      within(await rowOf("Failed")).queryByRole("button"),
     ).not.toBeInTheDocument();
   });
 
   it("offers the result action before the planned date, keeping the plan as a hint", async () => {
     listPayload.records = [HEAT_RETURN_REC];
     renderWithProviders(<BreedingPage />);
-    const pending = await screen.findByText("Pending");
+    const pending = await (await tableScope()).findByText("Pending");
     const row = pending.closest("tr") as HTMLElement;
 
     // A doe back in standing heat has to be recordable as not-pregnant now.
@@ -460,7 +466,7 @@ describe("BreedingPage", () => {
 
   it("shows no planned-scan hint once the scan date has arrived", async () => {
     await renderLoaded();
-    expect(within(rowOf("Pending")).queryByText(/^Scan planned /)).not.toBeInTheDocument();
+    expect(within(await rowOf("Pending")).queryByText(/^Scan planned /)).not.toBeInTheDocument();
   });
 
   // ---------- Add-breeding dialog ----------
@@ -708,7 +714,7 @@ describe("BreedingPage", () => {
     const user = userEvent.setup();
     await renderLoaded();
     await user.click(
-      within(rowOf("Pending")).getByRole("button", { name: "Ultrasound result" }),
+      within(await rowOf("Pending")).getByRole("button", { name: "Ultrasound result" }),
     );
     return { user, dialog: await screen.findByRole("dialog") };
   }
@@ -789,7 +795,7 @@ describe("BreedingPage", () => {
     const user = userEvent.setup();
     listPayload.records = [HEAT_RETURN_REC];
     renderWithProviders(<BreedingPage />);
-    const row = (await screen.findByText("Pending")).closest("tr") as HTMLElement;
+    const row = (await (await tableScope()).findByText("Pending")).closest("tr") as HTMLElement;
     await user.click(within(row).getByRole("button", { name: "Ultrasound result" }));
     return { user, dialog: await screen.findByRole("dialog") };
   }
@@ -906,7 +912,7 @@ describe("BreedingPage", () => {
   async function openPregnancyLossDialog() {
     const user = userEvent.setup();
     await renderLoaded();
-    const pregnantRow = screen.getAllByText("Confirmed Pregnant")[0].closest("tr")!;
+    const pregnantRow = (await tableScope()).getAllByText("Confirmed Pregnant")[0].closest("tr")!;
     await user.click(within(pregnantRow).getByRole("button", { name: "Record loss" }));
     const dialog = await screen.findByRole("dialog", { name: "Record pregnancy loss" });
     return { user, dialog };
@@ -994,7 +1000,10 @@ describe("BreedingPage", () => {
     expect(within(dialog).getByRole("alert")).toHaveTextContent("kidding already recorded");
     expect(within(dialog).getByLabelText("Notes")).toHaveValue("Observed loss");
     expect(listCalls).toBe(1); // no refresh on failure
-    expect(screen.getAllByText("Confirmed Pregnant")).toHaveLength(2);
+    // The open dialog aria-hides the background, so find the table by its
+    // desktop wrapper class instead of by role.
+    const desktopTable = document.querySelector('[class~="md:block"] table') as HTMLElement;
+    expect(within(desktopTable).getAllByText("Confirmed Pregnant")).toHaveLength(2);
   });
 
   it("announces a loss conflict and retries without losing the form", async () => {

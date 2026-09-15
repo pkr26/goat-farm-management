@@ -208,7 +208,15 @@ describe("KiddingPage", () => {
   async function renderLoaded() {
     renderWithProviders(<KiddingPage />);
     await screen.findByText("Recent kiddings");
-    await screen.findByText("big twins");
+    await screen.findAllByText("big twins");
+  }
+
+  /** Queue content also renders in below-md card lists (md:hidden) inside the
+   * same section card — scope to the desktop table for unambiguous lookups. */
+  function desktopScope(sectionCard: HTMLElement) {
+    const table = sectionCard.querySelector('[class~="md:block"] table');
+    expect(table).not.toBeNull();
+    return within(table as HTMLElement);
   }
 
   // ---------- list rendering ----------
@@ -354,12 +362,13 @@ describe("KiddingPage", () => {
     expect(
       screen.getByText("Overdue (past expected date, no kidding recorded)"),
     ).toBeInTheDocument();
-    expect(screen.getByText("(5d late)")).toBeInTheDocument();
     const card = screen.getByText(/Overdue/).closest("[data-slot='card']") as HTMLElement;
-    const link = within(card).getByRole("link", { name: "G-010" });
+    const table = desktopScope(card);
+    expect(table.getByText("(5d late)")).toBeInTheDocument();
+    const link = table.getByRole("link", { name: "G-010" });
     expect(link).toHaveAttribute("href", "/animals/10");
     expect(
-      within(card).getByRole("button", { name: "Record kidding" }),
+      table.getByRole("button", { name: "Record kidding" }),
     ).toBeInTheDocument();
   });
 
@@ -367,7 +376,7 @@ describe("KiddingPage", () => {
     payload.overdue = [];
     payload.overdue_total = 0;
     renderWithProviders(<KiddingPage />);
-    await screen.findByText("big twins");
+    await screen.findAllByText("big twins");
     expect(screen.queryByText(/Overdue/)).not.toBeInTheDocument();
   });
 
@@ -377,10 +386,11 @@ describe("KiddingPage", () => {
     const section = screen
       .getByText("Upcoming (next 30 days)")
       .closest("[data-slot='card']") as HTMLElement;
-    expect(within(section).getByText("10")).toBeInTheDocument(); // days left
-    expect(within(section).getByText("2")).toBeInTheDocument(); // kids detected
+    const table = desktopScope(section);
+    expect(table.getByText("10")).toBeInTheDocument(); // days left
+    expect(table.getByText("2")).toBeInTheDocument(); // kids detected
     expect(
-      within(section).getByRole("button", { name: "Record kidding" }),
+      table.getByRole("button", { name: "Record kidding" }),
     ).toBeInTheDocument();
   });
 
@@ -408,7 +418,10 @@ describe("KiddingPage", () => {
 
   it("renders recent kiddings with ease badge, linked kids and plain-text stillborn", async () => {
     await renderLoaded();
-    const row = screen.getByText("big twins").closest("tr")!;
+    const section = (await screen.findByText("Recent kiddings")).closest(
+      "[data-slot='card']",
+    ) as HTMLElement;
+    const row = desktopScope(section).getByText("big twins").closest("tr")!;
     expect(within(row).getByText("20 Jul 2026")).toBeInTheDocument();
     expect(within(row).getByText("Assisted")).toBeInTheDocument();
     const kidLink = within(row).getByRole("link", { name: "G-101" });
@@ -443,7 +456,10 @@ describe("KiddingPage", () => {
     ];
     renderWithProviders(<KiddingPage />);
     await screen.findByText("Recent kiddings");
-    const row = screen.getByText("20 Jul 2026").closest("tr")!;
+    const historySection = screen
+      .getByText("Recent kiddings")
+      .closest("[data-slot='card']") as HTMLElement;
+    const row = desktopScope(historySection).getByText("20 Jul 2026").closest("tr")!;
     // Postpartum facts ride under the ease badge; uncaptured facts stay silent.
     expect(
       within(row).getByText("parity 2 · placenta not passed · mastitis suspected"),
@@ -464,7 +480,7 @@ describe("KiddingPage", () => {
     const section = (await screen.findByText("Recent kiddings")).closest(
       "[data-slot='card']",
     ) as HTMLElement;
-    const cell = within(section).getByText("—");
+    const cell = desktopScope(section).getByText("—");
     expect(cell).toBeInTheDocument();
   });
 
@@ -552,7 +568,7 @@ describe("KiddingPage", () => {
     const section = screen
       .getByText("Upcoming (next 30 days)")
       .closest("[data-slot='card']") as HTMLElement;
-    await user.click(within(section).getByRole("button", { name: "Record kidding" }));
+    await user.click(desktopScope(section).getByRole("button", { name: "Record kidding" }));
     return { user, dialog: await screen.findByRole("dialog") };
   }
 

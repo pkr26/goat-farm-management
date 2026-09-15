@@ -265,9 +265,9 @@ describe("PlannerPage — campaign kills", () => {
     );
     const user = userEvent.setup();
     renderWithProviders(<PlannerPage />);
-    await screen.findByText("Diwali sale push");
+    await screen.findAllByText("Diwali sale push");
 
-    await user.click(screen.getByRole("button", { name: "Delete plan Diwali sale push" }));
+    await user.click(screen.getAllByRole("button", { name: "Delete plan Diwali sale push" })[0]!);
     const dialog = await screen.findByRole("dialog", { name: "Delete plan?" });
     await user.click(within(dialog).getByRole("button", { name: "Delete plan" }));
     await waitFor(() => expect(releaseDelete).toBeDefined());
@@ -401,9 +401,9 @@ describe("PlannerPage — campaign kills", () => {
 
   it("confirms deletions by name and cancels cleanly", async () => {
     await renderLoadedPlanner({ savedPlans: [SAVED_PLAN] });
-    await screen.findByText("Diwali sale push");
+    await screen.findAllByText("Diwali sale push");
 
-    await userEvent.click(screen.getByRole("button", { name: "Delete plan Diwali sale push" }));
+    await userEvent.click(screen.getAllByRole("button", { name: "Delete plan Diwali sale push" })[0]!);
     const dialog = await screen.findByRole("dialog", { name: "Delete plan?" });
     expect(within(dialog).getByText("Diwali sale push")).toBeInTheDocument();
     expect(within(dialog).getByText(/and its saved assumptions/)).toBeInTheDocument();
@@ -413,7 +413,7 @@ describe("PlannerPage — campaign kills", () => {
       expect(screen.queryByRole("dialog", { name: "Delete plan?" })).not.toBeInTheDocument(),
     );
     // The plan row is untouched after a cancelled deletion.
-    expect(screen.getByText("Diwali sale push")).toBeInTheDocument();
+    expect(screen.getAllByText("Diwali sale push").length).toBeGreaterThan(0);
   });
 
   it("deletes the plan after confirmation", async () => {
@@ -428,9 +428,9 @@ describe("PlannerPage — campaign kills", () => {
       }),
     );
     renderWithProviders(<PlannerPage />);
-    await screen.findByText("Diwali sale push");
+    await screen.findAllByText("Diwali sale push");
 
-    await userEvent.click(screen.getByRole("button", { name: "Delete plan Diwali sale push" }));
+    await userEvent.click(screen.getAllByRole("button", { name: "Delete plan Diwali sale push" })[0]!);
     const dialog = await screen.findByRole("dialog", { name: "Delete plan?" });
     await userEvent.click(within(dialog).getByRole("button", { name: "Delete plan" }));
     await waitFor(() => expect(deleted).toBe(1));
@@ -441,16 +441,16 @@ describe("PlannerPage — campaign kills", () => {
 
   it("closes the delete dialog on Escape and clears the staged plan", async () => {
     await renderLoadedPlanner({ savedPlans: [SAVED_PLAN] });
-    await screen.findByText("Diwali sale push");
+    await screen.findAllByText("Diwali sale push");
 
-    await userEvent.click(screen.getByRole("button", { name: "Delete plan Diwali sale push" }));
+    await userEvent.click(screen.getAllByRole("button", { name: "Delete plan Diwali sale push" })[0]!);
     await screen.findByRole("dialog", { name: "Delete plan?" });
     await userEvent.keyboard("{Escape}");
     await waitFor(() =>
       expect(screen.queryByRole("dialog", { name: "Delete plan?" })).not.toBeInTheDocument(),
     );
     // Reopening yields a fresh dialog — the staged plan was cleared on close.
-    await userEvent.click(screen.getByRole("button", { name: "Delete plan Diwali sale push" }));
+    await userEvent.click(screen.getAllByRole("button", { name: "Delete plan Diwali sale push" })[0]!);
     expect(await screen.findByRole("dialog", { name: "Delete plan?" })).toBeInTheDocument();
   });
 
@@ -467,9 +467,9 @@ describe("PlannerPage — campaign kills", () => {
       ),
     );
     renderWithProviders(<PlannerPage />);
-    await screen.findByText("Diwali sale push");
+    await screen.findAllByText("Diwali sale push");
 
-    await userEvent.click(screen.getByRole("button", { name: "Delete plan Diwali sale push" }));
+    await userEvent.click(screen.getAllByRole("button", { name: "Delete plan Diwali sale push" })[0]!);
     const dialog = await screen.findByRole("dialog", { name: "Delete plan?" });
     expect(within(dialog).getByText(/This permanently deletes/)).toBeInTheDocument();
     expect(within(dialog).getByText("Diwali sale push")).toHaveClass("font-medium");
@@ -556,8 +556,8 @@ describe("PlannerPage — campaign kills", () => {
         }),
       ),
     );
-    await screen.findByText("Diwali sale push");
-    await userEvent.click(screen.getByRole("button", { name: /^Open$/ }));
+    await screen.findAllByText("Diwali sale push");
+    await userEvent.click(screen.getAllByRole("button", { name: /^Open$/ })[0]!);
     await waitFor(() =>
       expect(toastMocks.success).toHaveBeenCalledWith(
         "Opened “Diwali sale push” — press Plan to re-run it against today's biology.",
@@ -588,9 +588,9 @@ describe("PlannerPage — campaign kills", () => {
       ),
     );
     renderWithProviders(<PlannerPage />);
-    await screen.findByText("Diwali sale push");
+    await screen.findAllByText("Diwali sale push");
 
-    await userEvent.click(screen.getByRole("button", { name: "Delete plan Diwali sale push" }));
+    await userEvent.click(screen.getAllByRole("button", { name: "Delete plan Diwali sale push" })[0]!);
     const dialog = await screen.findByRole("dialog", { name: "Delete plan?" });
     await userEvent.click(within(dialog).getByRole("button", { name: "Delete plan" }));
     await waitFor(() => expect(failDelete).toBeDefined());
@@ -615,8 +615,8 @@ describe("PlannerPage — campaign kills", () => {
       }),
     );
     renderWithProviders(<PlannerPage />);
-    await screen.findByText("Diwali sale push");
-    await userEvent.click(screen.getByRole("button", { name: /^Open$/ }));
+    await screen.findAllByText("Diwali sale push");
+    await userEvent.click(screen.getAllByRole("button", { name: /^Open$/ })[0]!);
     await screen.findByRole("button", { name: "Update “Diwali sale push”" });
 
     const nameInput = screen.getByLabelText("Plan name") as HTMLInputElement;
@@ -634,8 +634,8 @@ describe("PlannerPage — campaign kills", () => {
       savedPlans: [SAVED_PLAN],
       breeds: ["osmanabadi", "beetal_goat"],
     });
-    await screen.findByText("Diwali sale push");
-    await userEvent.click(screen.getByRole("button", { name: /^Open$/ }));
+    await screen.findAllByText("Diwali sale push");
+    await userEvent.click(screen.getAllByRole("button", { name: /^Open$/ })[0]!);
     expect(
       await screen.findByText(/Starting from a saved plan's assumptions/),
     ).toBeInTheDocument();
@@ -760,7 +760,7 @@ describe("PlannerPage — campaign kills", () => {
     expect(await screen.findByText("The plan is feasible")).toBeInTheDocument();
     expect(screen.queryByText(/stale — re-run after edits/)).not.toBeInTheDocument();
     expect(screen.getByText(/Shortfall — head/)).toBeInTheDocument();
-    expect(screen.getByText("87%")).toBeInTheDocument();
+    expect(screen.getAllByText("87%")[0]!).toBeInTheDocument();
     expect(screen.getByText("does bred")).toBeInTheDocument();
     expect(screen.getByText("Pasture lease assumes 2 acres per 10 does.")).toBeInTheDocument();
     expect(screen.queryByText("Stryker was here")).not.toBeInTheDocument();

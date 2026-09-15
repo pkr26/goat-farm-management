@@ -702,7 +702,8 @@ describe("FeedingPage dispensing history", () => {
     await renderLoaded();
 
     const card = screen.getByText("Dispensing history").closest('[data-slot="card"]') as HTMLElement;
-    const row = within(card).getByText("1 Jan 2026").closest("tr") as HTMLElement;
+    const table = card.querySelector('[class~="md:block"] table[class*="min-w-[640px]"]') as HTMLElement;
+    const row = within(table).getByText("1 Jan 2026").closest("tr") as HTMLElement;
     expect(within(row).getByText("—")).toBeInTheDocument();
   });
 

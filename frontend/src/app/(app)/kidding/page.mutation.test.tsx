@@ -119,6 +119,14 @@ function card(title: string | RegExp): HTMLElement {
   return screen.getByText(title).closest("[data-slot='card']") as HTMLElement;
 }
 
+/** Queue content also renders in below-md card lists (md:hidden) inside the
+ * same section card — scope to the desktop table for unambiguous lookups. */
+function desktopScope(sectionCard: HTMLElement) {
+  const table = sectionCard.querySelector('[class~="md:block"] table');
+  expect(table).not.toBeNull();
+  return within(table as HTMLElement);
+}
+
 describe("KiddingPage mutation hardening", () => {
   let postBody: Record<string, unknown> | null;
   let pregnancyCalls: number[];
@@ -177,7 +185,7 @@ describe("KiddingPage mutation hardening", () => {
     payload.upcoming_total = 1;
     await renderLoaded();
     await user.click(
-      within(card("Upcoming (next 30 days)")).getByRole("button", { name: "Record kidding" }),
+      desktopScope(card("Upcoming (next 30 days)")).getByRole("button", { name: "Record kidding" }),
     );
     return { user, dialog: await screen.findByRole("dialog") };
   }
@@ -697,7 +705,7 @@ describe("KiddingPage mutation hardening", () => {
     );
     await screen.findByText("Recent kiddings");
     await user.click(
-      within(card("Upcoming (next 30 days)")).getByRole("button", { name: "Record kidding" }),
+      desktopScope(card("Upcoming (next 30 days)")).getByRole("button", { name: "Record kidding" }),
     );
     const dialog = await screen.findByRole("dialog", { name: "Record kidding" });
     await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));

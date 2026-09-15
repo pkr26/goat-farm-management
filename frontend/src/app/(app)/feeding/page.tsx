@@ -937,6 +937,29 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
         )}
         {!invalidHistoryRange && history && history.records.length > 0 && (
           <>
+            {/* Below md the 5-column history becomes a card per entry —
+             * quantities stay right-aligned tabular-nums. */}
+            <div className="space-y-2 md:hidden">
+              {history.records.map((record) => (
+                <div
+                  key={record.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-card p-3 shadow-xs"
+                >
+                  <div>
+                    <p className="text-sm font-medium">{formatDate(record.date)}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {enumLabel("shift", record.shift, language)} ·{" "}
+                      {enumLabel("bucket", record.bucket, language)} ·{" "}
+                      {record.recipe_code ?? "—"}
+                    </p>
+                  </div>
+                  <span className="tabular-nums font-medium">
+                    {formatPersistedKg(record.qty_kg)} kg
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="hidden md:block">
             <Table className="min-w-[640px]">
               <TableHeader>
                 <TableRow>
@@ -961,6 +984,7 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
                 ))}
               </TableBody>
             </Table>
+            </div>
             <PaginationControls
               total={history.total}
               limit={history.limit}

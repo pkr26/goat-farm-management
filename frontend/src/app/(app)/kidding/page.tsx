@@ -27,6 +27,7 @@ import { PageSkeleton } from "@/components/skeletons";
 import { farmVocabulary, type FarmVocabulary } from "@/lib/farm-vocabulary";
 import { PaginationControls } from "@/components/pagination-controls";
 import { StatusBadge } from "@/components/status-badge";
+import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -1043,17 +1044,32 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
   // "Xd late" compares against the active farm's calendar day.
   const today = farmToday();
 
-  function recordButton(r: BreedingRecordOut) {
+  function recordButton(r: BreedingRecordOut, touch = false) {
     if (!canManage) return null;
     return (
       <Button
         variant="outline"
         size="sm"
+        // ≥44px on the below-md cards — the phone is the worker's primary
+        // device and 36px sm buttons sit under every mobile touch guideline.
+        className={touch ? "h-11 px-4" : undefined}
         disabled={queuesSettling}
         onClick={() => setRecordFor(r)}
       >
         Record {vocabulary.parturition}
       </Button>
+    );
+  }
+
+  /** Doe link-or-text, shared by the below-md cards (the tables inline the
+   * same link). */
+  function doeCell(doeId: number, doeTag: string | null | undefined) {
+    return canViewAnimals ? (
+      <Link href={`/animals/${doeId}`} className="text-primary underline">
+        {doeTag ?? `${femaleLabel} #${doeId}`}
+      </Link>
+    ) : (
+      (doeTag ?? `${femaleLabel} #${doeId}`)
     );
   }
 
@@ -1117,6 +1133,26 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
           }
           description={`${payload.overdue_total} overdue pregnancies in the full queue.`}
         >
+          {/* Below md the overdue queue becomes a card per pregnancy — the
+           * Record action is the whole point of this list, so it must be a
+           * thumb-reachable 44px target, not a pan-and-squint table cell. */}
+          <div className="space-y-2 md:hidden">
+            {payload.overdue.map((r) => (
+              <div key={r.id} className="space-y-2 rounded-xl border bg-card p-3 shadow-xs">
+                <p className="font-medium">{doeCell(r.doe_id, r.doe_tag)}</p>
+                <p className="text-xs text-muted-foreground">
+                  was due {formatDate(r.expected_kidding_date)}{" "}
+                  {r.expected_kidding_date && (
+                    <span className="text-destructive">
+                      ({daysBetween(r.expected_kidding_date, today)}d late)
+                    </span>
+                  )}
+                </p>
+                {recordButton(r, true)}
+              </div>
+            ))}
+          </div>
+          <div className="hidden md:block">
           <Table className="min-w-[560px]">
             <TableHeader className="sr-only">
               <TableRow>
@@ -1153,6 +1189,7 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
               ))}
             </TableBody>
           </Table>
+          </div>
           <PaginationControls
             total={payload.overdue_total}
             limit={payload.overdue_limit}
@@ -1190,6 +1227,29 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
             )}
           </EmptyState>
         ) : (
+          <>
+          {/* Below md the 6-column queue becomes a card per pregnancy. */}
+          <div className="space-y-2 md:hidden">
+            {payload.upcoming.map((r) => (
+              <div key={r.id} className="space-y-2 rounded-xl border bg-card p-3 shadow-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium">{doeCell(r.doe_id, r.doe_tag)}</span>
+                  {r.expected_kidding_date && (
+                    <Badge variant="secondary">
+                      {daysBetween(today, r.expected_kidding_date)}d left
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground tabular-nums">
+                  Bred {formatDate(r.breeding_date)} · Expected{" "}
+                  {formatDate(r.expected_kidding_date)} ·{" "}
+                  {cap(vocabulary.youngPlural)} detected: {r.kid_count_detected ?? "—"}
+                </p>
+                {recordButton(r, true)}
+              </div>
+            ))}
+          </div>
+          <div className="hidden md:block">
           <Table className="min-w-[720px]">
             <TableHeader>
               <TableRow>
@@ -1231,6 +1291,8 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
               ))}
             </TableBody>
           </Table>
+          </div>
+          </>
         )}
         <PaginationControls
           total={payload.upcoming_total}
@@ -1253,6 +1315,29 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
             description={`Record a ${vocabulary.parturition} from the upcoming list once a ${vocabulary.femaleAdult} delivers.`}
           />
         ) : (
+          <>
+          {/* Below md the 5-column history becomes a card per recorded
+           * birth — ease, young outcomes and care facts stay on the phone. */}
+          <div className="space-y-2 md:hidden">
+            {payload.records.map((k) => (
+              <div key={k.id} className="space-y-1.5 rounded-xl border bg-card p-3 shadow-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium">{formatDate(k.date)}</span>
+                  <StatusBadge status={k.ease}>{EASE_ITEMS[k.ease] ?? k.ease}</StatusBadge>
+                </div>
+                <p className="text-sm">{doeCell(k.doe_id, k.doe_tag)}</p>
+                {kiddingCareFacts(k) && (
+                  <p className="text-xs text-muted-foreground">{kiddingCareFacts(k)}</p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  {cap(vocabulary.youngPlural)}:{" "}
+                  <KidsCell kidding={k} canViewAnimals={canViewAnimals} />
+                </p>
+                {k.notes && <p className="text-xs text-muted-foreground">{k.notes}</p>}
+              </div>
+            ))}
+          </div>
+          <div className="hidden md:block">
           <Table className="min-w-[720px]">
             <TableHeader>
               <TableRow>
@@ -1295,6 +1380,8 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
               ))}
             </TableBody>
           </Table>
+          </div>
+          </>
         )}
         <PaginationControls
           total={payload.total}

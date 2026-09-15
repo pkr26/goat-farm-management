@@ -20,6 +20,16 @@ import { renderWithProviders } from "@/test/render";
 
 import VaccinationSchedulePage from "./page";
 
+/** Schedule rows also render in the below-md card list (md:hidden) — scope to
+ * the desktop table so duplicated text stays unambiguous. */
+async function tableScope() {
+  await screen.findByRole("table");
+  const table = document.querySelector('[class~="md:block"] table');
+  expect(table).not.toBeNull();
+  return within(table as HTMLElement);
+}
+
+
 const paramsMock: { animalId: string; search: string } = { animalId: "7", search: "" };
 
 vi.mock("next/navigation", () => ({
@@ -89,12 +99,12 @@ describe("VaccinationSchedulePage", () => {
 
   it("renders rows with formatted dates and timing notes", async () => {
     renderWithProviders(<VaccinationSchedulePage />);
-    const row = (await screen.findByText("PPR")).closest("tr")!;
+    const row = (await (await tableScope()).findByText("PPR")).closest("tr")!;
     expect(within(row).getByText("1 Feb 2026")).toBeInTheDocument();
     expect(within(row).getByText("3 Feb 2026")).toBeInTheDocument();
     expect(within(row).getByText("1 Feb 2027")).toBeInTheDocument();
     expect(
-      within((await screen.findByText("ET + TT")).closest("tr")!).getByText(
+      within((await (await tableScope()).findByText("ET + TT")).closest("tr")!).getByText(
         "4–6 weeks before kidding",
       ),
     ).toBeInTheDocument();
@@ -102,22 +112,22 @@ describe("VaccinationSchedulePage", () => {
 
   it("renders a dash for null date cells", async () => {
     renderWithProviders(<VaccinationSchedulePage />);
-    const hsRow = (await screen.findByText("HS")).closest("tr")!;
+    const hsRow = (await (await tableScope()).findByText("HS")).closest("tr")!;
     // last_done and next_due are null on the HS row.
     expect(within(hsRow).getAllByText("—")).toHaveLength(2);
   });
 
   it("renders a status badge per row", async () => {
     renderWithProviders(<VaccinationSchedulePage />);
-    expect(await screen.findByText("Done")).toHaveClass("bg-success-tint");
-    const overdue = screen.getByText("Overdue");
-    const upcoming = screen.getByText("Upcoming");
+    expect((await tableScope()).getByText("Done")).toHaveClass("bg-success-tint");
+    const overdue = (await tableScope()).getByText("Overdue");
+    const upcoming = (await tableScope()).getByText("Upcoming");
     expect(overdue).toHaveClass("bg-destructive/10");
     expect(upcoming).toHaveClass("bg-warning-tint");
     expect(overdue.closest("tr")).toHaveClass("bg-destructive/[0.04]");
     expect(upcoming.closest("tr")).not.toHaveClass("bg-destructive/[0.04]");
-    expect(screen.getByText("Done").closest("tr")).not.toHaveClass("bg-destructive/[0.04]");
-    expect(screen.getByText("Something Else")).toBeInTheDocument();
+    expect((await tableScope()).getByText("Done").closest("tr")).not.toHaveClass("bg-destructive/[0.04]");
+    expect((await tableScope()).getByText("Something Else")).toBeInTheDocument();
   });
 
   it("shows the empty state when no templates apply", async () => {
@@ -146,7 +156,7 @@ describe("VaccinationSchedulePage", () => {
     renderWithProviders(<VaccinationSchedulePage />);
     expect(await screen.findByRole("alert")).toHaveTextContent("no such animal");
     await user.click(screen.getByRole("button", { name: "Retry schedule" }));
-    expect(await screen.findByText("PPR")).toBeInTheDocument();
+    expect((await screen.findAllByText("PPR")).length).toBeGreaterThan(0);
     expect(attempts).toBe(2);
   });
 
@@ -185,7 +195,7 @@ describe("VaccinationSchedulePage", () => {
 
   it("links back to the health log and the add-event entry", async () => {
     renderWithProviders(<VaccinationSchedulePage />);
-    await screen.findByText("PPR");
+    await screen.findAllByText("PPR");
     expect(screen.getByRole("link", { name: "Back to health log" })).toHaveAttribute(
       "href",
       "/health?schedule_animal_id=7",
@@ -202,7 +212,7 @@ describe("VaccinationSchedulePage", () => {
   it("honours a safe originating page in the Back link", async () => {
     paramsMock.search = "?returnTo=%2Ftasks%3Ftab%3Doverdue";
     renderWithProviders(<VaccinationSchedulePage />);
-    await screen.findByText("PPR");
+    await screen.findAllByText("PPR");
 
     expect(screen.getByRole("link", { name: "Back to health log" })).toHaveAttribute(
       "href",
@@ -213,7 +223,7 @@ describe("VaccinationSchedulePage", () => {
   it("hides add-event for a read-only health viewer", async () => {
     server.use(permissionsHandler(["health.view"]));
     renderWithProviders(<VaccinationSchedulePage />);
-    await screen.findByText("PPR");
+    await screen.findAllByText("PPR");
     expect(screen.queryByRole("link", { name: "Add event" })).not.toBeInTheDocument();
   });
 
@@ -283,7 +293,7 @@ describe("VaccinationSchedulePage", () => {
   it("names the animal as plain text for a viewer without animals.view", async () => {
     server.use(permissionsHandler(["health.view", "health.manage"]));
     renderWithProviders(<VaccinationSchedulePage />);
-    await screen.findByText("PPR");
+    await screen.findAllByText("PPR");
 
     const heading = screen.getByRole("heading", { level: 1 });
     expect(heading).toHaveTextContent(/^Vaccination schedule — Animal #7$/);
@@ -292,7 +302,7 @@ describe("VaccinationSchedulePage", () => {
 
   it("styles Back as the secondary action next to the primary add-event button", async () => {
     renderWithProviders(<VaccinationSchedulePage />);
-    await screen.findByText("PPR");
+    await screen.findAllByText("PPR");
 
     const back = screen.getByRole("link", { name: "Back to health log" });
     expect(back).toHaveClass("border-border", "bg-background");

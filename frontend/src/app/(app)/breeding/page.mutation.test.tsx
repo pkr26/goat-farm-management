@@ -148,7 +148,9 @@ const PREGNANT_REC = makeRecord({
 });
 
 function rowOf(text: string): HTMLElement {
-  const row = screen.getByText(text).closest("tr");
+  // Record content also renders in the below-md card list — scope to the
+  // desktop table so duplicated text stays unambiguous.
+  const row = within(screen.getByRole("table")).getByText(text).closest("tr");
   expect(row).not.toBeNull();
   return row as HTMLElement;
 }
@@ -441,7 +443,7 @@ describe("BreedingPage mutation hardening", () => {
     await renderLoaded();
     expect(await screen.findByText(/is not awaiting a result/)).toBeInTheDocument();
 
-    const pregnantRow = screen.getAllByText("Confirmed Pregnant")[0].closest("tr")!;
+    const pregnantRow = within(screen.getByRole("table")).getAllByText("Confirmed Pregnant")[0].closest("tr")!;
     await user.click(within(pregnantRow).getByRole("button", { name: "Record loss" }));
     await screen.findByRole("dialog", { name: "Record pregnancy loss" });
     expect(screen.queryByText(/is not awaiting a result/)).not.toBeInTheDocument();
@@ -505,7 +507,7 @@ describe("BreedingPage mutation hardening", () => {
   it("shows the loss-cause label in the closed trigger and posts the herd-exit cause", async () => {
     const user = userEvent.setup();
     await renderLoaded();
-    const pregnantRow = screen.getAllByText("Confirmed Pregnant")[0].closest("tr")!;
+    const pregnantRow = within(screen.getByRole("table")).getAllByText("Confirmed Pregnant")[0].closest("tr")!;
     await user.click(within(pregnantRow).getByRole("button", { name: "Record loss" }));
     const dialog = await screen.findByRole("dialog", { name: "Record pregnancy loss" });
 
@@ -539,7 +541,7 @@ describe("BreedingPage mutation hardening", () => {
     );
     const user = userEvent.setup();
     await renderLoaded();
-    const pregnantRow = screen.getAllByText("Confirmed Pregnant")[0].closest("tr")!;
+    const pregnantRow = within(screen.getByRole("table")).getAllByText("Confirmed Pregnant")[0].closest("tr")!;
     await user.click(within(pregnantRow).getByRole("button", { name: "Record loss" }));
     const dialog = await screen.findByRole("dialog", { name: "Record pregnancy loss" });
 
@@ -679,7 +681,7 @@ describe("BreedingPage mutation hardening", () => {
     listPayload.total = 1;
     await renderLoaded();
 
-    expect(screen.getByText("Pending")).toBeInTheDocument();
+    expect(within(screen.getByRole("table")).getByText("Pending")).toBeInTheDocument();
     expect(screen.queryByText(/Disease/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Loss notes/)).not.toBeInTheDocument();
     expect(screen.queryByText(/5 Aug 2026/)).not.toBeInTheDocument();
@@ -784,7 +786,7 @@ describe("BreedingPage mutation hardening", () => {
     );
     await screen.findAllByText("1 Jul 2026");
 
-    const pregnantRow = screen.getAllByText("Confirmed Pregnant")[0].closest("tr")!;
+    const pregnantRow = within(screen.getByRole("table")).getAllByText("Confirmed Pregnant")[0].closest("tr")!;
     await user.click(within(pregnantRow).getByRole("button", { name: "Record loss" }));
     const dialog = await screen.findByRole("dialog", { name: "Record pregnancy loss" });
     await user.click(within(dialog).getByRole("button", { name: "Record pregnancy loss" }));

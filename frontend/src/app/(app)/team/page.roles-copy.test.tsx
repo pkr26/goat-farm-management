@@ -161,7 +161,10 @@ function teamHandler(payload: Record<string, unknown> = TEAM_PAYLOAD) {
 }
 
 function workerRow(email: string): HTMLElement {
-  const row = screen.getByText(email).closest("tr");
+  // Worker content also renders in the below-md card list (md:hidden) — scope
+  // to the desktop table so duplicated text stays unambiguous.
+  const table = document.querySelector('[class~="md:block"] table') as HTMLElement;
+  const row = within(table).getByText(email).closest("tr");
   expect(row).not.toBeNull();
   return row as HTMLElement;
 }
@@ -192,7 +195,7 @@ function createGate() {
 
 async function renderLoaded() {
   const rendered = renderWithProviders(<TeamPage />);
-  expect(await screen.findByText(MEMBER_RAVI.email)).toBeInTheDocument();
+  expect((await screen.findAllByText(MEMBER_RAVI.email)).length).toBeGreaterThan(0);
   await waitFor(() => expect(screen.getByRole("button", { name: "New role" })).toBeEnabled());
   return rendered;
 }
@@ -1048,6 +1051,6 @@ describe("TeamPage page-level copy", () => {
     });
 
     release();
-    expect(await screen.findByText(MEMBER_RAVI.email)).toBeInTheDocument();
+    expect((await screen.findAllByText(MEMBER_RAVI.email)).length).toBeGreaterThan(0);
   });
 });

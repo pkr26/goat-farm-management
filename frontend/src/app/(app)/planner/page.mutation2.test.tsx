@@ -62,6 +62,16 @@ import { createTestQueryClient, renderWithProviders } from "@/test/render";
 
 import PlannerPage from "./page";
 
+/** Targets-editor fields and report/plan rows also render in below-md card
+ * lists (md:hidden) — scope to a desktop table by its min-w floor so
+ * duplicated content stays unambiguous. */
+function desktopTable(minW: string): HTMLElement {
+  const table = document.querySelector(`[class~="md:block"] table[class*="${minW}"]`);
+  expect(table).not.toBeNull();
+  return table as HTMLElement;
+}
+
+
 const toastMocks = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
 vi.mock("sonner", () => ({ toast: toastMocks }));
 
@@ -428,10 +438,10 @@ async function addTarget(user: ReturnType<typeof userEvent.setup>) {
 }
 
 function saleMonthInput(): HTMLInputElement {
-  return screen.getByLabelText("Sale month") as HTMLInputElement;
+  return within(desktopTable("min-w-[720px]")).getByLabelText("Sale month") as HTMLInputElement;
 }
 
-const countInput = () => screen.getByLabelText("Count") as HTMLInputElement;
+const countInput = () => within(desktopTable("min-w-[720px]")).getByLabelText("Count") as HTMLInputElement;
 
 const noteStartingWith = (prefix: string) => (_: string, el: Element | null) =>
   el?.tagName === "P" && el.getAttribute("role") === "note" && !!el.textContent?.startsWith(prefix);
@@ -488,7 +498,7 @@ describe("PlannerPage mutation round 2: month parsing and number formatting", ()
     // jsdom keeps 5-digit years in month inputs; the raw value must survive.
     fireEvent.change(saleMonthInput(), { target: { value: "12026-01" } });
     expect(
-      screen.getByRole("button", { name: "Remove target 12026-01" }),
+      screen.getAllByRole("button", { name: "Remove target 12026-01" })[0]!,
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Jan 12026/ })).toBeNull();
 
@@ -531,7 +541,7 @@ describe("PlannerPage mutation round 2: month parsing and number formatting", ()
     await screen.findByText(/Shortfall 5 head/);
     // Risk renders "82%" and the after column is filled, so the ONLY em
     // dashes on the page are the two null stage-plan cells.
-    expect(screen.getAllByText("—").length).toBe(2);
+    expect(within(desktopTable("min-w-[1100px]")).getAllByText("—").length).toBe(2);
   });
 });
 
@@ -768,16 +778,16 @@ describe("PlannerPage mutation round 2: targets editor", () => {
     await addTarget(user);
     await addTarget(user);
 
-    const months = screen.getAllByLabelText("Sale month") as HTMLInputElement[];
+    const months = within(desktopTable("min-w-[720px]")).getAllByLabelText("Sale month") as HTMLInputElement[];
     expect(months[0]!.value).toBe(addMonths(currentYearMonth(), 12));
     fireEvent.change(months[1]!, { target: { value: "2027-06" } });
-    expect((screen.getAllByLabelText("Sale month")[0] as HTMLInputElement).value).toBe(
+    expect((within(desktopTable("min-w-[720px]")).getAllByLabelText("Sale month")[0] as HTMLInputElement).value).toBe(
       addMonths(currentYearMonth(), 12),
     );
 
     // Removing the first row leaves exactly the edited second row.
     await user.click(screen.getAllByRole("button", { name: /^Remove target / })[0]!);
-    const remaining = screen.getAllByLabelText("Sale month") as HTMLInputElement[];
+    const remaining = within(desktopTable("min-w-[720px]")).getAllByLabelText("Sale month") as HTMLInputElement[];
     expect(remaining).toHaveLength(1);
     expect(remaining[0]!.value).toBe("2027-06");
     expect(screen.queryByText("No sale targets yet")).toBeNull();
@@ -788,9 +798,9 @@ describe("PlannerPage mutation round 2: targets editor", () => {
     await renderLoaded2();
     await addTarget(user);
     expect(
-      screen.getByRole("button", {
+      screen.getAllByRole("button", {
         name: `Remove target ${monthLabel(addMonths(currentYearMonth(), 12))}`,
-      }),
+      })[0]!,
     ).toBeInTheDocument();
   });
 
@@ -798,9 +808,9 @@ describe("PlannerPage mutation round 2: targets editor", () => {
     const user = userEvent.setup();
     const state = await renderLoaded2();
     await addTarget(user);
-    await user.click(screen.getByLabelText("Class"));
+    await user.click(within(desktopTable("min-w-[720px]")).getByLabelText("Class"));
     await user.click(await screen.findByRole("option", { name: "Doe" }));
-    expect(screen.getByLabelText("Class")).toHaveTextContent("Doe");
+    expect(within(desktopTable("min-w-[720px]")).getByLabelText("Class")).toHaveTextContent("Doe");
 
     await user.click(screen.getByRole("button", { name: "Plan" }));
     await waitFor(() => expect(state.planBodies.length).toBe(1));
@@ -812,7 +822,7 @@ describe("PlannerPage mutation round 2: targets editor", () => {
     const addButton = screen.getByRole("button", { name: "Add target" });
     await waitFor(() => expect(addButton).toBeEnabled());
     for (let i = 0; i < 50; i += 1) fireEvent.click(addButton);
-    expect(screen.getAllByLabelText("Sale month")).toHaveLength(50);
+    expect(within(desktopTable("min-w-[720px]")).getAllByLabelText("Sale month")).toHaveLength(50);
     expect(addButton).toBeDisabled();
   });
 });
@@ -875,10 +885,11 @@ describe("PlannerPage mutation round 2: run gates and report rendering", () => {
     expect(desc.textContent).toBe(
       "Shortfall 5 head after recommendations · 1 recommended purchase event(s) · NPV ₹100 before purchases, ₹200 after.",
     );
-    expect(screen.getByText("20.5")).toBeInTheDocument();
-    expect(screen.getByText("✓ 18.3")).toBeInTheDocument();
-    expect(screen.getByText("✓ 20")).toBeInTheDocument();
-    expect(screen.getByText("82%")).toBeInTheDocument();
+    const evaluationTable = within(desktopTable("min-w-[820px]"));
+    expect(evaluationTable.getByText("20.5")).toBeInTheDocument();
+    expect(evaluationTable.getByText("✓ 18.3")).toBeInTheDocument();
+    expect(evaluationTable.getByText("✓ 20")).toBeInTheDocument();
+    expect(within(desktopTable("min-w-[820px]")).getByText("82%")).toBeInTheDocument();
     expect(screen.queryByText("0%")).toBeNull();
   });
 
@@ -894,7 +905,7 @@ describe("PlannerPage mutation round 2: run gates and report rendering", () => {
     const desc = screen.getByText(/Shortfall 5 head/);
     expect(desc.textContent).toContain("NPV ₹100 before purchases.");
     expect(desc.textContent).not.toContain("after.");
-    const row = screen.getByText("✓ 18.3").closest("tr")!;
+    const row = within(desktopTable("min-w-[820px]")).getByText("✓ 18.3").closest("tr")!;
     expect(within(row).getAllByRole("cell")[4]!.textContent).toBe("—");
   });
 
@@ -919,7 +930,7 @@ describe("PlannerPage mutation round 2: run gates and report rendering", () => {
     await addTarget(user);
     await user.click(screen.getByRole("button", { name: "Plan" }));
     expect(await screen.findByText(/Shortfall 5 head/)).toBeInTheDocument();
-    const cells = screen.getByText("✓ 20").closest("tr")!.querySelectorAll("td");
+    const cells = within(desktopTable("min-w-[820px]")).getByText("✓ 20").closest("tr")!.querySelectorAll("td");
     expect(cells[6]!.textContent).toBe("—");
   });
 
@@ -1029,7 +1040,7 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
       expect(toastMocks.success).toHaveBeenCalledWith("Saved plan “Festival”."),
     );
     expect(screen.getByRole("button", { name: "Update “Festival”" })).toBeInTheDocument();
-    expect(await screen.findByText("Festival")).toBeInTheDocument();
+    expect((await screen.findAllByText("Festival")).length).toBeGreaterThan(0);
     // Saving invalidates the plans list only — the preset query is untouched.
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(state.defaultsBreedCalls.length).toBe(defaultsBeforeSave);
@@ -1091,7 +1102,7 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
   it("requires a name to update, sends a trimmed name with the full target list", async () => {
     const user = userEvent.setup();
     const state = await renderLoaded2({ savedPlans: [savedPlanRow()] });
-    await user.click(await screen.findByRole("button", { name: "Open" }));
+    await user.click((await screen.findAllByRole("button", { name: "Open" }))[0]!);
 
     // RT-P2-6: an empty name disables Update outright (mirroring Save) —
     // a disabled button cannot submit, so no PATCH leaves the page.
@@ -1114,7 +1125,7 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
   it("confirms an update with the server's name, relabels the button and refreshes the list", async () => {
     const user = userEvent.setup();
     await renderLoaded2({ savedPlans: [savedPlanRow()] });
-    await user.click(await screen.findByRole("button", { name: "Open" }));
+    await user.click((await screen.findAllByRole("button", { name: "Open" }))[0]!);
     await user.clear(screen.getByLabelText("Plan name"));
     await user.type(screen.getByLabelText("Plan name"), "Renamed plan");
     await user.click(screen.getByRole("button", { name: /Update “Festival plan”/ }));
@@ -1123,13 +1134,13 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
       expect(toastMocks.success).toHaveBeenCalledWith("Updated “Renamed plan”."),
     );
     expect(screen.getByRole("button", { name: "Update “Renamed plan”" })).toBeInTheDocument();
-    expect(await screen.findByText("Renamed plan")).toBeInTheDocument();
+    expect((await screen.findAllByText("Renamed plan")).length).toBeGreaterThan(0);
   });
 
   it("surfaces a rejected update with the server detail", async () => {
     const user = userEvent.setup();
     await renderLoaded2({ savedPlans: [savedPlanRow()], updateStatus: 422 });
-    await user.click(await screen.findByRole("button", { name: "Open" }));
+    await user.click((await screen.findAllByRole("button", { name: "Open" }))[0]!);
     toastMocks.success.mockClear();
     await user.click(screen.getByRole("button", { name: /Update “Festival plan”/ }));
     await waitFor(() => expect(toastMocks.error).toHaveBeenCalledWith("stale revision"));
@@ -1140,7 +1151,7 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
   it("recovers from a 409 conflict by adopting the fresh revision and retrying", async () => {
     const user = userEvent.setup();
     const state = await renderLoaded2({ savedPlans: [savedPlanRow()], updateStatus: 409 });
-    await user.click(await screen.findByRole("button", { name: "Open" }));
+    await user.click((await screen.findAllByRole("button", { name: "Open" }))[0]!);
     await user.click(screen.getByRole("button", { name: /Update “Festival plan”/ }));
     await waitFor(() =>
       expect(toastMocks.error).toHaveBeenCalledWith(
@@ -1161,7 +1172,7 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
       updateStatus: 409,
       getPlanStatus: 201,
     });
-    await user.click(await screen.findByRole("button", { name: "Open" }));
+    await user.click((await screen.findAllByRole("button", { name: "Open" }))[0]!);
     await user.click(screen.getByRole("button", { name: /Update “Festival plan”/ }));
     await waitFor(() =>
       expect(toastMocks.error).toHaveBeenCalledWith(
@@ -1181,7 +1192,7 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
       updateStatus: 409,
       getPlanStatus: 500,
     });
-    await user.click(await screen.findByRole("button", { name: "Open" }));
+    await user.click((await screen.findAllByRole("button", { name: "Open" }))[0]!);
     await user.click(screen.getByRole("button", { name: /Update “Festival plan”/ }));
     await waitFor(() =>
       expect(toastMocks.error).toHaveBeenCalledWith(
@@ -1196,7 +1207,7 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
   it("surfaces a network-level update failure with the fallback message", async () => {
     const user = userEvent.setup();
     await renderLoaded2({ savedPlans: [savedPlanRow()], updateNetworkError: true });
-    await user.click(await screen.findByRole("button", { name: "Open" }));
+    await user.click((await screen.findAllByRole("button", { name: "Open" }))[0]!);
     toastMocks.error.mockClear();
     await user.click(screen.getByRole("button", { name: /Update “Festival plan”/ }));
     await waitFor(() =>
@@ -1207,7 +1218,7 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
   it("ignores an update response that is 2xx-but-not-200", async () => {
     const user = userEvent.setup();
     await renderLoaded2({ savedPlans: [savedPlanRow()], updateStatus: 201 });
-    await user.click(await screen.findByRole("button", { name: "Open" }));
+    await user.click((await screen.findAllByRole("button", { name: "Open" }))[0]!);
     toastMocks.success.mockClear();
     await user.click(screen.getByRole("button", { name: /Update “Festival plan”/ }));
     await waitFor(() => expect(screen.getByRole("button", { name: /Update “Festival plan”/ })).toBeInTheDocument());
@@ -1219,7 +1230,7 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
   it("keeps Update disabled without targets or with target errors", async () => {
     const user = userEvent.setup();
     await renderLoaded2({ savedPlans: [savedPlanRow()] });
-    await user.click(await screen.findByRole("button", { name: "Open" }));
+    await user.click((await screen.findAllByRole("button", { name: "Open" }))[0]!);
     const update = screen.getByRole("button", { name: /Update “Festival plan”/ });
     expect(update).toBeEnabled();
 
@@ -1239,7 +1250,7 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
       permissions: ["simulation.view"],
       savedPlans: [savedPlanRow()],
     });
-    await screen.findByRole("button", { name: "Open" });
+    await screen.findAllByRole("button", { name: "Open" });
     // With a valid target and a name, ONLY the missing simulation.manage
     // permission keeps Save disabled.
     await waitFor(() =>
@@ -1248,8 +1259,8 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
     await addTarget(user);
     await user.type(screen.getByLabelText("Plan name"), "X");
     expect(screen.getByRole("button", { name: "Save plan" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Delete plan Festival plan" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    expect(screen.getAllByRole("button", { name: "Delete plan Festival plan" })[0]!).toBeDisabled();
+    fireEvent.click(screen.getAllByRole("button", { name: "Open" })[0]!);
     const update = await screen.findByRole("button", { name: /Update “Festival plan”/ });
     expect(update).toBeDisabled();
   });
@@ -1257,7 +1268,7 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
   it("does not delete until the confirm dialog is accepted", async () => {
     const user = userEvent.setup();
     const state = await renderLoaded2({ savedPlans: [savedPlanRow()] });
-    await user.click(await screen.findByRole("button", { name: "Delete plan Festival plan" }));
+    await user.click((await screen.findAllByRole("button", { name: "Delete plan Festival plan" }))[0]!);
     // Staged only: the DELETE must not fire from the row button alone.
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(state.deletedIds).toEqual([]);
@@ -1272,20 +1283,20 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
   it("cancels the delete-confirm dialog without deleting", async () => {
     const user = userEvent.setup();
     const state = await renderLoaded2({ savedPlans: [savedPlanRow()] });
-    await user.click(await screen.findByRole("button", { name: "Delete plan Festival plan" }));
+    await user.click((await screen.findAllByRole("button", { name: "Delete plan Festival plan" }))[0]!);
     await user.click(await screen.findByRole("button", { name: "Cancel" }));
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(state.deletedIds).toEqual([]);
-    expect(screen.getByText("Festival plan")).toBeInTheDocument();
+    expect(screen.getAllByText("Festival plan").length).toBeGreaterThan(0);
   });
 
   it("deletes a saved plan and clears an open plan", async () => {
     const user = userEvent.setup();
     const state = await renderLoaded2({ savedPlans: [savedPlanRow()] });
-    await user.click(await screen.findByRole("button", { name: "Open" }));
+    await user.click((await screen.findAllByRole("button", { name: "Open" }))[0]!);
     expect(screen.getByRole("button", { name: /Update “Festival plan”/ })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Delete plan Festival plan" }));
+    await user.click(screen.getAllByRole("button", { name: "Delete plan Festival plan" })[0]!);
     await user.click(await screen.findByRole("button", { name: "Delete plan" }));
     await waitFor(() => expect(state.deletedIds).toEqual(["7"]));
     await waitFor(() =>
@@ -1302,18 +1313,18 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
       savedPlans: [savedPlanRow()],
       deleteStatus: 202,
     });
-    await user.click(await screen.findByRole("button", { name: "Delete plan Festival plan" }));
+    await user.click((await screen.findAllByRole("button", { name: "Delete plan Festival plan" }))[0]!);
     await user.click(await screen.findByRole("button", { name: "Delete plan" }));
     await waitFor(() => expect(state.deletedIds).toEqual(["7"]));
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(toastMocks.success).not.toHaveBeenCalled();
-    expect(await screen.findByText("Festival plan")).toBeInTheDocument();
+    expect((await screen.findAllByText("Festival plan")).length).toBeGreaterThan(0);
   });
 
   it("deletes a plan without one open (no open-plan state to consult)", async () => {
     const user = userEvent.setup();
     const state = await renderLoaded2({ savedPlans: [savedPlanRow()] });
-    await user.click(await screen.findByRole("button", { name: "Delete plan Festival plan" }));
+    await user.click((await screen.findAllByRole("button", { name: "Delete plan Festival plan" }))[0]!);
     await user.click(await screen.findByRole("button", { name: "Delete plan" }));
     await waitFor(() => expect(state.deletedIds).toEqual(["7"]));
     await waitFor(() =>
@@ -1328,7 +1339,7 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
       savedPlans: [savedPlanRow(), savedPlanRow({ id: 8, name: "Other plan" })],
     });
     await user.click((await screen.findAllByRole("button", { name: "Open" }))[0]!);
-    await user.click(screen.getByRole("button", { name: "Delete plan Other plan" }));
+    await user.click(screen.getAllByRole("button", { name: "Delete plan Other plan" })[0]!);
     await user.click(await screen.findByRole("button", { name: "Delete plan" }));
     await waitFor(() =>
       expect(toastMocks.success).toHaveBeenCalledWith("Deleted “Other plan”."),
@@ -1341,7 +1352,7 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
   it("surfaces a failed delete with the fallback message", async () => {
     const user = userEvent.setup();
     await renderLoaded2({ savedPlans: [savedPlanRow()], deleteNetworkError: true });
-    await user.click(await screen.findByRole("button", { name: "Delete plan Festival plan" }));
+    await user.click((await screen.findAllByRole("button", { name: "Delete plan Festival plan" }))[0]!);
     await user.click(await screen.findByRole("button", { name: "Delete plan" }));
     await waitFor(() =>
       expect(toastMocks.error).toHaveBeenCalledWith("Could not delete the plan."),
@@ -1353,7 +1364,7 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
     await renderLoaded2({
       savedPlans: [savedPlanRow({ assumptions: null, targets: [] })],
     });
-    await user.click(await screen.findByRole("button", { name: "Open" }));
+    await user.click((await screen.findAllByRole("button", { name: "Open" }))[0]!);
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(toastMocks.success).not.toHaveBeenCalled();
     expect(screen.getByText("No sale targets yet")).toBeInTheDocument();
@@ -1381,7 +1392,7 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
       expect(state.defaultsBreedCalls.some((c) => c.system === "semi_intensive")).toBe(true),
     );
 
-    await user.click(screen.getByRole("button", { name: "Open" }));
+    await user.click(screen.getAllByRole("button", { name: "Open" })[0]!);
     await waitFor(() =>
       expect(toastMocks.success).toHaveBeenCalledWith(
         "Opened “Festival plan” — press Plan to re-run it against today's biology.",
@@ -1391,7 +1402,7 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
     expect((screen.getByLabelText("Plan name") as HTMLInputElement).value).toBe("Festival plan");
     expect(screen.getByLabelText("Production system")).toHaveTextContent("Stall-fed");
     expect(screen.getByLabelText("Production system")).not.toHaveTextContent("Semi-intensive");
-    expect(screen.getAllByLabelText("Sale month")).toHaveLength(2);
+    expect(within(desktopTable("min-w-[720px]")).getAllByLabelText("Sale month")).toHaveLength(2);
     expect(screen.queryByText(/Shortfall \d+ head/)).toBeNull();
     expect(
       (await screen.findByText(noteStartingWith("Starting from a saved plan's assumptions."))).textContent,
@@ -1413,7 +1424,7 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
 
     // Row keys stay per-row: removing one of the two rows leaves one.
     await user.click(screen.getAllByRole("button", { name: /^Remove target / })[0]!);
-    expect(screen.getAllByLabelText("Sale month")).toHaveLength(1);
+    expect(within(desktopTable("min-w-[720px]")).getAllByLabelText("Sale month")).toHaveLength(1);
 
     await user.click(screen.getByRole("button", { name: "Plan" }));
     await waitFor(() => expect(state.planBodies.length).toBe(2));
@@ -1445,7 +1456,8 @@ describe("PlannerPage mutation round 2: saved plans table", () => {
         }),
       ],
     });
-    const festivalRow = (await screen.findByText("Festival plan")).closest("tr")!;
+    await screen.findAllByText("Festival plan");
+    const festivalRow = within(desktopTable("min-w-[720px]")).getAllByText("Festival plan")[0]!.closest("tr")!;
     expect(
       within(festivalRow).getByText(
         `20 Male grower ${monthLabel(addMonths("2027-01", 12))}; 4 Doe ${monthLabel(addMonths("2027-01", 14))}`,
@@ -1453,7 +1465,7 @@ describe("PlannerPage mutation round 2: saved plans table", () => {
     ).toBeInTheDocument();
     expect(within(festivalRow).getByText("Keep")).toBeInTheDocument();
 
-    const emptyRow = screen.getByText("Empty plan").closest("tr")!;
+    const emptyRow = within(desktopTable("min-w-[720px]")).getByText("Empty plan").closest("tr")!;
     const cells = within(emptyRow).getAllByRole("cell");
     expect(cells[2]!.textContent).toBe("—");
     expect(cells[3]!.textContent).toBe("—");
@@ -1471,7 +1483,7 @@ describe("PlannerPage mutation round 2: saved plans table", () => {
 
   it("stays quiet when every saved plan fits on the page", async () => {
     await renderLoaded2({ savedPlans: [savedPlanRow()] });
-    await screen.findByText("Festival plan");
+    await screen.findAllByText("Festival plan");
     expect(screen.queryByText(/Showing the first/)).toBeNull();
   });
 });

@@ -121,7 +121,7 @@ type AddStockInput = z.input<typeof addStockSchema>;
 type AddStockValues = z.output<typeof addStockSchema>;
 
 /** Add stock for one inventory row (feeding.manage). */
-function AddStockDialog({ item }: { item: FeedInventoryOut }) {
+function AddStockDialog({ item, touch = false }: { item: FeedInventoryOut; touch?: boolean }) {
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
   const mut = useAddStockApiFeedingInventoryItemIdAddPost();
@@ -165,6 +165,9 @@ function AddStockDialog({ item }: { item: FeedInventoryOut }) {
       <Button
         size="sm"
         variant="outline"
+        // ≥44px on the below-md stock cards — 36px sits under every mobile
+        // touch guideline outside a compact table row.
+        className={touch ? "h-11 px-4" : undefined}
         disabled={addFlight.pending}
         onClick={() => setOpen(true)}
       >
@@ -501,6 +504,48 @@ function InventoryPageContent({ perms }: { perms: PermissionsState }) {
             description="Ingredients appear here once the first feed purchase is recorded."
           />
         ) : (
+          <>
+          {/* Below md the 6-column stock table becomes a card per ingredient
+           * — a phone in the feed store must show the low-stock flag and the
+           * Add-stock action without panning. */}
+          <div className="space-y-2 md:hidden">
+            {items.map((item) => {
+              const low = item.reorder_level !== null && item.qty_on_hand <= item.reorder_level;
+              return (
+                <div
+                  key={item.id}
+                  className={
+                    low
+                      ? "space-y-1.5 rounded-xl border border-warning-tint-border bg-warning-tint/50 p-3 shadow-xs"
+                      : "space-y-1.5 rounded-xl border bg-card p-3 shadow-xs"
+                  }
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium">{item.ingredient}</span>
+                    <span className="tabular-nums text-sm">
+                      {formatPersistedKg(item.qty_on_hand)} kg
+                      {low && (
+                        <span className="ml-1.5 inline-flex items-center align-middle text-warning">
+                          <TriangleAlert className="size-4" />
+                          <span className="sr-only">low</span>
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground tabular-nums">
+                    {item.category} · Reorder at {item.reorder_level ?? "—"} kg · Last price{" "}
+                    {formatMoney(item.last_purchase_price_per_kg)}/kg
+                  </p>
+                  {canManage && (
+                    <div className="pt-0.5">
+                      <AddStockDialog item={item} touch />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="hidden md:block">
           <Table className="min-w-[640px]">
             <TableHeader>
               <TableRow>
@@ -547,6 +592,8 @@ function InventoryPageContent({ perms }: { perms: PermissionsState }) {
               })}
             </TableBody>
           </Table>
+          </div>
+          </>
         )}
       </DataTableCard>
       <DataTableCard

@@ -75,6 +75,19 @@ const PAYLOAD = (transactions: Record<string, unknown>[] = [TXN()]) => ({
 
 let lastParams = new URLSearchParams();
 
+/** Ledger/P&L rows also render in below-md card lists (md:hidden) inside the
+ * same section cards — scope to the desktop table for unambiguous lookups. */
+function desktopTableOf(title: string) {
+  const section = screen.getByText(title).closest("[data-slot='card']") as HTMLElement;
+  const table = section.querySelector('[class~="md:block"] table');
+  expect(table).not.toBeNull();
+  return within(table as HTMLElement);
+}
+/** The 8-column transactions ledger. */
+function ledgerScope() {
+  return desktopTableOf("Transactions");
+}
+
 describe("FinancePage — campaign kills", () => {
   beforeEach(() => {
     replaceMock.mockClear();
@@ -168,7 +181,8 @@ describe("FinancePage — campaign kills", () => {
     renderWithProviders(<FinancePage />);
     await screen.findByText("Total income");
 
-    await user.click(await screen.findByRole("button", { name: "Correct" }));
+    await screen.findByText("Transactions");
+    await user.click(ledgerScope().getByRole("button", { name: "Correct" }));
     const dialog = await screen.findByRole("dialog", { name: "Correct transaction #1" });
     // A transaction with no animal link opens the picker on its none option —
     // never on a synthesized "Animal #null" stub.
@@ -210,7 +224,8 @@ describe("FinancePage — campaign kills", () => {
     renderWithProviders(<FinancePage />);
     await screen.findByText("Total income");
 
-    await user.click(await screen.findByRole("button", { name: "Correct" }));
+    await screen.findByText("Transactions");
+    await user.click(ledgerScope().getByRole("button", { name: "Correct" }));
     const dialog = await screen.findByRole("dialog", { name: "Correct transaction #1" });
     expect(within(dialog).getByLabelText("Linked animal")).toHaveTextContent(
       "No animal linked",
@@ -234,7 +249,8 @@ describe("FinancePage — campaign kills", () => {
     await screen.findByText("Total income");
 
     // Success path: resolve after the farm changed → silent.
-    await user.click(await screen.findByRole("button", { name: "Correct" }));
+    await screen.findByText("Transactions");
+    await user.click(ledgerScope().getByRole("button", { name: "Correct" }));
     let dialog = await screen.findByRole("dialog", { name: "Correct transaction #1" });
     await user.click(within(dialog).getByRole("checkbox"));
     await user.clear(within(dialog).getByLabelText("Amount (₹) *"));
@@ -261,7 +277,8 @@ describe("FinancePage — campaign kills", () => {
       setCurrentFarmId("1");
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
-    await user.click(await screen.findByRole("button", { name: "Correct" }));
+    await screen.findByText("Transactions");
+    await user.click(ledgerScope().getByRole("button", { name: "Correct" }));
     dialog = await screen.findByRole("dialog", { name: "Correct transaction #1" });
     await user.click(within(dialog).getByRole("checkbox"));
     await user.clear(within(dialog).getByLabelText("Amount (₹) *"));
@@ -383,7 +400,8 @@ describe("FinancePage — campaign kills", () => {
     await screen.findByText("Total income");
     expect(screen.queryByText("Could not refresh — showing the last loaded data.")).toBeNull();
 
-    await user.click(await screen.findByRole("button", { name: "Correct" }));
+    await screen.findByText("Transactions");
+    await user.click(ledgerScope().getByRole("button", { name: "Correct" }));
     const dialog = await screen.findByRole("dialog", { name: "Correct transaction #1" });
     await user.click(within(dialog).getByRole("checkbox"));
     await user.clear(within(dialog).getByLabelText("Amount (₹) *"));
@@ -394,7 +412,7 @@ describe("FinancePage — campaign kills", () => {
     expect(
       await screen.findByText("Could not refresh — showing the last loaded data."),
     ).toBeInTheDocument();
-    expect(await screen.findByText("sold 10 bucks")).toBeInTheDocument();
+    expect((await screen.findAllByText("sold 10 bucks")).length).toBeGreaterThan(0);
     await user.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() =>
       expect(
@@ -442,7 +460,8 @@ describe("FinancePage — campaign kills", () => {
     renderWithProviders(<FinancePage />);
     await screen.findByText("Total income");
 
-    await user.click(await screen.findByRole("button", { name: "Correct" }));
+    await screen.findByText("Transactions");
+    await user.click(ledgerScope().getByRole("button", { name: "Correct" }));
     const dialog = await screen.findByRole("dialog", { name: "Correct transaction #1" });
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());

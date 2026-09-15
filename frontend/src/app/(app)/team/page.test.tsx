@@ -79,7 +79,7 @@ describe("TeamPage role dialog clamping (editor holds only team.manage)", () => 
     const user = userEvent.setup();
     renderWithProviders(<TeamPage />);
     // Membership row proves permissions + team payload resolved.
-    expect(await screen.findByText(TEST_USER.email)).toBeInTheDocument();
+    expect((await screen.findAllByText(TEST_USER.email)).length).toBeGreaterThan(0);
     await user.click(screen.getByRole("button", { name: "New role" }));
     const dialog = await screen.findByRole("dialog");
     return { user, dialog };
@@ -173,7 +173,9 @@ describe("TeamPage role dialog clamping (editor holds only team.manage)", () => 
     );
     const user = userEvent.setup();
     renderWithProviders(<TeamPage />);
-    const row = (await screen.findByText("worker@example.com")).closest("tr") as HTMLElement;
+    await screen.findAllByText("worker@example.com");
+    const table = document.querySelector('[class~="md:block"] table') as HTMLElement;
+    const row = within(table).getByText("worker@example.com").closest("tr") as HTMLElement;
     await waitFor(() => expect(screen.getByRole("button", { name: "New role" })).toBeEnabled());
 
     await user.click(within(row).getByRole("combobox"));

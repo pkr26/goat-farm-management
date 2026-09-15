@@ -171,7 +171,21 @@ async function renderLoaded() {
 }
 
 function rowFor(text: string): HTMLElement {
-  return screen.getByText(text).closest("tr") as HTMLElement;
+  // Ledger rows also render in the below-md card list (md:hidden) — scope to
+  // the desktop table inside the Transactions card.
+  const section = screen.getByText("Transactions").closest("[data-slot='card']") as HTMLElement;
+  const table = section.querySelector('[class~="md:block"] table') as HTMLElement;
+  return within(table).getByText(text).closest("tr") as HTMLElement;
+}
+
+/** P&L rows live in the Monthly P&L card's desktop table (same md:hidden
+ * card duplication as the ledger). */
+function pnlRowFor(month: string): HTMLElement {
+  const section = screen
+    .getByText("Monthly P&L (last 12 months)")
+    .closest("[data-slot='card']") as HTMLElement;
+  const table = section.querySelector('[class~="md:block"] table') as HTMLElement;
+  return within(table).getByText(month).closest("tr") as HTMLElement;
 }
 
 describe("FinancePage ledger copy", () => {
@@ -260,12 +274,12 @@ describe("FinancePage ledger copy", () => {
   it("styles the monthly net column by sign", async () => {
     await renderLoaded();
 
-    expect(within(rowFor("2026-01")).getByText("₹60,000")).toHaveClass(
+    expect(within(pnlRowFor("2026-01")).getByText("₹60,000")).toHaveClass(
       "text-right",
       "tabular-nums",
       "text-success",
     );
-    expect(within(rowFor("2025-12")).getByText("-₹5,000")).toHaveClass(
+    expect(within(pnlRowFor("2025-12")).getByText("-₹5,000")).toHaveClass(
       "text-right",
       "tabular-nums",
       "text-destructive",
@@ -677,12 +691,12 @@ describe("FinancePage settling states", () => {
       }),
     );
     await renderLoaded();
-    expect(screen.getByText("sold 10 bucks")).toBeInTheDocument();
+    expect(screen.getAllByText("sold 10 bucks").length).toBeGreaterThan(0);
 
     setInput(screen.getByLabelText("Filter by month"), "2025-12");
 
     expect(await screen.findByRole("status")).toHaveTextContent("Updating transactions…");
-    expect(screen.getByText("sold 10 bucks")).toBeInTheDocument();
+    expect(screen.getAllByText("sold 10 bucks").length).toBeGreaterThan(0);
     expect(screen.getByRole("navigation", { name: "transactions pagination" })).toHaveAttribute(
       "aria-busy",
       "true",
@@ -692,7 +706,7 @@ describe("FinancePage settling states", () => {
     await waitFor(() =>
       expect(screen.queryByText("Updating transactions…")).not.toBeInTheDocument(),
     );
-    expect(screen.getByText("sold 10 bucks")).toBeInTheDocument();
+    expect(screen.getAllByText("sold 10 bucks").length).toBeGreaterThan(0);
   });
 
   it("waits for the permission answer before deciding access", async () => {

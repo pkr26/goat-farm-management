@@ -936,6 +936,57 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
     invalidateFarmData(queryClient);
   }
 
+  /** Per-record management actions, shared by the desktop row and the
+   * below-md card. `touch` lifts the buttons to ≥44px (h-11) for the phone
+   * card list — 36px sm buttons sit under every mobile touch guideline once
+   * the row's compact table context is gone (same pattern as tasks). */
+  function recordActions(r: BreedingRecordOut, touch = false) {
+    const actionClass = touch ? "h-11 px-4" : undefined;
+    return (
+      <div
+        className={
+          touch
+            ? "flex flex-wrap items-center gap-2"
+            : "flex flex-wrap items-center justify-end gap-2"
+        }
+      >
+        {/* A not-pregnant result is recordable before the planned
+            scan (doe back in heat), so the action stays open for
+            every PENDING record; the plan is only a hint. */}
+        {r.outcome === "PENDING" && r.ultrasound_date && r.ultrasound_date > farmToday() && (
+          <span className="text-xs text-muted-foreground">
+            Scan planned {formatDate(r.ultrasound_date)}
+          </span>
+        )}
+        {r.outcome === "PENDING" && (
+          <Button
+            variant="outline"
+            size="sm"
+            className={actionClass}
+            onClick={() => setUltrasoundFor(r)}
+          >
+            Ultrasound result
+          </Button>
+        )}
+        {r.outcome === "CONFIRMED_PREGNANT" && !r.has_kidding && (
+          <Button
+            variant="destructive"
+            size="sm"
+            className={actionClass}
+            onClick={() => setLossFor(r)}
+          >
+            Record loss
+          </Button>
+        )}
+        {r.has_kidding && (
+          <span className="text-muted-foreground">
+            {cap(vocabulary.parturitionPast)}
+          </span>
+        )}
+      </div>
+    );
+  }
+
   if (query.isLoading || !payload) {
     if (query.isError) {
       return (
@@ -1035,6 +1086,67 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
           title="Breeding records"
           description={`Ultrasound is due ${vocabulary.facts.pregnancyCheckDays} days after breeding; confirmed pregnancies get an expected ${vocabulary.parturition} date.`}
         >
+          {/* Below md the 9-column register becomes a card per breeding —
+           * panning a 900px table inside a 390px phone is not a register,
+           * it's a scroll toy (same pattern as the tasks board). */}
+          <div className="space-y-2 md:hidden">
+            {payload.records.map((r) => (
+              <div key={r.id} className="space-y-2 rounded-xl border bg-card p-3 shadow-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium">{formatDate(r.breeding_date)}</span>
+                  <OutcomeBadge outcome={r.outcome} />
+                </div>
+                <p className="text-sm">
+                  {canViewAnimals ? (
+                    <Link href={`/animals/${r.doe_id}`} className="text-primary underline">
+                      {r.doe_tag ?? `${femaleLabel} #${r.doe_id}`}
+                    </Link>
+                  ) : (
+                    (r.doe_tag ?? `${femaleLabel} #${r.doe_id}`)
+                  )}
+                  {" × "}
+                  {canViewAnimals ? (
+                    <Link href={`/animals/${r.buck_id}`} className="text-primary underline">
+                      {r.buck_tag ?? `${maleLabel} #${r.buck_id}`}
+                    </Link>
+                  ) : (
+                    (r.buck_tag ?? `${maleLabel} #${r.buck_id}`)
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground tabular-nums">
+                  Cycle {r.heat_cycle_number} ·{" "}
+                  {r.ultrasound_done ? (
+                    <>Ultrasound done</>
+                  ) : r.ultrasound_date ? (
+                    <>Ultrasound due {formatDate(r.ultrasound_date)}</>
+                  ) : (
+                    <>No ultrasound planned</>
+                  )}
+                  {" · "}
+                  {cap(vocabulary.youngPlural)} detected: {r.kid_count_detected ?? "—"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Expected {vocabulary.parturition}: {formatDate(r.expected_kidding_date)}
+                </p>
+                {r.outcome === "ABORTED" && r.loss_date && (
+                  <div className="text-xs text-muted-foreground">
+                    <p>
+                      {formatDate(r.loss_date)} ·{" "}
+                      {enumLabel("lossCause", r.loss_cause ?? "UNKNOWN")}
+                    </p>
+                    {r.loss_notes && (
+                      <details>
+                        <summary className="cursor-pointer">Loss notes</summary>
+                        <p className="whitespace-pre-wrap break-words">{r.loss_notes}</p>
+                      </details>
+                    )}
+                  </div>
+                )}
+                {canManage && recordActions(r, true)}
+              </div>
+            ))}
+          </div>
+          <div className="hidden md:block">
           <Table className="min-w-[900px]">
             <TableHeader>
               <TableRow>
@@ -1108,45 +1220,14 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
                   </TableCell>
                   {canManage && (
                     <TableCell className="text-right">
-                      <div className="flex flex-wrap items-center justify-end gap-2">
-                      {/* A not-pregnant result is recordable before the planned
-                          scan (doe back in heat), so the action stays open for
-                          every PENDING record; the plan is only a hint. */}
-                      {r.outcome === "PENDING" && r.ultrasound_date && r.ultrasound_date > farmToday() && (
-                        <span className="text-xs text-muted-foreground">
-                          Scan planned {formatDate(r.ultrasound_date)}
-                        </span>
-                      )}
-                      {r.outcome === "PENDING" && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setUltrasoundFor(r)}
-                        >
-                          Ultrasound result
-                        </Button>
-                      )}
-                      {r.outcome === "CONFIRMED_PREGNANT" && !r.has_kidding && (
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => setLossFor(r)}
-                        >
-                          Record loss
-                        </Button>
-                      )}
-                      {r.has_kidding && (
-                        <span className="text-muted-foreground">
-                          {cap(vocabulary.parturitionPast)}
-                        </span>
-                      )}
-                      </div>
+                      {recordActions(r)}
                     </TableCell>
                   )}
                 </TableRow>
               ))}
             </TableBody>
           </Table>
+          </div>
           {listSettling && (
             <p role="status" className="pt-3 text-sm text-muted-foreground">
               Updating breeding records…
