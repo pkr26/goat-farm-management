@@ -30,7 +30,7 @@ import { PermissionGate } from "@/components/permission-gate";
 import { PageSkeleton } from "@/components/skeletons";
 import { StaleDataNotice } from "@/components/stale-data-notice";
 import { StatusBadge } from "@/components/status-badge";
-import { enumLabel } from "@/lib/enum-labels";
+import { useEnumLabel } from "@/lib/enum-labels";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -588,6 +588,7 @@ function ClaimPolicyDialog({
 }
 
 function InsurancePageContent({ perms }: { perms: PermissionsState }) {
+  const enumLabel = useEnumLabel();
   const { can } = perms;
   const allowed = can("finance.view");
   const canManage = can("finance.manage");

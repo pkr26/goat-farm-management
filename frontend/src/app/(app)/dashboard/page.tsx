@@ -56,6 +56,8 @@ import {
 import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { daysBetween, farmToday, formatDate } from "@/lib/format";
+import { useLanguage, useT } from "@/lib/i18n";
+import { resolveTaskTitle } from "@/lib/task-title";
 import { withReturnTo } from "@/lib/permission-navigation";
 import { permittedTaskActionPath, type PermissionCheck } from "@/lib/task-action-access";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
@@ -138,6 +140,8 @@ export default function DashboardPage() {
 
 function DashboardPageContent({ perms }: { perms: PermissionsState }) {
   const vocabulary = farmVocabulary;
+  const { language } = useLanguage();
+  const t = useT();
   // Table headers and tag fallbacks start the sentence, so the female-parent
   // noun needs its display-case form ("Doe").
   const femaleParentLabel =
@@ -220,6 +224,12 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
   const overdueTasksTotal = payload.overdue_tasks_total as number | null;
   const ultrasoundsDueTotal = payload.ultrasounds_due_total as number | null;
   const bucketCounts = payload.buckets as BucketCountOut[] | null;
+  /** The advisory banner is an optional contract addition (generated client
+   * lags it): a single {key, args} object, e.g. bakrid_hold with
+   * {count, festival_date}. Unknown keys are ignored silently. */
+  const advisory =
+    (payload as { advisory?: { key: string; args?: Record<string, unknown> } | null })
+      .advisory ?? null;
   const totalActive = payload.total_active as number | null;
   const sexCounts = payload.sex_counts as DashboardOutSexCounts | null;
   const taskTotal =
@@ -262,6 +272,23 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
         title={farm ? `${farm.name} — Dashboard` : "Dashboard"}
         description="Herd overview — tasks, breeding dates and recent weights."
       />
+      {/* Backend advisory (optional until the contract lands): a single
+       * {key, args} object; known keys render a localized banner, unknown
+       * keys are ignored silently so a newer backend never breaks this page. */}
+      {advisory?.key === "bakrid_hold" && (
+        <p className="order-1 flex items-center gap-2 rounded-lg bg-warning-tint px-3 py-2 text-sm text-warning-tint-foreground md:order-none">
+          <TriangleAlert className="size-4 shrink-0" aria-hidden="true" />
+          <span>
+            {t("dashboard.advisory.bakridHold", {
+              count: Number(advisory.args?.count ?? 0),
+              date:
+                typeof advisory.args?.festival_date === "string"
+                  ? formatDate(advisory.args.festival_date, language)
+                  : "—",
+            })}
+          </span>
+        </p>
+      )}
       {hasBoundedPreview && (
         <p className="order-2 text-xs text-muted-foreground md:order-none">
           Dashboard operational previews are capped at {payload.preview_limit} rows; recent weights
@@ -403,7 +430,7 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
                     </span>
                   </TableCell>
                   <TableCell>
-                    <span className="block max-w-56 truncate sm:max-w-none">{t.title}</span>
+                    <span className="block max-w-56 truncate sm:max-w-none">{resolveTaskTitle(t, language)}</span>
                   </TableCell>
                   <TableCell className="text-right">
                     <TaskLink
@@ -470,7 +497,7 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
                 {todaysTasks.map((t) => (
                   <TableRow key={t.id}>
                     <TableCell>
-                      <span className="block max-w-56 truncate sm:max-w-none">{t.title}</span>
+                      <span className="block max-w-56 truncate sm:max-w-none">{resolveTaskTitle(t, language)}</span>
                     </TableCell>
                     <TableCell className="text-right">
                       <TaskLink
@@ -624,7 +651,7 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
                         </span>
                       )}
                     </TableCell>
-                    <TableCell>{t.title}</TableCell>
+                    <TableCell>{resolveTaskTitle(t, language)}</TableCell>
                     <TableCell className="text-right">
                       <TaskLink
                         task={t}
@@ -697,7 +724,7 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
                     <TableCell className="text-right">
                       <Badge variant="secondary">
                         <MoveRight className="size-3" aria-hidden="true" />
-                        {enumLabel("bucket", s.to)}
+                        {enumLabel("bucket", s.to, language)}
                       </Badge>
                     </TableCell>
                   </TableRow>
@@ -772,7 +799,7 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
                       )}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="secondary">{enumLabel("bucket", r.current_bucket)}</Badge>
+                      <Badge variant="secondary">{enumLabel("bucket", r.current_bucket, language)}</Badge>
                     </TableCell>
                     <TableCell>
                       {r.held_since ? new Date(r.held_since).toLocaleDateString() : "—"}

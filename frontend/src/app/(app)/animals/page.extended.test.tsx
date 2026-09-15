@@ -416,9 +416,13 @@ describe("AnimalsPage extended", () => {
         "e.g. Osmanabadi (the default when blank)",
       );
       const combos = within(dialog).getAllByRole("combobox");
-      expect(combos).toHaveLength(2);
+      // sex, source, coat colour, horned — the phenotype selects default to
+      // "Not recorded".
+      expect(combos).toHaveLength(4);
       expect(combos[0]).toHaveTextContent("Female");
       expect(combos[1]).toHaveTextContent("Purchased");
+      expect(combos[2]).toHaveTextContent("Not recorded");
+      expect(combos[3]).toHaveTextContent("Not recorded");
       expect(within(dialog).getByLabelText("Bucket *")).toHaveValue("Quarantine");
       expect(within(dialog).getByLabelText(/purchase price/i)).toBeInTheDocument();
     });
@@ -540,7 +544,7 @@ describe("AnimalsPage extended", () => {
         within(dialog).getByLabelText("Historical import reason *"),
         "Temporary import provenance",
       );
-      await pickOption(user, within(dialog).getAllByRole("combobox")[3], "Twin");
+      await pickOption(user, within(dialog).getAllByRole("combobox")[5], "Twin");
       setDate(within(dialog).getByLabelText(/birth weight/i), "2.5");
       await pickOption(user, within(dialog).getAllByRole("combobox")[1], "Purchased");
       expect(within(dialog).queryByLabelText(/birth weight/i)).not.toBeInTheDocument();
@@ -764,7 +768,7 @@ describe("AnimalsPage extended", () => {
       await user.type(within(dialog).getByLabelText("Name"), "Gauri");
       setDate(within(dialog).getByLabelText(/date of birth/i), "2025-12-01");
       setDate(within(dialog).getByLabelText(/estimated dob/i), "2025-12-02");
-      await pickOption(user, within(dialog).getAllByRole("combobox")[3], "Twin");
+      await pickOption(user, within(dialog).getAllByRole("combobox")[5], "Twin");
       setDate(within(dialog).getByLabelText(/birth weight/i), "2.5");
       await user.type(within(dialog).getByLabelText(/notes/i), "Healthy twin");
       await user.click(within(dialog).getByRole("button", { name: "Save animal" }));

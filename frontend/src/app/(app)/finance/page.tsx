@@ -70,6 +70,7 @@ import { mutationError } from "@/lib/mutations";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { useAuth } from "@/lib/auth-context";
 import { enumLabel } from "@/lib/enum-labels";
+import { useLanguage, type Language } from "@/lib/i18n";
 import { farmToday, formatDate, formatMoney } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import {
@@ -93,24 +94,21 @@ const NONE = "none";
 /** value → label maps for the root `items` prop: without them, Base UI's
  * Select.Value renders the raw value (the "all" sentinel, or a SCREAMING_SNAKE
  * enum member) in the closed trigger. */
-const TYPE_ITEMS: Record<string, string> = Object.fromEntries(
-  TYPES.map((t) => [t, enumLabel("txType", t)]),
-);
-const CATEGORY_ITEMS: Record<string, string> = Object.fromEntries(
-  CATEGORIES.map((c) => [c, enumLabel("txCategory", c)]),
-);
-const TYPE_FILTER_ITEMS: Record<string, string> = {
+const typeItems = (language: Language): Record<string, string> =>
+  Object.fromEntries(TYPES.map((t) => [t, enumLabel("txType", t, language)]));
+const categoryItems = (language: Language): Record<string, string> =>
+  Object.fromEntries(CATEGORIES.map((c) => [c, enumLabel("txCategory", c, language)]));
+const typeFilterItems = (language: Language): Record<string, string> => ({
   [ALL]: "All types",
-  ...TYPE_ITEMS,
-};
-const CATEGORY_FILTER_ITEMS: Record<string, string> = {
+  ...typeItems(language),
+});
+const categoryFilterItems = (language: Language): Record<string, string> => ({
   [ALL]: "All categories",
-  ...CATEGORY_ITEMS,
-};
+  ...categoryItems(language),
+});
 
-function txTypeLabel(value: string): string {
-  // Stryker disable next-line StringLiteral: the txType catalog labels equal the titlecased enum values, so the lookup key cannot change the rendered label (the category labels differ and stay live)
-  return enumLabel("txType", value);
+function txTypeLabel(value: string, language: Language): string {
+  return enumLabel("txType", value, language);
 }
 
 /** URL params → filter state. Anything malformed (or absent) means "off", so
@@ -262,6 +260,9 @@ function CorrectionDialog({
 }) {
   const mutation = useCorrectTransactionApiFinanceTransactionsTransactionIdCorrectPost();
   const correctionFlight = useSingleFlight();
+  const { language } = useLanguage();
+  const typeItemsMap = typeItems(language);
+  const categoryItemsMap = categoryItems(language);
   const [formError, setFormError] = useState<string | null>(null);
   const [consequenceConfirmed, setConsequenceConfirmed] = useState(false);
   const [consequenceHint, setConsequenceHint] = useState<string | null>(null);
@@ -389,14 +390,14 @@ function CorrectionDialog({
               <Select
                 value={type}
                 onValueChange={(value) => setValue("type", value as TransactionInType)}
-                items={TYPE_ITEMS}
+                items={typeItemsMap}
               >
                 <SelectTrigger id={`correction-type-${transaction.id}`} className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {TYPES.map((value) => (
-                    <SelectItem key={value} value={value}>{txTypeLabel(value)}</SelectItem>
+                    <SelectItem key={value} value={value}>{txTypeLabel(value, language)}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -406,7 +407,7 @@ function CorrectionDialog({
               <Select
                 value={category}
                 onValueChange={(value) => setValue("category", value as TransactionInCategory)}
-                items={CATEGORY_ITEMS}
+                items={categoryItemsMap}
               >
                 <SelectTrigger id={`correction-category-${transaction.id}`} className="w-full">
                   <SelectValue />
@@ -414,7 +415,7 @@ function CorrectionDialog({
                 <SelectContent>
                   {CATEGORIES.map((value) => (
                     <SelectItem key={value} value={value}>
-                      {enumLabel("txCategory", value)}
+                      {enumLabel("txCategory", value, language)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -572,6 +573,9 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
   const allowed = can("finance.view");
   const canManage = can("finance.manage");
   const canViewAnimals = can("animals.view");
+  const { language } = useLanguage();
+  const typeItemsMap = typeItems(language);
+  const categoryItemsMap = categoryItems(language);
   const queryClient = useQueryClient();
 
   const searchParams = useSearchParams();
@@ -915,7 +919,7 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
               setOffset(0);
               replaceLedgerUrl(month, v as typeof ALL | TransactionInType, categoryFilter);
             }}
-            items={TYPE_FILTER_ITEMS}
+            items={typeFilterItems(language)}
           >
             <SelectTrigger aria-label="Filter transactions by type">
               <SelectValue />
@@ -924,7 +928,7 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
               <SelectItem value={ALL}>All types</SelectItem>
               {TYPES.map((t) => (
                 <SelectItem key={t} value={t}>
-                  {txTypeLabel(t)}
+                  {txTypeLabel(t, language)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -937,7 +941,7 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
               setOffset(0);
               replaceLedgerUrl(month, typeFilter, v as typeof ALL | TransactionInCategory);
             }}
-            items={CATEGORY_FILTER_ITEMS}
+            items={categoryFilterItems(language)}
           >
             <SelectTrigger aria-label="Filter transactions by category">
               <SelectValue />
@@ -946,7 +950,7 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
               <SelectItem value={ALL}>All categories</SelectItem>
               {CATEGORIES.map((c) => (
                 <SelectItem key={c} value={c}>
-                  {enumLabel("txCategory", c)}
+                  {enumLabel("txCategory", c, language)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -1023,7 +1027,7 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
                       <Badge variant="destructive" className="ml-2">VOID</Badge>
                     )}
                   </TableCell>
-                  <TableCell>{enumLabel("txCategory", t.category)}</TableCell>
+                  <TableCell>{enumLabel("txCategory", t.category, language)}</TableCell>
                   <TableCell
                     className={cn(
                       "text-right tabular-nums font-medium",
@@ -1168,7 +1172,7 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
                     // Stryker disable next-line ObjectLiteral, BooleanLiteral: the type select only ever sets valid enum values, so shouldValidate never surfaces a different error state
                     setValue("type", v as TxnInput["type"], { shouldValidate: true })
                   }
-                  items={TYPE_ITEMS}
+                  items={typeItemsMap}
                 >
                   <SelectTrigger id="transaction-type" className="w-full">
                     <SelectValue />
@@ -1176,7 +1180,7 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
                   <SelectContent>
                     {TYPES.map((t) => (
                       <SelectItem key={t} value={t}>
-                        {txTypeLabel(t)}
+                        {txTypeLabel(t, language)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1190,7 +1194,7 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
                     // Stryker disable next-line ObjectLiteral, BooleanLiteral: the category select only ever sets valid enum values, so shouldValidate never surfaces a different error state
                     setValue("category", v as TxnInput["category"], { shouldValidate: true })
                   }
-                  items={CATEGORY_ITEMS}
+                  items={categoryItemsMap}
                 >
                   <SelectTrigger id="transaction-category" className="w-full">
                     <SelectValue />
@@ -1198,7 +1202,7 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
                   <SelectContent>
                     {CATEGORIES.map((c) => (
                       <SelectItem key={c} value={c}>
-                        {enumLabel("txCategory", c)}
+                        {enumLabel("txCategory", c, language)}
                       </SelectItem>
                     ))}
                   </SelectContent>

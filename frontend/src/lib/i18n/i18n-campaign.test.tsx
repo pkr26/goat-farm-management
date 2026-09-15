@@ -111,11 +111,9 @@ describe("enumLabel — campaign kills", () => {
     // sex carries a Telugu glossary entry.
     expect(enumLabel("sex", "F", "te")).toBe("ఆడ");
     expect(enumLabel("sex", "F", "en")).toBe("Female");
-    // An untranslated kind falls back through the English catalog.
-    expect(enumLabel("status", "ACTIVE", "te")).toBe("Active");
-    expect(enumLabel("lossCause", "INJURY", "te")).toBe(
-      enumLabel("lossCause", "INJURY", "en"),
-    );
+    // Every kind now carries a full Telugu map.
+    expect(enumLabel("status", "ACTIVE", "te")).toBe("సక్రియం");
+    expect(enumLabel("lossCause", "INJURY", "te")).toBe("గాయం");
   });
 });
 

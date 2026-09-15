@@ -60,6 +60,14 @@ describe("translate — pure resolver", () => {
     expect(translate("te", "tasks.viaRole", { role: "Vet" })).toBe("Vet ద్వారా");
   });
 
+  it("marks the skip reason as required in both languages (skip is blocked without one)", () => {
+    // The skip dialog disables its confirm until a reason is typed (backend
+    // min_length=1), so the label must not claim "(optional)".
+    expect(translate("en", "tasks.skip.reason")).toBe("Reason *");
+    expect(translate("te", "tasks.skip.reason")).toBe("కారణం *");
+    expect(translate("te", "tasks.skip.reason")).not.toContain("ఐచ్ఛికం");
+  });
+
   it("lists exactly English and Telugu", () => {
     expect([...LANGUAGES]).toEqual(["en", "te"]);
   });

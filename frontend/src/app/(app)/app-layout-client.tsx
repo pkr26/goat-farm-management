@@ -137,40 +137,41 @@ const NAV_GROUPS: { labelKey: MessageKey; items: NavItem[] }[] = [
 ];
 
 /** Route → document.title suffix; keeps browser tabs identifiable. */
-const ROUTE_TITLES: [RegExp, string][] = [
-  [/^\/dashboard/, "Dashboard"],
-  [/^\/animals\/new/, "Add animal"],
-  [/^\/animals\/\d+/, "Animal"],
-  [/^\/animals/, "Animals"],
-  [/^\/buckets/, "Buckets"],
-  [/^\/breeding\/[^/]+\/ultrasound/, "Ultrasound"],
-  [/^\/breeding/, "Breeding"],
-  [/^\/kidding\/new/, "Record birth"],
-  [/^\/kidding/, "Births"],
-  [/^\/health\/new/, "Add health event"],
-  [/^\/health\/schedule/, "Vaccination schedule"],
-  [/^\/health/, "Health"],
-  [/^\/feeding\/inventory/, "Feed inventory"],
-  [/^\/feeding\/recipes/, "Feed recipes"],
-  [/^\/feeding/, "Feeding"],
-  [/^\/purchases/, "Purchases"],
-  [/^\/tasks/, "Tasks"],
-  [/^\/finance/, "Finance"],
-  [/^\/planner/, "Planner"],
-  [/^\/simulation/, "Simulation"],
-  [/^\/ops-simulation/, "Ops Simulation"],
-  [/^\/reports/, "Reports"],
-  [/^\/team/, "Team"],
-  [/^\/no-access/, "No access"],
+const ROUTE_TITLES: [RegExp, MessageKey][] = [
+  [/^\/dashboard/, "doc.title.dashboard"],
+  [/^\/animals\/new/, "doc.title.addAnimal"],
+  [/^\/animals\/\d+/, "doc.title.animal"],
+  [/^\/animals/, "doc.title.animals"],
+  [/^\/buckets/, "doc.title.buckets"],
+  [/^\/breeding\/[^/]+\/ultrasound/, "doc.title.ultrasound"],
+  [/^\/breeding/, "doc.title.breeding"],
+  [/^\/kidding\/new/, "doc.title.recordBirth"],
+  [/^\/kidding/, "doc.title.births"],
+  [/^\/health\/new/, "doc.title.addHealthEvent"],
+  [/^\/health\/schedule/, "doc.title.vaccinationSchedule"],
+  [/^\/health/, "doc.title.health"],
+  [/^\/feeding\/inventory/, "doc.title.feedInventory"],
+  [/^\/feeding\/recipes/, "doc.title.feedRecipes"],
+  [/^\/feeding/, "doc.title.feeding"],
+  [/^\/purchases/, "doc.title.purchases"],
+  [/^\/tasks/, "doc.title.tasks"],
+  [/^\/finance/, "doc.title.finance"],
+  [/^\/planner/, "doc.title.planner"],
+  [/^\/simulation/, "doc.title.simulation"],
+  [/^\/ops-simulation/, "doc.title.opsSimulation"],
+  [/^\/reports/, "doc.title.reports"],
+  [/^\/team/, "doc.title.team"],
+  [/^\/no-access/, "doc.title.noAccess"],
 ];
 
 function useDocumentTitle(pathname: string) {
+  const t = useT();
   useEffect(() => {
     const match = ROUTE_TITLES.find(([pattern]) => pattern.test(pathname));
     document.title = match
-      ? `${match[1]} · ${APP_NAME}`
+      ? `${t(match[1])} · ${APP_NAME}`
       : `${APP_NAME} — Livestock farm management`;
-  }, [pathname]);
+  }, [pathname, t]);
 }
 
 /** Match a module root or one of its nested routes, without treating a
@@ -251,7 +252,7 @@ function AppSidebar({
       </SidebarContent>
       <SidebarFooter className="px-4 pb-4">
         <p className="text-[0.68rem] leading-relaxed text-muted-foreground/70">
-          Goat farm management
+          {t("shell.tagline")}
         </p>
       </SidebarFooter>
     </Sidebar>
@@ -334,7 +335,7 @@ function AppLayoutContent({
           <span className="animate-pulse">
             <Logo />
           </span>
-          <p role="status" aria-live="polite" className="text-sm text-muted-foreground">Loading…</p>
+          <p role="status" aria-live="polite" className="text-sm text-muted-foreground">{t("common.loading")}</p>
         </div>
       </main>
     );
@@ -368,9 +369,8 @@ function AppLayoutContent({
         href="#main-content"
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-2 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-primary-foreground focus:shadow"
       >
-        Skip to content
-      </a>
-      <AppSidebar
+        {t("shell.skipToContent")}
+      </a>      <AppSidebar
         groups={visibleGroups}
         pathname={pathname}
         landingHref={landingHref}
@@ -411,9 +411,7 @@ function AppLayoutContent({
             role="alert"
             className="border-b border-warning/40 bg-warning-tint px-4 py-2 text-sm text-warning-tint-foreground"
           >
-            This password was set by the farm owner — change it (Account → Change
-            password) before continuing. Farm pages and actions stay blocked
-            until you do.
+            {t("shell.passwordChangeNotice")}
           </div>
         ) : null}
         <div className="flex-1 bg-muted/40">
@@ -438,6 +436,7 @@ export function AppLayoutClient({
   children: ReactNode;
   defaultOpen: boolean;
 }) {
+  const t = useT();
   return (
     <Suspense
       fallback={
@@ -446,7 +445,7 @@ export function AppLayoutClient({
             <span className="animate-pulse">
               <Logo />
             </span>
-            <p role="status" aria-live="polite" className="text-sm text-muted-foreground">Loading…</p>
+            <p role="status" aria-live="polite" className="text-sm text-muted-foreground">{t("common.loading")}</p>
           </div>
         </main>
       }

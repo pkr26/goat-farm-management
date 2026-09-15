@@ -5,33 +5,18 @@ import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Logo } from "@/components/logo";
+import { useT } from "@/lib/i18n";
 
 /**
  * Shared split-screen shell for /login and /register. The brand panel's
  * gradient derives from the --primary token (no hard-coded emerald), so
- * it follows the theme and any future rebrand. Copy speaks to goat farms.
+ * it follows the theme and any future rebrand. Copy speaks to goat farms and
+ * localizes with the toggle these pages host. The page h1 is the form title
+ * (the brand panel hides below lg, so its slogan cannot be the only h1).
  */
 
 const BRAND_GRADIENT =
   "linear-gradient(165deg, color-mix(in oklch, var(--primary) 92%, white 8%) 0%, var(--primary) 42%, color-mix(in oklch, var(--primary) 55%, black 10%) 100%)";
-
-const FEATURES: { icon: LucideIcon; title: string; description: string }[] = [
-  {
-    icon: PawPrint,
-    title: "Complete herd records",
-    description: "Track every animal, tag and lineage in one place.",
-  },
-  {
-    icon: HeartPulse,
-    title: "Proactive health care",
-    description: "Stay ahead of vaccinations, treatments and checkups.",
-  },
-  {
-    icon: TrendingUp,
-    title: "Insights that pay off",
-    description: "Breeding, kidding and finance reports at a glance.",
-  },
-];
 
 export function AuthLayout({
   title,
@@ -44,6 +29,24 @@ export function AuthLayout({
   children: ReactNode;
   footer: ReactNode;
 }) {
+  const t = useT();
+  const FEATURES: { icon: LucideIcon; title: string; description: string }[] = [
+    {
+      icon: PawPrint,
+      title: t("auth.featureRecordsTitle"),
+      description: t("auth.featureRecordsDesc"),
+    },
+    {
+      icon: HeartPulse,
+      title: t("auth.featureHealthTitle"),
+      description: t("auth.featureHealthDesc"),
+    },
+    {
+      icon: TrendingUp,
+      title: t("auth.featureInsightsTitle"),
+      description: t("auth.featureInsightsDesc"),
+    },
+  ];
   return (
     <main className="flex min-h-screen">
       {/* Brand panel (desktop) */}
@@ -64,14 +67,15 @@ export function AuthLayout({
         </div>
         <div className="relative space-y-10">
           <div className="space-y-4">
-            <h1 className="font-heading text-4xl leading-tight font-semibold tracking-tight">
-              Herd management,
+            {/* Marketing slogan, not a heading: the page h1 is the form title
+             * on the right, which stays mounted below the lg breakpoint. */}
+            <p className="font-heading text-4xl leading-tight font-semibold tracking-tight">
+              {t("auth.brandTitleLine1")}
               <br />
-              simplified.
-            </h1>
+              {t("auth.brandTitleLine2")}
+            </p>
             <p className="max-w-md text-lg text-primary-foreground/85">
-              Run a healthier, more profitable farm — from the first tag to
-              the final sale.
+              {t("auth.brandTagline")}
             </p>
           </div>
           <ul className="space-y-5">
@@ -93,7 +97,7 @@ export function AuthLayout({
           </ul>
         </div>
         <p className="relative text-sm text-primary-foreground/65">
-          For Osmanabadi goat herds across Telangana.
+          {t("auth.brandFoot")}
         </p>
       </div>
 
@@ -109,9 +113,9 @@ export function AuthLayout({
         <div className="flex flex-1 items-center justify-center px-4 py-10 sm:px-8">
           <div className="w-full max-w-sm">
             <div className="mb-8 space-y-1.5">
-              <h2 className="font-heading text-2xl font-semibold tracking-tight">
+              <h1 className="font-heading text-2xl font-semibold tracking-tight">
                 {title}
-              </h2>
+              </h1>
               <p className="text-sm text-muted-foreground">{subtitle}</p>
             </div>
             {children}

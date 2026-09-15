@@ -40,6 +40,7 @@ vi.mock("next/font/google", () => {
     Inter: loader("Inter"),
     Fraunces: loader("Fraunces"),
     JetBrains_Mono: loader("JetBrains_Mono"),
+    Noto_Sans_Telugu: loader("Noto_Sans_Telugu"),
   };
 });
 
@@ -81,12 +82,17 @@ describe("RootLayout", () => {
 
     // globals.css maps --font-sans/--font-mono onto these exact variable
     // names, so a renamed or dropped variable silently un-styles the app.
+    // Noto Sans Telugu covers the Telugu script Inter/Fraunces lack.
     expect(fontLoaderCalls).toEqual([
       { family: "Inter", options: { subsets: ["latin"], variable: "--font-inter" } },
       { family: "Fraunces", options: { subsets: ["latin"], variable: "--font-fraunces" } },
       {
         family: "JetBrains_Mono",
         options: { subsets: ["latin"], variable: "--font-jetbrains-mono" },
+      },
+      {
+        family: "Noto_Sans_Telugu",
+        options: { subsets: ["telugu", "latin"], variable: "--font-noto-sans-telugu" },
       },
     ]);
 
@@ -131,6 +137,7 @@ describe("RootLayout", () => {
       "__variable_--font-inter",
       "__variable_--font-fraunces",
       "__variable_--font-jetbrains-mono",
+      "__variable_--font-noto-sans-telugu",
     );
 
     expect(document.body).toHaveClass(

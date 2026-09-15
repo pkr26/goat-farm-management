@@ -322,11 +322,12 @@ describe("SimulationPage assumption field projection", () => {
     expect(screen.getByLabelText("Objective")).toHaveTextContent("Strongest liquidity");
   });
 
-  it("captions the yearly, litre and acre unit heuristics", async () => {
+  it("captions the yearly and acre unit heuristics (the litre heuristic went with the dairy fields)", async () => {
     await renderLoaded({
       defaults: {
         ...DEFAULTS,
         costs: { vet_cost_per_year: 6000, shed_useful_life_years: 10 },
+        // Stale dairy keys may still arrive until the backend deletes them.
         sales: { lactation_milk_litres: 120 },
         feed: { cultivated_fodder_acres: 2 },
       },
@@ -341,10 +342,9 @@ describe("SimulationPage assumption field projection", () => {
       "data-unit",
       "years",
     );
-    expect(screen.getByLabelText("Lactation Milk Litres")).toHaveAttribute(
-      "data-unit",
-      "litres",
-    );
+    // Dairy assumption fields are hidden on the goat-meat profile even when
+    // a stale defaults payload still carries them.
+    expect(screen.queryByLabelText("Lactation Milk Litres")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Cultivated Fodder Acres")).toHaveAttribute(
       "data-unit",
       "acres",

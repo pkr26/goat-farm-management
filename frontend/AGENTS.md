@@ -17,4 +17,4 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - **Navigation**: sidebar groups live in `NAV_GROUPS` in `src/app/(app)/layout.tsx`; new routes need an entry there with their permission key.
 - **Icons**: `lucide-react` only — no emoji in UI.
 - **Numbers**: right-align numeric table columns and use `tabular-nums` for figures.
-- **Fonts**: Inter (sans) + JetBrains Mono via `next/font` in `src/app/layout.tsx`; mapped to `--font-sans`/`--font-mono` tokens.
+- **Fonts**: Inter (sans) + JetBrains Mono via `next/font` in `src/app/layout.tsx`; mapped to `--font-sans`/`--font-mono` tokens. Noto Sans Telugu is loaded alongside and swapped into the sans/heading stacks under `html:lang(te)` (Inter/Fraunces carry no Telugu glyphs).

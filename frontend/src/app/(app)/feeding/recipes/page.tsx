@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
 import { FeedingNav } from "@/components/feeding-nav";
-import { enumLabel } from "@/lib/enum-labels";
+import { useEnumLabel } from "@/lib/enum-labels";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 
 export default function RecipesPage() {
@@ -45,6 +45,7 @@ export default function RecipesPage() {
 }
 
 function RecipesPageContent({ perms }: { perms: PermissionsState }) {
+  const enumLabel = useEnumLabel();
   const { can } = perms;
   const allowed = can("feeding.view");
 

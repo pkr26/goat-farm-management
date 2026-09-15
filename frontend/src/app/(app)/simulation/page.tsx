@@ -12,6 +12,7 @@ import {
   Building2,
   CalendarClock,
   ChartColumn,
+  Droplets,
   Database,
   FolderOpen,
   Gauge,
@@ -163,6 +164,7 @@ const INTEGER_FIELDS = new Set([
   "herd.max_breeding_does",
   "reproduction.gestation_months",
   "reproduction.lactation_months",
+  "reproduction.weaning_days",
   "reproduction.months_open_before_breeding",
   "reproduction.age_at_first_breeding_months",
   "reproduction.sexed_semen_services",
@@ -198,6 +200,7 @@ const FIELD_BOUNDS: Record<
   "meta.horizon_months": { min: 12, max: 240 },
   // Wide enough for slow-maturing herds; goats sit at ~5 months.
   "reproduction.gestation_months": { min: 1, max: 12 },
+  // Meat mode: the weaning-plus-rebreed interval, not a saleable-milk length.
   "reproduction.lactation_months": { min: 1, max: 12 },
   "reproduction.months_open_before_breeding": { min: 0, max: 12 },
   "reproduction.litter_size": { min: 0.5, max: 4 },
@@ -224,11 +227,9 @@ const FIELD_BOUNDS: Record<
   "sales.eid_price_uplift": { min: 0, max: 2 },
   "sales.annual_livestock_price_growth_rate": { exclusiveMin: -1, max: 1 },
   "sales.selling_cost_fraction": { min: 0, max: 0.5 },
-  "sales.lactation_milk_litres": { min: 0, max: 100_000 },
-  "sales.milk_fat_pct": { min: 0, max: 12 },
-  "sales.milk_price_per_kg_fat": { min: 0, max: 100_000 },
-  "sales.milk_persistency_monthly": { min: 0.5, max: 1 },
-  "sales.milk_peak_day": { min: 1, max: 365 },
+  // Surplus-milk side-line (meat mode): litres sold per lactating doe per day.
+  "sales.milk_sale_litres_per_doe_day": { min: 0, max: 10 },
+  "sales.milk_price_per_litre": { min: 0, max: 1e9 },
   "sales.male_calf_price_per_head": { min: 0, max: 1_000_000 },
   // The sales money heuristic below only matches "price"/"income", so this is
   // the one money field on the form that would otherwise reach the API with no
@@ -238,6 +239,13 @@ const FIELD_BOUNDS: Record<
   "feed.fodder_yield_t_dm_per_acre_year": { exclusiveMin: 0, max: 1000 },
   "feed.annual_feed_price_growth_rate": { exclusiveMin: -1, max: 1 },
   "feed.initial_fodder_stock_kg_dm": { min: 0, max: 1e9 },
+  // Water demand planning (litres/head/day by class).
+  "feed.water_litres_kid_per_day": { min: 0, max: 50 },
+  "feed.water_litres_weaner_per_day": { min: 0, max: 50 },
+  "feed.water_litres_grower_per_day": { min: 0, max: 50 },
+  "feed.water_litres_doe_per_day": { min: 0, max: 50 },
+  "feed.water_litres_lactating_doe_per_day": { min: 0, max: 50 },
+  "feed.water_litres_buck_per_day": { min: 0, max: 50 },
   "feed.fodder_storage_capacity_kg_dm": { min: 0, max: 1e9 },
   "feed.fodder_storage_loss_fraction_monthly": { min: 0, max: 1 },
   // Mirrors MAX_LABOUR_PER_HEAD_THRESHOLD in the backend. It is deliberately
@@ -274,7 +282,6 @@ const FIELD_BOUNDS: Record<
   "risk.disease_adult_mortality_multiplier": { min: 1, max: 20 },
   "risk.disease_kid_mortality_multiplier": { min: 1, max: 20 },
   "risk.disease_conception_multiplier": { exclusiveMin: 0, max: 1 },
-  "risk.disease_milk_yield_multiplier": { exclusiveMin: 0, max: 1 },
   "risk.drought_probability_annual": { min: 0, max: 1 },
   "risk.drought_duration_months": { min: 1, max: 24 },
   "risk.drought_fodder_yield_multiplier": { exclusiveMin: 0, max: 1 },
@@ -323,14 +330,16 @@ const FIELD_UNITS: Record<string, string> = {
   // rate "₹" invites farmers to type 30 for 30%; the entry must stay explicit
   // because the money/duration tests cannot simply be moved (see numericRule).
   "sales.selling_cost_fraction": "fraction",
-  // Milk pricing/ration fields the heuristics would caption as a 0-1
-  // fraction (milk fat is percent points) or as a plain multiplier.
-  "sales.milk_fat_pct": "% fat",
-  "sales.milk_price_per_kg_fat": "₹/kg fat",
+  "sales.milk_sale_litres_per_doe_day": "litres/doe/day",
   "sales.milk_price_per_litre": "₹/litre",
-  "sales.milk_persistency_monthly": "fraction of prior month",
-  "sales.milk_peak_day": "days into lactation",
-  "sales.annual_milk_price_growth_rate": "fraction",
+  "feed.water_litres_kid_per_day": "litres/day",
+  "feed.water_litres_weaner_per_day": "litres/day",
+  "feed.water_litres_grower_per_day": "litres/day",
+  "feed.water_litres_doe_per_day": "litres/day",
+  "feed.water_litres_lactating_doe_per_day": "litres/day",
+  "feed.water_litres_buck_per_day": "litres/day",
+  // Fields the heuristics would caption as a 0-1 fraction or as a plain
+  // multiplier.
   "sales.male_calf_sell_at_birth_fraction": "fraction",
   "sales.male_calf_price_per_head": "₹/head",
   "sales.annual_livestock_price_growth_rate": "fraction",
@@ -345,7 +354,6 @@ const FIELD_UNITS: Record<string, string> = {
   "risk.disease_adult_mortality_multiplier": "multiplier",
   "risk.disease_kid_mortality_multiplier": "multiplier",
   "risk.disease_conception_multiplier": "multiplier",
-  "risk.disease_milk_yield_multiplier": "multiplier",
   "risk.drought_fodder_yield_multiplier": "multiplier",
   "risk.drought_feed_price_multiplier": "multiplier",
   "risk.market_crash_price_multiplier": "multiplier",
@@ -361,8 +369,21 @@ const NULLABLE_NUMBER_FIELDS = new Set([
   "optimization.maximum_funding_gap",
 ]);
 
+/** Numeric fields constrained to a closed set of values — rendered as a
+ * select so an out-of-set number can never reach the API. */
+const NUMERIC_FIELD_OPTIONS: Record<string, Record<string, string>> = {
+  "reproduction.weaning_days": {
+    "60": "60 days (operational standard)",
+    "90": "90 days (research standard)",
+  },
+};
+
 const STRING_FIELD_OPTIONS: Record<string, Record<string, string>> = {
   "herd.foundation_flock_state": { mixed: "Mixed", open: "Open" },
+  "growth.growth_regime": {
+    stall_fed: "Stall-fed",
+    semi_intensive: "Semi-intensive (grazing)",
+  },
   "costs.capacity_basis": {
     projected_peak: "Projected peak",
     planned: "Planned capacity",
@@ -488,7 +509,6 @@ function numericRule(section: string, key: string): NumericRule {
   )
     rule.unit = "₹";
   else if (key.includes("weight") || key.includes("_kg")) rule.unit = "kg";
-  else if (key.includes("litre")) rule.unit = "litres";
   else if (key.includes("acre")) rule.unit = "acres";
   // This test stays last: hoisting it above the money/duration ones captions
   // concent*rate*_price_per_kg and *_duration_months as "fraction". Fields it
@@ -711,6 +731,27 @@ const COMPARE_ROWS: {
 ];
 
 type SectionValues = Record<string, unknown>;
+
+/** Whole litres with Indian digit grouping for the water-demand figures. */
+const litres = (value: number): string => Math.round(value).toLocaleString("en-IN");
+
+/** Dairy-machinery assumption keys removed for the goat-meat profile. The
+ * backend is deleting them from the defaults payload; until it does, the
+ * editor filters them here so they never render (or validate) on screen. */
+const DAIRY_HIDDEN_FIELDS = new Set([
+  "sales.lactation_milk_litres",
+  "sales.milk_price_per_kg_fat",
+  "sales.milk_fat_pct",
+  "sales.milk_persistency_monthly",
+  "sales.milk_curve_shape",
+  "sales.milk_peak_day",
+  "sales.monthly_milk_yield_multipliers",
+  "sales.monthly_milk_price_multipliers",
+  "sales.annual_milk_price_growth_rate",
+  "sales.calf_milk_litres_per_day_per_calf",
+  "risk.disease_milk_yield_multiplier",
+  "risk.milk_price",
+]);
 
 /** Top-level sections of the assumptions object that hold editable fields. */
 function sectionEntries(assumptions: SimulationAssumptions): [string, SectionValues][] {
@@ -1602,6 +1643,36 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
   /** One editor row; the input type follows the value type. */
   function renderField(section: string, key: string, value: unknown) {
     const id = `sim-${section}-${key}`;
+    const numericOptions = NUMERIC_FIELD_OPTIONS[`${section}.${key}`];
+    if (numericOptions && typeof value === "number") {
+      return (
+        <div key={id} className="space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor={id}>{fieldLabelFor(key)}</Label>
+            <FieldHelpButton
+              label={fieldLabelFor(key)}
+              onClick={() => openFieldHelp(section, key, value)}
+            />
+          </div>
+          <Select
+            value={String(value)}
+            onValueChange={(v) => updateField(section, key, Number(v))}
+            items={numericOptions}
+          >
+            <SelectTrigger id={id} className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(numericOptions).map(([option, label]) => (
+                <SelectItem key={option} value={option}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      );
+    }
     const stringOptions = STRING_FIELD_OPTIONS[`${section}.${key}`];
     if (stringOptions) {
       return (
@@ -1859,6 +1930,11 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
 
   function renderResults(r: SimulationResult) {
     const m = r.metrics;
+    // Water results are an optional contract addition (generated client lags).
+    const peakWater = (r as { peak_water_litres_per_day?: number | null })
+      .peak_water_litres_per_day;
+    const annualWater =
+      (r as { annual_water_litres?: number[] | null }).annual_water_litres ?? [];
     const capacityShortfall = Math.max(
       0,
       r.project_cost_breakdown.projected_peak_head -
@@ -2030,7 +2106,23 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
             icon={Wheat}
             tint={r.feed_summary.fodder_deficit_months > 0 ? "warning" : "success"}
           />
+          {/* Water results are an optional contract addition; the generated
+           * client types lag it, so read defensively. */}
+          {typeof peakWater === "number" && (
+            <MetricCard
+              value={`${litres(peakWater)} L/day`}
+              label="Peak water demand"
+              icon={Droplets}
+              tint="warning"
+            />
+          )}
         </div>
+        {annualWater.length > 0 && (
+          <p className="text-sm text-muted-foreground">
+            Annual water demand:{" "}
+            {annualWater.map((v, i) => `Y${i + 1} ${litres(v)} L`).join(" · ")}
+          </p>
+        )}
 
         {r.narrative_report && r.narrative_report.length > 0 && (
           <Card>
@@ -2148,7 +2240,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
 
         <DataTableCard
           title="Annual P&amp;L"
-          description="Accrual profit, tax, debt service and project cash flow by year. Revenue splits into meat (young-stock sold at live weight), cull (spent-animal disposals), milk and manure."
+          description="Accrual profit, tax, debt service and project cash flow by year. Revenue splits into meat (young-stock sold at live weight), cull (spent-animal disposals) and manure."
         >
           <div className="overflow-x-auto">
             <Table className="min-w-[1700px]">
@@ -2162,7 +2254,6 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                   <TableHead className="text-right" title="Cull animal disposals (spent females, rotated males, repeat breeders)">
                     Cull ₹
                   </TableHead>
-                  <TableHead className="text-right">Milk ₹</TableHead>
                   <TableHead className="text-right" title="Manure/dung income">
                     Manure ₹
                   </TableHead>
@@ -2186,7 +2277,6 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                       row.total_revenue,
                       row.meat_revenue,
                       row.cull_revenue,
-                      row.milk_revenue,
                       row.manure_revenue,
                       row.total_opex,
                       row.ebitda,
@@ -2231,7 +2321,6 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                   <TableHead className="text-right">Sales revenue</TableHead>
                   <TableHead className="text-right">Cull head</TableHead>
                   <TableHead className="text-right">Cull revenue</TableHead>
-                  <TableHead className="text-right">Milk revenue</TableHead>
                   <TableHead className="text-right">Purchased green kg</TableHead>
                   <TableHead className="text-right">Feed cost</TableHead>
                   <TableHead className="text-right">Selling cost</TableHead>
@@ -2242,6 +2331,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                   <TableHead className="text-right">Cash balance</TableHead>
                   <TableHead className="text-right">Cumulative cash flow</TableHead>
                   <TableHead className="text-right">Fodder stock (kg DM)</TableHead>
+                  <TableHead className="text-right">Water (L)</TableHead>
                   <TableHead>Events</TableHead>
                 </TableRow>
               </TableHeader>
@@ -2271,9 +2361,6 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {formatMoney(row.cull_revenue)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {formatMoney(row.milk_revenue)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {formatHead(row.feed_purchased_green_kg)}
@@ -2312,6 +2399,12 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {formatHead(row.fodder_stock_kg_dm)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {/* Optional water-demand column (contract addition). */}
+                      {typeof (row as { water_litres?: number }).water_litres === "number"
+                        ? litres((row as { water_litres?: number }).water_litres as number)
+                        : "—"}
                     </TableCell>
                     <TableCell>
                       {row.events && row.events.length > 0 ? (
@@ -2907,9 +3000,9 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                   />
                 </summary>
                 <div className="grid gap-3 border-t px-4 py-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {Object.entries(values).map(([key, value]) =>
-                    renderField(section, key, value),
-                  )}
+                  {Object.entries(values)
+                    .filter(([key]) => !DAIRY_HIDDEN_FIELDS.has(`${section}.${key}`))
+                    .map(([key, value]) => renderField(section, key, value))}
                 </div>
               </details>
             ))}

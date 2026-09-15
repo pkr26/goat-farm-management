@@ -4,7 +4,7 @@
  * - every field label carries a "?" that opens a dialog explaining the term
  *   plus the unit, allowed values and current value the editor derives;
  * - section headings explain what each assumptions group covers;
- * - the results tables surface cull disposals and the milk/meat/cull revenue
+ * - the results tables surface cull disposals and the meat/cull revenue
  *   split — material lines that used to be invisible.
  */
 
@@ -322,7 +322,7 @@ describe("SimulationPage species-aware vocabulary", () => {
 });
 
 describe("SimulationPage disposal and revenue columns", () => {
-  it("shows cull disposals and milk revenue in the monthly projection", async () => {
+  it("shows cull disposals in the monthly projection (no milk column on a meat farm)", async () => {
     const user = await renderLoaded({ run: true });
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
     expect(
@@ -332,19 +332,23 @@ describe("SimulationPage disposal and revenue columns", () => {
     const projection = screen
       .getByText("Herd and cash-flow detail over 1 months.")
       .closest("[data-slot='card']") as HTMLElement;
-    for (const header of ["Cull head", "Cull revenue", "Milk revenue"]) {
+    for (const header of ["Cull head", "Cull revenue"]) {
       expect(
         within(projection).getByRole("columnheader", { name: header }),
       ).toBeInTheDocument();
     }
+    // The permanently-zero dairy column is gone from the meat-goat profile.
+    expect(
+      within(projection).queryByRole("columnheader", { name: "Milk revenue" }),
+    ).not.toBeInTheDocument();
     const [, monthRow] = within(projection).getAllByRole("row");
     const monthCells = within(monthRow).getAllByRole("cell");
     expect(monthCells[7]).toHaveTextContent("1.5");
     expect(monthCells[8]).toHaveTextContent("₹75,000");
-    expect(monthCells[9]).toHaveTextContent("₹1,20,000");
+    expect(monthCells[9]).toHaveTextContent("0"); // purchased green kg
   });
 
-  it("splits annual revenue into meat, cull, milk and manure", async () => {
+  it("splits annual revenue into meat, cull and manure (no milk column)", async () => {
     const user = await renderLoaded({ run: true });
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
     expect(
@@ -359,14 +363,13 @@ describe("SimulationPage disposal and revenue columns", () => {
       .map((header) => header.textContent);
     expect(headers).toContain("Meat ₹");
     expect(headers).toContain("Cull ₹");
-    expect(headers).toContain("Milk ₹");
+    expect(headers).not.toContain("Milk ₹");
     expect(headers).toContain("Manure ₹");
 
     const [, yearRow] = within(annual).getAllByRole("row");
     const cells = within(yearRow).getAllByRole("cell");
     expect(cells[2]).toHaveTextContent("₹1,00,000"); // meat
     expect(cells[3]).toHaveTextContent("₹5,000"); // cull
-    expect(cells[4]).toHaveTextContent("₹10,000"); // milk
-    expect(cells[5]).toHaveTextContent("₹5,000"); // manure
+    expect(cells[4]).toHaveTextContent("₹5,000"); // manure
   });
 });

@@ -78,8 +78,8 @@ describe("enumLabel", () => {
     expect(enumLabel("taskCategory", "HOOF_TRIMMING", "te")).toBe("గిట్టు కత్తిరింపు");
     expect(enumLabel("taskCategory", "WEIGHING", "te")).toBe("బరువు చూడటం");
     expect(enumLabel("taskCategory", "INSURANCE", "te")).toBe("భీమా");
-    // A kind with no Telugu map falls back to English, never the raw code.
-    expect(enumLabel("mortalityCause", "PNEUMONIA", "te")).toBe("Pneumonia");
+    // Every kind now carries a Telugu map; unknown codes still humanize.
+    expect(enumLabel("mortalityCause", "PNEUMONIA", "te")).toBe("న్యుమోనియా");
     expect(enumLabel("insuranceStatus", "lapsed", "te")).toBe("రద్దైంది");
   });
 });

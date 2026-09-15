@@ -29,25 +29,58 @@ describe("speciesAwareLabel", () => {
 });
 
 describe("simulationFieldHelp — every documented field key resolves", () => {
-  it("covers all 160 assumption fields across all 12 sections", () => {
-    expect(SIMULATION_HELP_PATHS).toHaveLength(160);
+  it("covers all 159 assumption fields across all 12 sections", () => {
+    expect(SIMULATION_HELP_PATHS).toHaveLength(159);
     for (const path of [
       "meta.horizon_months",
       "herd.does",
       "herd.bucks",
       "herd.foundation_flock_state",
       "reproduction.max_services_before_cull",
+      "reproduction.weaning_days",
+      "reproduction.lactation_months",
       "mortality.kid_pre_weaning",
       "culling.buck_doe_ratio",
+      "growth.growth_regime",
       "growth.weight_by_age_months",
-      "sales.milk_price_per_kg_fat",
+      "sales.male_calf_price_per_head",
+      "sales.milk_sale_litres_per_doe_day",
+      "sales.milk_price_per_litre",
+      "feed.water_litres_lactating_doe_per_day",
       "feed.fodder_storage_loss_fraction_monthly",
       "costs.capacity_basis",
+      "finance.nlm_subsidy",
       "finance.reinvestment_rate_annual",
       "risk.market_crash_price_multiplier",
       "optimization.loan_fraction_step",
     ]) {
       expect(SIMULATION_HELP_PATHS).toContain(path);
+    }
+  });
+
+  it("carries no dairy-machinery keys (meat-goat profile)", () => {
+    for (const path of [
+      "sales.lactation_milk_litres",
+      "sales.milk_price_per_kg_fat",
+      "sales.milk_fat_pct",
+      "sales.milk_persistency_monthly",
+      "sales.milk_curve_shape",
+      "sales.milk_peak_day",
+      "sales.monthly_milk_yield_multipliers",
+      "sales.monthly_milk_price_multipliers",
+      "sales.annual_milk_price_growth_rate",
+      "sales.calf_milk_litres_per_day_per_calf",
+      "risk.disease_milk_yield_multiplier",
+    ]) {
+      expect(SIMULATION_HELP_PATHS, path).not.toContain(path);
+    }
+    // Dairy keys must have no explanation at all (risk keys resolve through
+    // the generic Monte Carlo machinery regardless of the variable).
+    for (const path of [
+      "sales.milk_price_per_kg_fat",
+      "sales.calf_milk_litres_per_day_per_calf",
+    ]) {
+      expect(simulationFieldHelp(path, goat), path).toBeNull();
     }
   });
 

@@ -1,6 +1,9 @@
+"use client";
+
 import type { ReactNode } from "react";
 
 import { Skeleton } from "@/components/ui/skeleton";
+import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 /**
@@ -136,12 +139,13 @@ export function PageSkeleton({
 /** The one inline treatment for sub-regions a skeleton can't mirror
  * (lines inside a dialog, option lists, single fields). Polite by default. */
 export function InlineLoading({
-  children = "Loading…",
+  children,
   className,
 }: {
   children?: ReactNode;
   className?: string;
 }) {
+  const t = useT();
   return (
     <p
       role="status"
@@ -152,7 +156,7 @@ export function InlineLoading({
         aria-hidden="true"
         className="size-3.5 shrink-0 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground"
       />
-      {children}
+      {children ?? t("common.loading")}
     </p>
   );
 }

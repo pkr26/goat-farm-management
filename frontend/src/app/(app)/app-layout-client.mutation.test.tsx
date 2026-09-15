@@ -81,6 +81,23 @@ describe("AppLayout — document titles", () => {
     await renderShell();
     expect(document.title).toBe(`${APP_NAME} — Livestock farm management`);
   });
+
+  it("localizes the tab title when the worker switched to Telugu", async () => {
+    const { LanguageProvider, LANGUAGE_STORAGE_KEY } = await import("@/lib/i18n");
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "te");
+    try {
+      navState.pathname = "/dashboard";
+      renderWithProviders(
+        <LanguageProvider>
+          <AppLayout defaultOpen={true}>{null}</AppLayout>
+        </LanguageProvider>,
+      );
+      await waitFor(() => expect(document.title).toBe(`డాష్‌బోర్డు · ${APP_NAME}`));
+    } finally {
+      window.localStorage.clear();
+      document.documentElement.lang = "en";
+    }
+  });
 });
 
 describe("AppLayout — farm switcher", () => {

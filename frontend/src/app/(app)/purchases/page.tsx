@@ -60,6 +60,8 @@ import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { MAX_AGE_MONTHS, MAX_BATCH_COUNT, MAX_TRANSPORT_HOURS } from "@/lib/backend-caps";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { enumLabel } from "@/lib/enum-labels";
+import { useLanguage } from "@/lib/i18n";
+import { resolveTaskTitle } from "@/lib/task-title";
 import { farmToday, formatDate, formatMoney } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import {
@@ -219,6 +221,7 @@ function BatchDetailDialog({
   // A batch may hold up to MAX_BATCH_COUNT head, so its animals arrive as a
   // bounded page. The parent keys this component by batch id, so opening a
   // different batch remounts it and the offset starts at zero again.
+  const { language } = useLanguage();
   const ANIMALS_LIMIT = 100;
   const [animalsOffset, setAnimalsOffset] = useState(0);
   const query = useBatchDetailApiPurchasesBatchIdGet(
@@ -301,8 +304,8 @@ function BatchDetailDialog({
                               a.tag_number
                             )}
                           </TableCell>
-                          <TableCell>{enumLabel("sex", a.sex)}</TableCell>
-                          <TableCell>{enumLabel("bucket", a.current_bucket)}</TableCell>
+                          <TableCell>{enumLabel("sex", a.sex, language)}</TableCell>
+                          <TableCell>{enumLabel("bucket", a.current_bucket, language)}</TableCell>
                           <TableCell>
                             <StatusBadge status={a.status}>{a.status}</StatusBadge>
                           </TableCell>
@@ -343,7 +346,7 @@ function BatchDetailDialog({
                       {openTasks.map((t) => (
                         <TableRow key={t.id}>
                           <TableCell>{formatDate(t.due_date)}</TableCell>
-                          <TableCell>{t.title}</TableCell>
+                          <TableCell>{resolveTaskTitle(t, language)}</TableCell>
                           <TableCell>
                             <StatusBadge status={t.status}>{t.status}</StatusBadge>
                           </TableCell>

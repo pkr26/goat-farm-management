@@ -42,6 +42,8 @@ import {
   HealthPurchaseBatchPicker,
 } from "@/components/health-target-pickers";
 import { enumLabel } from "@/lib/enum-labels";
+import { useLanguage, useT } from "@/lib/i18n";
+import { resolveTaskTitle } from "@/lib/task-title";
 import { PageHeader } from "@/components/page-header";
 import { PermissionGate } from "@/components/permission-gate";
 import { StaleDataNotice } from "@/components/stale-data-notice";
@@ -123,9 +125,9 @@ const ROUTE_ITEMS: Record<string, string> = {
   [NONE]: "—",
   ...Object.fromEntries(ROUTES.map((r) => [r, r])),
 };
-const EVENT_TYPE_ITEMS: Record<string, string> = Object.fromEntries(
-  EVENT_TYPES.map((t) => [t, enumLabel("eventType", t)]),
-);
+/** value → label map for the event-type select, in the active language. */
+const eventTypeItems = (language: "en" | "te"): Record<string, string> =>
+  Object.fromEntries(EVENT_TYPES.map((t) => [t, enumLabel("eventType", t, language)]));
 
 
 /** Canonicalise URL/select ids without JavaScript's permissive Number()
@@ -436,6 +438,8 @@ function FieldError({ message, id }: { message?: string; id?: string }) {
 
 function HealthPageContent({ perms }: { perms: PermissionsState }) {
   const { can } = perms;
+  const t = useT();
+  const { language } = useLanguage();
   const allowed = can("health.view");
   const canManage = can("health.manage");
   const canViewAnimals = can("animals.view");
@@ -443,7 +447,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
   /** value → label map for the root `items` prop: without it, Base UI's
    * Select.Value renders the raw value in the closed trigger. */
   const bucketItems: Record<string, string> = Object.fromEntries(
-    BUCKETS.map((b) => [b, enumLabel("bucket", b)]),
+    BUCKETS.map((b) => [b, enumLabel("bucket", b, language)]),
   );
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -572,7 +576,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
   const taskItems: Record<string, string> = {
     [NONE]: "— none —",
     ...Object.fromEntries(
-      linkableHealthTasks.map((t) => [String(t.id), `${t.title} (due ${formatDate(t.due_date)})`]),
+      linkableHealthTasks.map((t) => [String(t.id), `${resolveTaskTitle(t, language)} (due ${formatDate(t.due_date)})`]),
     ),
   };
 
@@ -1212,7 +1216,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
               {events.map((e) => (
                 <div key={e.id} className="rounded-xl border bg-card p-3">
                   <div className="flex items-center justify-between gap-2">
-                    <StatusBadge status={e.type}>{enumLabel("eventType", e.type)}</StatusBadge>
+                    <StatusBadge status={e.type}>{enumLabel("eventType", e.type, language)}</StatusBadge>
                     <span className="text-xs text-muted-foreground">{formatDate(e.date)}</span>
                   </div>
                   <p className="mt-1 text-sm font-medium">
@@ -1221,12 +1225,13 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                   {e.product_name && (
                     <p className="mt-0.5 text-xs text-muted-foreground">{e.product_name}</p>
                   )}
-                  {/* Food-safety fields must not be desktop-only: a withdrawal
-                   * hold and the lot/expiry trail are what a phone user in the
-                   * parlour most needs to see. */}
+                  {/* Food-safety fields must not be desktop-only: a sale
+                   * withdrawal hold and the lot/expiry trail are what a phone
+                   * user in the shed most needs to see. On a meat-goat farm
+                   * the constraint is slaughter/sale, not milk. */}
                   {e.withdrawal_until && (
                     <Badge variant="destructive" className="mt-1">
-                      Milk hold until {formatDate(e.withdrawal_until)}
+                      {t("health.notForSaleUntil", { date: formatDate(e.withdrawal_until) })}
                     </Badge>
                   )}
                   {(e.product_lot || e.product_expires_on) && (
@@ -1286,7 +1291,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                 <TableRow key={e.id}>
                   <TableCell>{formatDate(e.date)}</TableCell>
                   <TableCell>
-                    <StatusBadge status={e.type}>{enumLabel("eventType", e.type)}</StatusBadge>
+                    <StatusBadge status={e.type}>{enumLabel("eventType", e.type, language)}</StatusBadge>
                   </TableCell>
                   <TableCell>
                     <EventAnimalLabel event={e} canViewAnimals={canViewAnimals} />
@@ -1337,7 +1342,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                       {e.official_tag_number && <p>Official tag: {e.official_tag_number}</p>}
                       {e.administered_by && <p>Administered by: {e.administered_by}</p>}
                       {e.withdrawal_until && (
-                        <p>Withdrawal until: {formatDate(e.withdrawal_until)}</p>
+                        <p>{t("health.notForSaleUntil", { date: formatDate(e.withdrawal_until) })}</p>
                       )}
                       {e.authority_notified_at && (
                         <p>Authority notified: {formatDate(e.authority_notified_at)}</p>
@@ -1480,7 +1485,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                     <SelectContent>
                       {BUCKETS.map((b) => (
                         <SelectItem key={b} value={b}>
-                          {enumLabel("bucket", b)}
+                          {enumLabel("bucket", b, language)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1588,7 +1593,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                     // Stryker disable next-line ObjectLiteral, BooleanLiteral: the select only ever sets valid enum values, so shouldValidate never surfaces a different error state (changeScope precedent)
                     setValue("type", v as EventValues["type"], { shouldValidate: true });
                   }}
-                  items={EVENT_TYPE_ITEMS}
+                  items={eventTypeItems(language)}
                 >
                   <SelectTrigger id="event-type" className="w-full">
                     <SelectValue />
@@ -1596,7 +1601,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                   <SelectContent>
                     {EVENT_TYPES.map((t) => (
                       <SelectItem key={t} value={t}>
-                        {enumLabel("eventType", t)}
+                        {enumLabel("eventType", t, language)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1751,7 +1756,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                       <SelectItem value={NONE}>— none —</SelectItem>
                       {linkableHealthTasks.map((t) => (
                         <SelectItem key={t.id} value={String(t.id)}>
-                          {t.title} (due {formatDate(t.due_date)})
+                          {resolveTaskTitle(t, language)} (due {formatDate(t.due_date)})
                         </SelectItem>
                       ))}
                     </SelectContent>

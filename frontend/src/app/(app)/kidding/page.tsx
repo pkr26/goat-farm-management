@@ -57,6 +57,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError} from "@/lib/api-client";
 import { enumLabel } from "@/lib/enum-labels";
+import { useLanguage, type Language } from "@/lib/i18n";
 import { addDays, daysBetween, farmToday, formatDate } from "@/lib/format";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { invalidateFarmData } from "@/lib/query-invalidation";
@@ -96,15 +97,14 @@ const TRI_STATE_ITEMS: Record<string, string> = {
 };
 /** value → label maps for the root `items` prop: without them, Base UI's
  * Select.Value renders the raw value in the closed trigger. */
-// Stryker disable next-line StringLiteral: ease labels are exactly the titlecase of their enum values and Telugu carries no ease overrides, so the catalog lookup is the identity over the reachable set
-const EASE_ITEMS: Record<string, string> = Object.fromEntries(
-  EASES.map((e) => [e, enumLabel("ease", e)]),
-);
-// Stryker disable next-line StringLiteral: same titlecase-identity argument for the kid-status labels
-const KID_STATUS_ITEMS: Record<string, string> = Object.fromEntries(
-  KID_STATUSES.map((s) => [s, enumLabel("kidStatus", s)]),
-);
-const KID_SEX_ITEMS: Record<string, string> = { F: "Female", M: "Male" };
+const easeItems = (language: Language): Record<string, string> =>
+  Object.fromEntries(EASES.map((e) => [e, enumLabel("ease", e, language)]));
+const kidStatusItems = (language: Language): Record<string, string> =>
+  Object.fromEntries(KID_STATUSES.map((s) => [s, enumLabel("kidStatus", s, language)]));
+const kidSexItems = (language: Language): Record<string, string> => ({
+  F: enumLabel("sex", "F", language),
+  M: enumLabel("sex", "M", language),
+});
 const KIDDING_HISTORY_LIMIT = 50;
 const DUE_LIST_LIMIT = 25;
 
@@ -301,6 +301,7 @@ function RecordKiddingDialog({
 }) {
   const mutation = useCreateKiddingApiKiddingPost();
   const createFlight = useSingleFlight();
+  const { language } = useLanguage();
   const vocabulary = farmVocabulary;
   const femaleLabel = cap(vocabulary.femaleAdult);
   const youngLabel = cap(vocabulary.young);
@@ -455,7 +456,7 @@ function RecordKiddingDialog({
                     value={field.value}
                     disabled={isSubmitting || createFlight.pending}
                     onValueChange={field.onChange}
-                    items={EASE_ITEMS}
+                    items={easeItems(language)}
                   >
                     <SelectTrigger id="kidding-ease" className="w-full">
                       <SelectValue />
@@ -463,7 +464,7 @@ function RecordKiddingDialog({
                     <SelectContent>
                       {EASES.map((e) => (
                         <SelectItem key={e} value={e}>
-                          {EASE_ITEMS[e]}
+                          {easeItems(language)[e]}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -595,7 +596,7 @@ function RecordKiddingDialog({
                     control={control}
                     name={`kids.${index}.sex`}
                     render={({ field: f }) => (
-                      <Select value={f.value} onValueChange={f.onChange} items={KID_SEX_ITEMS}>
+                      <Select value={f.value} onValueChange={f.onChange} items={kidSexItems(language)}>
                         <SelectTrigger id={`kid-${field.id}-sex`} size="sm">
                           <SelectValue />
                         </SelectTrigger>
@@ -663,7 +664,7 @@ function RecordKiddingDialog({
                             setValue(`kids.${index}.dam_rejected`, false);
                           }
                         }}
-                        items={KID_STATUS_ITEMS}
+                        items={kidStatusItems(language)}
                       >
                         <SelectTrigger id={`kid-${field.id}-status`} size="sm">
                           <SelectValue />
@@ -671,7 +672,7 @@ function RecordKiddingDialog({
                         <SelectContent>
                           {KID_STATUSES.map((s) => (
                             <SelectItem key={s} value={s}>
-                              {KID_STATUS_ITEMS[s]}
+                              {kidStatusItems(language)[s]}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -846,6 +847,7 @@ function KidsCell({
   kidding: KiddingRecordOut;
   canViewAnimals: boolean;
 }) {
+  const { language } = useLanguage();
   const vocabulary = farmVocabulary;
   const kids = kidding.kids ?? [];
   if (kids.length === 0) return <span>—</span>;
@@ -863,7 +865,7 @@ function KidsCell({
           )}{" "}
           (
           {[
-            enumLabel("sex", kid.sex),
+            enumLabel("sex", kid.sex, language),
             kid.status.toLowerCase(),
             kid.colostrum_within_2h === null
               ? null
@@ -899,6 +901,7 @@ function kiddingCareFacts(kidding: KiddingRecordOut): string | null {
 
 function KiddingPageContent({ perms }: { perms: PermissionsState }) {
   const queryClient = useQueryClient();
+  const { language } = useLanguage();
   const vocabulary = farmVocabulary;
   const femaleLabel = cap(vocabulary.femaleAdult);
   const { can } = perms;
@@ -1277,7 +1280,7 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
                     )}
                   </TableCell>
                   <TableCell>
-                    <StatusBadge status={k.ease}>{EASE_ITEMS[k.ease] ?? k.ease}</StatusBadge>
+                    <StatusBadge status={k.ease}>{easeItems(language)[k.ease] ?? k.ease}</StatusBadge>
                     {kiddingCareFacts(k) && (
                       <span className="block text-xs text-muted-foreground">
                         {kiddingCareFacts(k)}

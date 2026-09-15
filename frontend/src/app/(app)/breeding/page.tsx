@@ -67,6 +67,7 @@ import {
   applyApiValidationToForm,
   } from "@/lib/api-client";
 import { enumLabel } from "@/lib/enum-labels";
+import { useLanguage, type Language } from "@/lib/i18n";
 import { daysBetween, farmToday, formatDate } from "@/lib/format";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { invalidateFarmData } from "@/lib/query-invalidation";
@@ -105,15 +106,16 @@ function cap(noun: string): string {
  * Select.Value renders the raw enum value in the closed trigger. Labels come
  * from the shared enum-labels map (same vocabulary the record rows render),
  * so the write path never shows SCREAMING_SNAKE codes either. */
-const LOSS_CAUSE_ITEMS: Record<string, string> = Object.fromEntries(
-  Object.values(PregnancyLossInCause).map((value) => [value, enumLabel("lossCause", value)]),
-);
-/** Options for the loss-cause select — same catalog as the items map.
- * Stryker disable next-line StringLiteral: the option values are exactly the six titlecase-labeled members of PregnancyLossInCause and Telugu carries no lossCause overrides, so the catalog lookup is the identity over the reachable set (the row renderer's call, which can display backend-sent causes like ANIMAL_STATUS_CHANGE, stays live and pinned by its own test) */
-const LOSS_CAUSE_OPTIONS = Object.values(PregnancyLossInCause).map((value) => ({
-  value,
-  label: enumLabel("lossCause", value),
-}));
+const lossCauseItems = (language: Language): Record<string, string> =>
+  Object.fromEntries(
+    Object.values(PregnancyLossInCause).map((value) => [value, enumLabel("lossCause", value, language)]),
+  );
+/** Options for the loss-cause select — same catalog as the items map. */
+const lossCauseOptions = (language: Language) =>
+  Object.values(PregnancyLossInCause).map((value) => ({
+    value,
+    label: enumLabel("lossCause", value, language),
+  }));
 
 function OutcomeBadge({ outcome }: { outcome: string }) {
   // The shared chip system already maps breeding outcomes to semantic tones
@@ -178,6 +180,7 @@ function NewBreedingDialog({
 }) {
   const createMutation = useCreateBreedingApiBreedingPost();
   const createFlight = useSingleFlight();
+  const { language } = useLanguage();
   const vocabulary = farmVocabulary;
   const femaleLabel = cap(vocabulary.femaleAdult);
   const maleLabel = cap(vocabulary.maleAdult);
@@ -350,11 +353,11 @@ function NewBreedingDialog({
               >
                 {(
                   [
-                    ["NATURAL", enumLabel("method", "NATURAL"), `Herd ${vocabulary.maleAdult}`],
-                    ["AI", enumLabel("method", "AI"), "Conventional semen"],
+                    ["NATURAL", enumLabel("method", "NATURAL", language), `Herd ${vocabulary.maleAdult}`],
+                    ["AI", enumLabel("method", "AI", language), "Conventional semen"],
                     [
                       "AI_SEXED",
-                      enumLabel("method", "AI_SEXED"),
+                      enumLabel("method", "AI_SEXED", language),
                       `~90% female ${vocabulary.youngPlural}`,
                     ],
                   ] as const
@@ -686,6 +689,7 @@ function PregnancyLossDialog({
 }) {
   const mutation = useAbortPregnancyApiBreedingRecordIdAbortPost();
   const saveFlight = useSingleFlight();
+  const { language } = useLanguage();
   const vocabulary = farmVocabulary;
   // Stryker disable next-line ConditionalExpression, EqualityOperator: when the two dates are equal both arms return the same date, and when they differ > and >= agree — the boundary is not observable
   const earliestLossDate = record.ultrasound_result_date && record.ultrasound_result_date > record.breeding_date ? record.ultrasound_result_date : record.breeding_date;
@@ -778,13 +782,13 @@ function PregnancyLossDialog({
             <Select
               value={cause}
               onValueChange={(value) => setCause(value as PregnancyLossInCause)}
-              items={LOSS_CAUSE_ITEMS}
+              items={lossCauseItems(language)}
             >
               <SelectTrigger id={`pregnancy-loss-cause-${record.id}`} className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {LOSS_CAUSE_OPTIONS.map(({ value, label }) => (
+                {lossCauseOptions(language).map(({ value, label }) => (
                   <SelectItem key={value} value={value}>
                     {label}
                   </SelectItem>
@@ -833,6 +837,7 @@ function PregnancyLossDialog({
 
 function BreedingPageContent({ perms }: { perms: PermissionsState }) {
   const queryClient = useQueryClient();
+  const { language } = useLanguage();
   const vocabulary = farmVocabulary;
   const femaleLabel = cap(vocabulary.femaleAdult);
   const maleLabel = cap(vocabulary.maleAdult);
@@ -1090,7 +1095,7 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
                       <div className="mt-1 text-xs text-muted-foreground">
                         <p>
                           {formatDate(r.loss_date)} ·{" "}
-                          {enumLabel("lossCause", r.loss_cause ?? "UNKNOWN")}
+                          {enumLabel("lossCause", r.loss_cause ?? "UNKNOWN", language)}
                         </p>
                         {r.loss_notes && (
                           <details>
