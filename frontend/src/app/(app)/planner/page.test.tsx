@@ -7,7 +7,7 @@
  * alert.
  */
 
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
@@ -16,6 +16,15 @@ import { server, TEST_FARMS } from "@/test/msw-server";
 import { createTestQueryClient, renderWithProviders } from "@/test/render";
 
 import PlannerPage from "./page";
+
+/** Targets-editor fields also render in the below-md card list (md:hidden) —
+ * scope to the desktop table by its min-w floor. */
+function desktopTable(minW: string): HTMLElement {
+  const table = document.querySelector(`[class~="md:block"] table[class*="${minW}"]`);
+  expect(table).not.toBeNull();
+  return table as HTMLElement;
+}
+
 
 const toastMocks = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
 vi.mock("sonner", () => ({ toast: toastMocks }));
@@ -333,7 +342,7 @@ describe("PlannerPage backward plan", () => {
     });
 
     await user.click(screen.getByRole("button", { name: "Add target" }));
-    const count = screen.getByLabelText("Count");
+    const count = within(desktopTable("min-w-[720px]")).getByLabelText("Count");
     await user.clear(count);
     await user.type(count, "20");
 
@@ -392,7 +401,7 @@ describe("PlannerPage backward plan", () => {
     });
 
     // Open the saved plan, rename it, update.
-    await user.click(await screen.findByRole("button", { name: "Open" }));
+    await user.click((await screen.findAllByRole("button", { name: "Open" }))[0]!);
     const name = screen.getByLabelText("Plan name");
     await user.clear(name);
     await user.type(name, "Renamed plan");
@@ -423,7 +432,7 @@ describe("PlannerPage backward plan", () => {
 
     await user.click(screen.getByRole("button", { name: "Add target" }));
     // A count of 0 is not a sale target.
-    const count = screen.getByLabelText("Count");
+    const count = within(desktopTable("min-w-[720px]")).getByLabelText("Count");
     await user.clear(count);
     await user.type(count, "0");
 

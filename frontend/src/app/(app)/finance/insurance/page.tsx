@@ -679,6 +679,75 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
               Updating policies…
             </p>
           )}
+          {/* Below md the 8-column register becomes a card per policy —
+           * renewal is the phone-side action, so Renew/Claim stay 44px. */}
+          <div className="space-y-2 md:hidden">
+            {payload.policies.map((policy) => (
+              <div key={policy.id} className="space-y-1.5 rounded-xl border bg-card p-3 shadow-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium">{policy.policy_number}</span>
+                  <StatusBadge status={policy.status}>
+                    {enumLabel("insuranceStatus", policy.status)}
+                  </StatusBadge>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {policy.insurer}
+                  {policy.animal_id !== null && policy.animal_tag ? (
+                    <>
+                      {" · "}
+                      {canViewAnimals ? (
+                        <Link
+                          href={`/animals/${policy.animal_id}`}
+                          className="text-primary underline"
+                        >
+                          {policy.animal_tag}
+                        </Link>
+                      ) : (
+                        policy.animal_tag
+                      )}
+                    </>
+                  ) : null}
+                </p>
+                <dl className="space-y-1 text-sm">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <dt className="text-muted-foreground">Sum insured</dt>
+                    <dd className="tabular-nums">{formatMoney(policy.sum_insured)}</dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <dt className="text-muted-foreground">Premium</dt>
+                    <dd className="tabular-nums">{formatMoney(policy.premium)}</dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <dt className="text-muted-foreground">Renewal date</dt>
+                    <dd>{formatDate(policy.renewal_date)}</dd>
+                  </div>
+                </dl>
+                {canManage && (
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-11 px-4"
+                      disabled={settling || policy.status === "claimed"}
+                      onClick={() => setRenewing(policy)}
+                    >
+                      Renew
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-11 px-4"
+                      disabled={settling || policy.status === "claimed"}
+                      onClick={() => setClaiming(policy)}
+                    >
+                      Claim
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="hidden md:block">
           <Table className="min-w-[840px]">
             <TableHeader>
               <TableRow>
@@ -751,6 +820,7 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
               ))}
             </TableBody>
           </Table>
+          </div>
           <PaginationControls
             total={payload.total}
             limit={INSURANCE_PAGE_LIMIT}

@@ -148,6 +148,14 @@ function card(title: string | RegExp): HTMLElement {
   return screen.getByText(title).closest("[data-slot='card']") as HTMLElement;
 }
 
+/** Queue content also renders in below-md card lists (md:hidden) inside the
+ * same section card — scope to the desktop table for unambiguous lookups. */
+function desktopScope(sectionCard: HTMLElement) {
+  const table = sectionCard.querySelector('[class~="md:block"] table');
+  expect(table).not.toBeNull();
+  return within(table as HTMLElement);
+}
+
 describe("KiddingPage branches", () => {
   let listRequests: URLSearchParams[];
   let postBody: Record<string, unknown> | null;
@@ -211,7 +219,7 @@ describe("KiddingPage branches", () => {
     const user = userEvent.setup();
     await renderLoaded();
     await user.click(
-      within(card("Upcoming (next 30 days)")).getByRole("button", { name: "Record kidding" }),
+      desktopScope(card("Upcoming (next 30 days)")).getByRole("button", { name: "Record kidding" }),
     );
     return { user, dialog: await screen.findByRole("dialog") };
   }
@@ -285,21 +293,21 @@ describe("KiddingPage branches", () => {
     payload.total = 2;
     await renderLoaded();
 
-    const upcoming = card("Upcoming (next 30 days)");
-    expect(within(upcoming).getByRole("link", { name: "G-010" })).toHaveAttribute(
+    const upcoming = desktopScope(card("Upcoming (next 30 days)"));
+    expect(upcoming.getByRole("link", { name: "G-010" })).toHaveAttribute(
       "href",
       "/animals/10",
     );
-    expect(within(upcoming).getByRole("link", { name: "Doe #77" })).toHaveAttribute(
+    expect(upcoming.getByRole("link", { name: "Doe #77" })).toHaveAttribute(
       "href",
       "/animals/77",
     );
-    const history = card("Recent kiddings");
-    expect(within(history).getByRole("link", { name: "G-010" })).toHaveAttribute(
+    const history = desktopScope(card("Recent kiddings"));
+    expect(history.getByRole("link", { name: "G-010" })).toHaveAttribute(
       "href",
       "/animals/10",
     );
-    expect(within(history).getByRole("link", { name: "Doe #88" })).toHaveAttribute(
+    expect(history.getByRole("link", { name: "Doe #88" })).toHaveAttribute(
       "href",
       "/animals/88",
     );
@@ -314,15 +322,15 @@ describe("KiddingPage branches", () => {
     await renderLoaded();
 
     const overdue = card(/Overdue/);
-    expect(within(overdue).getByText("G-010")).toBeInTheDocument();
+    expect(desktopScope(overdue).getByText("G-010")).toBeInTheDocument();
     expect(within(overdue).queryAllByRole("link")).toHaveLength(0);
     const upcoming = card("Upcoming (next 30 days)");
-    expect(within(upcoming).getByText("G-010")).toBeInTheDocument();
-    expect(within(upcoming).getByText("Doe #77")).toBeInTheDocument();
+    expect(desktopScope(upcoming).getByText("G-010")).toBeInTheDocument();
+    expect(desktopScope(upcoming).getByText("Doe #77")).toBeInTheDocument();
     expect(within(upcoming).queryAllByRole("link")).toHaveLength(0);
     const history = card("Recent kiddings");
-    expect(within(history).getByText("G-010")).toBeInTheDocument();
-    expect(within(history).getByText("Doe #88")).toBeInTheDocument();
+    expect(desktopScope(history).getByText("G-010")).toBeInTheDocument();
+    expect(desktopScope(history).getByText("Doe #88")).toBeInTheDocument();
     expect(within(history).queryAllByRole("link")).toHaveLength(0);
     // The id fallback belongs to untagged does only.
     expect(screen.queryByText("Doe #10")).not.toBeInTheDocument();
@@ -349,7 +357,7 @@ describe("KiddingPage branches", () => {
 
   it("separates inline kids with a comma only between them", async () => {
     await renderLoaded();
-    const row = screen.getByText("big twins").closest("tr")!;
+    const row = desktopScope(card("Recent kiddings")).getByText("big twins").closest("tr")!;
 
     expect(within(row).getAllByRole("cell")[3].textContent).toBe(
       "G-101 (Female, alive), kid (Male, stillborn)",
@@ -449,7 +457,7 @@ describe("KiddingPage branches", () => {
     await renderLoaded();
 
     // The pregnancy is on the page — only the id parse keeps its dialog shut.
-    expect(within(card("Upcoming (next 30 days)")).getByText("G-100")).toBeInTheDocument();
+    expect(desktopScope(card("Upcoming (next 30 days)")).getByText("G-100")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
@@ -516,7 +524,7 @@ describe("KiddingPage branches", () => {
     // Recording another doe by hand while the linked pregnancy loads must not
     // retire the deep link the operator arrived from.
     await user.click(
-      within(card("Upcoming (next 30 days)")).getByRole("button", { name: "Record kidding" }),
+      desktopScope(card("Upcoming (next 30 days)")).getByRole("button", { name: "Record kidding" }),
     );
     const handOpened = await screen.findByRole("dialog", { name: "Record kidding" });
     expect(within(handOpened).getByText(/Doe G-010 · due/)).toBeInTheDocument();

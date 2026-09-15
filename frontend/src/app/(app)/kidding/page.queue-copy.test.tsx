@@ -141,6 +141,14 @@ function card(title: string | RegExp): HTMLElement {
   return screen.getByText(title).closest("[data-slot='card']") as HTMLElement;
 }
 
+/** Queue content also renders in below-md card lists (md:hidden) inside the
+ * same section card — scope to the desktop table for unambiguous lookups. */
+function desktopScope(sectionCard: HTMLElement) {
+  const table = sectionCard.querySelector('[class~="md:block"] table');
+  expect(table).not.toBeNull();
+  return within(table as HTMLElement);
+}
+
 describe("KiddingPage copy and field wiring", () => {
   let postBody: Record<string, unknown> | null;
   let pregnancyCalls: number;
@@ -200,7 +208,7 @@ describe("KiddingPage copy and field wiring", () => {
   async function renderLoaded() {
     renderWithProviders(<KiddingPage />);
     await screen.findByText("Recent kiddings");
-    await screen.findByText("big twins");
+    await screen.findAllByText("big twins");
   }
 
   // ---------- page-level copy and fallbacks ----------
@@ -280,7 +288,7 @@ describe("KiddingPage copy and field wiring", () => {
       "Upcoming (next 30 days)",
       "Recent kiddings",
     ]) {
-      const link = within(card(title)).getByRole("link", { name: "Doe #10" });
+      const link = desktopScope(card(title)).getByRole("link", { name: "Doe #10" });
       expect(link).toHaveAttribute("href", "/animals/10");
     }
   });
@@ -299,7 +307,7 @@ describe("KiddingPage copy and field wiring", () => {
     ]) {
       const section = card(title);
       expect(within(section).queryByRole("link", { name: "Doe #10" })).not.toBeInTheDocument();
-      expect(within(section).getByText("Doe #10")).toBeInTheDocument();
+      expect(desktopScope(section).getByText("Doe #10")).toBeInTheDocument();
     }
   });
 
@@ -413,7 +421,7 @@ describe("KiddingPage copy and field wiring", () => {
 
     expect(await screen.findByRole("status")).toHaveTextContent("Updating kidding queues…");
     expect(screen.getByText("Recent kiddings")).toBeInTheDocument();
-    expect(screen.getByText("big twins")).toBeInTheDocument();
+    expect(screen.getAllByText("big twins").length).toBeGreaterThan(0);
 
     gate.resolve();
     await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
@@ -425,7 +433,7 @@ describe("KiddingPage copy and field wiring", () => {
     const user = userEvent.setup();
     await renderLoaded();
     await user.click(
-      within(card("Upcoming (next 30 days)")).getByRole("button", { name: "Record kidding" }),
+      desktopScope(card("Upcoming (next 30 days)")).getByRole("button", { name: "Record kidding" }),
     );
     return { user, dialog: await screen.findByRole("dialog") };
   }

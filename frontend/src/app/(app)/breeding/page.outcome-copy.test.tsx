@@ -200,22 +200,29 @@ describe("BreedingPage copy and write bookkeeping", () => {
     return view;
   }
 
+  /** The desktop register table — record content also renders in the below-md
+   * card list (md:hidden), so lookups must scope here to stay unambiguous.
+   * Async because several tests query before the list has loaded. */
+  async function tableScope() {
+    return within(await screen.findByRole("table"));
+  }
+
   // ---------- what the table itself states ----------
 
   it("tints every outcome badge with the colour of that outcome", async () => {
     await renderLoaded();
 
     // The shared StatusBadge chip resolves tones from the semantic tokens.
-    expect(screen.getByText("Confirmed Pregnant")).toHaveClass(
+    expect((await tableScope()).getByText("Confirmed Pregnant")).toHaveClass(
       "bg-success-tint",
       "text-success-tint-foreground",
     );
-    expect(screen.getByText("Failed")).toHaveClass(
+    expect((await tableScope()).getByText("Failed")).toHaveClass(
       "bg-destructive/10",
       "text-destructive",
     );
     // Aborted pregnancies are adverse events, tinted like their siblings.
-    expect(screen.getByText("Aborted")).toHaveClass(
+    expect((await tableScope()).getByText("Aborted")).toHaveClass(
       "bg-destructive/10",
       "text-destructive",
     );
@@ -225,7 +232,7 @@ describe("BreedingPage copy and write bookkeeping", () => {
     listPayload.records = [makeRecord({ id: 11, ultrasound_date: null })];
     renderWithProviders(<BreedingPage />);
 
-    const row = (await screen.findByText("Pending")).closest("tr") as HTMLElement;
+    const row = (await (await tableScope()).findByText("Pending")).closest("tr") as HTMLElement;
     // Bred | Doe | Buck | Cycle | Ultrasound | Kids | Expected | Outcome | …
     expect(within(row).getAllByRole("cell")[4].textContent).toBe("—");
   });
@@ -254,10 +261,10 @@ describe("BreedingPage copy and write bookkeeping", () => {
     renderWithProviders(<BreedingPage />);
 
     expect(
-      await screen.findByText("4 Aug 2026 · Herd exit (administrative close)"),
+      await (await tableScope()).findByText("4 Aug 2026 · Herd exit (administrative close)"),
     ).toBeInTheDocument();
     // A cause-less row still names a cause rather than trailing a bare dot.
-    expect(screen.getByText("5 Aug 2026 · Unknown")).toBeInTheDocument();
+    expect((await tableScope()).getByText("5 Aug 2026 · Unknown")).toBeInTheDocument();
   });
 
   it("names an untagged doe and buck in plain text without animals.view", async () => {
@@ -267,8 +274,8 @@ describe("BreedingPage copy and write bookkeeping", () => {
     ];
     renderWithProviders(<BreedingPage />);
 
-    expect(await screen.findByText("Doe #77")).toBeInTheDocument();
-    expect(screen.getByText("Buck #88")).toBeInTheDocument();
+    expect(await (await tableScope()).findByText("Doe #77")).toBeInTheDocument();
+    expect((await tableScope()).getByText("Buck #88")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Doe #77" })).not.toBeInTheDocument();
   });
 
@@ -474,7 +481,7 @@ describe("BreedingPage copy and write bookkeeping", () => {
     const user = userEvent.setup();
     listPayload.records = [record];
     renderWithProviders(<BreedingPage />);
-    const row = (await screen.findByText("Pending")).closest("tr") as HTMLElement;
+    const row = (await (await tableScope()).findByText("Pending")).closest("tr") as HTMLElement;
     await user.click(within(row).getByRole("button", { name: "Ultrasound result" }));
     return { user, dialog: await screen.findByRole("dialog", { name: "Ultrasound result" }) };
   }
@@ -599,7 +606,7 @@ describe("BreedingPage copy and write bookkeeping", () => {
     const user = userEvent.setup();
     listPayload.records = [record];
     renderWithProviders(<BreedingPage />);
-    const row = (await screen.findByText("Confirmed Pregnant")).closest("tr") as HTMLElement;
+    const row = (await (await tableScope()).findByText("Confirmed Pregnant")).closest("tr") as HTMLElement;
     await user.click(within(row).getByRole("button", { name: "Record loss" }));
     return { user, dialog: await screen.findByRole("dialog", { name: "Record pregnancy loss" }) };
   }

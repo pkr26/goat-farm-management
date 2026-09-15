@@ -38,7 +38,29 @@ export default defineConfig({
   // CI runs this configuration once per browser in isolated jobs/databases.
   // Locally, Chromium remains the fast default; set E2E_BROWSER explicitly
   // to reproduce a Firefox or WebKit failure.
-  projects: [{ name: browserName, use: { ...devices[BROWSER_DEVICES[browserName]] } }],
+  //
+  // The mobile project runs the phone worker journey under device emulation
+  // (the field device for this product). It is Chromium-only — a second
+  // emulation of the same engine adds no signal in the Firefox/WebKit CI
+  // jobs — and it runs ONLY the mobile spec, while the desktop project
+  // skips it (the md:hidden card lists it asserts are display:none at a
+  // desktop viewport).
+  projects: [
+    {
+      name: browserName,
+      use: { ...devices[BROWSER_DEVICES[browserName]] },
+      testIgnore: /mobile-worker-journey\.spec\.ts/,
+    },
+    ...(browserName === "chromium"
+      ? [
+          {
+            name: "Mobile Chrome",
+            use: { ...devices["Pixel 7"] },
+            testMatch: /mobile-worker-journey\.spec\.ts/,
+          },
+        ]
+      : []),
+  ],
   webServer: [
     {
       command: process.env.CI

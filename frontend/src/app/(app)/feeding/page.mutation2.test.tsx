@@ -352,7 +352,7 @@ describe("FeedingPage mutation hardening 2", () => {
       await renderLoaded();
 
       // Steady state: no update notice, previous rows visible, no loader.
-      expect(await within(historyCard()).findByText("1 Jan 2026")).toBeInTheDocument();
+      expect((await within(historyCard()).findAllByText("1 Jan 2026")).length).toBeGreaterThan(0);
       expect(screen.queryByText("Updating dispensing history…")).toBeNull();
 
       await user.click(within(historyCard()).getByRole("button", { name: "Next" }));
@@ -361,14 +361,14 @@ describe("FeedingPage mutation hardening 2", () => {
       // While the next page settles: the update notice shows, the previous
       // page stays rendered (placeholder data), and no full loader flashes.
       expect(await screen.findByText("Updating dispensing history…")).toBeInTheDocument();
-      expect(screen.getByText("1 Jan 2026")).toBeInTheDocument();
+      expect(screen.getAllByText("1 Jan 2026").length).toBeGreaterThan(0);
       expect(screen.queryByText("Loading history…")).toBeNull();
 
       release?.();
       await waitFor(() =>
         expect(screen.queryByText("Updating dispensing history…")).toBeNull(),
       );
-      expect(await within(historyCard()).findByText("15 Jan 2026")).toBeInTheDocument();
+      expect((await within(historyCard()).findAllByText("15 Jan 2026")).length).toBeGreaterThan(0);
     });
   });
 

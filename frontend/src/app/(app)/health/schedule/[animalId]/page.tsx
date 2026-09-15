@@ -177,6 +177,45 @@ function VaccinationSchedulePageContent({ perms }: { perms: PermissionsState }) 
             )}
           </EmptyState>
         ) : (
+          <>
+          {/* Below md the 6-column schedule becomes a card per vaccine —
+           * due dates and the status chip must read on the phone without
+           * panning a 640px table. */}
+          <div className="space-y-2 md:hidden">
+            {payload.rows.map((row) => (
+              <div
+                key={row.template_id}
+                className={`space-y-1.5 rounded-xl border bg-card p-3 shadow-xs${rowTint(row.status) ? ` ${rowTint(row.status)}` : ""}`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium">{row.template_name}</span>
+                  <ScheduleStatusBadge status={row.status} />
+                </div>
+                {row.timing_note && (
+                  <p className="text-xs text-muted-foreground">{row.timing_note}</p>
+                )}
+                <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <dt className="text-muted-foreground">First dose due</dt>
+                    <dd>{dateOrDash(row.first_due)}</dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <dt className="text-muted-foreground">Booster due</dt>
+                    <dd>{dateOrDash(row.booster_due)}</dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <dt className="text-muted-foreground">Last done</dt>
+                    <dd>{dateOrDash(row.last_done)}</dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <dt className="text-muted-foreground">Next due</dt>
+                    <dd>{dateOrDash(row.next_due)}</dd>
+                  </div>
+                </dl>
+              </div>
+            ))}
+          </div>
+          <div className="hidden md:block">
           <Table className="min-w-[640px]">
             <TableHeader>
               <TableRow>
@@ -211,6 +250,8 @@ function VaccinationSchedulePageContent({ perms }: { perms: PermissionsState }) 
               ))}
             </TableBody>
           </Table>
+          </div>
+          </>
         )}
       </DataTableCard>
     </div>

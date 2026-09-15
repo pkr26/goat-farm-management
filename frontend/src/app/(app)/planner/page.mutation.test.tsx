@@ -8,7 +8,7 @@
  * decimal for expected head counts).
  */
 
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
@@ -17,6 +17,16 @@ import { permissionsHandler, server, TEST_FARMS } from "@/test/msw-server";
 import { createTestQueryClient, renderWithProviders } from "@/test/render";
 
 import PlannerPage from "./page";
+
+/** Targets-editor fields and report/plan rows also render in below-md card
+ * lists (md:hidden) — scope to a desktop table by its min-w floor so
+ * duplicated content stays unambiguous. */
+function desktopTable(minW: string): HTMLElement {
+  const table = document.querySelector(`[class~="md:block"] table[class*="${minW}"]`);
+  expect(table).not.toBeNull();
+  return table as HTMLElement;
+}
+
 
 const toastMocks = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
 vi.mock("sonner", () => ({ toast: toastMocks }));
@@ -141,10 +151,10 @@ async function addTarget(user: ReturnType<typeof userEvent.setup>) {
 }
 
 function saleMonthInput(): HTMLInputElement {
-  return screen.getByLabelText("Sale month") as HTMLInputElement;
+  return within(desktopTable("min-w-[720px]")).getByLabelText("Sale month") as HTMLInputElement;
 }
 
-const countInput = () => screen.getByLabelText("Count") as HTMLInputElement;
+const countInput = () => within(desktopTable("min-w-[720px]")).getByLabelText("Count") as HTMLInputElement;
 
 describe("PlannerPage mutation hardening: target validation", () => {
   it("rejects malformed year-months (format, month 13, trailing garbage)", async () => {
@@ -210,7 +220,7 @@ describe("PlannerPage mutation hardening: target validation", () => {
     await renderLoaded();
     await addTarget(user);
     await addTarget(user);
-    await fireEvent.change(screen.getAllByLabelText("Sale month")[1], {
+    await fireEvent.change(within(desktopTable("min-w-[720px]")).getAllByLabelText("Sale month")[1], {
       target: { value: currentYearMonth() },
     });
     expect(screen.getByText(/Target 2: the month must come after/i)).toBeInTheDocument();
@@ -223,7 +233,7 @@ describe("PlannerPage mutation hardening: class vocabulary and number field", ()
     await renderLoaded();
     await addTarget(user);
 
-    await user.click(screen.getByLabelText("Class"));
+    await user.click(within(desktopTable("min-w-[720px]")).getByLabelText("Class"));
     for (const label of ["Doe", "Buck", "Female kid", "Male kid", "Female weaner", "Male weaner", "Female grower", "Male grower"]) {
       expect(await screen.findByRole("option", { name: label })).toBeInTheDocument();
     }
@@ -274,8 +284,11 @@ describe("PlannerPage mutation hardening: class vocabulary and number field", ()
     await user.click(screen.getByRole("button", { name: "Plan" }));
 
     expect(await screen.findByText(/Shortfall 5\.3 head/)).toBeInTheDocument();
-    expect(screen.getByText("20.5")).toBeInTheDocument();
-    expect(screen.getAllByText("⚠ 18.3").length).toBe(2);
+    // The evaluation table (and its below-md card mirror) both carry these
+    // figures — scope to the desktop table.
+    const evaluationTable = within(desktopTable("min-w-[820px]"));
+    expect(evaluationTable.getByText("20.5")).toBeInTheDocument();
+    expect(evaluationTable.getAllByText("⚠ 18.3").length).toBe(2);
     // Null stage-plan cells render the em dash, not "null" or "NaN".
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
   });

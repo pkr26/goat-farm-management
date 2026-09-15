@@ -16,6 +16,16 @@ import { renderWithProviders } from "@/test/render";
 
 import VaccinationSchedulePage from "./page";
 
+/** Schedule rows also render in the below-md card list (md:hidden) — scope to
+ * the desktop table so duplicated text stays unambiguous. */
+async function tableScope() {
+  await screen.findByRole("table");
+  const table = document.querySelector('[class~="md:block"] table');
+  expect(table).not.toBeNull();
+  return within(table as HTMLElement);
+}
+
+
 const paramsMock: { animalId: string; search: string } = { animalId: "7", search: "" };
 
 vi.mock("next/navigation", () => ({
@@ -67,18 +77,18 @@ describe("VaccinationSchedulePage (mutation hardening)", () => {
   // collapsing to the fallback is only observable through the icon.
   it("pairs every known status with its own icon, not the fallback badge", async () => {
     renderWithProviders(<VaccinationSchedulePage />);
-    const doneRow = (await screen.findByText("PPR")).closest("tr")!;
+    const doneRow = (await (await tableScope()).findByText("PPR")).closest("tr")!;
     const doneBadge = within(doneRow).getByText("Done");
     expect(doneBadge.querySelector("svg.lucide-syringe")).not.toBeNull();
     expect(doneBadge.querySelector("svg.lucide-calendar-clock")).toBeNull();
 
     const overdueBadge = within(
-      (await screen.findByText("ET + TT")).closest("tr")!,
+      (await (await tableScope()).findByText("ET + TT")).closest("tr")!,
     ).getByText("Overdue");
     expect(overdueBadge.querySelector("svg.lucide-calendar-clock")).not.toBeNull();
     expect(overdueBadge.querySelector("svg.lucide-syringe")).toBeNull();
 
-    const upcomingBadge = within(screen.getByText("HS").closest("tr")!).getByText("Upcoming");
+    const upcomingBadge = within((await tableScope()).getByText("HS").closest("tr")!).getByText("Upcoming");
     expect(upcomingBadge.querySelector("svg.lucide-calendar-clock")).not.toBeNull();
     expect(upcomingBadge.querySelector("svg.lucide-syringe")).toBeNull();
   });
@@ -101,7 +111,7 @@ describe("VaccinationSchedulePage (mutation hardening)", () => {
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Retry permissions" }));
 
-    expect(await screen.findByText("PPR")).toBeInTheDocument();
+    expect((await screen.findAllByText("PPR")).length).toBeGreaterThan(0);
     expect(attempts).toBe(2);
   });
 

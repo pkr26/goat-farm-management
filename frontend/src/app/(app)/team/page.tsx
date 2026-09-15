@@ -147,17 +147,9 @@ function roleWithinCeiling(
   );
 }
 
-/** Per-row worker controls: role reassign, activate/deactivate (never for self), reset password. */
-function WorkerRow({
-  m,
-  roles,
-  can,
-  isSelf,
-  protectedTarget,
-  isOwner,
-  onReset,
-  authority,
-}: {
+/** Per-worker controls: role reassign, activate/deactivate (never for self),
+ * reset password — shared by the desktop table row and the below-md card. */
+interface WorkerControlsProps {
   m: MembershipOut;
   roles: RoleOut[];
   can: (code: string) => boolean;
@@ -166,7 +158,11 @@ function WorkerRow({
   isOwner: boolean;
   onReset: (m: MembershipOut, release: () => void) => void;
   authority: TeamAuthority;
-}) {
+  /** Row and card render side by side — ids must not collide across them. */
+  idPrefix: string;
+}
+
+function useWorkerControls({ m, roles, can, isOwner, onReset, authority }: WorkerControlsProps) {
   const invalidate = useInvalidateTeam();
   const roleMutation = useChangeRoleApiTeamWorkersMembershipIdRolePost();
   const statusMutation = useSetWorkerStatusApiTeamWorkersMembershipIdStatusPut();
@@ -198,6 +194,7 @@ function WorkerRow({
     [NONE]: "No role",
     ...Object.fromEntries(roles.map((r) => [String(r.id), r.name])),
   };
+  const [confirmDeactivateOpen, setConfirmDeactivateOpen] = useState(false);
 
   async function changeRole(roleId: number) {
     if (!authority.canStart() || actionLock.current !== null) return;
@@ -223,8 +220,6 @@ function WorkerRow({
       setActionSettling(false);
     }
   }
-
-  const [confirmDeactivateOpen, setConfirmDeactivateOpen] = useState(false);
 
   async function setWorkerActive(desiredActive: boolean, confirmDeactivation = true) {
     if (!authority.canStart() || actionLock.current !== null) return;
@@ -255,182 +250,298 @@ function WorkerRow({
     }
   }
 
+  function startReset() {
+    if (!m.can_reset_password || !authority.canStart() || actionLock.current !== null)
+      return;
+    actionLock.current = "reset";
+    setResetOwned(true);
+    onReset(m, () => {
+      if (actionLock.current !== "reset") return;
+      actionLock.current = null;
+      setResetOwned(false);
+    });
+  }
+
+  return {
+    rowBusy,
+    assignableRoles,
+    roleItems,
+    actionError,
+    actionLock,
+    changeRole,
+    setWorkerActive,
+    confirmDeactivateOpen,
+    setConfirmDeactivateOpen,
+    startReset,
+  };
+}
+
+type WorkerControls = ReturnType<typeof useWorkerControls>;
+
+function WorkerIdentity({ m }: { m: MembershipOut }) {
+  return (
+    <div className="flex items-center gap-3">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-semibold text-accent-foreground">
+        {(m.name ?? m.email).trim().charAt(0).toUpperCase()}
+      </span>
+      <span>{m.name ?? "—"}</span>
+    </div>
+  );
+}
+
+function WorkerRoleField({
+  m,
+  controls,
+  isSelf,
+  protectedTarget,
+}: {
+  m: MembershipOut;
+  controls: WorkerControls;
+  isSelf: boolean;
+  protectedTarget: boolean;
+}) {
+  const { rowBusy, assignableRoles, roleItems, actionError, changeRole } = controls;
+  return (
+    <>
+      <Select
+        value={m.role_id !== null ? String(m.role_id) : NONE}
+        onValueChange={(v) => {
+          if (v === NONE) return;
+          void changeRole(Number(v));
+        }}
+        disabled={rowBusy || isSelf || protectedTarget}
+        items={roleItems}
+      >
+        <SelectTrigger
+          size="sm"
+          className="w-full"
+          aria-label={`Role for ${m.name ?? m.email}`}
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {m.role_id === null && (
+            <SelectItem value={NONE} disabled>
+              No role
+            </SelectItem>
+          )}
+          {assignableRoles.map((r) => (
+            <SelectItem key={r.id} value={String(r.id)}>
+              {r.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {actionError?.action === "role" && (
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          <span role="alert" className="text-xs text-destructive">
+            {actionError.message}
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={rowBusy}
+            onClick={() => {
+              if (actionError.roleId !== undefined) void changeRole(actionError.roleId);
+            }}
+          >
+            Retry role change
+          </Button>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Activate/deactivate + reset + the deactivation confirm dialog. `touch`
+ * lifts the buttons to ≥44px (h-11) on the below-md card list. */
+function WorkerActions({
+  m,
+  isSelf,
+  protectedTarget,
+  isOwner,
+  controls,
+  touch = false,
+  idPrefix,
+}: {
+  m: MembershipOut;
+  isSelf: boolean;
+  protectedTarget: boolean;
+  isOwner: boolean;
+  controls: WorkerControls;
+  touch?: boolean;
+  idPrefix: string;
+}) {
+  const {
+    rowBusy,
+    actionError,
+    actionLock,
+    setWorkerActive,
+    confirmDeactivateOpen,
+    setConfirmDeactivateOpen,
+    startReset,
+  } = controls;
+  const actionClass = touch ? "h-11 px-4" : undefined;
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        {isSelf ? (
+          <span className="text-xs text-muted-foreground">
+            Manage your password from Account.
+          </span>
+        ) : protectedTarget ? (
+          <span className="text-xs text-muted-foreground">
+            You can only manage workers whose current role stays within your own permissions.
+          </span>
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            className={actionClass}
+            disabled={rowBusy}
+            onClick={() => void setWorkerActive(!m.is_active)}
+          >
+            {m.is_active ? "Deactivate" : "Activate"}
+          </Button>
+        )}
+        {isOwner && !isSelf && !protectedTarget && (
+          <div className="space-y-1">
+            <Button
+              size="sm"
+              variant="outline"
+              className={actionClass}
+              disabled={!m.can_reset_password || rowBusy}
+              aria-describedby={
+                !m.can_reset_password ? `${idPrefix}-reset-password-reason-${m.id}` : undefined
+              }
+              onClick={startReset}
+            >
+              Reset password
+            </Button>
+            {!m.can_reset_password && m.reset_password_block_reason && (
+              <p
+                id={`${idPrefix}-reset-password-reason-${m.id}`}
+                className="max-w-64 text-xs text-muted-foreground"
+              >
+                {m.reset_password_block_reason}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+      <Dialog
+        open={confirmDeactivateOpen}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen && actionLock.current === "status") return;
+          setConfirmDeactivateOpen(nextOpen);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Deactivate {m.name ?? m.email}?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            They will immediately lose access to this farm. The membership and its audit
+            history are retained and can be reactivated later.
+          </p>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setConfirmDeactivateOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                setConfirmDeactivateOpen(false);
+                void setWorkerActive(false, false);
+              }}
+            >
+              Deactivate worker
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {actionError?.action === "status" && (
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          <span role="alert" className="text-xs text-destructive">
+            {actionError.message}
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className={actionClass}
+            disabled={rowBusy}
+            onClick={() =>
+              void setWorkerActive(actionError.desiredActive ?? !m.is_active, false)
+            }
+          >
+            Retry {m.is_active ? "deactivate" : "activate"}
+          </Button>
+        </div>
+      )}
+    </>
+  );
+}
+
+function WorkerRow(props: WorkerControlsProps) {
+  const { m, isSelf, protectedTarget, isOwner, idPrefix } = props;
+  const controls = useWorkerControls(props);
   return (
     <TableRow>
       <TableCell>
-        <div className="flex items-center gap-3">
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-semibold text-accent-foreground">
-            {(m.name ?? m.email).trim().charAt(0).toUpperCase()}
-          </span>
-          <span>{m.name ?? "—"}</span>
-        </div>
+        <WorkerIdentity m={m} />
       </TableCell>
       <TableCell>{m.email}</TableCell>
       <TableCell>
-        <Select
-          value={m.role_id !== null ? String(m.role_id) : NONE}
-          onValueChange={(v) => {
-            if (v === NONE) return;
-            void changeRole(Number(v));
-          }}
-          disabled={rowBusy || isSelf || protectedTarget}
-          items={roleItems}
-        >
-          <SelectTrigger
-            size="sm"
-            className="w-full"
-            aria-label={`Role for ${m.name ?? m.email}`}
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {m.role_id === null && (
-              <SelectItem value={NONE} disabled>
-                No role
-              </SelectItem>
-            )}
-            {assignableRoles.map((r) => (
-              <SelectItem key={r.id} value={String(r.id)}>
-                {r.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {actionError?.action === "role" && (
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <span role="alert" className="text-xs text-destructive">
-              {actionError.message}
-            </span>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={rowBusy}
-              onClick={() => {
-                if (actionError.roleId !== undefined) void changeRole(actionError.roleId);
-              }}
-            >
-              Retry role change
-            </Button>
-          </div>
-        )}
+        <WorkerRoleField m={m} controls={controls} isSelf={isSelf} protectedTarget={protectedTarget} />
       </TableCell>
       <TableCell>
         <StatusBadge status={m.is_active ? "ACTIVE" : "INACTIVE"} />
       </TableCell>
       <TableCell>
-        <div className="flex flex-wrap items-center gap-2">
-          {isSelf ? (
-            <span className="text-xs text-muted-foreground">
-              Manage your password from Account.
-            </span>
-          ) : protectedTarget ? (
-            <span className="text-xs text-muted-foreground">
-              You can only manage workers whose current role stays within your own permissions.
-            </span>
-          ) : (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={rowBusy}
-              onClick={() => void setWorkerActive(!m.is_active)}
-            >
-              {m.is_active ? "Deactivate" : "Activate"}
-            </Button>
-          )}
-          {isOwner && !isSelf && !protectedTarget && (
-            <div className="space-y-1">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!m.can_reset_password || rowBusy}
-                aria-describedby={
-                  !m.can_reset_password ? `reset-password-reason-${m.id}` : undefined
-                }
-                onClick={() => {
-                  if (
-                    !m.can_reset_password ||
-                    !authority.canStart() ||
-                    actionLock.current !== null
-                  ) return;
-                  actionLock.current = "reset";
-                  setResetOwned(true);
-                  onReset(m, () => {
-                    if (actionLock.current !== "reset") return;
-                    actionLock.current = null;
-                    setResetOwned(false);
-                  });
-                }}
-              >
-                Reset password
-              </Button>
-              {!m.can_reset_password && m.reset_password_block_reason && (
-                <p
-                  id={`reset-password-reason-${m.id}`}
-                  className="max-w-64 text-xs text-muted-foreground"
-                >
-                  {m.reset_password_block_reason}
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-        <Dialog
-          open={confirmDeactivateOpen}
-          onOpenChange={(nextOpen) => {
-            if (!nextOpen && actionLock.current === "status") return;
-            setConfirmDeactivateOpen(nextOpen);
-          }}
-        >
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>Deactivate {m.name ?? m.email}?</DialogTitle>
-            </DialogHeader>
-            <p className="text-sm text-muted-foreground">
-              They will immediately lose access to this farm. The membership and its audit
-              history are retained and can be reactivated later.
-            </p>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setConfirmDeactivateOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={() => {
-                  setConfirmDeactivateOpen(false);
-                  void setWorkerActive(false, false);
-                }}
-              >
-                Deactivate worker
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-        {actionError?.action === "status" && (
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <span role="alert" className="text-xs text-destructive">
-              {actionError.message}
-            </span>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={rowBusy}
-              onClick={() =>
-                void setWorkerActive(actionError.desiredActive ?? !m.is_active, false)
-              }
-            >
-              Retry {m.is_active ? "deactivate" : "activate"}
-            </Button>
-          </div>
-        )}
+        <WorkerActions
+          m={m}
+          isSelf={isSelf}
+          protectedTarget={protectedTarget}
+          isOwner={isOwner}
+          controls={controls}
+          idPrefix={idPrefix}
+        />
       </TableCell>
     </TableRow>
+  );
+}
+
+/** Below-md card per worker — the same controls as the desktop row at ≥44px
+ * touch targets; panning a 760px table inside a 390px phone is not a team
+ * list, it's a scroll toy (same pattern as the tasks board). */
+function WorkerCard(props: WorkerControlsProps) {
+  const { m, isSelf, protectedTarget, isOwner, idPrefix } = props;
+  const controls = useWorkerControls(props);
+  return (
+    <div className="space-y-3 rounded-xl border bg-card p-3 shadow-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <WorkerIdentity m={m} />
+        <StatusBadge status={m.is_active ? "ACTIVE" : "INACTIVE"} />
+      </div>
+      <p className="text-xs text-muted-foreground">{m.email}</p>
+      <WorkerRoleField m={m} controls={controls} isSelf={isSelf} protectedTarget={protectedTarget} />
+      <WorkerActions
+        m={m}
+        isSelf={isSelf}
+        protectedTarget={protectedTarget}
+        isOwner={isOwner}
+        controls={controls}
+        touch
+        idPrefix={idPrefix}
+      />
+    </div>
   );
 }
 
@@ -1348,6 +1459,31 @@ function TeamPageContent({ perms }: { perms: PermissionsState }) {
             )}
           </EmptyState>
         ) : (
+          <>
+          {/* Below md the 5-column workers table becomes a card per worker
+           * (same controls, ≥44px actions). */}
+          <div className="space-y-2 md:hidden">
+            {payload.memberships.map((m) => (
+              <WorkerCard
+                key={m.id}
+                m={m}
+                roles={payload.roles}
+                can={can}
+                isSelf={m.email === user?.email}
+                isOwner={isOwner}
+                protectedTarget={isProtectedTarget(m)}
+                authority={authority}
+                idPrefix="card"
+                onReset={(membership, release) => {
+                  resetTargetRef.current?.release();
+                  const target = { membership, release };
+                  resetTargetRef.current = target;
+                  setResetTarget(target);
+                }}
+              />
+            ))}
+          </div>
+          <div className="hidden md:block">
           <Table className="min-w-[760px]">
             <TableHeader>
               <TableRow>
@@ -1369,6 +1505,7 @@ function TeamPageContent({ perms }: { perms: PermissionsState }) {
                   isOwner={isOwner}
                   protectedTarget={isProtectedTarget(m)}
                   authority={authority}
+                  idPrefix="row"
                   onReset={(membership, release) => {
                     resetTargetRef.current?.release();
                     const target = { membership, release };
@@ -1379,6 +1516,8 @@ function TeamPageContent({ perms }: { perms: PermissionsState }) {
               ))}
             </TableBody>
           </Table>
+          </div>
+          </>
         )}
       </DataTableCard>
 

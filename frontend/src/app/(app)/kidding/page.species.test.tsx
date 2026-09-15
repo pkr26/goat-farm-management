@@ -110,7 +110,10 @@ describe("KiddingPage — species gestation windows", () => {
     renderWithProviders(<KiddingPage />);
 
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /Record kidding/i }));
+    // The duty surfaces twice (below-md card list + desktop table); either
+    // opens the same dialog.
+    const recordButtons = await screen.findAllByRole("button", { name: /Record kidding/i });
+    await user.click(recordButtons[0]!);
 
     const dateInput = await screen.findByLabelText(/Kidding date/i);
     // Bred 120 days ago: floor is breeding+100 = today−20, ceiling today.

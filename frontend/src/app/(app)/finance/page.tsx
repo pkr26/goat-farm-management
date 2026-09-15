@@ -832,6 +832,49 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
             className="py-8"
           />
         ) : (
+          <>
+          {/* Below md the P&L becomes a card per month — tapping a month
+           * filters the ledger, so it stays a real 44px control, not a pan
+           * target inside a 560px table. */}
+          <div className="space-y-2 md:hidden">
+            {payload.pnl.map((row) => (
+              <div key={row.month} className="rounded-xl border bg-card p-3 shadow-xs">
+                <button
+                  type="button"
+                  className="inline-flex h-11 items-center font-medium text-primary underline"
+                  onClick={() => {
+                    setMonth(row.month);
+                    setOffset(0);
+                    replaceLedgerUrl(row.month, typeFilter, categoryFilter);
+                  }}
+                >
+                  {row.month}
+                </button>
+                <dl className="space-y-1 text-sm">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <dt className="text-muted-foreground">Income</dt>
+                    <dd className="tabular-nums text-success">{formatMoney(row.income)}</dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <dt className="text-muted-foreground">Expense</dt>
+                    <dd className="tabular-nums text-destructive">{formatMoney(row.expense)}</dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <dt className="text-muted-foreground">Net</dt>
+                    <dd
+                      className={cn(
+                        "tabular-nums font-medium",
+                        row.net < 0 ? "text-destructive" : "text-success",
+                      )}
+                    >
+                      {formatMoney(row.net)}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+            ))}
+          </div>
+          <div className="hidden md:block">
           <Table className="min-w-[560px]">
             <TableHeader>
               <TableRow>
@@ -875,6 +918,8 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
               ))}
             </TableBody>
           </Table>
+          </div>
+          </>
         )}
       </DataTableCard>
 
@@ -989,6 +1034,85 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
             </EmptyState>
           )
         ) : (
+          <>
+          {/* Below md the 8-column ledger becomes a card per transaction —
+           * panning a 900px table inside a 390px phone is not a ledger, it's
+           * a scroll toy. Amounts stay right-aligned tabular-nums; Correct
+           * keeps a 44px touch target. */}
+          <div className="space-y-2 md:hidden">
+            {sortedTransactions.map((t) => (
+              <div
+                key={t.id}
+                className={cn(
+                  "space-y-1.5 rounded-xl border bg-card p-3 shadow-xs",
+                  t.voided_at && "opacity-70",
+                )}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="flex items-center gap-2">
+                    <StatusBadge status={t.type} />
+                    {t.voided_at && <Badge variant="destructive">VOID</Badge>}
+                  </span>
+                  <span
+                    className={cn(
+                      "tabular-nums font-medium",
+                      AMOUNT_TINTS[t.type],
+                      t.voided_at && "line-through",
+                    )}
+                  >
+                    {formatMoney(t.amount)}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {formatDate(t.date)} · {enumLabel("txCategory", t.category)}
+                  {t.animal_tag && t.related_animal_id ? (
+                    <>
+                      {" · "}
+                      {canViewAnimals ? (
+                        <Link
+                          href={`/animals/${t.related_animal_id}`}
+                          className="text-primary underline"
+                        >
+                          {t.animal_tag}
+                        </Link>
+                      ) : (
+                        t.animal_tag
+                      )}
+                    </>
+                  ) : null}
+                </p>
+                {t.notes && <p className="text-sm">{t.notes}</p>}
+                <div className="space-y-0.5 text-xs text-muted-foreground">
+                  {t.correction_of_id !== null && (
+                    <p className="font-medium">
+                      Correction of transaction #{t.correction_of_id}
+                    </p>
+                  )}
+                  {sourceLabel(t) ? (
+                    <p>Source: {sourceLabel(t)}</p>
+                  ) : t.correction_of_id === null ? (
+                    <p>Manual entry</p>
+                  ) : null}
+                  {t.void_reason && (
+                    <p className="text-destructive">Void reason: {t.void_reason}</p>
+                  )}
+                </div>
+                {canManage && !t.voided_at && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-11 px-4"
+                    disabled={correctionPending || ledgerSettling || query.isFetching}
+                    onClick={() => setCorrecting(t)}
+                  >
+                    Correct
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="hidden md:block">
           <Table className="min-w-[900px]">
             <TableHeader>
               <TableRow>
@@ -1088,6 +1212,8 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
               ))}
             </TableBody>
           </Table>
+          </div>
+          </>
         )}
         <PaginationControls
           total={payload.transactions_total}

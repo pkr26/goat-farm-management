@@ -253,11 +253,16 @@ describe("ADV A5: late write closes a reopened add-stock dialog (expected to CON
 
     const user = userEvent.setup();
     renderWithProviders(<InventoryPage />);
-    expect(await screen.findByText("Maize")).toBeInTheDocument();
+    expect((await screen.findAllByText("Maize")).length).toBeGreaterThan(0);
 
     // Session 1: open, type, submit — the write hangs on the deferred handler.
     // The dialog stays mounted but frozen (fieldset disabled).
-    const row = screen.getByText("Maize").closest("tr") as HTMLElement;
+    // Stock rows render twice (below-md card list + desktop table); use the
+    // desktop row's trigger.
+    const stockTable = document.querySelector(
+      '[class~="md:block"] table[class*="min-w-[640px]"]',
+    ) as HTMLElement;
+    const row = within(stockTable).getByText("Maize").closest("tr") as HTMLElement;
     const trigger = within(row).getByRole("button", { name: "Add stock" });
     await user.click(trigger);
     let dialog = await screen.findByRole("dialog");

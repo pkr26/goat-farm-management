@@ -284,7 +284,7 @@ describe("BreedingPage — campaign kills", () => {
     );
     renderWithProviders(<BreedingPage />);
     // The loss cause reads through the shared enum-label catalog, not raw.
-    expect(await screen.findByText(/Herd exit \(administrative close\)/)).toBeInTheDocument();
+    expect((await screen.findAllByText(/Herd exit \(administrative close\)/))[0]).toBeInTheDocument();
     // An available buck means the no-buck warning must stay hidden (the
     // availability read feeds the create dialog's eligibility copy).
     await waitFor(() =>
@@ -305,7 +305,7 @@ describe("BreedingPage — campaign kills", () => {
     );
     const user = userEvent.setup();
     renderWithProviders(<BreedingPage />);
-    await screen.findByText("D-1");
+    await screen.findAllByText("D-1");
 
     await user.click(screen.getAllByRole("button", { name: "Add breeding" })[0]!);
     const dialog = await screen.findByRole("dialog", { name: "Add breeding" });
@@ -352,7 +352,7 @@ describe("BreedingPage — campaign kills", () => {
     );
     const user = userEvent.setup();
     renderWithProviders(<BreedingPage />);
-    await screen.findByText("D-1");
+    await screen.findAllByText("D-1");
 
     await user.click(screen.getAllByRole("button", { name: "Add breeding" })[0]!);
     const dialog = await screen.findByRole("dialog", { name: "Add breeding" });
@@ -399,7 +399,7 @@ describe("BreedingPage — campaign kills", () => {
     toastMocks.error.mockClear();
     const user = userEvent.setup();
     renderWithProviders(<BreedingPage />);
-    await screen.findByText("D-1");
+    await screen.findAllByText("D-1");
 
     await user.click(screen.getAllByRole("button", { name: "Add breeding" })[0]!);
     const dialog = await screen.findByRole("dialog", { name: "Add breeding" });
@@ -446,7 +446,7 @@ describe("BreedingPage — campaign kills", () => {
       ),
     );
     renderWithProviders(<BreedingPage />);
-    expect(await screen.findByText("D-100000")).toBeInTheDocument();
+    expect((await screen.findAllByText("D-100000"))[0]).toBeInTheDocument();
     // "1e5" parses to 100000 through Number() but must never become an id.
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
@@ -543,7 +543,7 @@ describe("BreedingPage — campaign kills", () => {
       }),
     );
     renderWithProviders(<BreedingPage />);
-    await screen.findByText("D-1");
+    await screen.findAllByText("D-1");
     await new Promise((resolve) => setTimeout(resolve, 50));
     // enabled: canManage && requestedUltrasoundId !== null && … — a manager
     // with no link must never issue the id-0 detail request.
@@ -561,7 +561,7 @@ describe("BreedingPage — campaign kills", () => {
       }),
     );
     renderWithProviders(<BreedingPage />);
-    await screen.findByText("D-1");
+    await screen.findAllByText("D-1");
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(detailCalls).toBe(0);
     expect(screen.queryByRole("dialog", { name: "Ultrasound result" })).not.toBeInTheDocument();
@@ -678,7 +678,9 @@ describe("KiddingPage — campaign kills", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
 
     const section = screen.getByText("Upcoming (next 30 days)").closest("[data-slot='card']") as HTMLElement;
-    await user.click(within(section).getByRole("button", { name: "Record kidding" }));
+    // Queue rows render twice (below-md card list + desktop table) — either
+    // Record button opens the same dialog.
+    await user.click(within(section).getAllByRole("button", { name: "Record kidding" })[0]!);
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
     await waitFor(() => expect(kiddingPosts).toBe(1));
@@ -767,7 +769,7 @@ describe("BreedingPage — stale-data notice retry", () => {
     );
     const user = userEvent.setup();
     renderWithProviders(<BreedingPage />);
-    await screen.findByText("D-3");
+    await screen.findAllByText("D-3");
     // Happy render: no stale-data notice.
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
 

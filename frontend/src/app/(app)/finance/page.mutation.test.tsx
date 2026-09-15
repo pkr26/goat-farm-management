@@ -140,6 +140,23 @@ async function renderLoaded() {
   expect(await screen.findByText("Total income")).toBeInTheDocument();
 }
 
+/** Ledger/P&L rows also render in below-md card lists (md:hidden) inside the
+ * same section cards — scope to the desktop table for unambiguous lookups. */
+function desktopTableOf(title: string) {
+  const section = screen.getByText(title).closest("[data-slot='card']") as HTMLElement;
+  const table = section.querySelector('[class~="md:block"] table');
+  expect(table).not.toBeNull();
+  return within(table as HTMLElement);
+}
+/** The 8-column transactions ledger. */
+function ledgerScope() {
+  return desktopTableOf("Transactions");
+}
+/** The monthly P&L table. */
+function pnlScope() {
+  return desktopTableOf("Monthly P&L (last 12 months)");
+}
+
 describe("FinancePage month URL param sanitisation", () => {
   it.each([
     "garbage",
@@ -272,7 +289,7 @@ describe("FinancePage ledger URL write-through", () => {
     const user = userEvent.setup();
     await renderLoaded();
 
-    await user.click(screen.getByRole("button", { name: "2026-01" }));
+    await user.click(pnlScope().getByRole("button", { name: "2026-01" }));
     await waitFor(() =>
       expect(replaceMock).toHaveBeenLastCalledWith("/finance?month=2026-01", {
         scroll: false,
@@ -414,7 +431,7 @@ describe("FinancePage correction dialog mutation hardening", () => {
   async function openFeedCorrection() {
     const user = userEvent.setup();
     await renderLoaded();
-    const row = screen.getByText("restock maize").closest("tr") as HTMLElement;
+    const row = ledgerScope().getByText("restock maize").closest("tr") as HTMLElement;
     await user.click(within(row).getByRole("button", { name: "Correct" }));
     return { user, dialog: await screen.findByRole("dialog", { name: "Correct transaction #5" }) };
   }
@@ -572,7 +589,7 @@ describe("FinancePage add-dialog and permissions mutation hardening", () => {
   it("shows the read-only ledger for a finance.view-only operator without Manage actions", async () => {
     server.use(permissionsHandler(["finance.view"]), useFinancePayload());
     await renderLoaded();
-    expect(screen.getByText("sold 10 bucks")).toBeInTheDocument();
+    expect(screen.getAllByText("sold 10 bucks").length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "New transaction" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Correct" })).not.toBeInTheDocument();
   });
@@ -591,7 +608,7 @@ describe("FinancePage round-2 mutation survivors", () => {
     );
     const user = userEvent.setup();
     await renderLoaded();
-    const row = screen.getByText("restock maize").closest("tr") as HTMLElement;
+    const row = ledgerScope().getByText("restock maize").closest("tr") as HTMLElement;
     await user.click(within(row).getByRole("button", { name: "Correct" }));
     const dialog = await screen.findByRole("dialog", { name: "Correct transaction #5" });
     await user.type(within(dialog).getByLabelText("Correction reason *"), "Wrong invoice");

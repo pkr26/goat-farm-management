@@ -1,7 +1,9 @@
 "use client";
 
 // Stryker disable next-line StringLiteral: a module-level initializer cannot be attributed to the asserting test by per-test coverage; the chip styling is pinned by the campaign suite
-const CHIP_CLASS = "h-7 rounded-md px-2 text-xs font-semibold";
+// h-9 (36px): the codebase's own touch-target floor (button.tsx sm) — the
+// chips are primary affordances on the phone shell header.
+const CHIP_CLASS = "h-9 rounded-md px-2 text-xs font-semibold";
 
 /**
  * EN | తెలుగు segmented toggle. Lives next to the theme toggle in the app

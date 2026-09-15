@@ -15,6 +15,15 @@ import { renderWithProviders } from "@/test/render";
 
 import InventoryPage from "./page";
 
+/** Stock rows also render in the below-md card list (md:hidden) — scope to
+ * the desktop stock table so duplicated text stays unambiguous. */
+function stockScope() {
+  const table = document.querySelector('[class~="md:block"] table[class*="min-w-[640px]"]');
+  expect(table).not.toBeNull();
+  return within(table as HTMLElement);
+}
+
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
   usePathname: () => "/feeding/inventory",
@@ -68,7 +77,7 @@ function inventoryHandler(items: unknown[]) {
 
 async function renderLoaded() {
   renderWithProviders(<InventoryPage />);
-  expect(await screen.findByText("Crushed maize")).toBeInTheDocument();
+  expect((await screen.findAllByText("Crushed maize")).length).toBeGreaterThan(0);
 }
 
 describe("InventoryPage stock table", () => {
@@ -79,7 +88,7 @@ describe("InventoryPage stock table", () => {
   it("renders rows with category, quantity, reorder level and ₹ price", async () => {
     await renderLoaded();
 
-    const row = screen.getByText("Crushed maize").closest("tr") as HTMLElement;
+    const row = stockScope().getByText("Crushed maize").closest("tr") as HTMLElement;
     expect(within(row).getByText("ENERGY")).toBeInTheDocument();
     expect(within(row).getByText("45.0")).toBeInTheDocument();
     expect(within(row).getByText("50")).toBeInTheDocument();
@@ -89,17 +98,17 @@ describe("InventoryPage stock table", () => {
   it("flags stock at or below the reorder level with a low badge", async () => {
     await renderLoaded();
 
-    const lowRow = screen.getByText("Crushed maize").closest("tr") as HTMLElement;
+    const lowRow = stockScope().getByText("Crushed maize").closest("tr") as HTMLElement;
     expect(within(lowRow).getByText("low")).toBeInTheDocument();
 
-    const okRow = screen.getByText("Super Napier green fodder").closest("tr") as HTMLElement;
+    const okRow = stockScope().getByText("Super Napier green fodder").closest("tr") as HTMLElement;
     expect(within(okRow).queryByText("low")).not.toBeInTheDocument();
   });
 
   it("shows — for a null reorder level and a null last price", async () => {
     await renderLoaded();
 
-    const row = screen.getByText("Super Napier green fodder").closest("tr") as HTMLElement;
+    const row = stockScope().getByText("Super Napier green fodder").closest("tr") as HTMLElement;
     const cells = within(row).getAllByRole("cell");
     expect(cells[3]).toHaveTextContent("—"); // reorder at
     expect(cells[4]).toHaveTextContent("—"); // last price / kg
@@ -185,7 +194,7 @@ describe("InventoryPage RBAC", () => {
   it("hides Mix batch and Add stock for a feeding.view-only user", async () => {
     server.use(permissionsHandler(["feeding.view"]), inventoryHandler([ITEM_MAIZE]));
     renderWithProviders(<InventoryPage />);
-    expect(await screen.findByText("Crushed maize")).toBeInTheDocument();
+    expect((await screen.findAllByText("Crushed maize")).length).toBeGreaterThan(0);
 
     expect(screen.queryByRole("button", { name: "Mix batch" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add stock" })).not.toBeInTheDocument();
@@ -194,10 +203,12 @@ describe("InventoryPage RBAC", () => {
   it("shows Mix batch and per-row Add stock for a manager", async () => {
     server.use(inventoryHandler([ITEM_MAIZE]));
     renderWithProviders(<InventoryPage />);
-    expect(await screen.findByText("Crushed maize")).toBeInTheDocument();
+    expect((await screen.findAllByText("Crushed maize")).length).toBeGreaterThan(0);
 
     expect(screen.getByRole("button", { name: "Mix batch" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add stock" })).toBeInTheDocument();
+    // The Add-stock affordance appears per row on BOTH the card list and the
+    // desktop table.
+    expect(screen.getAllByRole("button", { name: "Add stock" }).length).toBeGreaterThan(0);
   });
 });
 
@@ -235,7 +246,7 @@ describe("InventoryPage add-stock dialog", () => {
   async function openAddStock(ingredient = "Crushed maize") {
     const user = userEvent.setup();
     await renderLoaded();
-    const row = screen.getByText(ingredient).closest("tr") as HTMLElement;
+    const row = stockScope().getByText(ingredient).closest("tr") as HTMLElement;
     await user.click(within(row).getByRole("button", { name: "Add stock" }));
     const dialog = await screen.findByRole("dialog");
     return { user, dialog };
@@ -417,7 +428,7 @@ describe("InventoryPage add-stock dialog", () => {
 
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    const row = screen.getByText("Crushed maize").closest("tr") as HTMLElement;
+    const row = stockScope().getByText("Crushed maize").closest("tr") as HTMLElement;
     const trigger = within(row).getByRole("button", { name: "Add stock" });
     expect(trigger).toBeDisabled();
     await user.click(trigger);
@@ -426,7 +437,7 @@ describe("InventoryPage add-stock dialog", () => {
     releaseAdd?.();
     await waitFor(() =>
       expect(
-        within(screen.getByText("Crushed maize").closest("tr") as HTMLElement).getByRole(
+        within(stockScope().getByText("Crushed maize").closest("tr") as HTMLElement).getByRole(
           "button",
           { name: "Add stock" },
         ),

@@ -183,6 +183,15 @@ function historyCard(): HTMLElement {
   return screen.getByText("Dispensing history").closest('[data-slot="card"]') as HTMLElement;
 }
 
+function historyTable(card: HTMLElement): HTMLElement {
+  // History rows also render in the below-md card list (md:hidden) inside the
+  // same section card — scope to the desktop table.
+  const table = card.querySelector('[class~="md:block"] table[class*="min-w-[640px]"]');
+  expect(table).not.toBeNull();
+  return table as HTMLElement;
+}
+
+
 async function renderLoaded() {
   const result = renderWithProviders(<FeedingPage />);
   expect(await screen.findByText("Lactating 60/40")).toBeInTheDocument();
@@ -459,9 +468,9 @@ describe("FeedingPage history panel branches", () => {
     await renderLoaded();
 
     const card = historyCard();
-    const coded = (await within(card).findByText("1 Jan 2026")).closest("tr") as HTMLElement;
+    const coded = (await within(historyTable(card)).findByText("1 Jan 2026")).closest("tr") as HTMLElement;
     expect(within(coded).getByText("LACTATING_60_40")).toBeInTheDocument();
-    const legacy = within(card).getByText("2 Jan 2026").closest("tr") as HTMLElement;
+    const legacy = within(historyTable(card)).getByText("2 Jan 2026").closest("tr") as HTMLElement;
     expect(within(legacy).getByText("—")).toBeInTheDocument();
     expect(
       within(card).queryByText("No dispensing records in this date range."),

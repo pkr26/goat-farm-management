@@ -13,7 +13,7 @@
 // With no active filter the GET now omits month/type/category entirely
 // (searchParams.get(...) === null); these tests pin that.
 
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -50,6 +50,19 @@ const PAYLOAD = {
   pnl: [{ month: "2026-01", income: 100, expense: 0, net: 100, categories: {} }],
 };
 
+/** Ledger/P&L rows also render in below-md card lists (md:hidden) inside the
+ * same section cards — scope to the desktop table for unambiguous lookups. */
+function desktopTableOf(title: string) {
+  const section = screen.getByText(title).closest("[data-slot='card']") as HTMLElement;
+  const table = section.querySelector('[class~="md:block"] table');
+  expect(table).not.toBeNull();
+  return within(table as HTMLElement);
+}
+/** The monthly P&L table. */
+function pnlScope() {
+  return desktopTableOf("Monthly P&L (last 12 months)");
+}
+
 describe("FinancePage filter params must be omitted, not the string 'null'", () => {
   let lastParams: URLSearchParams;
 
@@ -77,7 +90,7 @@ describe("FinancePage filter params must be omitted, not the string 'null'", () 
     renderWithProviders(<FinancePage />);
     expect(await screen.findByText("Monthly P&L (last 12 months)")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "2026-01" }));
+    await user.click(pnlScope().getByRole("button", { name: "2026-01" }));
     await waitFor(() => expect(lastParams.get("month")).toBe("2026-01"));
 
     await user.click(screen.getByRole("button", { name: "Clear" }));

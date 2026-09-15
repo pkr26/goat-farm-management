@@ -77,6 +77,7 @@ import {
 import {
   Table,
   TableBody,
+  TableCaption,
   TableCell,
   TableHead,
   TableHeader,
@@ -737,6 +738,73 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
             description={`Add your first target — e.g. “200 ${vocabulary.speciesPlural} in ${formatYearMonth(addMonths(startMonth, 16))}”. The planner checks it against breeding, gestation, mortality and culling, and tells you what to do.`}
           />
         ) : (
+          <>
+          {/* Below md each target becomes a card with stacked fields — the
+           * editor must stay fully usable on the phone, not pan inside a
+           * 720px table. */}
+          <div className="space-y-2 md:hidden">
+            {targets.map((target) => (
+              <div key={target.key} className="space-y-3 rounded-xl border bg-card p-3 shadow-xs">
+                <div className="space-y-1.5">
+                  <Label>Sale month</Label>
+                  <Input
+                    type="month"
+                    aria-label="Sale month"
+                    className="w-full"
+                    min={addMonths(startMonth, 1)}
+                    value={target.year_month}
+                    onChange={(event) => updateTarget(target.key, { year_month: event.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Class</Label>
+                  <Select
+                    value={target.animal_class}
+                    onValueChange={(v) =>
+                      updateTarget(target.key, {
+                        animal_class: v as PlannerTarget["animal_class"],
+                      })
+                    }
+                    items={eventClassItems(vocabulary)}
+                  >
+                    <SelectTrigger aria-label="Class" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(eventClassItems(vocabulary)).map(([value, label]) => (
+                        <SelectItem key={value} value={value}>
+                          {label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Count</Label>
+                  <NumberField
+                    aria-label="Count"
+                    className="w-full"
+                    min={1}
+                    max={100_000}
+                    step={1}
+                    value={target.count}
+                    onCommitNumber={(n) => updateTarget(target.key, { count: n })}
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-11 px-4"
+                  onClick={() => removeTarget(target.key)}
+                  aria-label={`Remove target ${formatYearMonth(target.year_month)}`}
+                >
+                  <Trash2 />
+                  Remove
+                </Button>
+              </div>
+            ))}
+          </div>
+          <div className="hidden md:block">
           <Table className="min-w-[720px]">
             <TableHeader>
               <TableRow>
@@ -807,6 +875,8 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
               ))}
             </TableBody>
           </Table>
+          </div>
+          </>
         )}
         {targetErrors.map((error) => (
           <p key={error} role="alert" className="text-sm text-destructive">
@@ -938,6 +1008,52 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
               </CardDescription>
             </CardHeader>
             <CardContent>
+              {/* Below md the 7-column evaluation becomes a card per target. */}
+              <div className="space-y-2 md:hidden">
+                {report.plan.before.targets.map((fill, index) => {
+                  const after = report.plan.after?.targets[index];
+                  const risk = report.plan.probabilities?.[index];
+                  const echo = report.targets_echo[index];
+                  return (
+                    <div key={index} className="space-y-1 rounded-xl border bg-card p-3 shadow-xs">
+                      <p className="font-medium">
+                        {echo ? formatYearMonth(echo.year_month) : fill.month}
+                        {" · "}
+                        {formatPlanClass(fill.animal_class, vocabulary)}
+                      </p>
+                      <dl className="space-y-1 text-sm">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <dt className="text-muted-foreground">Target</dt>
+                          <dd className="tabular-nums">{formatPlanCount(fill.requested)}</dd>
+                        </div>
+                        <div className="flex items-baseline justify-between gap-3">
+                          <dt className="text-muted-foreground">Filled now</dt>
+                          <dd className="tabular-nums">
+                            {fill.met ? "✓" : "⚠"} {formatPlanCount(fill.filled)}
+                          </dd>
+                        </div>
+                        <div className="flex items-baseline justify-between gap-3">
+                          <dt className="text-muted-foreground">With purchases</dt>
+                          <dd className="tabular-nums">
+                            {after ? `${after.met ? "✓" : "⚠"} ${formatPlanCount(after.filled)}` : "—"}
+                          </dd>
+                        </div>
+                        <div className="flex items-baseline justify-between gap-3">
+                          <dt className="text-muted-foreground">₹/head</dt>
+                          <dd className="tabular-nums">{formatMoney(fill.price_per_head)}</dd>
+                        </div>
+                        <div className="flex items-baseline justify-between gap-3">
+                          <dt className="text-muted-foreground">P(full)</dt>
+                          <dd className="tabular-nums">
+                            {risk ? `${Math.round(risk.p_full * 100)}%` : "—"}
+                          </dd>
+                        </div>
+                      </dl>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="hidden md:block">
               <Table className="min-w-[820px]">
                 <TableHeader>
                   <TableRow>
@@ -973,6 +1089,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                   })}
                 </TableBody>
               </Table>
+              </div>
             </CardContent>
           </Card>
 
@@ -1070,8 +1187,55 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
             description="How many animals must stand in each stage every month (end-of-month head), plus that month's flows. This is the herd you are managing toward."
             contentClassName="space-y-3"
           >
-            <div className="max-h-96 overflow-auto">
+            {/* Below md the 16-column stage plan becomes a card per month —
+             * a 1,100px matrix cannot pan on a phone; the month's herd shape
+             * and flows read as label/value pairs instead. */}
+            <div className="space-y-2 md:hidden">
+              {report.stage_plan.map((row) => (
+                <div key={row.month} className="space-y-2 rounded-xl border bg-card p-3 shadow-xs">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="font-medium">{formatYearMonth(row.year_month)}</span>
+                    <span className="tabular-nums font-medium">
+                      {formatHead(row.total_head)} head
+                    </span>
+                  </div>
+                  <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                    {[
+                      [`F ${vocabulary.young}s`, row.female_kids],
+                      [`M ${vocabulary.young}s`, row.male_kids],
+                      ["F weaners", row.female_weaners],
+                      ["M weaners", row.male_weaners],
+                      ["F growers", row.female_growers],
+                      ["M growers", row.male_growers],
+                      [`Open ${vocabulary.femaleAdultPlural}`, row.open_does],
+                      ["Pregnant", row.pregnant_does],
+                      ["Lactating", row.lactating_does],
+                      [vocabulary.maleAdult + "s", row.bucks],
+                    ].map(([label, value]) => (
+                      <div key={label as string} className="flex items-baseline justify-between gap-2">
+                        <dt className="text-muted-foreground">{label}</dt>
+                        <dd className="tabular-nums">{formatHead(value as number)}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  <p className="text-xs text-muted-foreground tabular-nums">
+                    Born {formatHead(row.births)} · Died {formatHead(row.deaths)} · Culled{" "}
+                    {formatHead(row.culls_head)} · Sold {formatHead(row.sales_head)} · Bought{" "}
+                    {formatHead(row.purchases_head)}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <div className="max-h-96 overflow-auto hidden md:block">
               <Table className="min-w-[1100px]">
+                {/* Sixteen columns of heads and flows need a summary for
+                 * screen readers — the card title alone does not explain the
+                 * matrix. sr-only: the card description already says it
+                 * visually. */}
+                <TableCaption className="sr-only">
+                  End-of-month herd head by stage for every plan month, followed by that
+                  month&apos;s births, deaths, culls, sales and purchases.
+                </TableCaption>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Month</TableHead>
@@ -1158,6 +1322,58 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
             description="Enter targets above, name the plan, and save it to revisit the plan each season."
           />
         ) : (
+          <>
+          {/* Below md the 6-column plans table becomes a card per plan —
+           * Open/Delete stay 44px touch targets. */}
+          <div className="space-y-2 md:hidden">
+            {savedPlans.map((plan) => (
+              <div key={plan.id} className="space-y-1.5 rounded-xl border bg-card p-3 shadow-xs">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="font-medium">{plan.name}</span>
+                  <span className="text-xs text-muted-foreground">
+                    Updated {new Date(plan.updated_at).toLocaleDateString()}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Starts {formatYearMonth(plan.start_year_month)}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {(plan.targets ?? [])
+                    .map(
+                      (target) =>
+                        `${formatPlanCount(target.count)} ${formatPlanClass(target.animal_class, vocabulary)} ${formatYearMonth(target.year_month)}`,
+                    )
+                    .join("; ") || "—"}
+                </p>
+                {plan.notes && (
+                  <p className="text-xs text-muted-foreground">{plan.notes}</p>
+                )}
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-11 px-4"
+                    onClick={() => onOpenPlan(plan)}
+                  >
+                    <FolderOpen />
+                    Open
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-11 px-4"
+                    onClick={() => setPendingDelete(plan)}
+                    disabled={!canManage || deletePlanMutation.isPending}
+                    aria-label={`Delete plan ${plan.name}`}
+                  >
+                    <Trash2 />
+                    Delete
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="hidden md:block">
           <Table className="min-w-[720px]">
             <TableHeader>
               <TableRow>
@@ -1206,6 +1422,8 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
               ))}
             </TableBody>
           </Table>
+          </div>
+          </>
         )}
         {plansPage && plansPage.total > plansPage.items.length && (
           <p className="text-sm text-muted-foreground" role="note">

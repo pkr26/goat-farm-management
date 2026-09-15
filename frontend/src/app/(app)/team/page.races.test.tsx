@@ -163,7 +163,9 @@ it("single-flights two role choices delivered before pending state paints", asyn
     }),
   );
   renderWithProviders(<TeamPage />);
-  const row = (await screen.findByText(WORKER.email)).closest("tr") as HTMLElement;
+  await screen.findAllByText(WORKER.email);
+  const table = document.querySelector('[class~="md:block"] table') as HTMLElement;
+  const row = within(table).getByText(WORKER.email).closest("tr") as HTMLElement;
   await waitFor(() => expect(within(row).getByRole("combobox")).toBeEnabled());
   const helper = within(row).getByRole("option", { name: HELPER_ROLE.name });
   const relief = within(row).getByRole("option", { name: RELIEF_ROLE.name });

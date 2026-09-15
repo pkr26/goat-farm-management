@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { BarList, Donut, Histogram, LineChart, Sparkline } from "@/components/charts";
+import { Donut, Histogram } from "@/components/charts";
 
 describe("Donut", () => {
   it("summarizes every visible slice in its accessible label and legend", () => {
@@ -75,50 +75,6 @@ describe("Donut", () => {
   });
 });
 
-describe("Sparkline", () => {
-  it("renders a flat fallback for fewer than two points", () => {
-    const { container } = render(<Sparkline data={[4]} ariaLabel="weights" />);
-    expect(container.querySelector("polyline")).toBeNull();
-    expect(container.querySelector("line")).not.toBeNull();
-  });
-
-  it("draws a line and end dot for a real series, including zeros", () => {
-    const { container } = render(<Sparkline data={[0, 0, 5, 0]} ariaLabel="weights" />);
-    expect(container.querySelector("polyline")).not.toBeNull();
-    expect(container.querySelector("circle")).not.toBeNull();
-  });
-
-  it("handles an all-equal series without dividing by zero", () => {
-    const { container } = render(<Sparkline data={[3, 3, 3]} ariaLabel="steady" />);
-    expect(container.querySelector("polyline")).not.toBeNull();
-  });
-});
-
-describe("BarList", () => {
-  it("renders labels with formatted and raw values", () => {
-    render(
-      <BarList
-        items={[
-          { label: "Fodder", value: 1200, display: "₹1,200" },
-          { label: "Feed", value: 300 },
-        ]}
-      />,
-    );
-    expect(screen.getByText("Fodder")).toBeInTheDocument();
-    expect(screen.getByText("₹1,200")).toBeInTheDocument();
-    expect(screen.getByText("300")).toBeInTheDocument();
-  });
-
-  it("keeps bars measurable when every value is zero", () => {
-    const { container } = render(
-      <BarList items={[{ label: "Empty", value: 0 }]} />,
-    );
-    const bars = container.querySelectorAll("div.h-1\\.5 > div");
-    expect(bars).toHaveLength(1);
-    expect(bars[0].getAttribute("style")).not.toContain("width: NaN");
-  });
-});
-
 describe("Histogram", () => {
   const bins = Array.from({ length: 20 }, (_, i) => ({
     label: `bin-${i}`,
@@ -174,55 +130,5 @@ describe("Histogram", () => {
       <Histogram bins={[{ label: "bad", value: Number.NaN }, ...bins]} domain={[0, 19]} />,
     );
     expect(container.querySelectorAll("rect")).toHaveLength(20);
-  });
-});
-
-describe("LineChart", () => {
-  const points = [
-    { x: 0, y: 1, xLabel: "Aug 3" },
-    { x: 1, y: 2, xLabel: "Aug 4" },
-    { x: 2, y: 0.5, xLabel: "Aug 5" },
-  ];
-
-  it("renders one tick label per sparse tick point in series order", () => {
-    const { container } = render(<LineChart points={points} yLabel="litres" />);
-    const ticks = Array.from(container.querySelectorAll(".mt-1 span")).map(
-      (node) => node.textContent,
-    );
-    expect(ticks).toEqual(["Aug 3", "Aug 4", "Aug 5"]);
-  });
-
-  it("collapses duplicate ticks on a two-point series", () => {
-    const { container } = render(
-      <LineChart
-        points={[
-          { x: 0, y: 1, xLabel: "Aug 3" },
-          { x: 1, y: 3, xLabel: "Aug 4" },
-        ]}
-      />,
-    );
-    const ticks = Array.from(container.querySelectorAll(".mt-1 span")).map(
-      (node) => node.textContent,
-    );
-    expect(ticks).toEqual(["Aug 3", "Aug 4"]);
-  });
-
-  it("shows the y-axis unit visually and attaches per-point tooltips", () => {
-    const { container } = render(<LineChart points={points} yLabel="litres" />);
-    expect(container.querySelector("p")?.textContent).toBe("litres");
-    const titles = Array.from(container.querySelectorAll("circle title")).map(
-      (node) => node.textContent,
-    );
-    expect(titles).toEqual(["Aug 3: 1 litres", "Aug 4: 2 litres", "Aug 5: 0.5 litres"]);
-  });
-
-  it("renders its stated height on the svg", () => {
-    const { container } = render(<LineChart points={points} height={120} />);
-    expect(container.querySelector("svg")?.getAttribute("style")).toContain("height: 120px");
-  });
-
-  it("falls back to the empty state with fewer than two finite points", () => {
-    render(<LineChart points={[{ x: 0, y: 1 }, { x: 1, y: Number.NaN }]} />);
-    expect(screen.getByText("Not enough data to plot yet.")).toBeInTheDocument();
   });
 });

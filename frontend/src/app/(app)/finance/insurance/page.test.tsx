@@ -96,11 +96,19 @@ describe("InsurancePage", () => {
 
   async function renderLoaded() {
     renderWithProviders(<InsurancePage />);
-    await screen.findByText("POL-2026-001");
+    await screen.findAllByText("POL-2026-001");
+  }
+
+  /** Policy rows also render in the below-md card list (md:hidden) — scope to
+   * the desktop table for unambiguous lookups. */
+  function tableScope() {
+    const table = document.querySelector('[class~="md:block"] table');
+    expect(table).not.toBeNull();
+    return within(table as HTMLElement);
   }
 
   function rowOf(text: string): HTMLElement {
-    const row = screen.getByText(text).closest("tr");
+    const row = tableScope().getByText(text).closest("tr");
     expect(row).not.toBeNull();
     return row as HTMLElement;
   }
@@ -127,7 +135,7 @@ describe("InsurancePage", () => {
     server.use(permissionsHandler(["finance.view"]));
     await renderLoaded();
 
-    expect(screen.getByText("G-011")).toBeInTheDocument();
+    expect(tableScope().getByText("G-011")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "G-011" })).not.toBeInTheDocument();
   });
 
@@ -300,9 +308,11 @@ describe("InsurancePage — claim action", () => {
   it("records a claim from the register row and shows the terminal chip", async () => {
     const user = userEvent.setup();
     renderWithProviders(<InsurancePage />);
-    await screen.findByText("POL-2026-001");
+    await screen.findAllByText("POL-2026-001");
 
-    await user.click(screen.getByRole("button", { name: "Claim" }));
+    // Policy rows render twice (below-md cards + desktop table); either Claim
+    // button opens the same dialog.
+    await user.click(screen.getAllByRole("button", { name: "Claim" })[0]!);
     const dialog = screen.getByRole("dialog");
     expect(
       within(dialog).getByText(/terminal event/i, { ignore: ".sr-only" }),
@@ -325,10 +335,14 @@ describe("InsurancePage — claim action", () => {
       ),
     );
     renderWithProviders(<InsurancePage />);
-    await screen.findByText("Claimed");
+    await screen.findAllByText("Claimed");
 
-    expect(screen.getByRole("button", { name: "Renew" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Claim" })).toBeDisabled();
+    for (const button of screen.getAllByRole("button", { name: "Renew" })) {
+      expect(button).toBeDisabled();
+    }
+    for (const button of screen.getAllByRole("button", { name: "Claim" })) {
+      expect(button).toBeDisabled();
+    }
   });
 
   it("labels a lapsed policy (auto-lapsed on herd exit) as a warning chip", async () => {
@@ -343,7 +357,7 @@ describe("InsurancePage — claim action", () => {
       ),
     );
     renderWithProviders(<InsurancePage />);
-    const chip = await screen.findByText("Lapsed");
+    const chip = (await screen.findAllByText("Lapsed"))[0]!;
     const badge = chip.closest('[data-slot="badge"]');
     expect(badge?.className).toMatch(/warning|amber|yellow|orange/i);
   });

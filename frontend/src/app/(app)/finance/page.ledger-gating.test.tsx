@@ -120,12 +120,29 @@ function ledgerTable(): HTMLElement {
 }
 
 function rowOf(notes: string): HTMLElement {
-  return screen.getByText(notes).closest("tr") as HTMLElement;
+  // Ledger rows also render in the below-md card list (md:hidden) — scope to
+  // the desktop table inside the Transactions card.
+  const section = screen.getByText("Transactions").closest("[data-slot='card']") as HTMLElement;
+  const table = section.querySelector('[class~="md:block"] table') as HTMLElement;
+  return within(table).getByText(notes).closest("tr") as HTMLElement;
 }
 
 /** Date, Type, Category, Amount, Animal, Notes, Source / audit[, Actions]. */
 function animalCell(row: HTMLElement): HTMLElement {
   return within(row).getAllByRole("cell")[4];
+}
+
+/** Ledger/P&L rows also render in below-md card lists (md:hidden) inside the
+ * same section cards — scope to the desktop table for unambiguous lookups. */
+function desktopTableOf(title: string) {
+  const section = screen.getByText(title).closest("[data-slot='card']") as HTMLElement;
+  const table = section.querySelector('[class~="md:block"] table');
+  expect(table).not.toBeNull();
+  return within(table as HTMLElement);
+}
+/** The monthly P&L table. */
+function pnlScope() {
+  return desktopTableOf("Monthly P&L (last 12 months)");
 }
 
 describe("FinancePage ledger row rendering", () => {
@@ -257,13 +274,13 @@ describe("FinancePage ledger row rendering", () => {
     await renderLoaded();
 
     const breakEven = within(
-      screen.getByRole("button", { name: "2026-03" }).closest("tr") as HTMLElement,
+      pnlScope().getByRole("button", { name: "2026-03" }).closest("tr") as HTMLElement,
     ).getAllByRole("cell")[3];
     expect(breakEven).toHaveTextContent("₹0");
     expect(breakEven).toHaveClass("text-success");
     expect(breakEven).not.toHaveClass("text-destructive");
     const loss = within(
-      screen.getByRole("button", { name: "2026-02" }).closest("tr") as HTMLElement,
+      pnlScope().getByRole("button", { name: "2026-02" }).closest("tr") as HTMLElement,
     ).getAllByRole("cell")[3];
     expect(loss).toHaveClass("text-destructive");
   });
@@ -316,7 +333,7 @@ describe("FinancePage filter affordances", () => {
     const status = await screen.findByText("Updating transactions…");
     expect(status).toHaveAttribute("role", "status");
     // The previous page stays on screen while the replacement is fetched.
-    expect(screen.getByText("sold 10 bucks")).toBeInTheDocument();
+    expect(screen.getAllByText("sold 10 bucks").length).toBeGreaterThan(0);
 
     release();
     await waitFor(() =>

@@ -480,7 +480,7 @@ describe("FeedingPage dispensing history", () => {
     await renderLoaded();
     const card = screen.getByText("Dispensing history").closest('[data-slot="card"]') as HTMLElement;
 
-    expect(within(card).getByText("1 Jan 2026")).toBeInTheDocument();
+    expect(within(card).getAllByText("1 Jan 2026").length).toBeGreaterThan(0);
     expect(within(card).getByText("7.25")).toBeInTheDocument();
     expect(within(card).getByText("Showing 1–50 of 120 dispensing records")).toBeInTheDocument();
     await user.click(within(card).getByRole("button", { name: "Next" }));

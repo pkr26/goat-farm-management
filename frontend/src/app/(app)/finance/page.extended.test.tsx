@@ -155,6 +155,23 @@ async function renderLoaded() {
   expect(await screen.findByText("Total income")).toBeInTheDocument();
 }
 
+/** Ledger/P&L rows also render in below-md card lists (md:hidden) inside the
+ * same section cards — scope to the desktop table for unambiguous lookups. */
+function desktopTableOf(title: string) {
+  const section = screen.getByText(title).closest("[data-slot='card']") as HTMLElement;
+  const table = section.querySelector('[class~="md:block"] table');
+  expect(table).not.toBeNull();
+  return within(table as HTMLElement);
+}
+/** The 8-column transactions ledger. */
+function ledgerScope() {
+  return desktopTableOf("Transactions");
+}
+/** The monthly P&L table. */
+function pnlScope() {
+  return desktopTableOf("Monthly P&L (last 12 months)");
+}
+
 describe("FinancePage totals and P&L", () => {
   beforeEach(() => {
     server.use(financeHandler(PAYLOAD));
@@ -176,9 +193,9 @@ describe("FinancePage totals and P&L", () => {
     await renderLoaded();
 
     expect(screen.getByText("Monthly P&L (last 12 months)")).toBeInTheDocument();
-    const lossCell = screen.getByText("-₹5,000");
+    const lossCell = pnlScope().getByText("-₹5,000");
     expect(lossCell).toHaveClass("text-destructive");
-    const profitRow = screen.getByText("2026-01").closest("tr") as HTMLElement;
+    const profitRow = pnlScope().getByText("2026-01").closest("tr") as HTMLElement;
     expect(within(profitRow).getByText("₹60,000")).not.toHaveClass("text-destructive");
   });
 
@@ -211,7 +228,7 @@ describe("FinancePage totals and P&L", () => {
   it("renders transactions with type badges and an animal link", async () => {
     await renderLoaded();
 
-    const row = screen.getByText("sold 10 bucks").closest("tr") as HTMLElement;
+    const row = ledgerScope().getByText("sold 10 bucks").closest("tr") as HTMLElement;
     expect(within(row).getByText("5 Jan 2026")).toBeInTheDocument();
     // StatusBadge maps INCOME→success and humanises the label.
     const incomeBadge = within(row).getByText("Income");
@@ -226,7 +243,7 @@ describe("FinancePage totals and P&L", () => {
       "/animals/11",
     );
 
-    const feedRow = screen.getByText("7 Jan 2026").closest("tr") as HTMLElement;
+    const feedRow = ledgerScope().getByText("7 Jan 2026").closest("tr") as HTMLElement;
     const expenseBadge = within(feedRow).getByText("Expense");
     expect(expenseBadge.closest("[data-slot=badge]")).toHaveAttribute(
       "data-variant",
@@ -252,7 +269,7 @@ describe("FinancePage totals and P&L", () => {
     );
     await renderLoaded();
 
-    const row = screen.getByText("sold 10 bucks").closest("tr") as HTMLElement;
+    const row = ledgerScope().getByText("sold 10 bucks").closest("tr") as HTMLElement;
     expect(within(row).getByText("VOID")).toBeInTheDocument();
     expect(within(row).getByText("Void reason: Wrong sale amount")).toBeInTheDocument();
     expect(within(row).getByText("₹1,50,000")).toHaveClass("line-through");
@@ -286,11 +303,11 @@ describe("FinancePage totals and P&L", () => {
     );
     await renderLoaded();
 
-    expect(within(screen.getByText("manual feed").closest("tr")!).getByText("Manual entry"))
+    expect(within(ledgerScope().getByText("manual feed").closest("tr")!).getByText("Manual entry"))
       .toBeInTheDocument();
-    expect(within(screen.getByText("automatic sale").closest("tr")!).getByText("Source: Animal sale #11"))
+    expect(within(ledgerScope().getByText("automatic sale").closest("tr")!).getByText("Source: Animal sale #11"))
       .toBeInTheDocument();
-    const correctionRow = screen.getByText("corrected automatic sale").closest("tr")!;
+    const correctionRow = ledgerScope().getByText("corrected automatic sale").closest("tr")!;
     expect(within(correctionRow).getByText("Correction of transaction #7")).toBeInTheDocument();
     expect(within(correctionRow).getByText("Source: Animal sale #11")).toBeInTheDocument();
   });
@@ -313,7 +330,7 @@ describe("FinancePage filters", () => {
     await renderLoaded();
     // P&L + transactions from the default (unfiltered) payload render.
     expect(screen.getByText("Monthly P&L (last 12 months)")).toBeInTheDocument();
-    expect(screen.getByText("sold 10 bucks")).toBeInTheDocument();
+    expect(screen.getAllByText("sold 10 bucks").length).toBeGreaterThan(0);
   });
 
   it("sends the month param when the month input changes", async () => {
@@ -330,7 +347,7 @@ describe("FinancePage filters", () => {
     const user = userEvent.setup();
     await renderLoaded();
 
-    await user.click(screen.getByRole("button", { name: "2025-12" }));
+    await user.click(pnlScope().getByRole("button", { name: "2025-12" }));
 
     await waitFor(() => expect(lastParams.get("month")).toBe("2025-12"));
     expect(screen.getByLabelText("Filter by month")).toHaveValue("2025-12");
@@ -440,7 +457,7 @@ describe("FinancePage filters", () => {
     await waitFor(() => expect(lastParams.get("offset")).toBe("0"));
 
     await moveToSecondPage();
-    await user.click(screen.getByRole("button", { name: "2025-12" }));
+    await user.click(pnlScope().getByRole("button", { name: "2025-12" }));
     await waitFor(() => expect(lastParams.get("offset")).toBe("0"));
 
     await moveToSecondPage();
@@ -567,7 +584,7 @@ describe("FinancePage correction dialog", () => {
   async function openCorrection() {
     const user = userEvent.setup();
     await renderLoaded();
-    const row = screen.getByText("sold 10 bucks").closest("tr") as HTMLElement;
+    const row = ledgerScope().getByText("sold 10 bucks").closest("tr") as HTMLElement;
     await user.click(within(row).getByRole("button", { name: "Correct" }));
     return { user, dialog: await screen.findByRole("dialog", { name: "Correct transaction #1" }) };
   }
@@ -745,7 +762,7 @@ describe("FinancePage correction dialog", () => {
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
-    let expenseRow = screen.getByText("7 Jan 2026").closest("tr") as HTMLElement;
+    let expenseRow = ledgerScope().getByText("7 Jan 2026").closest("tr") as HTMLElement;
     let nextCorrection = within(expenseRow).getByRole("button", { name: "Correct" });
     expect(nextCorrection).toBeDisabled();
     await user.click(nextCorrection);
@@ -753,7 +770,7 @@ describe("FinancePage correction dialog", () => {
 
     releaseCorrection?.();
     await waitFor(() => expect(financeCalls).toBeGreaterThan(1));
-    expenseRow = screen.getByText("7 Jan 2026").closest("tr") as HTMLElement;
+    expenseRow = ledgerScope().getByText("7 Jan 2026").closest("tr") as HTMLElement;
     nextCorrection = within(expenseRow).getByRole("button", { name: "Correct" });
     await waitFor(() => expect(nextCorrection).toBeEnabled());
     await user.click(nextCorrection);
@@ -796,7 +813,7 @@ describe("FinancePage correction dialog", () => {
     );
     const user = userEvent.setup();
     await renderLoaded();
-    const row = screen.getByText("restock maize").closest("tr") as HTMLElement;
+    const row = ledgerScope().getByText("restock maize").closest("tr") as HTMLElement;
     await user.click(within(row).getByRole("button", { name: "Correct" }));
     const dialog = await screen.findByRole("dialog", { name: "Correct transaction #5" });
     expect(within(dialog).getByLabelText("Corrected quantity (kg)")).toBeInTheDocument();
@@ -823,7 +840,7 @@ describe("FinancePage correction dialog", () => {
     );
     const user = userEvent.setup();
     await renderLoaded();
-    const row = screen.getByText("restock maize").closest("tr") as HTMLElement;
+    const row = ledgerScope().getByText("restock maize").closest("tr") as HTMLElement;
     await user.click(within(row).getByRole("button", { name: "Correct" }));
     const dialog = await screen.findByRole("dialog", { name: "Correct transaction #5" });
 
