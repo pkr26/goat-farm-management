@@ -37,9 +37,14 @@ from .assumptions import (
     MortalityAssumptions,
     SimulationAssumptions,
 )
-from .engine import _run_core, monthly_mortality_rate
+from .engine import (
+    NLM_CAPITAL_CEILING_PER_HEAD,
+    NLM_SUBSIDY_FRACTION,
+    _run_core,
+    monthly_mortality_rate,
+)
 from .montecarlo import _apply_draws, _correlated_draws, _event_shock_path
-from .results import EventFill
+from .results import EventFill, SimulationResult
 from .vocabulary import GOAT_NOUNS, SpeciesNouns
 
 # Same vocabulary as HerdEventAssumptions.animal_class.
@@ -642,6 +647,115 @@ def plan_probabilities(
         )
         for index, target in enumerate(targets)
     ]
+
+
+def build_dpr_markdown(
+    assumptions: SimulationAssumptions,
+    result: SimulationResult,
+    *,
+    plan_name: str | None = None,
+) -> str:
+    """DPR-style markdown summary of a projection, for a NABARD loan file.
+
+    A Detailed Project Report states the unit, the capital outlay and its
+    funding (bank loan / subsidy / promoter equity) and the viability figures
+    a lender appraises (NPV, BCR, DSCR, payback) — all read off the existing
+    deterministic result, never recomputed differently here. When the NLM
+    toggle is on, the scheme basis is stated explicitly.
+    """
+    m = result.metrics
+    b = result.project_cost_breakdown
+    horizon_years = assumptions.meta.horizon_months / 12.0
+
+    def _cr(value: float) -> str:
+        return f"₹{value:,.0f}"
+
+    def _opt_pct(value: float | None) -> str:
+        return "n/a" if value is None else f"{value * 100.0:.1f}%"
+
+    def _opt_dscr(value: float | None) -> str:
+        return "n/a" if value is None else f"{value:.2f}"
+
+    title = plan_name or "Goat rearing unit"
+    lines = [
+        f"# Detailed Project Report — {title}",
+        "",
+        f"Projection: {assumptions.meta.horizon_months} months "
+        f"({horizon_years:g} years) from {assumptions.meta.start_year_month}.",
+        "",
+        "## Unit",
+        "",
+        f"- Breeding {GOAT_NOUNS.female_plural}: {assumptions.herd.does} "
+        f"+ {assumptions.herd.bucks} {GOAT_NOUNS.male_plural}",
+        f"- Shed/equipment capacity: {b.capacity_places:.0f} animal places",
+        "",
+        "## Capital outlay",
+        "",
+        "| Component | Amount |",
+        "| --- | ---: |",
+        f"| Shed ({b.capacity_places:.0f} places) | {_cr(b.shed_cost)} |",
+        f"| Equipment | {_cr(b.equipment_cost)} |",
+        f"| Foundation stock | {_cr(b.stock_cost)} |",
+        f"| Working capital | {_cr(b.working_capital)} |",
+        f"| **Total project cost** | **{_cr(m.project_cost)}** |",
+        "",
+        "## Means of finance",
+        "",
+        "| Source | Amount |",
+        "| --- | ---: |",
+        f"| Bank loan | {_cr(m.loan_amount)} |",
+        f"| Capital subsidy | {_cr(m.subsidy_amount)} |",
+        f"| Promoter equity | {_cr(m.equity)} |",
+        "",
+    ]
+    if assumptions.finance.nlm_subsidy:
+        lines += [
+            "The subsidy line follows the National Livestock Mission (NLM) "
+            f"goat-unit structure: a {NLM_SUBSIDY_FRACTION:.0%} back-ended "
+            "capital subsidy on eligible capital (shed, animals, fodder, "
+            "equipment and insurance are all eligible), capped per unit size "
+            f"at about {_cr(NLM_CAPITAL_CEILING_PER_HEAD)} per breeding head — "
+            "the scheme's published bands run from a 100F+5M unit's ~₹10 "
+            "lakh up to a 500F+25M unit's ~₹50 lakh of eligible capital.",
+            "",
+        ]
+    lines += [
+        f"## Viability ({horizon_years:g}-year projection)",
+        "",
+        "| Metric | Value |",
+        "| --- | ---: |",
+        f"| NPV @ {assumptions.finance.discount_rate_annual:.0%} | {_cr(m.npv)} |",
+        f"| IRR / MIRR | {_opt_pct(m.irr)} / {_opt_pct(m.mirr)} |",
+        f"| Benefit-cost ratio | {'n/a' if m.bcr is None else f'{m.bcr:.2f}'} |",
+        f"| Average / weakest DSCR (repaying years) | "
+        f"{_opt_dscr(m.avg_dscr)} / {_opt_dscr(m.min_dscr)} |",
+        f"| Payback | "
+        f"{'beyond horizon' if m.payback_month is None else f'month {m.payback_month}'} |",
+        "| Break-even meat price | "
+        + (
+            "n/a"
+            if m.break_even_meat_price_per_kg is None
+            else f"₹{m.break_even_meat_price_per_kg:,.0f}/kg"
+        )
+        + " |",
+        "",
+        "## Annual operating summary",
+        "",
+        "| Year | Revenue | Operating cost | EBITDA | Debt service | DSCR |",
+        "| ---: | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for row, dscr in zip(result.annual_pl, m.dscr_per_year, strict=True):
+        lines.append(
+            f"| {row.year} | {_cr(row.total_revenue)} | {_cr(row.total_opex)} "
+            f"| {_cr(row.ebitda)} | {_cr(row.debt_service)} | {dscr:.2f} |"
+        )
+    lines += [
+        "",
+        "_Figures are model projections from the farm's own assumptions; they "
+        "support, and do not replace, the bank's appraisal._",
+        "",
+    ]
+    return "\n".join(lines)
 
 
 def build_plan_report(

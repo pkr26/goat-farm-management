@@ -228,22 +228,22 @@ def test_metric_narratives_are_stable_across_core_financial_branches() -> None:
     )
 
     assert _explanation_digest(default) == (
-        "ab03193f8b92146770c7a7a0e27ef04cb18108899bbdd934c50f8a12e2135617"
+        "2d71ad4c14d3adc0153d0c670448e332a1047c3eea7185b40a7e36551300397a"
     )
     assert _explanation_digest(viable) == (
-        "c8aa363111b6ec643b4f3edba46dbc65b1e85c3ee0091bedcfd19e94394e6a3c"
+        "ded4eb7f849e070fce5c5c26a9742d397f382847c4174fe68cb0c844c845d36c"
     )
     assert _explanation_digest(no_debt) == (
-        "7331eb907c7ff64be9a793016425b46d332f8b9b46901df6cbdbf0febbf67267"
+        "185dda7f6f534657aabcb1a28fe69a75564a7c86ce70ed508ffbaa48d113ba59"
     )
     assert _report_digest(default) == (
-        "d806a6d9faecabcc32d51a7b43df81909c62e3f4b1e58cc1cdc37e836fe4ead4"
+        "c2a7af30de577bfa530c3f112cf643def42016ced1b5e8a7e1126ddf7454fe71"
     )
     assert _report_digest(viable) == (
-        "24cc06fa5f3cb6efa92edf236180722467a710fb853fa99ac7ad62f9bda94552"
+        "833dd20f05ba66f3841d5692f96ee4a49e2ff14e6b368c5d2a5c972e238d3861"
     )
     assert _report_digest(no_debt) == (
-        "7c82486e50a6845eee960cc70b195c4a2f0befe6df8acd33dfb963501532e63e"
+        "3e5f5bd96934546e1f4f93e67db6338dadf845704def238a11cbd228c6572e5d"
     )
     # Digests regenerated in the audit-remediation contract update: the
     # labour-rule, DSCR-window and growth-curve corrections changed the
@@ -259,8 +259,12 @@ def test_metric_narratives_are_stable_across_core_financial_branches() -> None:
     # the 2026-09 husbandry-standards wave: the adult buck weight
     # recalibration 42 → 35 kg (NBAGR/TNAU Osmanabadi descriptors) and the
     # breed_price_premium_pct market toggle changed the runs' own numbers.
+    # Re-hashed in the goat-meat-only wave (model 3.3.0): the dairy purge
+    # (12-month first service, flat surplus-milk line), the NLM subsidy
+    # explanation, parity-keyed litter expectations and the water-demand
+    # paragraph changed the quoted figures and texts.
     assert _report_digest(risk) == (
-        "ff3fd928f3d55f963509b45eb3e37bb6ecdbeaa1358d09675a4c750368b8433e"
+        "b20cb8cf5467822ee03fd557ec9cf6ed1991cc7ea30a11f0d6794e51d7835451"
     )
 
 

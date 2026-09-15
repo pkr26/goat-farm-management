@@ -704,10 +704,10 @@ class _DailyOpsRun:
         for tag in dam.kids_with_dam:
             kid = self.animals.get(tag)
             if kid is not None and kid.active() and kid.bucket == Bucket.RECOVERY.value:
-                # Operational orphan/early wean: kids graduate to the sexed
-                # growing pens without the day-60 ceremony. Graduation ends
-                # both the creep ration and the pre-weaning mortality hazard,
-                # exactly like the day-60 weaning below.
+                # Operational orphan/early wean: kids graduate to the
+                # sex-separated growing pens without the day-60 ceremony.
+                # Graduation ends both the creep ration and the pre-weaning
+                # mortality hazard, exactly like the day-60 weaning below.
                 kid.dependent_kid = False
                 self._move(
                     kid,

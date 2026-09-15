@@ -14,7 +14,7 @@ Covered:
 - app/permissions.py: catalog/group/preset/role-map internal consistency.
 - app/models.py: enum exhaustiveness, breed constants, computed properties
   (age_months day-boundary, latest_weight tie-breaks, days_in_current_bucket
-  clamping, is_breeding_ready at exactly 10 months / 22 kg, display names,
+  clamping, is_breeding_ready at exactly 12 months / 22 kg, display names,
   Role.permission_set, Task.needs_verification), expected/planned dates,
   conception_rate rounding, quarantine schedule generation.
 - app/services.py pure helpers: move_animal guards, recipe_for_animal bucket
@@ -411,7 +411,7 @@ def test_breed_constants_match_spec() -> None:
     assert KIDDING_WINDOW_DAYS == (145, 155)
     assert KIDDING_WINDOW_DAYS[0] <= GESTATION_DAYS <= KIDDING_WINDOW_DAYS[1]
     assert ULTRASOUND_AFTER_BREEDING_DAYS == 32
-    assert MIN_BREEDING_AGE_MONTHS == 10
+    assert MIN_BREEDING_AGE_MONTHS == 12
     assert MIN_BREEDING_WEIGHT_KG == 22.0
     assert WEANING_DAYS == 60
     assert BUCK_ROTATION_DAYS == 7
@@ -714,8 +714,9 @@ def test_animal_date_helpers_accept_the_farm_business_date() -> None:
     assert animal.age_months_on(boundary) == 10
     assert animal.days_in_current_bucket_on(boundary - timedelta(days=1)) == 0
     assert animal.days_in_current_bucket_on(boundary) == 1
+    # 10 months is under the 12-month first-service floor either way.
     assert animal.is_breeding_ready_on(boundary - timedelta(days=1)) is False
-    assert animal.is_breeding_ready_on(boundary) is True
+    assert animal.is_breeding_ready_on(boundary) is False
 
 
 def test_bucket_timestamp_is_converted_from_utc_to_the_farm_date() -> None:
@@ -787,12 +788,12 @@ def test_is_breeding_ready_rejects_male() -> None:
     assert make_animal_object(sex=Sex.M.value).is_breeding_ready is False
 
 
-def test_is_breeding_ready_age_exactly_10_months() -> None:
-    assert make_animal_object(date_of_birth=add_months(today(), -10)).is_breeding_ready is True
+def test_is_breeding_ready_age_exactly_12_months() -> None:
+    assert make_animal_object(date_of_birth=add_months(today(), -12)).is_breeding_ready is True
 
 
-def test_is_breeding_ready_age_one_day_short_of_10_months() -> None:
-    dob = add_months(today(), -10) + timedelta(days=1)
+def test_is_breeding_ready_age_one_day_short_of_12_months() -> None:
+    dob = add_months(today(), -12) + timedelta(days=1)
     assert make_animal_object(date_of_birth=dob).is_breeding_ready is False
 
 
@@ -850,14 +851,14 @@ def test_is_breeding_eligible_requires_active_status(status: str) -> None:
     assert make_animal_object(status=status).is_breeding_eligible is False
 
 
-def test_is_breeding_eligible_age_exactly_10_months() -> None:
-    """10 months is inclusive: the minimum breeding age passes, not just exceeds."""
-    assert make_animal_object(date_of_birth=add_months(today(), -10)).is_breeding_eligible is True
+def test_is_breeding_eligible_age_exactly_12_months() -> None:
+    """12 months is inclusive: the minimum breeding age passes, not just exceeds."""
+    assert make_animal_object(date_of_birth=add_months(today(), -12)).is_breeding_eligible is True
 
 
-def test_is_breeding_eligible_age_one_day_short_of_10_months() -> None:
+def test_is_breeding_eligible_age_one_day_short_of_12_months() -> None:
     """One day under the age floor fails; the conjunction may not degrade to an or."""
-    dob = add_months(today(), -10) + timedelta(days=1)
+    dob = add_months(today(), -12) + timedelta(days=1)
     assert make_animal_object(date_of_birth=dob).is_breeding_eligible is False
 
 

@@ -280,6 +280,52 @@ async def test_planner_plan_crud(client: httpx.AsyncClient) -> None:
     ).status_code == 404
 
 
+# ---------------------------------------------------------------------------
+# DPR export (NABARD/NLM loan application)
+# ---------------------------------------------------------------------------
+async def test_plan_dpr_export_renders_markdown_with_nlm_basis(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    assumptions = await default_assumptions(client, owner)
+    assumptions["finance"]["nlm_subsidy"] = True
+    created = await _create_plan(client, owner, "NLM unit", assumptions)
+
+    resp = await client.get(f"/api/planner/plans/{created['id']}/dpr", headers=owner)
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"].startswith("text/markdown")
+    body = resp.text
+    assert body.startswith("# Detailed Project Report — NLM unit")
+    assert "National Livestock Mission" in body
+    assert "50% back-ended capital subsidy" in body
+    assert "| Bank loan |" in body and "| Capital subsidy |" in body
+    assert "NPV @ 12%" in body and "DSCR" in body
+    assert "| Year | Revenue |" in body
+
+    # The NLM toggle flows through the stored assumptions: 50% of the
+    # per-head-capped eligible capital for the default 50+2 unit.
+    assert "₹260,000" in body
+
+
+async def test_plan_dpr_export_guards(client: httpx.AsyncClient) -> None:
+    owner = await owner_with_farm(client)
+    assumptions = await default_assumptions(client, owner)
+    created = await _create_plan(client, owner, "DPR guards", assumptions)
+
+    # Unknown or foreign ids both 404.
+    assert (await client.get("/api/planner/plans/999999/dpr", headers=owner)).status_code == 404
+
+    # A worker without simulation.view is refused.
+    no_perms = await worker_headers(client, owner, ["dashboard.view"], "nodpr@plan.in")
+    assert (
+        await client.get(f"/api/planner/plans/{created['id']}/dpr", headers=no_perms)
+    ).status_code == 403
+    viewer = await worker_headers(client, owner, ["simulation.view"], "dprview@plan.in")
+    assert (
+        await client.get(f"/api/planner/plans/{created['id']}/dpr", headers=viewer)
+    ).status_code == 200
+
+
 async def test_planner_plan_lock_namespace_is_unique(client: httpx.AsyncClient) -> None:
     """The plan-quota advisory lock must not share a namespace with any other
     feature's farm lock — a collision serializes unrelated writes across

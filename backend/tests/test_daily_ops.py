@@ -402,11 +402,12 @@ def test_male_kid_sells_entering_the_meat_window() -> None:
 
 
 def test_female_kid_breeding_ready_graduation() -> None:
-    """A 9-month female kid (274 days on day 1) reaches 10 months (304.4
-    days) on day 32 and moves FEMALE_KIDS → BREEDING the same day."""
+    """A 9-month female kid (274 days on day 1) reaches the 12-month
+    first-service floor (365.3 days) on day 93 and moves FEMALE_KIDS →
+    BREEDING the same day."""
     payload = DailyOpsInput(
         start_date=date(2026, 9, 3),
-        horizon_days=35,
+        horizon_days=95,
         animals=[
             AnimalStartSpec(tag="FK1", sex="F", bucket="FEMALE_KIDS", age_months=9),
             _buck(),
@@ -414,7 +415,7 @@ def test_female_kid_breeding_ready_graduation() -> None:
         params=_quiet_params(),
     )
     result = run_daily_ops(payload)
-    assert _moves_of(result, "FK1") == [(32, "FEMALE_KIDS", "BREEDING", "breeding")]
+    assert _moves_of(result, "FK1") == [(93, "FEMALE_KIDS", "BREEDING", "breeding")]
 
 
 def test_adult_mortality_casualty_path() -> None:
@@ -783,11 +784,12 @@ def test_no_buck_note_when_herd_has_no_sire() -> None:
 
 
 def test_orphan_weaning_on_dam_cull_clears_the_pre_weaning_hazard() -> None:
-    """D1 (12 mo) is served day 1, kidded day 151 and — no longer pregnant —
-    age-culled the same day (12 + 151/30.44 ≈ 17 mo ≥ 14). Her kid is orphan-
-    weaned on its birth day; graduation must also end the pre-weaning hazard:
-    with kid mortality 90% and adult mortality 0, the kid survives to day 365
-    only if the flag is cleared (with the flag kept it dies within weeks)."""
+    """D1 (12 mo) reaches the 12-month first-service floor on day 2, is served
+    then, kidded day 152 and — no longer pregnant — age-culled the same day
+    (12 + 152/30.44 ≈ 17 mo ≥ 14). Her kid is orphan-weaned on its birth day;
+    graduation must also end the pre-weaning hazard: with kid mortality 90%
+    and adult mortality 0, the kid survives to day 365 only if the flag is
+    cleared (with the flag kept it dies within weeks)."""
     payload = DailyOpsInput(
         start_date=date(2026, 9, 3),
         horizon_days=365,
@@ -797,14 +799,14 @@ def test_orphan_weaning_on_dam_cull_clears_the_pre_weaning_hazard() -> None:
     )
     result = run_daily_ops(payload)
     dam = _journey(result, "D1")
-    assert (dam.exit_kind, dam.exit_day) == ("CULLED", 151)
+    assert (dam.exit_kind, dam.exit_day) == ("CULLED", 152)
     kid = _journey(result, "D1-1")
     assert [(h.day, h.from_bucket, h.to_bucket, h.context) for h in kid.hops] == [
-        (151, "RECOVERY", "FEMALE_KIDS", "orphan_weaning")
+        (152, "RECOVERY", "FEMALE_KIDS", "orphan_weaning")
     ]
     assert (kid.final_status, kid.final_bucket) == ("ACTIVE", "FEMALE_KIDS")
-    # Feeding follows morning occupancy: day 151's ration was planned at 06:30
-    # (before the birth) and by day 152 the kid stands weaned in FEMALE_KIDS —
+    # Feeding follows morning occupancy: day 152's ration was planned at 06:30
+    # (before the birth) and by day 153 the kid stands weaned in FEMALE_KIDS —
     # so this kid never eats a creep line.
     creep_days = [
         record.day for record in result.days for line in record.feeding if line.recipe == "CREEP"

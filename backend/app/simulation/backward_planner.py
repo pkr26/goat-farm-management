@@ -316,12 +316,6 @@ def _requirement_chain(
         ),
     ]
     young_loss_pct = round((1.0 - survival) * 100.0)
-    sexed_caveat = (
-        " (Sexed-semen services are configured on this farm; the engine's sexed "
-        "conception penalty shifts these figures slightly.)"
-        if r.sexed_semen_services > 0
-        else ""
-    )
     explanation = (
         f"Selling {target.count:g} {nouns.event_label(target.animal_class)} at "
         f"~{window.typical_age} months needs ~{kids_of_sex_needed} alive at sale; "
@@ -331,7 +325,7 @@ def _requirement_chain(
         f"sell), from ~{does_kidded} {nouns.female}(s) {nouns.parturition} and ~{does_bred} "
         f"bred about {r.gestation_months} months earlier. Your herd must hold that many "
         f"breedable {nouns.female_plural} then — buy early enough to settle, or retain "
-        f"more young {nouns.female_plural}." + sexed_caveat
+        f"more young {nouns.female_plural}."
     )
     return RequirementChain(
         year_month=target.year_month,

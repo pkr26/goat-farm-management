@@ -162,7 +162,7 @@ def test_conception_rate_zero_raises_an_actionable_value_error() -> None:
 
 
 def test_all_female_sex_ratio_with_male_target_raises_value_error() -> None:
-    """sex_ratio_female=1.0 (sexed-semen strategy) yields exactly zero male
+    """sex_ratio_female=1.0 yields exactly zero male
     births — the male-share denominator was zero (a 500)."""
     assumptions = _anchored(**{"reproduction.sex_ratio_female": 1.0})
     with pytest.raises(ValueError, match="sex_ratio_female=1"):

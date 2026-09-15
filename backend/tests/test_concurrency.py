@@ -218,8 +218,6 @@ async def test_concurrent_role_seed_serializes_on_farm_row(
 
     async with get_sessionmaker()() as db:
         seeded = list((await db.execute(select(Role).where(Role.farm_id == farm_id))).scalars())
-    # The farm under repair is a default GOAT farm; dairy parlour presets
-    # are not part of its seeded vocabulary.
     expected_codes = preset_codes()
     assert len(seeded) == len(expected_codes)
     assert {role.code for role in seeded} == expected_codes
