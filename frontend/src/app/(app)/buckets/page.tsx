@@ -24,7 +24,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
-import { enumLabel } from "@/lib/enum-labels";
+import { useEnumLabel } from "@/lib/enum-labels";
 import { safeAppPath } from "@/lib/utils";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 
@@ -49,6 +49,7 @@ function animalsRegisterPath(raw: string | null | undefined, bucket: string): st
 }
 
 function BucketCard({ row, canViewAnimals }: { row: BucketBoardRow; canViewAnimals: boolean }) {
+  const enumLabel = useEnumLabel();
   const truncated = row.animals.length < row.animals_total;
 
   return (

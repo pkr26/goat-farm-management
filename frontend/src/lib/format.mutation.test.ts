@@ -1,11 +1,10 @@
 // Mutation-hardening tests for src/lib/format.ts.
 //
 // Each block pins a behaviour whose mutant survivors were reported in
-// reports/mutation/lib.json: formatLitres' unavailable-value marker and Indian
-// grouping, the product-default farm timezone, formatFarmDateTime's
-// end-anchored offset detection, addDays' 4-digit year padding, and the exact
-// MONTHS table used by formatDate (including the single-digit-part padding
-// applied before timestamp validation).
+// reports/mutation/lib.json: the product-default farm timezone,
+// formatFarmDateTime's end-anchored offset detection, addDays' 4-digit year
+// padding, and the exact MONTHS table used by formatDate (including the
+// single-digit-part padding applied before timestamp validation).
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -14,29 +13,9 @@ import {
   farmToday,
   formatDate,
   formatFarmDateTime,
-  formatLitres,
   formatMoney,
   setActiveFarmTimezone,
 } from "./format";
-
-describe("formatLitres — mutation boundaries", () => {
-  it("renders an em dash for missing and non-finite values", () => {
-    expect(formatLitres(null)).toBe("—");
-    expect(formatLitres(undefined)).toBe("—");
-    expect(formatLitres(Number.NaN)).toBe("—");
-    expect(formatLitres(Number.POSITIVE_INFINITY)).toBe("—");
-    expect(formatLitres(Number.NEGATIVE_INFINITY)).toBe("—");
-  });
-
-  it("rounds to whole litres with Indian digit grouping", () => {
-    expect(formatLitres(0)).toBe("0");
-    expect(formatLitres(999)).toBe("999");
-    expect(formatLitres(1000)).toBe("1,000");
-    expect(formatLitres(29999.6)).toBe("30,000");
-    expect(formatLitres(123456789)).toBe("12,34,56,789");
-    expect(formatLitres(-1)).toBe("-1");
-  });
-});
 
 describe("farmToday — product-default timezone", () => {
   afterEach(() => setActiveFarmTimezone(null));

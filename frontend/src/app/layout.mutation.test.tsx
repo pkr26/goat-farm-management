@@ -16,7 +16,7 @@ vi.mock("next/font/google", () => {
     }
     return { className: "__className", variable: String(options.variable), style: {} };
   };
-  return { Inter: loader(), Fraunces: loader(), JetBrains_Mono: loader() };
+  return { Inter: loader(), Fraunces: loader(), JetBrains_Mono: loader(), Noto_Sans_Telugu: loader() };
 });
 
 vi.mock("next/navigation", () => ({

@@ -1,5 +1,7 @@
 /** Display formatting shared across pages (mirrors v1's utils.format_*). */
 
+import { getActiveLanguage } from "@/lib/active-language";
+
 /** ₹ with Indian digit grouping (12,34,567.50); non-finite → "—". */
 export function formatMoney(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
@@ -22,13 +24,6 @@ export function formatMoney(value: number | null | undefined): string {
   const rest = intPart.slice(0, -3);
   const grouped = rest ? rest.replace(/\B(?=(\d{2})+(?!\d))/g, ",") + "," + lastThree : lastThree;
   return `${negative ? "-" : ""}₹${grouped}${fracPart === "00" ? "" : "." + fracPart}`;
-}
-
-/** Whole litres with Indian digit grouping (30,000); non-finite → "—". */
-export function formatLitres(value: number | null | undefined): string {
-  return value === null || value === undefined || !Number.isFinite(value)
-    ? "—"
-    : Math.round(value).toLocaleString("en-IN");
 }
 
 /** YYYY-MM-DD of today in UTC. Retained for UTC-specific utilities/tests;
@@ -90,27 +85,28 @@ export function farmToday(now: Date = new Date()): string {
 /** Backend datetimes without an offset are UTC. Render the instant in the
  * active farm timezone so completion/audit times agree for every operator.
  * The year is always rendered: these are audit rows, and two episodes twelve
- * months apart would otherwise be indistinguishable. Format matches
+ * months apart would otherwise be indistinguishable. English format matches
  * formatDate ("5 Aug 2026") plus a lowercase 12-hour clock — "5 Aug 2026,
- * 2:30 pm" — so date + time read identically everywhere in the app. */
+ * 2:30 pm"; Telugu renders through te-IN so month names follow the worker's
+ * language. */
 export function formatFarmDateTime(iso: string | null | undefined): string {
   if (!iso) return "—";
   const hasOffset = /(?:Z|[+-]\d{2}:?\d{2})$/.test(iso);
   const date = new Date(hasOffset ? iso : `${iso}Z`);
   if (Number.isNaN(date.getTime())) return "—";
+  const options: Intl.DateTimeFormatOptions = {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  };
+  if (getActiveLanguage() === "te") {
+    return farmTimeZoneFormat("te-IN", options, activeFarmTimezone).format(date);
+  }
   const parts = Object.fromEntries(
-    farmTimeZoneFormat(
-      "en-GB",
-      {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-        hour12: true,
-      },
-      activeFarmTimezone,
-    )
+    farmTimeZoneFormat("en-GB", options, activeFarmTimezone)
       .formatToParts(date)
       .filter((part) =>
         ["day", "month", "year", "hour", "minute", "dayPeriod"].includes(part.type),
@@ -152,8 +148,10 @@ const MONTHS = [
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 
-/** ISO date string (YYYY-MM-DD) → "5 Aug 2026"; empty/invalid → "—". */
-export function formatDate(iso: string | null | undefined): string {
+/** ISO date string (YYYY-MM-DD) → "5 Aug 2026"; empty/invalid → "—".
+ * Telugu sessions render through Intl te-IN ("5 ఆగ 2026"); English keeps the
+ * hand-built abbreviation table so existing output stays byte-identical. */
+export function formatDate(iso: string | null | undefined, lang?: "en" | "te"): string {
   if (!iso) return "—";
   // Accept the documented date-only value, a syntactically complete ISO
   // datetime suffix, and harmless trailing whitespace. Merely starting with
@@ -175,6 +173,14 @@ export function formatDate(iso: string | null | undefined): string {
   if (timestampSuffix) {
     const paddedDate = `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
     if (Number.isNaN(new Date(`${paddedDate}${timestampSuffix}`).getTime())) return "—";
+  }
+  if ((lang ?? getActiveLanguage()) === "te") {
+    return new Intl.DateTimeFormat("te-IN", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      timeZone: "UTC",
+    }).format(date);
   }
   return `${d} ${MONTHS[m - 1]} ${y}`;
 }

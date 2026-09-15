@@ -277,7 +277,7 @@ describe("HealthPage traceability cell and event targets", () => {
     expect(within(cell).getByText("Certificate: CERT-9")).toBeInTheDocument();
     expect(within(cell).getByText("Official tag: TAG-9")).toBeInTheDocument();
     expect(within(cell).getByText("Administered by: Dr Rao")).toBeInTheDocument();
-    expect(within(cell).getByText("Withdrawal until: 22 Jul 2026")).toBeInTheDocument();
+    expect(within(cell).getByText("Not for sale until 22 Jul 2026")).toBeInTheDocument();
     expect(within(cell).getByText("Authority notified: 15 Jul 2026")).toBeInTheDocument();
     expect(within(cell).getByText("Isolation started: 16 Jul 2026")).toBeInTheDocument();
     // Every line is present, so the "nothing recorded" dash must not appear.

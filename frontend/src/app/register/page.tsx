@@ -3,33 +3,38 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
 import { AuthLayout } from "@/components/auth-layout";
+import { LanguageToggle } from "@/components/language-toggle";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { useT } from "@/lib/i18n";
+import { useT, type TFn } from "@/lib/i18n";
 import type { RegisterIn, TokenOut } from "@/api/generated/models";
 import { useSingleFlight } from "@/lib/use-single-flight";
 
-const registerSchema = z.object({
-  name: z.string().max(120).optional(),
-  email: z
-    .string()
-    .trim()
-    .email("Enter a valid email address")
-    .max(254, "Email must be at most 254 characters"),
-  password: z
-    .string()
-    .min(12, "Password must be at least 12 characters")
-    .max(128, "Password must be at most 128 characters"),
-});
-type RegisterValues = z.infer<typeof registerSchema>;
+/** Rebuilt per language so inline validation messages localize. Exported for
+ * direct schema-level testing. */
+export function makeRegisterSchema(t: TFn) {
+  return z.object({
+    name: z.string().max(120).optional(),
+    email: z
+      .string()
+      .trim()
+      .email(t("auth.emailInvalid"))
+      .max(254, t("auth.emailTooLong")),
+    password: z
+      .string()
+      .min(12, t("auth.passwordTooShort"))
+      .max(128, t("auth.passwordTooLong")),
+  });
+}
+type RegisterValues = z.infer<ReturnType<typeof makeRegisterSchema>>;
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -39,6 +44,7 @@ export default function RegisterPage() {
   // Stryker disable next-line BooleanLiteral: the mount effect below overwrites the initial value before any continuation can observe it
   const mounted = useRef(true);
   const submission = useSingleFlight();
+  const registerSchema = useMemo(() => makeRegisterSchema(t), [t]);
   const {
     register,
     handleSubmit,
@@ -89,24 +95,29 @@ export default function RegisterPage() {
 
   return (
     <AuthLayout
-      title="Create your account"
-      subtitle="Start managing your herd in minutes"
+      title={t("auth.createTitle")}
+      subtitle={t("auth.createSubtitle")}
       footer={
         <>
-          Already have an account?{" "}
+          {t("auth.haveAccount")}{" "}
           <Link href="/login" className="font-medium text-primary underline-offset-4 hover:underline">
-            Sign in
+            {t("auth.signIn")}
           </Link>
         </>
       }
     >
+      {/* Language first: a low-literacy Telugu worker must be able to switch
+       * before reading anything else on the card. */}
+      <div className="mb-4 flex justify-end">
+        <LanguageToggle />
+      </div>
       <form onSubmit={(event) => void handleSubmit(onSubmit)(event)} noValidate>
         <fieldset
           disabled={isSubmitting || submission.pending}
           className="min-w-0 space-y-4"
         >
           <div className="space-y-1.5">
-            <Label htmlFor="name">Name (optional)</Label>
+            <Label htmlFor="name">{t("auth.nameOptional")}</Label>
             <Input
               id="name"
               autoComplete="name"
@@ -122,7 +133,7 @@ export default function RegisterPage() {
             )}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="email">Email</Label>
+            <Label htmlFor="email">{t("auth.email")}</Label>
             <Input
               id="email"
               type="email"
@@ -139,7 +150,7 @@ export default function RegisterPage() {
             )}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="password">Password</Label>
+            <Label htmlFor="password">{t("auth.password")}</Label>
             <Input
               id="password"
               type="password"
@@ -155,7 +166,7 @@ export default function RegisterPage() {
               </p>
             )}
             <p className="text-xs text-muted-foreground">
-              At least 12 characters.
+              {t("auth.passwordHint")}
             </p>
           </div>
           {serverError && (
@@ -169,8 +180,8 @@ export default function RegisterPage() {
             disabled={isSubmitting || submission.pending}
           >
             {isSubmitting || submission.pending
-              ? "Creating account…"
-              : "Create account"}
+              ? t("auth.creatingAccount")
+              : t("auth.createAccount")}
           </Button>
         </fieldset>
       </form>

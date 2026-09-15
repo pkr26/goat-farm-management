@@ -359,18 +359,19 @@ describe("SimulationPage monthly projection sign boundaries", () => {
     const [, breakEven, surplus, deficit] = within(projection).getAllByRole("row");
 
     // Net cash flow, cash balance and cumulative cash flow, in that order.
-    for (const index of [16, 17, 18]) {
+    // (Column indexes shifted one down when the dairy revenue column left.)
+    for (const index of [15, 16, 17]) {
       expect(cells(breakEven)[index]).toHaveTextContent("₹0");
       expect(cells(breakEven)[index]).not.toHaveClass("text-destructive");
       expect(cells(surplus)[index]).not.toHaveClass("text-destructive");
       expect(cells(deficit)[index]).toHaveClass("text-destructive");
     }
+    expect(cells(surplus)[15]).toHaveTextContent("₹9,000");
     expect(cells(surplus)[16]).toHaveTextContent("₹9,000");
     expect(cells(surplus)[17]).toHaveTextContent("₹9,000");
-    expect(cells(surplus)[18]).toHaveTextContent("₹9,000");
-    expect(cells(deficit)[16]).toHaveTextContent("-₹4,000");
-    expect(cells(deficit)[17]).toHaveTextContent("-₹1,500");
-    expect(cells(deficit)[18]).toHaveTextContent("-₹2,000");
+    expect(cells(deficit)[15]).toHaveTextContent("-₹4,000");
+    expect(cells(deficit)[16]).toHaveTextContent("-₹1,500");
+    expect(cells(deficit)[17]).toHaveTextContent("-₹2,000");
   });
 
   // An empty event list is not an event: a month that reports `[]` has to read

@@ -245,7 +245,6 @@ describe("SimulationPage assumption unit and bound heuristics", () => {
         culling: { buck_rotation_years: 3 },
         sales: {
           manure_income_per_adult_per_year: 1500,
-          lactation_milk_litres: 120,
         },
         feed: {
           concentrate_price_per_kg: 32,
@@ -263,7 +262,6 @@ describe("SimulationPage assumption unit and bound heuristics", () => {
     expect(unitOf("Manure Income Per Adult Per Year")).toBe("Unit: ₹/yr");
     expect(unitOf("Shed Useful Life Years")).toBe("Unit: years");
     expect(unitOf("Buck Rotation Years")).toBe("Unit: years");
-    expect(unitOf("Lactation Milk Litres")).toBe("Unit: litres");
     expect(unitOf("Cultivated Fodder Acres")).toBe("Unit: acres");
     // A head count and a PRNG seed carry no unit at all — the trailing
     // fraction test must not claim them.

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Fraunces, Inter, JetBrains_Mono } from "next/font/google";
+import { Fraunces, Inter, JetBrains_Mono, Noto_Sans_Telugu } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
 import { APP_NAME } from "@/lib/brand";
@@ -19,6 +19,13 @@ const jetbrainsMono = JetBrains_Mono({
   variable: "--font-jetbrains-mono",
 });
 
+// Inter and Fraunces have no Telugu glyphs; Noto Sans Telugu covers the
+// script and joins the sans/heading stacks for `lang="te"` (globals.css).
+const notoSansTelugu = Noto_Sans_Telugu({
+  subsets: ["telugu", "latin"],
+  variable: "--font-noto-sans-telugu",
+});
+
 export const metadata: Metadata = {
   title: {
     default: `${APP_NAME} — Goat farm management`,
@@ -35,7 +42,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${inter.variable} ${fraunces.variable} ${jetbrainsMono.variable}`}
+      className={`${inter.variable} ${fraunces.variable} ${jetbrainsMono.variable} ${notoSansTelugu.variable}`}
     >
       <body className="min-h-screen bg-background text-foreground antialiased">
         <Providers>{children}</Providers>

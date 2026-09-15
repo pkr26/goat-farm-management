@@ -121,7 +121,7 @@ const te: Partial<Record<MessageKey, string>> = {
   "tasks.skip.title": "ఈ పనిని వదిలివేయాలా?",
   "tasks.skip.body":
     "వదిలివేయడం వల్ల ఈ పని చరిత్రకు వెళ్తుంది. ఎందుకు పూర్తి చేయలేదో బృందం అర్థం చేసుకోవడానికి కారణం చేర్చండి.",
-  "tasks.skip.reason": "కారణం (ఐచ్ఛికం)",
+  "tasks.skip.reason": "కారణం *",
   "tasks.skip.confirm": "పనిని వదిలివేయి",
   "tasks.skip.inFlight": "వదిలివేస్తోంది…",
   "tasks.skip.retry": "వదిలివేతను మళ్లీ ప్రయత్నించు",
@@ -204,6 +204,174 @@ const te: Partial<Record<MessageKey, string>> = {
   // ---------- register ----------
   "register.networkError":
     "నెట్‌వర్క్ బలహీనంగా ఉంది — దయచేసి కనెక్షన్ సరిచూసి మళ్లీ ప్రయత్నించండి.",
+
+  // ---------- generated duty titles (taskGen) ----------
+  "taskGen.pregnancy_check": "గర్భ పరీక్ష: {tag} (జత {breeding_date})",
+  "taskGen.return_to_heat_watch":
+    "తప్తు పునఃగమన గమనింపు: {tag} — జత అయిన 18–21 రోజులు; మళ్లీ తప్తులోకి వస్తే జత విఫలమైంది; పరిశీలనను వెంటనే నమోదు చేయండి",
+  "taskGen.pre_kidding_vaccine": "ప్రసూతికి ముందు ET+TT టీకా: {tag}",
+  "taskGen.pre_kidding_vaccine_booster": "ప్రసూతికి ముందు ET+TT టీకా బూస్టర్: {tag}",
+  "taskGen.move_to_delivery": "{tag} ను డెలివరీ పెంటకు మార్చండి (సుమారు 2 వారాల్లో ప్రసవం)",
+  "taskGen.move_to_pregnancy_late":
+    "{tag} ను గర్భం B పెంటకు మార్చండి (గర్భం 100వ రోజు — పశుగ్రాసం పెంపు)",
+  "taskGen.birthing_kit_check":
+    "జనన కిట్ సరిచూడటం: {tag} — {kidding_date} నాటికి — 7% అయోడిన్+కప్పు, తువ్వాళ్లు, శుభ్రం చేసిన కత్తెర, లూబ్రికెంట్, గ్లోవ్జ్, లాంప్, థర్మామీటర్, ట్యూబ్+సిరింజి, కొలోస్ట్రమ్+ఎలక్ట్రోలైట్లు, బరువు వేలు, చెవి ట్యాగ్లు+యాప్లికేటర్",
+  "taskGen.kidding_watch":
+    "పిల్లల గమనింపు: {tag} ({kidding_date} నాటికి) — జొన్న నింపు, తొక దగ్గర లిగమెంట్లు, యోని స్రావం చూడండి",
+  "taskGen.kidding_watch_due":
+    "పిల్లల గమనింపు: {tag} ({kidding_date} నాటికి) — రాత్రంతా ప్రసవ గమనింపు; 30 నిమిషాలు శ్రమించి పురోగతి లేకపోతే సహాయం చేయండి; 15–20 నిమిషాల్లో సరికాకపోతే వెట్ కు కాల్ చేయండి",
+  "taskGen.kidding_due": "ప్రసవం రానుంది: {tag}",
+  "taskGen.wean_kids": "{tag} పిల్లలకు పాలు తొలగించండి; ఆడ మేక → విశ్రాంతి",
+  "taskGen.move_to_resting": "ప్రసవానంతర కోలుకోవడం తర్వాత {tag} ను విశ్రాంతి పెంటకు మార్చండి",
+  "taskGen.post_kidding_dam_check":
+    "ప్రసవానంతర తల్లి పరీక్ష: {tag} — ప్లాసెంటా బయటపడిందా? జొన్న/మాస్టైటిస్ పరీక్ష, గోరువెచ్చని నీరు, తేలికపాటి మేత, వెనుక భాగం శుభ్రం",
+  "taskGen.kidding_stall_cleanout":
+    "ప్రసూతి గది శుభ్రం & వ్యాధినివారణ: {tag} — మురికి గడ్డపార తీసేయండి, వ్యాధి నివారణ మందు చల్లండి, పొడి గడ్డపార వేయండి",
+  "taskGen.kid_support": "పిల్లల సహాయం: {tag} పిల్లలకు బాటిల్ పాలు / కొలోస్ట్రమ్ రీప్లేసర్",
+  "taskGen.rebreed": "{tag} ను తిరిగి జత చేయండి (విశ్రాంతి పూర్తి — ఫ్లష్ కిటకీ ముగిసింది)",
+  "taskGen.fmd_vaccination_round":
+    "FMD టీకా రౌండ్ ({month} {year}) — అన్ని మేకలకు; పెంట/బ్యాచ్ టీకా ఆరోగ్య నమోదుతో మూసివేయండి",
+  "taskGen.et_hs_premonsoon_round": "ET + HS వర్షాకాలపు ముందు రౌండ్ ({year}) — అన్ని మేకలకు",
+  "taskGen.goat_pox_round": "మేక మచ్చల (గోట్ పాక్స్) రౌండ్ ({year})",
+  "taskGen.ccpp_round": "CCPP రౌండ్ ({year})",
+  "taskGen.deworming_round":
+    "పురుగుల మందు రౌండ్ ({month} {year}) — పెద్ద మేకలు; 1–6 నెలల పిల్లలకు ప్రతి 3 నెలలకు",
+  "taskGen.hoof_trimming_round":
+    "గిట్టు కత్తిరింపు రౌండ్ (6 నెలలకు ఒకసారి) — అన్ని వయసుల మేకలకు, మడమ నుండి ముందు వరకు",
+  "taskGen.ectoparasite_spray_round":
+    "బాహ్య పరాన్నజీవి స్ప్రే/డిప్ రౌండ్ (బ్యుటాక్స్/డెల్టామెత్రిన్) — బరువుగా గర్భం ఉన్న ఆడ మేకలకు అస్సలు వద్దు",
+  "taskGen.shed_disinfection_round":
+    "గోరు శెడ్ వ్యాధి నివారణ రౌండ్ — వ్యాధి నివారణ మందు + సున్నం; ప్రసూతి గదులపై ప్రత్యేక శ్రద్ధ",
+  "taskGen.monthly_weighing_round": "నెలవారీ బరువు రౌండ్ — బరువులు నమోదు చేయండి; పెరుగుదల పెంటలు ముందు",
+  "taskGen.morning_feed_routine":
+    "ఉదయం దినచర్య: ఉదయం 6:30 మేతకు ముందు దుబ్బులు ఊడ్చండి",
+  "taskGen.daily_water_check": "నీరు చూడటం: అన్ని నీటి తొట్లు చూసి నింపండి",
+  "taskGen.feed_reorder":
+    "{ingredient} తిరిగి కొనండి: {qty_on_hand} కిలో మిగిలుంది (రీఆర్డర్ స్థాయి {reorder_level} కిలో)",
+  "taskGen.buck_rotation":
+    "మగ మేక {tag} మార్చండి/భర్తీ చేయండి — {age_months} నెలల వయసు (అంతఃసంతాన నిర్వహణ)",
+  "taskGen.insurance_renewal": "భీమా నవీకరణ గడువు: పాలసీ {policy_number}",
+  "taskGen.quarantine_arrival_inspection":
+    "రోజు 0–1: రాక పరీక్ష — నీరు తగ్గడం (చర్మం/చిగుళ్లు), గాయాలు, కుంటి నడక, జ్వరం; అనారోగ్య మేకలను వెంటనే విడదీయండి; క్వారంటైన్ మేకలను చివరగా నడపండి (ప్రత్యేక బూట్లు/పరికరాలు)",
+  "taskGen.quarantine_rest":
+    "రోజులు 1–3: విశ్రాంతి, ఎలక్ట్రోలైట్/బెల్లం నీరు, పొడి మేత మాత్రమే, దృఢమేత అస్సలు వద్దు",
+  "taskGen.quarantine_deworm": "రోజు 4: పురుగుల మందు — ఆల్బెండజోల్/క్లోసాంటెల్ నోటి ద్వారా + ఇవెర్మెక్టిన్ SC",
+  "taskGen.quarantine_liver_tonic": "రోజులు 5–9: నీటిలో లివర్ టానిక్ + విటమిన్ AD3E ఇంజెక్షన్",
+  "taskGen.quarantine_ppr_vaccine": "రోజు 10: PPR టీకా (లైవ్ వైరల్, SC)",
+  "taskGen.quarantine_fecal_exam":
+    "రోజు 13: మల/పేడ నమూనా పరీక్ష — రోజు 4 పురుగుల మందు పనిచేసిందా ధృవీకరించండి (ఫలితాన్ని FECAL_EXAM ఆరోగ్య నమోదుగా రాయండి)",
+  "taskGen.quarantine_et_tetanus_vaccine": "రోజు 20: ET + ధనుర్వాతం (టాక్సాయిడ్, SC) టీకా",
+  "taskGen.quarantine_goat_pox_vaccine": "రోజు 30: మేక మచ్చల (గోట్ పాక్స్) టీకా (లైవ్ వైరల్, SC)",
+  "taskGen.quarantine_prerelease_review": "రోజు 30: విడుదలకు ముందు మల మళ్లీ పరీక్ష + క్లినికల్ సమీక్ష",
+  "taskGen.quarantine_fmd_vaccine": "రోజు 40: FMD టీకా (కిల్డ్, SC)",
+  "taskGen.quarantine_release": "రోజు 45: 10% జింక్ సల్ఫేట్ పాద స్నానం → ఫౌండేషన్ కు విడుదల",
+  "taskGen.month.1": "జనవరి",
+  "taskGen.month.2": "ఫిబ్రవరి",
+  "taskGen.month.3": "మార్చి",
+  "taskGen.month.4": "ఏప్రిల్",
+  "taskGen.month.5": "మే",
+  "taskGen.month.6": "జూన్",
+  "taskGen.month.7": "జులై",
+  "taskGen.month.8": "ఆగస్టు",
+  "taskGen.month.9": "సెప్టెంబర్",
+  "taskGen.month.10": "అక్టోబర్",
+  "taskGen.month.11": "నవంబర్",
+  "taskGen.month.12": "డిసెంబర్",
+
+  // ---------- auth (login / register / brand panel) ----------
+  "auth.welcomeBack": "తిరిగి స్వాగతం",
+  "auth.signInSubtitle": "మీ ఖాతాలో సైన్ ఇన్ చేయండి",
+  "auth.email": "ఇమెయిల్",
+  "auth.password": "పాస్‌వర్డ్",
+  "auth.signIn": "సైన్ ఇన్",
+  "auth.signingIn": "సైన్ ఇన్ అవుతోంది…",
+  "auth.noAccount": "ఖాతా లేదా?",
+  "auth.registerLink": "నమోదు చేసుకోండి",
+  "auth.emailInvalid": "సరైన ఇమెయిల్ చిరునామా ఇవ్వండి",
+  "auth.emailTooLong": "ఇమెయిల్ గరిష్ఠంగా 254 అక్షరాలు ఉండాలి",
+  "auth.passwordRequired": "పాస్‌వర్డ్ అవసరం",
+  "auth.passwordTooLong": "పాస్‌వర్డ్ గరిష్ఠంగా 128 అక్షరాలు ఉండాలి",
+  "auth.passwordTooShort": "పాస్‌వర్డ్ కనీసం 12 అక్షరాలు ఉండాలి",
+  "auth.passwordHint": "కనీసం 12 అక్షరాలు.",
+  "auth.createTitle": "మీ ఖాతా సృష్టించండి",
+  "auth.createSubtitle": "నిమిషాల్లో మీ మంద నిర్వహణ ప్రారంభించండి",
+  "auth.nameOptional": "పేరు (ఐచ్ఛికం)",
+  "auth.creatingAccount": "ఖాతా సృష్టిస్తోంది…",
+  "auth.createAccount": "ఖాతా సృష్టించండి",
+  "auth.haveAccount": "ఇప్పటికే ఖాతా ఉందా?",
+  "auth.brandTitleLine1": "మంద నిర్వహణ,",
+  "auth.brandTitleLine2": "సరళంగా.",
+  "auth.brandTagline":
+    "మొదటి ట్యాగ్ నుండి చివరి అమ్మకం వరకు — ఆరోగ్యకరమైన, లాభదాయకమైన ఫారం నడపండి.",
+  "auth.featureRecordsTitle": "పూర్తి మంద రికార్డులు",
+  "auth.featureRecordsDesc": "ప్రతి మేక, ట్యాగ్ మరియు వంశావళిని ఒకే చోట గమనించండి.",
+  "auth.featureHealthTitle": "ముందస్తు ఆరోగ్య సంరక్షణ",
+  "auth.featureHealthDesc": "టీకాలు, చికిత్సలు, పరీక్షలు ముందుగా ప్లాన్ చేసుకోండి.",
+  "auth.featureInsightsTitle": "లాభాలు చూపే సమాచారం",
+  "auth.featureInsightsDesc": "సంతానోత్పత్తి, పిల్లల పుట్టుక, ఆర్థిక నివేదికలు ఒకే చూపులో.",
+  "auth.brandFoot": "తెలంగాణ అంతటా ఉస్మానాబాదీ మేక మందల కోసం.",
+
+  // ---------- app shell ----------
+  "shell.skipToContent": "కంటెంట్ కు వెళ్లండి",
+  "shell.tagline": "మేక ఫారం నిర్వహణ",
+  "shell.passwordChangeNotice":
+    "ఈ పాస్‌వర్డ్ ఫారం యజమాని ఇచ్చింది — కొనసాగే ముందు దాన్ని మార్చండి (ఖాతా → పాస్‌వర్డ్ మార్చండి). మీరు మార్చే వరకు ఫారం పేజీలు, చర్యలు బ్లాక్ అవుతాయి.",
+
+  // ---------- browser tab titles ----------
+  "doc.title.dashboard": "డాష్‌బోర్డు",
+  "doc.title.addAnimal": "మేక చేర్చు",
+  "doc.title.animal": "మేక",
+  "doc.title.animals": "మేకలు",
+  "doc.title.buckets": "పెంటలు",
+  "doc.title.ultrasound": "అల్ట్రాసౌండ్",
+  "doc.title.breeding": "సంతానోత్పత్తి",
+  "doc.title.recordBirth": "పుట్టుక నమోదు",
+  "doc.title.births": "పుట్టుకలు",
+  "doc.title.addHealthEvent": "ఆరోగ్య నమోదు చేర్చు",
+  "doc.title.vaccinationSchedule": "టీకాల షెడ్యూల్",
+  "doc.title.health": "ఆరోగ్యం",
+  "doc.title.feedInventory": "మేత నిల్వ",
+  "doc.title.feedRecipes": "మేత రెసిపీలు",
+  "doc.title.feeding": "మేత",
+  "doc.title.purchases": "కొనుగోళ్లు",
+  "doc.title.tasks": "పనులు",
+  "doc.title.finance": "ఆర్థికం",
+  "doc.title.planner": "ప్లానర్",
+  "doc.title.simulation": "సిమ్యులేషన్",
+  "doc.title.opsSimulation": "ఆప్స్ సిమ్యులేషన్",
+  "doc.title.reports": "నివేదికలు",
+  "doc.title.team": "బృందం",
+  "doc.title.noAccess": "యాక్సెస్ లేదు",
+
+  // ---------- health event log ----------
+  "health.notForSaleUntil": "{date} వరకు అమ్మకానికి వద్దు",
+
+  // ---------- feeding page static guidance ----------
+  "feeding.shiftsLine":
+    "షిఫ్టులు: {morning} ఉదయం 6:30 (ముందు దుబ్బులు ఊడ్చండి) · {afternoon} మధ్యాహ్నం 1:30 · {night} రాత్రి 7:30.",
+  "feeding.phase.maintenance": "మెయింటెనెన్స్",
+  "feeding.phase.flush": "ఫ్లష్",
+  "feeding.frameBuilder": "ఫ్రేమ్-బిల్డర్",
+  "feeding.fattening": "కొవ్వు పెంపు",
+  "feeding.rotationNote":
+    "{resting} 10వ రోజున {maintenance} → {flush} కు మారుతుంది; {maleKids} 91వ రోజున {frameBuilder} → {fattening} కు.",
+
+  // ---------- animal phenotype ----------
+  "animals.coatColor": "వెంట్రుకల రంగు",
+  "animals.coatColor.black": "నలుపు",
+  "animals.coatColor.black_patched": "నలుపు మచ్చలతో",
+  "animals.coatColor.brown": "గోధుమ",
+  "animals.coatColor.white": "తెలుపు",
+  "animals.coatColor.spotted": "మచ్చల",
+  "animals.horned": "కొమ్ములు",
+  "animals.editPhenotype": "లక్షణాలు సవరించండి",
+  "animals.phenotypeSaved": "లక్షణాలు సేవ్ అయ్యాయి.",
+  "animals.notRecorded": "నమోదు లేదు",
+  "common.unknown": "తెలియదు",
+
+  // ---------- dashboard advisories ----------
+  "dashboard.advisory.bakridHold":
+    "{count} మగ మేకలు బక్రీద్ ({date}) కు 2 నెలల లోపు పూర్తవుతాయి — పండుగ ధర కోసం ఆపి ఉంచండి.",
 };
 
 export default te;

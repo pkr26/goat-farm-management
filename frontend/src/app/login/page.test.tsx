@@ -475,9 +475,10 @@ describe("LoginPage", () => {
     expect(await screen.findByRole("button", { name: "తెలుగు" })).toBeInTheDocument();
     expect(document.documentElement.lang).toBe("te");
 
-    await user.type(screen.getByLabelText(/email/i), "demo@goatfarm.in");
-    await user.type(screen.getByLabelText(/password/i), "demo1234");
-    await user.click(screen.getByRole("button", { name: /sign in/i }));
+    // The form is fully localized: labels and the submit button are Telugu.
+    await user.type(screen.getByLabelText("ఇమెయిల్"), "demo@goatfarm.in");
+    await user.type(screen.getByLabelText("పాస్‌వర్డ్"), "demo1234");
+    await user.click(screen.getByRole("button", { name: "సైన్ ఇన్" }));
 
     expect(
       await screen.findByText("నెట్‌వర్క్ బలహీనంగా ఉంది — దయచేసి కనెక్షన్ సరిచూసి మళ్లీ ప్రయత్నించండి."),

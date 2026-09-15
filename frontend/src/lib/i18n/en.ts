@@ -122,7 +122,7 @@ const en = {
   "tasks.skip.title": "Skip this task?",
   "tasks.skip.body":
     "Skipping moves this duty to its audit history. Add a reason so the team can understand why it was not completed.",
-  "tasks.skip.reason": "Reason",
+  "tasks.skip.reason": "Reason *",
   "tasks.skip.confirm": "Skip task",
   "tasks.skip.inFlight": "Skipping…",
   "tasks.skip.retry": "Retry skip",
@@ -208,6 +208,182 @@ const en = {
   // ---------- register ----------
   "register.networkError":
     "Network is weak — please check your connection and try again.",
+
+  // ---------- generated duty titles (taskGen) ----------
+  // The backend attaches `title_key`/`title_args` to auto-generated tasks so
+  // the worker's language, not the server, renders the title. The 40 keys
+  // below are the final contract (audit_reports/2026-09-14/
+  // task_title_keys.md — breeding/kidding/cadence/quarantine/finance
+  // services); a missing or unknown key falls back to the payload's own
+  // English `title`. `{month}` args arrive as English month names and resolve
+  // through the taskGen.month.* keys; `*_date` args are ISO and render
+  // through the locale-aware formatDate.
+  "taskGen.pregnancy_check": "Pregnancy check: {tag} (bred {breeding_date})",
+  "taskGen.return_to_heat_watch":
+    "Return-to-heat watch: {tag} — days 18–21 post-service; a standing heat means the service failed; record the observation early",
+  "taskGen.pre_kidding_vaccine": "Pre-kidding ET+TT vaccine: {tag}",
+  "taskGen.pre_kidding_vaccine_booster": "Pre-kidding ET+TT vaccine booster: {tag}",
+  "taskGen.move_to_delivery": "Move {tag} to DELIVERY (kidding in ~2 weeks)",
+  "taskGen.move_to_pregnancy_late":
+    "Move {tag} to PREGNANCY_LATE (gestation day 100 — ration step-up)",
+  "taskGen.birthing_kit_check":
+    "Birthing kit check: {tag} due {kidding_date} — 7% iodine+cup, towels, disinfected scissors, lubricant, gloves, lamp, thermometer, tube+syringe, colostrum+electrolytes, weigh sling, ear tags+applicator",
+  "taskGen.kidding_watch":
+    "Kidding watch: {tag} (due {kidding_date}) — check udder fill, tail-head ligaments, vulva discharge",
+  "taskGen.kidding_watch_due":
+    "Kidding watch: {tag} (due {kidding_date}) — labor watch through the night; assist after 30 min straining w/o progress; call vet if 15–20 min unresolved",
+  "taskGen.kidding_due": "Kidding due: {tag}",
+  "taskGen.wean_kids": "Wean kids of {tag}; doe → RESTING",
+  "taskGen.move_to_resting": "Move {tag} to RESTING after postpartum recovery",
+  "taskGen.post_kidding_dam_check":
+    "Post-kidding dam check: {tag} — placenta passed? udder/mastitis check, warm water, light feed, clean hindquarters",
+  "taskGen.kidding_stall_cleanout":
+    "Clean & disinfect kidding stall: {tag} — remove soiled bedding, disinfect, re-bed dry",
+  "taskGen.kid_support": "Kid support: bottle-feed / colostrum replacer for {tag}'s litter",
+  "taskGen.rebreed": "Re-breed {tag} (resting complete — flush window done)",
+  "taskGen.fmd_vaccination_round":
+    "FMD vaccination round ({month} {year}) — all animals; close via a bucket/batch vaccine health event",
+  "taskGen.et_hs_premonsoon_round": "ET + HS pre-monsoon round ({year}) — all animals",
+  "taskGen.goat_pox_round": "Goat Pox round ({year})",
+  "taskGen.ccpp_round": "CCPP round ({year})",
+  "taskGen.deworming_round":
+    "Deworming round ({month} {year}) — adults; kids 1–6 months every 3 months",
+  "taskGen.hoof_trimming_round": "Hoof trimming round (6-monthly) — trim all ages, heel to toe",
+  "taskGen.ectoparasite_spray_round":
+    "Ectoparasite spray/dip round (Butox/deltamethrin) — never heavily pregnant does",
+  "taskGen.shed_disinfection_round":
+    "Shed disinfection round — disinfect + lime; extra attention to kidding pens",
+  "taskGen.monthly_weighing_round": "Monthly weighing round — record weights; grow-out buckets first",
+  "taskGen.morning_feed_routine":
+    "Morning routine: sweep bunks before the 6:30 AM feeding",
+  "taskGen.daily_water_check": "Water check: check and refill all water troughs",
+  "taskGen.feed_reorder": "Reorder {ingredient}: {qty_on_hand} kg on hand (reorder level {reorder_level} kg)",
+  "taskGen.buck_rotation":
+    "Rotate/replace buck {tag} — {age_months} months old (inbreeding management)",
+  "taskGen.insurance_renewal": "Insurance renewal due: policy {policy_number}",
+  "taskGen.quarantine_arrival_inspection":
+    "Day 0–1: arrival inspection — dehydration (skin tent/gums), injuries, lameness, temperature; isolate sick immediately; handle quarantine animals LAST (dedicated boots/tools)",
+  "taskGen.quarantine_rest":
+    "Days 1–3: rest, electrolyte/jaggery water, dry roughage only, zero grain",
+  "taskGen.quarantine_deworm": "Day 4: deworm — Albendazole/Closantel oral + Ivermectin SC",
+  "taskGen.quarantine_liver_tonic": "Days 5–9: liver tonic in water + Vitamin AD3E injection",
+  "taskGen.quarantine_ppr_vaccine": "Day 10: vaccinate PPR (live viral, SC)",
+  "taskGen.quarantine_fecal_exam":
+    "Day 13: fecal/dung sample exam — confirm day-4 deworm efficacy (record result as a FECAL_EXAM health event)",
+  "taskGen.quarantine_et_tetanus_vaccine": "Day 20: vaccinate ET + Tetanus (toxoid, SC)",
+  "taskGen.quarantine_goat_pox_vaccine": "Day 30: vaccinate Goat Pox (live viral, SC)",
+  "taskGen.quarantine_prerelease_review": "Day 30: fecal recheck + clinical review before release",
+  "taskGen.quarantine_fmd_vaccine": "Day 40: vaccinate FMD (killed, SC)",
+  "taskGen.quarantine_release": "Day 45: 10% zinc sulfate footbath → release to FOUNDATION",
+  // Localized month names for calendar-round titles ({month} args 1–12).
+  "taskGen.month.1": "January",
+  "taskGen.month.2": "February",
+  "taskGen.month.3": "March",
+  "taskGen.month.4": "April",
+  "taskGen.month.5": "May",
+  "taskGen.month.6": "June",
+  "taskGen.month.7": "July",
+  "taskGen.month.8": "August",
+  "taskGen.month.9": "September",
+  "taskGen.month.10": "October",
+  "taskGen.month.11": "November",
+  "taskGen.month.12": "December",
+
+  // ---------- auth (login / register / brand panel) ----------
+  "auth.welcomeBack": "Welcome back",
+  "auth.signInSubtitle": "Sign in to your account",
+  "auth.email": "Email",
+  "auth.password": "Password",
+  "auth.signIn": "Sign in",
+  "auth.signingIn": "Signing in…",
+  "auth.noAccount": "No account?",
+  "auth.registerLink": "Register",
+  "auth.emailInvalid": "Enter a valid email address",
+  "auth.emailTooLong": "Email must be at most 254 characters",
+  "auth.passwordRequired": "Password is required",
+  "auth.passwordTooLong": "Password must be at most 128 characters",
+  "auth.passwordTooShort": "Password must be at least 12 characters",
+  "auth.passwordHint": "At least 12 characters.",
+  "auth.createTitle": "Create your account",
+  "auth.createSubtitle": "Start managing your herd in minutes",
+  "auth.nameOptional": "Name (optional)",
+  "auth.creatingAccount": "Creating account…",
+  "auth.createAccount": "Create account",
+  "auth.haveAccount": "Already have an account?",
+  "auth.brandTitleLine1": "Herd management,",
+  "auth.brandTitleLine2": "simplified.",
+  "auth.brandTagline":
+    "Run a healthier, more profitable farm — from the first tag to the final sale.",
+  "auth.featureRecordsTitle": "Complete herd records",
+  "auth.featureRecordsDesc": "Track every animal, tag and lineage in one place.",
+  "auth.featureHealthTitle": "Proactive health care",
+  "auth.featureHealthDesc": "Stay ahead of vaccinations, treatments and checkups.",
+  "auth.featureInsightsTitle": "Insights that pay off",
+  "auth.featureInsightsDesc": "Breeding, kidding and finance reports at a glance.",
+  "auth.brandFoot": "For Osmanabadi goat herds across Telangana.",
+
+  // ---------- app shell ----------
+  "shell.skipToContent": "Skip to content",
+  "shell.tagline": "Goat farm management",
+  "shell.passwordChangeNotice":
+    "This password was set by the farm owner — change it (Account → Change password) before continuing. Farm pages and actions stay blocked until you do.",
+
+  // ---------- browser tab titles (app shell) ----------
+  "doc.title.dashboard": "Dashboard",
+  "doc.title.addAnimal": "Add animal",
+  "doc.title.animal": "Animal",
+  "doc.title.animals": "Animals",
+  "doc.title.buckets": "Buckets",
+  "doc.title.ultrasound": "Ultrasound",
+  "doc.title.breeding": "Breeding",
+  "doc.title.recordBirth": "Record birth",
+  "doc.title.births": "Births",
+  "doc.title.addHealthEvent": "Add health event",
+  "doc.title.vaccinationSchedule": "Vaccination schedule",
+  "doc.title.health": "Health",
+  "doc.title.feedInventory": "Feed inventory",
+  "doc.title.feedRecipes": "Feed recipes",
+  "doc.title.feeding": "Feeding",
+  "doc.title.purchases": "Purchases",
+  "doc.title.tasks": "Tasks",
+  "doc.title.finance": "Finance",
+  "doc.title.planner": "Planner",
+  "doc.title.simulation": "Simulation",
+  "doc.title.opsSimulation": "Ops Simulation",
+  "doc.title.reports": "Reports",
+  "doc.title.team": "Team",
+  "doc.title.noAccess": "No access",
+
+  // ---------- health event log ----------
+  // Meat-goat food safety: a drug withdrawal blocks slaughter/sale, not milk.
+  "health.notForSaleUntil": "Not for sale until {date}",
+
+  // ---------- feeding page static guidance ----------
+  "feeding.shiftsLine":
+    "Shifts: {morning} 6:30 AM (sweep bunks first) · {afternoon} 1:30 PM · {night} 7:30 PM.",
+  "feeding.phase.maintenance": "Maintenance",
+  "feeding.phase.flush": "Flush",
+  "feeding.frameBuilder": "frame-builder",
+  "feeding.fattening": "fattening",
+  "feeding.rotationNote":
+    "{resting} switches {maintenance} → {flush} at day 10; {maleKids} {frameBuilder} → {fattening} at day 91.",
+
+  // ---------- animal phenotype ----------
+  "animals.coatColor": "Coat colour",
+  "animals.coatColor.black": "Black",
+  "animals.coatColor.black_patched": "Black with patches",
+  "animals.coatColor.brown": "Brown",
+  "animals.coatColor.white": "White",
+  "animals.coatColor.spotted": "Spotted",
+  "animals.horned": "Horned",
+  "animals.editPhenotype": "Edit phenotype",
+  "animals.phenotypeSaved": "Phenotype saved.",
+  "animals.notRecorded": "Not recorded",
+  "common.unknown": "Unknown",
+
+  // ---------- dashboard advisories ----------
+  "dashboard.advisory.bakridHold":
+    "{count} males finish within 2 months of Bakrid ({date}) — hold for the festival price.",
 } as const;
 
 export type MessageKey = keyof typeof en;

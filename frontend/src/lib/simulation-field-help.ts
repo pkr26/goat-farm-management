@@ -35,11 +35,11 @@ export function speciesAwareLabel(base: string): string {
 /** Section-level help shown by the "?" beside each assumptions section. */
 export const SIMULATION_SECTION_HELP: Record<string, (v: FarmVocabulary) => string> = {
   meta: () =>
-    "How long the projection runs and the calendar month it starts from. Seasonal prices (festivals, milk lean season) are placed on real months from these two values.",
+    "How long the projection runs and the calendar month it starts from. Seasonal prices (festivals, lean seasons) are placed on real months from these two values.",
   herd: (v) =>
     `The animals on the ground on day 1, their purchase prices, and the replacement policy: how many home-grown females are kept as breeding stock and whether the breeding pool has a ceiling. A bought-in adult ${v.femaleAdult} first spends a settling period acclimatising before her first service.`,
   reproduction: (v) =>
-    `Breeding biology at monthly resolution: conception per service, gestation and lactation lengths, ${v.parturition} interval, and — for AI herds — the sexed-semen policy and the repeat-breeder cull rule.`,
+    `Breeding biology at monthly resolution: conception per service, gestation length, ${v.parturition} interval, and — for AI herds — the sexed-semen policy and the repeat-breeder cull rule.`,
   mortality: () =>
     `Death rates by class. Kid and weaner rates are whole-phase rates (the share of a crop lost across the whole 3-month class); grower and adult rates are annual.`,
   culling: (v) =>
@@ -47,7 +47,7 @@ export const SIMULATION_SECTION_HELP: Record<string, (v: FarmVocabulary) => stri
   growth: () =>
     `The live-weight curve from birth to adult and the age at which surplus young stock is sold for meat. Sale weight — and therefore sale revenue — comes straight off this curve.`,
   sales: (v) =>
-    `Market prices and selling terms: meat price per kg live weight, cull prices, festival timing and uplift, milk pricing (per litre or per kg fat), seasonality curves, and what happens to male ${v.youngPlural}.`,
+    `Market prices and selling terms: meat price per kg live weight, cull prices, festival timing and uplift, seasonality curves, and what happens to male ${v.youngPlural}.`,
   feed: () =>
     "Ration physics and prices: dry-matter intake per class as a share of body weight, concentrate/green/dry splits, fodder you grow versus buy, and how the feed budget escalates over the years.",
   costs: () =>
@@ -63,7 +63,6 @@ export const SIMULATION_SECTION_HELP: Record<string, (v: FarmVocabulary) => stri
 /** Goat-noun labels for fields whose backend key still carries the generic
  * engine's "calf" naming — the key is the API contract, the label is UI copy. */
 const FIELD_LABEL_OVERRIDES: Record<string, string> = {
-  "sales.calf_milk_litres_per_day_per_calf": "Kid milk litres per day per kid",
   "sales.male_calf_sell_at_birth_fraction": "Male kid sell-at-birth fraction",
   "sales.male_calf_price_per_head": "Male kid price per head",
 };
@@ -139,7 +138,10 @@ const FIELD_HELP: Record<string, (v: FarmVocabulary) => FieldHelp> = {
     body: `Months from conception to ${v.parturition} (~5 for goats). Whole months only.`,
   }),
   "reproduction.lactation_months": (v) => ({
-    body: `Length of the milking period after each ${v.parturition} in months (milking goat breeds run 3–6). The lactation overlay runs this long regardless of when the next conception happens.`,
+    body: `Months the ${v.femaleAdult} stays in the nursing pool after each ${v.parturition} before her rebreed wait begins — the weaning-plus-rebreed interval, not a saleable-milk length. Default 2 matches the day-60 wean; 90-day weaning derives 3.`,
+  }),
+  "reproduction.weaning_days": () => ({
+    body: "When kids are weaned off the dam. 60 days is the operational standard (the ~8-month kidding interval); 90 is the conservative research standard — better kid thrift, but it stretches the cycle by a month.",
   }),
   "reproduction.months_open_before_breeding": (v) => ({
     body: `Months after ${v.parturition} before the female is served again (voluntary waiting period). ~1 for goats.`,
@@ -154,7 +156,7 @@ const FIELD_HELP: Record<string, (v: FarmVocabulary) => FieldHelp> = {
     body: `Age at which a home-grown female is first served (and the age at which surplus females are sold). ~10 months/22 kg for goats.`,
   }),
   "reproduction.stillbirth_rate": () => ({
-    body: "Share of births born dead — lost before any milk or meat value accrues.",
+    body: "Share of births born dead — lost before any meat value accrues.",
   }),
   "reproduction.sexed_semen_services": () => ({
     body: "First N services of each breeding attempt use sexed semen (AI breeding policy). 0 disables sexed semen and keeps the flat female ratio above. Typical: 2 of 3 services sexed, then conventional.",
@@ -213,6 +215,9 @@ const FIELD_HELP: Record<string, (v: FarmVocabulary) => FieldHelp> = {
   "growth.adult_weight_age_months": () => ({
     body: `Age at which the animal reaches its adult weight (curve matures). Goats ~24 months — maturing them too early overstates weights, feed and sale value.`,
   }),
+  "growth.growth_regime": () => ({
+    body: "Which calibrated growth curve the weight-by-age table defaults to: stall_fed (managed-herd curve that finishes males into the 8–9 month sale window) or semi_intensive (grazing field curve — roughly half the early gains, so field males sell later and lighter).",
+  }),
   "growth.young_male_weight_premium": () => ({
     body: "How much heavier young males run than female contemporaries, as a fraction (0.10 = 10% heavier in goats). Adult male weight is set explicitly, not via this premium.",
   }),
@@ -254,38 +259,11 @@ const FIELD_HELP: Record<string, (v: FarmVocabulary) => FieldHelp> = {
   "sales.transport_cost_per_head": () => ({
     body: "Transport/handling per head sold (₹). Added to selling cost per animal sold.",
   }),
+  "sales.milk_sale_litres_per_doe_day": (v) => ({
+    body: `Saleable surplus milk per lactating ${v.femaleAdult} per day (litres). 0 = nothing sold (the default — this is a meat projection with a small milk side-line, not a dairy model). Osmanabadi does genuinely yield 0.5–1.5 kg/day over the ~60–90 day nursing window.`,
+  }),
   "sales.milk_price_per_litre": () => ({
-    body: "Flat milk price (₹/litre). IGNORED whenever a per-kg-fat price above zero is set — when procurement pays on fat, that is the price of record.",
-  }),
-  "sales.lactation_milk_litres": (v) => ({
-    body: `Total SALEABLE litres per ${v.parturition} per female — the number the lactation curve is normalized to. 0 for meat breeds (no milking at all); 90–200 L for milking goat breeds.`,
-  }),
-  "sales.calf_milk_litres_per_day_per_calf": (v) => ({
-    body: `Whole milk fed to each retained ${v.young} per day. Netted out of saleable milk; 0 = all milk sold and ${v.youngPlural} costed through feed only.`,
-  }),
-  "sales.milk_price_per_kg_fat": () => ({
-    body: "Procurement price per kg milk FAT (₹/kg fat — how cooperatives that pay on fat price milk, e.g. ₹850 at 6.8% fat ≈ ₹58/litre). When > 0 this replaces the flat per-litre price entirely.",
-  }),
-  "sales.milk_fat_pct": () => ({
-    body: "Fat content of the milk in percent points (goat milk typically 3.5–5%). Converts the per-kg-fat price into an effective ₹/litre.",
-  }),
-  "sales.milk_persistency_monthly": () => ({
-    body: "How fast yield declines after peak — the share of the previous month's milk kept each month after the peak (0.93 = 7%/month decline).",
-  }),
-  "sales.milk_curve_shape": () => ({
-    body: "\"geometric\" peaks in the first month then declines by persistency (legacy). \"wood\" — Wood's lactation curve — rises from freshening to a mid-lactation peak then declines, the classic lactation shape. Both normalize to the same lactation total.",
-  }),
-  "sales.milk_peak_day": () => ({
-    body: "Day in milk of peak yield for the Wood curve (default 65). Only used when the curve shape is \"wood\".",
-  }),
-  "sales.monthly_milk_yield_multipliers": () => ({
-    body: "Twelve January-indexed multipliers for milk YIELD by calendar month (heat-stress trough in the Telangana summer, winter flush). Normalized like every seasonal curve.",
-  }),
-  "sales.monthly_milk_price_multipliers": () => ({
-    body: "Twelve January-indexed multipliers for the milk PRICE by calendar month (lean-season procurement premium, flush discount).",
-  }),
-  "sales.annual_milk_price_growth_rate": () => ({
-    body: "Nominal annual growth of the milk price (0.06 = 6%/yr). Keep it near feed-price growth — a decade of price freeze against feed inflation is what makes dairies structurally loss-making.",
+    body: "₹/litre for the surplus-milk line (~₹30 farm-gate for goat milk sold locally in Telangana). Only applies when the litres-per-doe-day above is above zero.",
   }),
   "sales.male_calf_sell_at_birth_fraction": (v) => ({
     body: `Fraction of MALE births sold in the first week at a flat per-head price (the sexed-semen strategy's default exit — under 90% female births the few males conceived on later services are still worth more sold young than reared). The remainder is grown to the sale age and sold for meat at live weight. 0 = keep and grow every male ${v.young}.`,
@@ -294,7 +272,7 @@ const FIELD_HELP: Record<string, (v: FarmVocabulary) => FieldHelp> = {
     body: `Flat price for a week-old male ${v.young} sold at birth (₹/head). 0 disables the at-birth channel entirely.`,
   }),
   "sales.manure_income_per_adult_per_year": () => ({
-    body: `Yearly income per adult animal from manure/dung (₹ — slurry, biogas savings, or sale). A small but real income line; counted separately from milk and meat.`,
+    body: `Yearly income per adult animal from manure/dung (₹ — slurry, biogas savings, or sale). A small but real income line; counted separately from meat.`,
   }),
 
   // --- feed -------------------------------------------------------------------
@@ -314,7 +292,7 @@ const FIELD_HELP: Record<string, (v: FarmVocabulary) => FieldHelp> = {
     body: `Dry-matter intake of a pregnant ${v.femaleAdult} as a share of body weight per day (above maintenance).`,
   }),
   "feed.dmi_doe_lactating": (v) => ({
-    body: `Dry-matter intake of a milking ${v.femaleAdult} as a share of body weight per day — the biggest feed line on a milking herd.`,
+    body: `Dry-matter intake of a nursing ${v.femaleAdult} as a share of body weight per day — the biggest feed line while ${v.youngPlural} are on her.`,
   }),
   "feed.dmi_buck": (v) => ({
     body: `Dry-matter intake of an adult ${v.maleAdult} as a share of body weight per day.`,
@@ -335,7 +313,7 @@ const FIELD_HELP: Record<string, (v: FarmVocabulary) => FieldHelp> = {
     body: `Concentrate share of a pregnant ${v.femaleAdult}'s dry matter (steamed-up before kidding).`,
   }),
   "feed.concentrate_share_doe_lactating": (v) => ({
-    body: `Concentrate share of a milking ${v.femaleAdult}'s dry matter — the ration's cost driver.`,
+    body: `Concentrate share of a nursing ${v.femaleAdult}'s dry matter — the ration's cost driver.`,
   }),
   "feed.concentrate_share_buck": (v) => ({
     body: `Concentrate share of an adult ${v.maleAdult}'s dry matter.`,
@@ -372,6 +350,24 @@ const FIELD_HELP: Record<string, (v: FarmVocabulary) => FieldHelp> = {
   }),
   "feed.monthly_concentrate_price_multipliers": () => ({
     body: "Twelve January-indexed multipliers for concentrate prices by calendar month.",
+  }),
+  "feed.water_litres_kid_per_day": (v) => ({
+    body: `Planning water demand for a suckling ${v.young} (litres/head/day). The engine reports monthly litres and the herd's peak daily demand from these per-class rates.`,
+  }),
+  "feed.water_litres_weaner_per_day": () => ({
+    body: "Planning water demand for a weaner (3–5 months), litres/head/day.",
+  }),
+  "feed.water_litres_grower_per_day": () => ({
+    body: "Planning water demand for a grower (6 months to sale/first breeding), litres/head/day.",
+  }),
+  "feed.water_litres_doe_per_day": (v) => ({
+    body: `Planning water demand for a dry adult ${v.femaleAdult} (litres/head/day; Deccan guidance runs 5–10 L).`,
+  }),
+  "feed.water_litres_lactating_doe_per_day": (v) => ({
+    body: `Planning water demand for a nursing ${v.femaleAdult} (litres/head/day) — the single hardest summer line: a nursing ${v.femaleAdult} in the Telangana summer genuinely drinks 10–15 L/day.`,
+  }),
+  "feed.water_litres_buck_per_day": (v) => ({
+    body: `Planning water demand for an adult ${v.maleAdult} (litres/head/day).`,
   }),
   "feed.grazing_dm_fraction": () => ({
     body: "Share of dry matter obtained free from grazing (0 = stall-fed; ~0.3 = semi-intensive). Grazed DM costs nothing but field exposure raises mortality in the semi-intensive system preset.",
@@ -464,6 +460,9 @@ const FIELD_HELP: Record<string, (v: FarmVocabulary) => FieldHelp> = {
   "finance.discount_rate_annual": () => ({
     body: "The return you require on your money (0.12 = 12%) — the rate NPV discounts future cash flows at. NPV > 0 means the project beats this rate.",
   }),
+  "finance.nlm_subsidy": () => ({
+    body: "National Livestock Mission goat-unit toggle: when on, the engine replaces the subsidy fraction with the scheme's 50% back-ended capital subsidy, capped per unit size (eligible capital ~₹10,000 per breeding head), and loan + subsidy never exceed the project cost.",
+  }),
   "finance.working_capital_months": () => ({
     body: "Months of year-1 running costs held inside the project cost as the opening cash buffer. A breeding-start unit sells nothing for ~a year — 12 months is the honest default.",
   }),
@@ -513,9 +512,6 @@ const FIELD_HELP: Record<string, (v: FarmVocabulary) => FieldHelp> = {
   }),
   "risk.disease_conception_multiplier": () => ({
     body: "Conception-rate multiplier during an outbreak (0.70 = 30% fewer conceptions per service).",
-  }),
-  "risk.disease_milk_yield_multiplier": () => ({
-    body: "Milk-yield multiplier during an outbreak (FMD/LSD cut yield 14–25% on affected farms).",
   }),
   "risk.drought_probability_annual": () => ({
     body: "Chance of a drought/failed monsoon in any year. Triggers the fodder-yield crash and feed-price spike below for its duration.",
@@ -585,7 +581,6 @@ const RISK_SUBFIELD_HELP: Record<string, string> = {
 /** Names shown for each risk variable's parent row. */
 const RISK_VARIABLE_LABELS: Record<string, (v: FarmVocabulary) => string> = {
   meat_price: () => "Meat price",
-  milk_price: () => "Milk price",
   feed_price: () => "Feed price",
   adult_mortality: (v) => `Adult ${v.femaleAdult} mortality`,
   kid_mortality: () => `Kid mortality`,

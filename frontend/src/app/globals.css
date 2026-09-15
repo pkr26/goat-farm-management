@@ -184,6 +184,12 @@
   html {
     @apply font-sans scroll-smooth;
   }
+  /* Telugu sessions: Inter and Fraunces carry no Telugu glyphs, so both the
+   * sans and the display/heading stacks defer to Noto Sans Telugu. */
+  html:lang(te) {
+    --font-inter: var(--font-noto-sans-telugu);
+    --font-fraunces: var(--font-noto-sans-telugu);
+  }
   /* Subtle paper grain for the app canvas — barely visible, but it
    * kills the flat "default white" feel in light mode. */
   ::selection {

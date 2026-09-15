@@ -43,7 +43,6 @@ const DEFAULTS = {
     max_breeding_does: 200,
   },
   reproduction: {
-    lactation_months: 7,
     months_open_before_breeding: 2,
     litter_size: 1.6,
     age_at_first_breeding_months: 10,
@@ -54,7 +53,6 @@ const DEFAULTS = {
   sales: {
     eid_month: 6,
     annual_livestock_price_growth_rate: 0.05,
-    lactation_milk_litres: 120,
     transport_cost_per_head: 250,
   },
   feed: {
@@ -168,7 +166,6 @@ describe("SimulationPage assumption field contracts", () => {
     contract("Male Kids", { min: "0", max: "100000", step: "1" });
     contract("Max Breeding Does", { min: "0", max: "100000", step: "1" });
 
-    contract("Lactation Months", { min: "1", max: "12", step: "1", unit: "months" });
     contract("Months Open Before Breeding", {
       min: "0",
       max: "12",
@@ -196,12 +193,6 @@ describe("SimulationPage assumption field contracts", () => {
       max: "1",
       step: "any",
       unit: "fraction",
-    });
-    contract("Lactation Milk Litres", {
-      min: "0",
-      max: "100000",
-      step: "any",
-      unit: "litres",
     });
     contract("Transport Cost Per Head", {
       min: "0",
@@ -396,23 +387,23 @@ describe("SimulationPage assumption field contracts", () => {
     const user = userEvent.setup();
     await renderLoaded();
 
-    const lactation = screen.getByLabelText("Lactation Months");
-    await user.clear(lactation);
-    await user.type(lactation, "13");
+    const monthsOpen = screen.getByLabelText("Months Open Before Breeding");
+    await user.clear(monthsOpen);
+    await user.type(monthsOpen, "13");
 
     expect(screen.getByText("Must be at most 12.")).toBeInTheDocument();
-    expect(lactation).toHaveAttribute("aria-invalid", "true");
+    expect(monthsOpen).toHaveAttribute("aria-invalid", "true");
     expect(
       screen.getByText("Fix 1 highlighted numeric field before running or saving."),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Run simulation" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Save as scenario" })).toBeDisabled();
 
-    await user.clear(lactation);
-    await user.type(lactation, "12");
+    await user.clear(monthsOpen);
+    await user.type(monthsOpen, "12");
 
     expect(screen.queryByText("Must be at most 12.")).not.toBeInTheDocument();
-    expect(lactation).not.toHaveAttribute("aria-invalid");
+    expect(monthsOpen).not.toHaveAttribute("aria-invalid");
     expect(screen.getByRole("button", { name: "Run simulation" })).toBeEnabled();
   });
 

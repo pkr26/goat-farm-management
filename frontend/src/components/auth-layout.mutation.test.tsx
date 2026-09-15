@@ -4,7 +4,7 @@
  * from the --primary token, and the marketing copy/slots must render.
  */
 
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { AuthLayout } from "@/components/auth-layout";
@@ -42,8 +42,13 @@ describe("AuthLayout", () => {
       </AuthLayout>,
     );
 
-    const headline = container.querySelector("h1");
-    expect(headline).toHaveTextContent("Herd management,simplified.");
+    // The single h1 is the form title — it stays mounted below the lg
+    // breakpoint where the brand panel (and its slogan) hides (H2b).
+    const headings = container.querySelectorAll("h1");
+    expect(headings).toHaveLength(1);
+    expect(headings[0]).toHaveTextContent("Create account");
+    expect(screen.getByText(/Herd management,/)).toBeInTheDocument();
+    expect(screen.getByText(/simplified\./)).toBeInTheDocument();
     expect(screen.getByText(/Run a healthier, more profitable farm/)).toBeInTheDocument();
     for (const feature of [
       "Complete herd records",
@@ -61,5 +66,25 @@ describe("AuthLayout", () => {
     expect(screen.getByText("Already registered?")).toBeInTheDocument();
     // Desktop panel and mobile bar each carry the wordmark.
     expect(screen.getAllByText("Herdly")).toHaveLength(2);
+  });
+
+  it("localizes the brand panel in Telugu", async () => {
+    const { LanguageProvider } = await import("@/lib/i18n");
+    window.localStorage.setItem("herdly.language", "te");
+    const { container } = render(
+      <LanguageProvider>
+        <AuthLayout title="Sign in" subtitle="Welcome back" footer="Need an account?">
+          <p>fields</p>
+        </AuthLayout>
+      </LanguageProvider>,
+    );
+    // The stored choice is adopted in a mount effect, then the brand slogan
+    // and feature rows render in Telugu.
+    await waitFor(() => {
+      const slogan = container.querySelector(".font-heading.text-4xl");
+      expect(slogan?.textContent).toContain("మంద నిర్వహణ,");
+    });
+    expect(screen.getByText("ముందస్తు ఆరోగ్య సంరక్షణ")).toBeInTheDocument();
+    window.localStorage.clear();
   });
 });

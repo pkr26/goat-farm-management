@@ -494,7 +494,7 @@ describe("TasksPage (extended)", () => {
     await renderLoaded();
     await user.click(within(rowOf("Morning feed count")).getByRole("button", { name: "Skip" }));
     const dialog = await screen.findByRole("dialog", { name: "Skip this task?" });
-    await user.type(within(dialog).getByLabelText("Reason"), "not needed");
+    await user.type(within(dialog).getByLabelText("Reason *"), "not needed");
     await user.click(within(dialog).getByRole("button", { name: "Skip task" }));
 
     await waitFor(() =>
@@ -524,7 +524,7 @@ describe("TasksPage (extended)", () => {
     await renderLoaded();
     await user.click(within(rowOf("Morning feed count")).getByRole("button", { name: "Skip" }));
     const dialog = await screen.findByRole("dialog", { name: "Skip this task?" });
-    await user.type(within(dialog).getByLabelText("Reason"), "  feed already issued  ");
+    await user.type(within(dialog).getByLabelText("Reason *"), "  feed already issued  ");
     await user.click(within(dialog).getByRole("button", { name: "Skip task" }));
 
     await waitFor(() =>
@@ -548,7 +548,7 @@ describe("TasksPage (extended)", () => {
     await renderLoaded();
     await user.click(within(rowOf("Morning feed count")).getByRole("button", { name: "Skip" }));
     const skipDialog = await screen.findByRole("dialog", { name: "Skip this task?" });
-    await user.type(within(skipDialog).getByLabelText("Reason"), "not needed");
+    await user.type(within(skipDialog).getByLabelText("Reason *"), "not needed");
     await user.click(within(skipDialog).getByRole("button", { name: "Skip task" }));
 
     await waitFor(() => expect(failed).toBe(1));

@@ -24,6 +24,7 @@ import {
   ListAnimalsApiAnimalsGetBucket,
   ListAnimalsApiAnimalsGetSex,
   ListAnimalsApiAnimalsGetStatus,
+  type AnimalCreateIn,
   type ListAnimalsApiAnimalsGetParams,
 } from "@/api/generated/models";
 import { DataTableCard } from "@/components/data-table-card";
@@ -64,6 +65,7 @@ import { ApiError } from "@/lib/api-client";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { MAX_ANIMAL_TAG_LENGTH, MAX_FREE_TEXT_LENGTH } from "@/lib/backend-caps";
 import { enumLabel } from "@/lib/enum-labels";
+import { useLanguage, useT } from "@/lib/i18n";
 import { farmVocabulary, type FarmVocabulary } from "@/lib/farm-vocabulary";
 import { farmToday } from "@/lib/format";
 import {
@@ -89,15 +91,14 @@ const MAX_PAGE_OFFSET = 1_000_000;
 const MAX_PAGE = Math.floor(MAX_PAGE_OFFSET / PAGE_SIZE) + 1;
 const BUCKETS = Object.values(AnimalCreateInCurrentBucket);
 const BIRTH_TYPES = Object.values(AnimalCreateInBirthType);
-/** value → label map for the root `items` prop: without it, Base UI's
- * Select.Value renders the raw value in the closed trigger. */
-const BIRTH_TYPE_ITEMS: Record<string, string> = Object.fromEntries(
-  BIRTH_TYPES.map((t) => [
-    t,
-    // Stryker disable next-line StringLiteral: birthType labels are exactly the titlecase of their enum values and Telugu carries no birthType overrides, so the catalog lookup is the identity
-    enumLabel("birthType", t),
-  ]),
-);
+/** Phenotype coat-colour codes (wire values; labels live in the i18n
+ * catalog under animals.coatColor.*). */
+const COAT_COLOR_CODES = ["black", "black_patched", "brown", "white", "spotted"] as const;
+/** value → label map for the root `items` prop, in the active language:
+ * without it, Base UI's Select.Value renders the raw value in the closed
+ * trigger. */
+const birthTypeItems = (language: "en" | "te"): Record<string, string> =>
+  Object.fromEntries(BIRTH_TYPES.map((t) => [t, enumLabel("birthType", t, language)]));
 const WORKFLOW_ONLY_INITIAL_BUCKETS = new Set<string>([
   AnimalCreateInCurrentBucket.PREGNANCY_EARLY,
   AnimalCreateInCurrentBucket.PREGNANCY_LATE,
@@ -117,33 +118,35 @@ const BUCKET_REQUIRED_SEX: Record<string, string> = {
 const bucketAllowsSex = (bucket: string, sex: string) =>
   (BUCKET_REQUIRED_SEX[bucket] ?? sex) === sex;
 
-const bucketLabel = (b: string) => enumLabel("bucket", b);
+const bucketLabel = (b: string, language: "en" | "te") => enumLabel("bucket", b, language);
 /** value → label map for the root `items` prop: without it, Base UI's
  * Select.Value renders the raw value in the closed trigger. */
-const bucketItems = (): Record<string, string> =>
-  Object.fromEntries(BUCKETS.map((b) => [b, bucketLabel(b)]));
-const SEX_ITEMS: Record<string, string> = {
-  [AnimalCreateInSex.F]: "Female",
-  [AnimalCreateInSex.M]: "Male",
-};
+const bucketItems = (language: "en" | "te"): Record<string, string> =>
+  Object.fromEntries(BUCKETS.map((b) => [b, bucketLabel(b, language)]));
+const sexItems = (language: "en" | "te"): Record<string, string> => ({
+  [AnimalCreateInSex.F]: enumLabel("sex", "F", language),
+  [AnimalCreateInSex.M]: enumLabel("sex", "M", language),
+});
 const SOURCE_ITEMS: Record<string, string> = {
   [AnimalCreateInSource.BORN]: "Historical born-on-farm import",
   [AnimalCreateInSource.PURCHASED]: "Purchased",
 };
-const SEX_FILTER_ITEMS: Record<string, string> = { [ALL]: "Both sexes", ...SEX_ITEMS };
+const sexFilterItems = (language: "en" | "te"): Record<string, string> => ({
+  [ALL]: "Both sexes",
+  ...sexItems(language),
+});
 // Stryker disable next-line ObjectLiteral, StringLiteral: cva resolves variant "default" to the same classes as the fallback, and the sm size only changes padding classes no test observes (duties record-row precedent)
 const ROW_ACTION_CLASSES = buttonVariants({ variant: "default", size: "sm" });
 
-const STATUS_FILTER_ITEMS: Record<string, string> = {
+const statusFilterItems = (language: "en" | "te"): Record<string, string> => ({
   [ALL]: "All statuses",
   ...Object.fromEntries(
     Object.values(ListAnimalsApiAnimalsGetStatus).map((s) => [
       s,
-      // Stryker disable next-line StringLiteral: status labels are exactly the titlecase of their enum values and Telugu carries no status overrides, so the catalog lookup is the identity
-      enumLabel("status", s),
+      enumLabel("status", s, language),
     ]),
   ),
-};
+});
 
 /** Zero is meaningful for optional weights; anything smaller rounds away. */
 const MIN_PERSISTED_WEIGHT_MESSAGE = "Weight must be 0 kg or at least 0.0005 kg";
@@ -186,6 +189,11 @@ export const createAnimalSchema = (vocabulary: FarmVocabulary) =>
     source: z.enum([AnimalCreateInSource.BORN, AnimalCreateInSource.PURCHASED]),
     current_bucket: z.enum(BUCKETS as [string, ...string[]]),
     breed: z.string().max(60).optional(),
+    // Phenotype descriptors (optional API contract: coat_color / horned).
+    // The "" sentinel means "not recorded" and is stripped before submit, so
+    // a backend that predates the fields never receives the keys at all.
+    coat_color: z.enum(["", ...COAT_COLOR_CODES] as [string, ...string[]]).optional(),
+    horned: z.enum(["", "yes", "no"]).optional(),
     date_of_birth: z
       .string()
       .optional()
@@ -401,6 +409,8 @@ function CreateAnimalDialog({
   const [open, setOpen] = useState(startOpen);
   const createMut = useCreateAnimalApiAnimalsPost();
   const createFlight = useSingleFlight();
+  const { language } = useLanguage();
+  const t = useT();
   const vocabulary = farmVocabulary;
   // Stryker disable next-line ArrayDeclaration: farmVocabulary is a module constant, so the dep list can never go stale
   const schema = useMemo(() => createAnimalSchema(vocabulary), [vocabulary]);
@@ -430,6 +440,20 @@ function CreateAnimalDialog({
   const source = useWatch({ control, name: "source" });
   const sex = useWatch({ control, name: "sex" });
   const currentBucket = useWatch({ control, name: "current_bucket" });
+  /** value → label maps for the phenotype selects (active language). */
+  const coatColorItems: Record<string, string> = {
+    "": t("animals.notRecorded"),
+    black: t("animals.coatColor.black"),
+    black_patched: t("animals.coatColor.black_patched"),
+    brown: t("animals.coatColor.brown"),
+    white: t("animals.coatColor.white"),
+    spotted: t("animals.coatColor.spotted"),
+  };
+  const hornedItems: Record<string, string> = {
+    "": t("animals.notRecorded"),
+    yes: t("common.yes"),
+    no: t("common.no"),
+  };
 
   // Stryker disable ConditionalExpression, ObjectLiteral, BooleanLiteral: the payload mapper independently forces QUARANTINE for PURCHASED and honors the operator's choice for BORN (pinned by the campaign payload tests); this preset only prefills the select, and shouldValidate never surfaces a different error state for enum values
   useEffect(() => {
@@ -468,6 +492,14 @@ function CreateAnimalDialog({
                 : (values.current_bucket as AnimalCreateInCurrentBucket),
             // Stryker disable next-line OptionalChaining: the input is registered unconditionally, so the value is a string, never undefined
             breed: values.breed?.trim() || vocabulary.defaultBreed,
+            // Only sent when the operator actually recorded them: a backend
+            // that predates the phenotype contract would 422 the unknown keys.
+            ...(values.coat_color ? { coat_color: values.coat_color } : {}),
+            ...(values.horned === "yes"
+              ? { horned: true }
+              : values.horned === "no"
+                ? { horned: false }
+                : {}),
             date_of_birth: emptyToNull(values.date_of_birth),
             estimated_dob: emptyToNull(values.estimated_dob),
             birth_type: (values.birth_type || null) as AnimalCreateInBirthType,
@@ -484,7 +516,8 @@ function CreateAnimalDialog({
               values.source === AnimalCreateInSource.BORN
                 ? values.historical_import_reason.trim() || null
                 : null,
-          },
+            // The generated client lags the optional phenotype contract.
+          } as AnimalCreateIn & { coat_color?: string; horned?: boolean },
         });
         // The write landed on the farm it was aimed at; a switch since then
         // means this continuation belongs to the previous farm's UI.
@@ -559,13 +592,17 @@ function CreateAnimalDialog({
                 control={control}
                 name="sex"
                 render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange} items={SEX_ITEMS}>
+                  <Select value={field.value} onValueChange={field.onChange} items={sexItems(language)}>
                     <SelectTrigger id="animal-sex" className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={AnimalCreateInSex.F}>Female</SelectItem>
-                      <SelectItem value={AnimalCreateInSex.M}>Male</SelectItem>
+                      <SelectItem value={AnimalCreateInSex.F}>
+                        {enumLabel("sex", "F", language)}
+                      </SelectItem>
+                      <SelectItem value={AnimalCreateInSex.M}>
+                        {enumLabel("sex", "M", language)}
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 )}
@@ -612,7 +649,7 @@ function CreateAnimalDialog({
                 <>
                   <Input
                     id="animal-bucket"
-                    value={bucketLabel(AnimalCreateInCurrentBucket.QUARANTINE)}
+                    value={bucketLabel(AnimalCreateInCurrentBucket.QUARANTINE, language)}
                     readOnly
                     aria-describedby="purchased-quarantine-note"
                   />
@@ -626,7 +663,7 @@ function CreateAnimalDialog({
                   control={control}
                   name="current_bucket"
                   render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange} items={bucketItems()}>
+                    <Select value={field.value} onValueChange={field.onChange} items={bucketItems(language)}>
                       <SelectTrigger id="animal-bucket" className="w-full">
                         <SelectValue />
                       </SelectTrigger>
@@ -634,7 +671,7 @@ function CreateAnimalDialog({
                         {HISTORICAL_IMPORT_BUCKETS.filter((b) => bucketAllowsSex(b, sex)).map(
                           (b) => (
                             <SelectItem key={b} value={b}>
-                              {bucketLabel(b)}
+                              {bucketLabel(b, language)}
                             </SelectItem>
                           ),
                         )}
@@ -679,6 +716,57 @@ function CreateAnimalDialog({
                   {errors.breed.message}
                 </p>
               )}
+            </div>
+            {/* Phenotype descriptors (optional API contract). Blank means not
+             * recorded and is stripped from the payload. */}
+            <div className="space-y-1.5">
+              <Label htmlFor="animal-coat-color">{t("animals.coatColor")}</Label>
+              <Controller
+                control={control}
+                name="coat_color"
+                render={({ field }) => (
+                  <Select
+                    value={field.value ?? ""}
+                    onValueChange={field.onChange}
+                    items={coatColorItems}
+                  >
+                    <SelectTrigger id="animal-coat-color" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">{t("animals.notRecorded")}</SelectItem>
+                      {COAT_COLOR_CODES.map((code) => (
+                        <SelectItem key={code} value={code}>
+                          {coatColorItems[code]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="animal-horned">{t("animals.horned")}</Label>
+              <Controller
+                control={control}
+                name="horned"
+                render={({ field }) => (
+                  <Select
+                    value={field.value ?? ""}
+                    onValueChange={field.onChange}
+                    items={hornedItems}
+                  >
+                    <SelectTrigger id="animal-horned" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">{t("animals.notRecorded")}</SelectItem>
+                      <SelectItem value="yes">{t("common.yes")}</SelectItem>
+                      <SelectItem value="no">{t("common.no")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="date_of_birth">Date of birth</Label>
@@ -736,7 +824,7 @@ function CreateAnimalDialog({
                         // Stryker disable next-line LogicalOperator: hand-proven equivalent — Base UI normalizes the set-value "" (mutant arm) through its internal selection state, so the trigger label and popup indicator are identical; the RHF value itself never passes through this display prop
                         value={field.value ?? ""}
                         onValueChange={field.onChange}
-                        items={BIRTH_TYPE_ITEMS}
+                        items={birthTypeItems(language)}
                       >
                         <SelectTrigger id="animal-birth-type" className="w-full">
                           <SelectValue placeholder="—" />
@@ -744,7 +832,7 @@ function CreateAnimalDialog({
                         <SelectContent>
                           {BIRTH_TYPES.map((t) => (
                             <SelectItem key={t} value={t}>
-{BIRTH_TYPE_ITEMS[t]}
+{birthTypeItems(language)[t]}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -889,15 +977,15 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
   const allowed = can("animals.view");
   /** value → label map for the bucket filter Select root, with the raw
    * code as the value. */
-  // Stryker disable ArrayDeclaration: the memo body reads only generated enums and pure helpers, so a constant dep list cannot change its output
+  const { language } = useLanguage();
   const bucketFilterItems = useMemo(() => {
     const entries = Object.values(ListAnimalsApiAnimalsGetBucket).map((b) => [
       b,
-      enumLabel("bucket", b),
+      enumLabel("bucket", b, language),
     ]);
     return { [ALL]: "All buckets", ...Object.fromEntries(entries) };
-  }, []);
-  // Stryker restore ArrayDeclaration
+  }, [language]);
+  const statusItems = statusFilterItems(language);
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -1323,7 +1411,7 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
             <SelectItem value={ALL}>All buckets</SelectItem>
             {Object.values(ListAnimalsApiAnimalsGetBucket).map((b) => (
               <SelectItem key={b} value={b}>
-                {enumLabel("bucket", b)}
+                {enumLabel("bucket", b, language)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -1331,21 +1419,25 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
         <Select
           value={sex}
           onValueChange={(value) => changeFilter("sex", value)}
-          items={SEX_FILTER_ITEMS}
+          items={sexFilterItems(language)}
         >
           <SelectTrigger aria-label="Filter animals by sex">
             <SelectValue placeholder="Both sexes" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ALL}>Both sexes</SelectItem>
-            <SelectItem value={ListAnimalsApiAnimalsGetSex.F}>Female</SelectItem>
-            <SelectItem value={ListAnimalsApiAnimalsGetSex.M}>Male</SelectItem>
+            <SelectItem value={ListAnimalsApiAnimalsGetSex.F}>
+              {enumLabel("sex", "F", language)}
+            </SelectItem>
+            <SelectItem value={ListAnimalsApiAnimalsGetSex.M}>
+              {enumLabel("sex", "M", language)}
+            </SelectItem>
           </SelectContent>
         </Select>
         <Select
           value={status}
           onValueChange={(value) => changeFilter("status", value)}
-          items={STATUS_FILTER_ITEMS}
+          items={statusItems}
         >
           <SelectTrigger aria-label="Filter animals by status">
             <SelectValue placeholder="All statuses" />
@@ -1354,7 +1446,7 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
             <SelectItem value={ALL}>All statuses</SelectItem>
             {Object.values(ListAnimalsApiAnimalsGetStatus).map((s) => (
               <SelectItem key={s} value={s}>
-                {STATUS_FILTER_ITEMS[s]}
+                {statusItems[s]}
               </SelectItem>
             ))}
           </SelectContent>
@@ -1444,7 +1536,7 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
                 </div>
                 {a.name && <p className="text-sm text-muted-foreground">{a.name}</p>}
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {enumLabel("sex", a.sex)} · {enumLabel("bucket", a.current_bucket)} ·{" "}
+                  {enumLabel("sex", a.sex, language)} · {enumLabel("bucket", a.current_bucket, language)} ·{" "}
                   {a.breed}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -1497,9 +1589,9 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
                       </Link>
                     </TableCell>
                     <TableCell>{a.name ?? "—"}</TableCell>
-                    <TableCell>{enumLabel("sex", a.sex)}</TableCell>
+                    <TableCell>{enumLabel("sex", a.sex, language)}</TableCell>
                     <TableCell>{a.breed}</TableCell>
-                    <TableCell>{enumLabel("bucket", a.current_bucket)}</TableCell>
+                    <TableCell>{enumLabel("bucket", a.current_bucket, language)}</TableCell>
                     <TableCell>
                       <StatusBadge status={a.status} />
                     </TableCell>

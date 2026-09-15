@@ -808,9 +808,21 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
           </div>
         )}
         <p className="mt-3 text-sm text-muted-foreground">
-          Shifts: {enumLabel("shift", "MORNING", language)} 6:30 AM (sweep bunks first) ·{" "}
-          {enumLabel("shift", "AFTERNOON", language)} 1:30 PM · {enumLabel("shift", "NIGHT", language)} 7:30 PM.{" "}
-          {`${enumLabel("bucket", "RESTING", language)} switches ${enumLabel("bucket", "MAINTENANCE", language)} → ${enumLabel("bucket", "FLUSH", language)} at day 10; ${enumLabel("bucket", "MALE_KIDS", language)} frame-builder → fattening at day 91.`}
+          {t("feeding.shiftsLine", {
+            morning: enumLabel("shift", "MORNING", language),
+            afternoon: enumLabel("shift", "AFTERNOON", language),
+            night: enumLabel("shift", "NIGHT", language),
+          })}{" "}
+          {/* MAINTENANCE/FLUSH and frame-builder/fattening are recipe names,
+           * not herd buckets — they come from the catalog, not enumLabel. */}
+          {t("feeding.rotationNote", {
+            resting: enumLabel("bucket", "RESTING", language),
+            maintenance: t("feeding.phase.maintenance"),
+            flush: t("feeding.phase.flush"),
+            maleKids: enumLabel("bucket", "MALE_KIDS", language),
+            frameBuilder: t("feeding.frameBuilder"),
+            fattening: t("feeding.fattening"),
+          })}
         </p>
       </DataTableCard>
 

@@ -533,7 +533,7 @@ describe("SimulationPage break-even cash rows", () => {
     const quietCells = within(quiet).getAllByRole("cell");
     expect(quiet).not.toHaveClass("bg-warning-tint/50");
     expect(quietCells[20]).toHaveTextContent("—");
-    for (const index of [16, 17]) {
+    for (const index of [15, 16]) {
       expect(quietCells[index]).toHaveTextContent("₹0");
       expect(quietCells[index]).not.toHaveClass("text-destructive");
     }
@@ -543,7 +543,7 @@ describe("SimulationPage break-even cash rows", () => {
     expect(deficitCells[20]).toHaveTextContent(
       "Purchased 5 doe(s) at ₹8,000/head (₹40,000)",
     );
-    for (const index of [16, 17]) {
+    for (const index of [15, 16]) {
       expect(deficitCells[index]).toHaveTextContent("-₹1");
       expect(deficitCells[index]).toHaveClass("text-destructive");
     }

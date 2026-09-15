@@ -62,9 +62,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { ApiError } from "@/lib/api-client";
+import { apiFetch, ApiError } from "@/lib/api-client";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { enumLabel } from "@/lib/enum-labels";
+import { useLanguage, useT, type MessageKey } from "@/lib/i18n";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { farmToday, formatDate, formatFarmDateTime, formatMoney } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
@@ -81,16 +82,27 @@ const BUCKETS = Object.values(MoveInToBucket);
 /** Coded mortality causes (StatusChangeInMortalityCauseCode): the select
  * offers them in the wire enum's order, labelled through the enum catalog. */
 const MORTALITY_CAUSE_CODES = Object.values(StatusChangeInMortalityCauseCode);
-/** value → label map for the root `items` prop: without it, Base UI's
- * Select.Value renders the raw code in the closed trigger. */
-const MORTALITY_CAUSE_CODE_ITEMS: Record<string, string> = {
+/** value → label map for the root `items` prop, in the active language:
+ * without it, Base UI's Select.Value renders the raw code in the closed
+ * trigger. */
+const mortalityCauseCodeItems = (language: "en" | "te"): Record<string, string> => ({
   "": "— not coded —",
   ...Object.fromEntries(
-    MORTALITY_CAUSE_CODES.map((code) => [code, enumLabel("mortalityCause", code)]),
+    MORTALITY_CAUSE_CODES.map((code) => [code, enumLabel("mortalityCause", code, language)]),
   ),
-};
+});
 const PROFILE_HISTORY_LIMIT = 25;
 const RESTRICTION_HISTORY_LIMIT = 25;
+
+/** Phenotype coat-colour wire values → catalog keys; an unknown code renders
+ * verbatim rather than silently vanishing. */
+const COAT_COLOR_LABEL_KEYS: Record<string, MessageKey> = {
+  black: "animals.coatColor.black",
+  black_patched: "animals.coatColor.black_patched",
+  brown: "animals.coatColor.brown",
+  white: "animals.coatColor.white",
+  spotted: "animals.coatColor.spotted",
+};
 
 /** Sex each bucket is reserved for, mirroring backend/app/schemas/animals.py
  * (and the ck_animals_bucket_sex CHECK). Buckets absent here take both. */
@@ -292,6 +304,152 @@ function AddWeightDialog({
   );
 }
 
+/** Phenotype edit (coat colour / horns) through PATCH /api/animals/{id}.
+ * The generated client lags the endpoint in this worktree, so the call goes
+ * through apiFetch directly. Both fields always travel in the payload: the
+ * contract clears stored values on explicit null, which is exactly what the
+ * "Not recorded" option means. */
+function EditPhenotypeDialog({
+  animal,
+  onDone,
+  actionFlight,
+  profileSettling,
+}: {
+  animal: AnimalProfileOut["animal"];
+  onDone: () => void;
+  actionFlight: ProfileActionFlight;
+  profileSettling: boolean;
+}) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const phenotype = animal as typeof animal & {
+    coat_color?: string | null;
+    horned?: boolean | null;
+  };
+  const [coatColor, setCoatColor] = useState<string>(phenotype.coat_color ?? "");
+  const [horned, setHorned] = useState<string>(
+    phenotype.horned === true ? "yes" : phenotype.horned === false ? "no" : "",
+  );
+  const coatColorItems: Record<string, string> = {
+    "": t("animals.notRecorded"),
+    black: t("animals.coatColor.black"),
+    black_patched: t("animals.coatColor.black_patched"),
+    brown: t("animals.coatColor.brown"),
+    white: t("animals.coatColor.white"),
+    spotted: t("animals.coatColor.spotted"),
+  };
+  const hornedItems: Record<string, string> = {
+    "": t("animals.notRecorded"),
+    yes: t("common.yes"),
+    no: t("common.no"),
+  };
+
+  function openDialog() {
+    setSaveError(null);
+    setCoatColor(phenotype.coat_color ?? "");
+    setHorned(phenotype.horned === true ? "yes" : phenotype.horned === false ? "no" : "");
+    setOpen(true);
+  }
+
+  async function save() {
+    if (profileSettling) return;
+    await actionFlight.run(async () => {
+      const farmScope = captureFarmScope();
+      setSaveError(null);
+      try {
+        await apiFetch(`/api/animals/${animal.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            coat_color: coatColor || null,
+            horned: horned === "" ? null : horned === "yes",
+          }),
+        });
+        if (!farmScope()) return;
+        toast.success(t("animals.phenotypeSaved"));
+        setOpen(false);
+        invalidateFarmData(queryClient);
+        onDone();
+      } catch (err) {
+        if (!farmScope()) return;
+        setSaveError(err instanceof ApiError ? err.detail : t("common.somethingWentWrong"));
+      }
+    });
+  }
+
+  return (
+    <>
+      <Button variant="outline" size="sm" disabled={profileSettling} onClick={openDialog}>
+        {t("animals.editPhenotype")}
+      </Button>
+      <Dialog
+        open={open}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen && actionFlight.pending) return;
+          setOpen(nextOpen);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("animals.editPhenotype")}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-coat-color">{t("animals.coatColor")}</Label>
+              <Select value={coatColor} onValueChange={setCoatColor} items={coatColorItems}>
+                <SelectTrigger id="edit-coat-color" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(coatColorItems).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-horned">{t("animals.horned")}</Label>
+              <Select value={horned} onValueChange={setHorned} items={hornedItems}>
+                <SelectTrigger id="edit-horned" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(hornedItems).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {saveError && (
+              <p role="alert" className="text-sm text-destructive">
+                {saveError}
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={actionFlight.pending}
+              onClick={() => setOpen(false)}
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button type="button" disabled={actionFlight.pending} onClick={() => void save()}>
+              {actionFlight.pending ? t("common.loading") : t("common.save")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 const moveSchema = z.object({
   to_bucket: z.enum(BUCKETS as [string, ...string[]]),
   reason: z.string().max(255, "Reason cannot exceed 255 characters").optional(),
@@ -314,6 +472,7 @@ function MoveBucketDialog({
   profileSettling: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const { language } = useLanguage();
   const mut = useMoveBucketApiAnimalsAnimalIdMovePost();
   const {
     handleSubmit,
@@ -382,7 +541,7 @@ function MoveBucketDialog({
                   value={field.value ?? ""}
                   onValueChange={field.onChange}
                   items={Object.fromEntries(
-                    BUCKETS.map((b) => [b, enumLabel("bucket", b)]),
+                    BUCKETS.map((b) => [b, enumLabel("bucket", b, language)]),
                   )}
                 >
                   <SelectTrigger
@@ -398,7 +557,7 @@ function MoveBucketDialog({
                       (b) => b !== currentBucket && bucketAllowsSex(b, sex),
                     ).map((b) => (
                       <SelectItem key={b} value={b}>
-                        {enumLabel("bucket", b)}
+                        {enumLabel("bucket", b, language)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -572,6 +731,7 @@ function StatusDialog({
   profileSettling: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const { language } = useLanguage();
   const mut = useChangeStatusApiAnimalsAnimalIdStatusPost();
   const {
     register,
@@ -870,7 +1030,7 @@ function StatusDialog({
                       onValueChange={(value) =>
                         field.onChange(value === "" ? undefined : value)
                       }
-                      items={MORTALITY_CAUSE_CODE_ITEMS}
+                      items={mortalityCauseCodeItems(language)}
                     >
                       <SelectTrigger
                         id="mortality-cause-code"
@@ -883,7 +1043,7 @@ function StatusDialog({
                         <SelectItem value="">— not coded —</SelectItem>
                         {MORTALITY_CAUSE_CODES.map((code) => (
                           <SelectItem key={code} value={code}>
-                            {enumLabel("mortalityCause", code)}
+                            {enumLabel("mortalityCause", code, language)}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -1319,7 +1479,16 @@ function ProfileBody({
   onBreedingsOffsetChange: (offset: number) => void;
 }) {
   const { can } = usePermissions();
+  const { language } = useLanguage();
+  const t = useT();
   const a = profile.animal;
+  /** Phenotype descriptors ride the optional API contract; the generated
+   * client types lag it, so read through a widened alias and render only
+   * what the payload actually carries. */
+  const phenotype = a as typeof a & {
+    coat_color?: string | null;
+    horned?: boolean | null;
+  };
   const vocabulary = farmVocabulary;
   const active = a.status === "ACTIVE";
   const canViewHealth = can("health.view");
@@ -1364,7 +1533,7 @@ function ProfileBody({
               <StatusBadge status={a.status} />
             </span>
           }
-          description={`${a.breed} · ${a.sex === "F" ? "Female" : "Male"} · ${enumLabel("bucket", a.current_bucket)}`}
+          description={`${a.breed} · ${a.sex === "F" ? enumLabel("sex", "F", language) : enumLabel("sex", "M", language)} · ${enumLabel("bucket", a.current_bucket, language)}`}
           actions={
             active && (
               <>
@@ -1389,6 +1558,14 @@ function ProfileBody({
                 {can("animals.status") && (
                   <StatusDialog
                     animalId={a.id}
+                    onDone={refresh}
+                    actionFlight={actionFlight}
+                    profileSettling={profileSettling}
+                  />
+                )}
+                {can("animals.create") && (
+                  <EditPhenotypeDialog
+                    animal={a}
                     onDone={refresh}
                     actionFlight={actionFlight}
                     profileSettling={profileSettling}
@@ -1511,7 +1688,19 @@ function ProfileBody({
           <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             <Detail label="Sex">{a.sex === "F" ? "Female" : "Male"}</Detail>
             <Detail label="Breed">{a.breed}</Detail>
-            <Detail label="Bucket">{enumLabel("bucket", a.current_bucket)}</Detail>
+            {phenotype.coat_color ? (
+              <Detail label={t("animals.coatColor")}>
+                {COAT_COLOR_LABEL_KEYS[phenotype.coat_color]
+                  ? t(COAT_COLOR_LABEL_KEYS[phenotype.coat_color])
+                  : phenotype.coat_color}
+              </Detail>
+            ) : null}
+            {phenotype.horned != null ? (
+              <Detail label={t("animals.horned")}>
+                {phenotype.horned ? t("common.yes") : t("common.no")}
+              </Detail>
+            ) : null}
+            <Detail label="Bucket">{enumLabel("bucket", a.current_bucket, language)}</Detail>
             <Detail label="Days in bucket">{a.days_in_current_bucket ?? "—"}</Detail>
             <Detail label="Date of birth">
               {a.date_of_birth
@@ -1521,14 +1710,14 @@ function ProfileBody({
                   : "—"}
             </Detail>
             <Detail label="Age">{a.age_months != null ? `${a.age_months} months` : "—"}</Detail>
-            <Detail label="Birth type">{a.birth_type ? enumLabel("birthType", a.birth_type) : "—"}</Detail>
+            <Detail label="Birth type">{a.birth_type ? enumLabel("birthType", a.birth_type, language) : "—"}</Detail>
             <Detail label="Birth weight">
               {a.birth_weight != null ? `${a.birth_weight} kg` : "—"}
             </Detail>
             <Detail label="Latest weight">
               {a.latest_weight_kg != null ? `${a.latest_weight_kg.toFixed(1)} kg` : "—"}
             </Detail>
-            <Detail label="Source">{enumLabel("source", a.source)}</Detail>
+            <Detail label="Source">{enumLabel("source", a.source, language)}</Detail>
             {a.source === "PURCHASED" && (
               <>
                 <Detail label="Purchase date">{formatDate(a.purchase_date)}</Detail>
@@ -1555,7 +1744,7 @@ function ProfileBody({
                     <Detail label="Mortality cause">{a.mortality_cause ?? "—"}</Detail>
                     {a.mortality_cause_code && (
                       <Detail label="Cause code">
-                        {enumLabel("mortalityCause", a.mortality_cause_code)}
+                        {enumLabel("mortalityCause", a.mortality_cause_code, language)}
                       </Detail>
                     )}
                     <Detail label="Disposal method">{a.disposal_method ?? "—"}</Detail>
@@ -1686,8 +1875,8 @@ function ProfileBody({
                   <TableRow key={m.id}>
                     <TableCell>{formatDate(m.effective_date)}</TableCell>
                     <TableCell>{formatFarmDateTime(m.moved_at)}</TableCell>
-                    <TableCell>{m.from_bucket ? enumLabel("bucket", m.from_bucket) : "—"}</TableCell>
-                    <TableCell>{enumLabel("bucket", m.to_bucket)}</TableCell>
+                    <TableCell>{m.from_bucket ? enumLabel("bucket", m.from_bucket, language) : "—"}</TableCell>
+                    <TableCell>{enumLabel("bucket", m.to_bucket, language)}</TableCell>
                     <TableCell>{m.reason ?? ""}</TableCell>
                   </TableRow>
                 ))}
@@ -1738,7 +1927,7 @@ function ProfileBody({
                 {profile.health_events.map((h) => (
                   <TableRow key={h.id}>
                     <TableCell>{formatDate(h.date)}</TableCell>
-                    <TableCell>{enumLabel("eventType", h.type)}</TableCell>
+                    <TableCell>{enumLabel("eventType", h.type, language)}</TableCell>
                     <TableCell>{h.product_name ?? h.disease_target ?? "—"}</TableCell>
                     <TableCell className="text-right">{formatMoney(h.cost)}</TableCell>
                     <TableCell>{formatDate(h.next_due_date)}</TableCell>
@@ -1804,7 +1993,7 @@ function ProfileBody({
                           {k.tag_number}
                         </Link>
                       </TableCell>
-                      <TableCell>{enumLabel("sex", k.sex)}</TableCell>
+                      <TableCell>{enumLabel("sex", k.sex, language)}</TableCell>
                       <TableCell>{formatDate(k.date_of_birth)}</TableCell>
                       <TableCell>
                         <StatusBadge status={k.status} />

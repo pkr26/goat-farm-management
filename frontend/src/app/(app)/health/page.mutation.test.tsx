@@ -388,9 +388,9 @@ describe("HealthPage (mutation hardening)", () => {
         .getByText(text)
         .closest("[class~='rounded-xl']") as HTMLElement;
 
-    const rich = cardOf(/Milk hold until/);
+    const rich = cardOf(/Not for sale until/);
     expect(within(rich).getByText("PPR vaccine")).toBeInTheDocument();
-    expect(within(rich).getByText(/Milk hold until 1 Aug 2026/)).toBeInTheDocument();
+    expect(within(rich).getByText(/Not for sale until 1 Aug 2026/)).toBeInTheDocument();
     expect(within(rich).getByText("Lot LOT-77 · Expires 1 Mar 2027")).toBeInTheDocument();
     expect(within(rich).getByText("Certificate CERT-9")).toBeInTheDocument();
     expect(
@@ -404,7 +404,7 @@ describe("HealthPage (mutation hardening)", () => {
     const bare = within(mobile)
       .getAllByText("No next due date")[0]
       .closest("[class~='rounded-xl']") as HTMLElement;
-    expect(within(bare).queryByText(/Milk hold until/)).not.toBeInTheDocument();
+    expect(within(bare).queryByText(/Not for sale until/)).not.toBeInTheDocument();
     expect(within(bare).queryByText(/Certificate/)).not.toBeInTheDocument();
     expect(bare.querySelectorAll("p.mt-0\\.5")).toHaveLength(0);
 

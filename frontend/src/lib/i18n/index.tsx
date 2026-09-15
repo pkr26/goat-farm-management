@@ -22,6 +22,8 @@ import {
   type ReactNode,
 } from "react";
 
+import { setActiveLanguage } from "@/lib/active-language";
+
 import en, { type MessageKey } from "./en";
 import te from "./te";
 
@@ -97,9 +99,12 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Stryker disable ArrayDeclaration: a constant string dep never changes, so the effect still runs exactly once
-  // Keep <html lang> truthful for screen readers and Telugu keyboard hints.
+  // Keep <html lang> truthful for screen readers and Telugu keyboard hints,
+  // and mirror the choice into the module store so pure helpers (format.ts
+  // date rendering, enum-labels defaults) follow the same language.
   useEffect(() => {
     document.documentElement.lang = language;
+    setActiveLanguage(language);
   }, [language]);
   // Stryker restore ArrayDeclaration
 

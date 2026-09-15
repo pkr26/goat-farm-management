@@ -68,6 +68,8 @@ import { addDays, daysBetween, farmToday, formatDate, formatFarmDateTime } from 
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import { withReturnTo } from "@/lib/permission-navigation";
 import { useLanguage, useT, type TFn } from "@/lib/i18n";
+import { applyOptimisticTaskPatch } from "@/lib/task-optimistic";
+import { resolveTaskTitle } from "@/lib/task-title";
 import {
   permittedTaskActionPath,
   taskFormNotDueYet,
@@ -266,6 +268,12 @@ function RowActions({
     await actionFlight.run(async () => {
       const farmScope = captureFarmScope();
       setActionError(null);
+      // Strike the row through instantly; a failed completion rolls the
+      // board cache back to exactly what it showed before the tap.
+      const rollback = applyOptimisticTaskPatch(queryClient, task.id, {
+        status: "DONE",
+        completed_at: new Date().toISOString(),
+      });
       try {
         await completeMutation.mutateAsync({ taskId: task.id });
         if (!farmScope()) return;
@@ -273,6 +281,7 @@ function RowActions({
         setRecurringConfirmOpen(false);
         invalidate();
       } catch (error) {
+        rollback();
         if (farmScope()) reportActionError("complete", error);
       }
     });
@@ -344,7 +353,16 @@ function RowActions({
     });
   }
 
-  if (task.status === "PENDING" && canComplete) {
+  // While a transition write is in flight the cache may already hold the
+  // optimistic status (a completion strikes the row DONE instantly). Keep
+  // rendering the actions for the status the row MOUNTED with — disabled —
+  // so the in-flight row (and its open dialogs) doesn't unmount or jump to
+  // the wrong action set mid-write; the settled status takes over the moment
+  // the write resolves.
+  const [mountedStatus] = useState(task.status);
+  const rowStatus = actionFlight.pending ? mountedStatus : task.status;
+
+  if (rowStatus === "PENDING" && canComplete) {
     // Generated duties cannot complete early. Recurring duties cannot complete
     // or skip early, because either transition would advance the series before
     // its due date. Keep one-off manual duties actionable ahead of schedule.
@@ -728,7 +746,17 @@ function TaskTable({
                 )}
               </div>
               <div>
-                <p className="font-medium">{task.title}</p>
+                {/* Optimistic completion marks the row DONE before the
+                 * refetch lands — strike it through immediately. */}
+                <p
+                  className={
+                    task.status === "PENDING"
+                      ? "font-medium"
+                      : "font-medium text-muted-foreground line-through"
+                  }
+                >
+                  {resolveTaskTitle(task, language)}
+                </p>
                 {task.status === "PENDING" && task.verification_note && (
                   <p className="text-sm text-destructive">
                     {t("tasks.sentBack", { note: task.verification_note })}
@@ -822,7 +850,13 @@ function TaskTable({
                     )}
                   </TableCell>
                   <TableCell>
-                    {t2.title}
+                    {/* Optimistic completion strikes the duty through before
+                     * the board refetch lands. */}
+                    <span
+                      className={t2.status === "PENDING" ? undefined : "text-muted-foreground line-through"}
+                    >
+                      {resolveTaskTitle(t2, language)}
+                    </span>
                     {t2.recur_days !== null && (
                       <Badge variant="secondary" className="ml-2">
                         {t("tasks.everyDays", { days: t2.recur_days })}

@@ -392,31 +392,33 @@ describe("SimulationPage cash-flow tables", () => {
     await runAdHoc({ runResult: CASH_RESULT });
 
     const [, lossYear, profitYear] = within(cardOf("Annual P&L")).getAllByRole("row");
+    // Net cash flow sits one column earlier now that the dairy revenue
+    // column is gone from the meat-goat P&L.
     const lossCells = cells(lossYear);
-    expect(lossCells[15]).toHaveTextContent("-₹30,000");
-    expect(lossCells[15]).toHaveClass("text-right", "tabular-nums", "text-destructive");
+    expect(lossCells[14]).toHaveTextContent("-₹30,000");
+    expect(lossCells[14]).toHaveClass("text-right", "tabular-nums", "text-destructive");
     const profitCells = cells(profitYear);
-    expect(profitCells[15]).toHaveTextContent("₹40,000");
+    expect(profitCells[14]).toHaveTextContent("₹40,000");
     // A non-negative figure carries no styling beyond the neutral money cells.
-    expect(profitCells[15].className).toBe(profitCells[1].className);
+    expect(profitCells[14].className).toBe(profitCells[1].className);
 
     const projection = cardOf("Monthly projection");
     const [, deficitMonth, surplusMonth] = within(projection).getAllByRole("row");
     const deficitCells = cells(deficitMonth);
-    expect(deficitCells[16]).toHaveTextContent("-₹7,000");
-    expect(deficitCells[17]).toHaveTextContent("-₹5,000");
-    expect(deficitCells[18]).toHaveTextContent("-₹7,000");
-    for (const index of [16, 17, 18])
+    expect(deficitCells[15]).toHaveTextContent("-₹7,000");
+    expect(deficitCells[16]).toHaveTextContent("-₹5,000");
+    expect(deficitCells[17]).toHaveTextContent("-₹7,000");
+    for (const index of [15, 16, 17])
       expect(deficitCells[index]).toHaveClass(
         "text-right",
         "tabular-nums",
         "text-destructive",
       );
     const surplusCells = cells(surplusMonth);
-    expect(surplusCells[16]).toHaveTextContent("₹12,000");
-    expect(surplusCells[17]).toHaveTextContent("₹43,000");
-    expect(surplusCells[18]).toHaveTextContent("₹5,000");
-    for (const index of [16, 17, 18])
+    expect(surplusCells[15]).toHaveTextContent("₹12,000");
+    expect(surplusCells[16]).toHaveTextContent("₹43,000");
+    expect(surplusCells[17]).toHaveTextContent("₹5,000");
+    for (const index of [15, 16, 17])
       expect(surplusCells[index].className).toBe(surplusCells[6].className);
   });
 

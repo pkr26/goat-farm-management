@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -23,7 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiFetch, ApiError, authSessionEpochValue } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { useT } from "@/lib/i18n";
+import { useT, type TFn } from "@/lib/i18n";
 import {
   firstPermittedPathFromList,
   permittedAppPathFromList,
@@ -32,18 +32,23 @@ import { fetchSharedPermissions } from "@/lib/permission-envelope";
 import { useSingleFlight } from "@/lib/use-single-flight";
 
 
-const loginSchema = z.object({
-  email: z
-    .string()
-    .trim()
-    .email("Enter a valid email address")
-    .max(254, "Email must be at most 254 characters"),
-  password: z
-    .string()
-    .min(1, "Password is required")
-    .max(128, "Password must be at most 128 characters"),
-});
-type LoginValues = z.infer<typeof loginSchema>;
+/** The schema is rebuilt per language so inline validation messages follow
+ * the worker's chosen language (the same pattern as the duty form). Exported
+ * for direct schema-level testing. */
+export function makeLoginSchema(t: TFn) {
+  return z.object({
+    email: z
+      .string()
+      .trim()
+      .email(t("auth.emailInvalid"))
+      .max(254, t("auth.emailTooLong")),
+    password: z
+      .string()
+      .min(1, t("auth.passwordRequired"))
+      .max(128, t("auth.passwordTooLong")),
+  });
+}
+type LoginValues = z.infer<ReturnType<typeof makeLoginSchema>>;
 
 function LoginPageContent() {
   const router = useRouter();
@@ -56,6 +61,7 @@ function LoginPageContent() {
   // Stryker disable next-line BooleanLiteral: the mount effect below overwrites the initial value before any continuation can observe it
   const mounted = useRef(true);
   const submission = useSingleFlight();
+  const loginSchema = useMemo(() => makeLoginSchema(t), [t]);
   const {
     register,
     handleSubmit,
@@ -138,13 +144,13 @@ function LoginPageContent() {
 
   return (
     <AuthLayout
-      title="Welcome back"
-      subtitle="Sign in to your account"
+      title={t("auth.welcomeBack")}
+      subtitle={t("auth.signInSubtitle")}
       footer={
         <>
-          No account?{" "}
+          {t("auth.noAccount")}{" "}
           <Link href="/register" className="font-medium text-primary underline-offset-4 hover:underline">
-            Register
+            {t("auth.registerLink")}
           </Link>
         </>
       }
@@ -160,7 +166,7 @@ function LoginPageContent() {
           className="min-w-0 space-y-4"
         >
           <div className="space-y-1.5">
-            <Label htmlFor="email">Email</Label>
+            <Label htmlFor="email">{t("auth.email")}</Label>
             <Input
               id="email"
               type="email"
@@ -177,7 +183,7 @@ function LoginPageContent() {
             )}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="password">Password</Label>
+            <Label htmlFor="password">{t("auth.password")}</Label>
             <Input
               id="password"
               type="password"
@@ -203,7 +209,7 @@ function LoginPageContent() {
             className="w-full"
             disabled={isSubmitting || submission.pending}
           >
-            {isSubmitting || submission.pending ? "Signing in…" : "Sign in"}
+            {isSubmitting || submission.pending ? t("auth.signingIn") : t("auth.signIn")}
           </Button>
         </fieldset>
       </form>
