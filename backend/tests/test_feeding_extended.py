@@ -62,7 +62,7 @@ from app.services import (
 )
 from app.utils import today
 
-from .conftest import login, owner_with_farm
+from .conftest import owner_with_farm, provisioned_worker_login
 
 WORKER_PW = "workerpass123"
 GREEN = "Super Napier green fodder"
@@ -413,7 +413,7 @@ async def worker_headers(client: httpx.AsyncClient, owner: dict, code: str, emai
         headers=owner,
     )
     assert resp.status_code == 201, resp.text
-    auth = await login(client, email, WORKER_PW)
+    auth, _user_id = await provisioned_worker_login(client, email, WORKER_PW)
     return auth | {"X-Farm-Id": owner["X-Farm-Id"]}
 
 

@@ -37,7 +37,7 @@ from app.main import (
     create_app,
 )
 from app.ratelimit import auth_limiter
-from tests.conftest import login, owner_with_farm, register
+from tests.conftest import login_and_rotate, owner_with_farm, register
 
 
 async def _make_animal(
@@ -86,9 +86,9 @@ async def _add_worker(client: httpx.AsyncClient, owner: dict, role_id: int, emai
 
 
 async def _worker_headers(client: httpx.AsyncClient, email: str, farm_id: str) -> dict:
-    # The shared client's response hook transparently completes the forced
-    # must-change-password rotation on worker logins.
-    headers = await login(client, email, "workerpass1234")
+    # Rotate explicitly at first login: the default client never completes
+    # the forced must-change-password rotation on a worker's behalf.
+    headers = await login_and_rotate(client, email, "workerpass1234")
     return headers | {"X-Farm-Id": farm_id}
 
 

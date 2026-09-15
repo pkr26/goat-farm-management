@@ -717,3 +717,172 @@ async def test_composite_lineage_guards_preserve_single_fk_set_null(
     assert surviving.dam_id is None
     assert surviving.sire_id is None
     assert surviving.farm_id == farm_id
+
+
+async def test_farm_scoped_deletion_order_is_child_first(
+    client: httpx.AsyncClient,
+) -> None:
+    """A farm's data deletes cleanly child-first, grandchildren included.
+
+    Only bd201c1cdc1b exercised the child-first sweeps, and a
+    grandchild-ordering bug (deleting a parent before its child's child)
+    slipped through before. Two pins now guard it:
+
+    1. metadata: for every foreign key between two farm-scoped tables, the
+       child sorts AFTER its parent in ``Base.metadata.sorted_tables``, so
+       the reversed order is a safe deletion order;
+    2. behavioural: a populated farm graph really deletes in that order and
+       leaves the neighbouring tenant untouched.
+    """
+    owner = await owner_with_farm(client, email="farm-delete-owner@farm.in")
+    other = await create_farm(
+        client,
+        {"Authorization": owner["Authorization"]},
+        name="Untouched Tenant Farm",
+    )
+    farm_one = int(owner["X-Farm-Id"])
+    farm_two = int(other["X-Farm-Id"])
+
+    async with get_sessionmaker()() as db:
+        doe = Animal(
+            farm_id=farm_one,
+            tag_number="FD-DOE",
+            sex="F",
+            source="PURCHASED",
+            purchase_date=today() - timedelta(days=400),
+            current_bucket="BREEDING",
+        )
+        buck = Animal(
+            farm_id=farm_one,
+            tag_number="FD-BUCK",
+            sex="M",
+            source="PURCHASED",
+            purchase_date=today() - timedelta(days=400),
+            current_bucket="BREEDING",
+        )
+        neighbor = Animal(
+            farm_id=farm_two,
+            tag_number="FD-NEIGHBOR",
+            sex="F",
+            source="PURCHASED",
+            current_bucket="FOUNDATION",
+        )
+        db.add_all([doe, buck, neighbor])
+        await db.flush()
+        breeding = BreedingRecord(
+            farm_id=farm_one,
+            doe_id=doe.id,
+            buck_id=buck.id,
+            breeding_date=today() - timedelta(days=160),
+            ultrasound_done=True,
+            pregnant=True,
+            outcome="CONFIRMED_PREGNANT",
+            expected_kidding_date=today() - timedelta(days=10),
+        )
+        db.add(breeding)
+        await db.flush()
+        kidding = KiddingRecord(
+            farm_id=farm_one,
+            doe_id=doe.id,
+            date=today() - timedelta(days=10),
+            breeding_record_id=breeding.id,
+        )
+        db.add(kidding)
+        await db.flush()
+        kid_animal = Animal(
+            farm_id=farm_one,
+            tag_number="FD-KID",
+            sex="F",
+            source="BORN",
+            date_of_birth=today() - timedelta(days=10),
+            dam_id=doe.id,
+            sire_id=buck.id,
+            current_bucket="RECOVERY",
+        )
+        db.add(kid_animal)
+        await db.flush()
+        db.add_all(
+            [
+                KidEntry(
+                    farm_id=farm_one,
+                    kidding_record_id=kidding.id,
+                    tag="FD-KID",
+                    sex="F",
+                    animal_id=kid_animal.id,
+                ),
+                WeightRecord(animal_id=kid_animal.id, date=today(), weight_kg=12.5),
+                BucketMove(
+                    animal_id=kid_animal.id,
+                    from_bucket=None,
+                    to_bucket="RECOVERY",
+                    reason="Born",
+                ),
+                Task(
+                    farm_id=farm_one,
+                    title="Farm-deletion probe duty",
+                    due_date=today(),
+                    category="OTHER",
+                    animal_id=doe.id,
+                    breeding_record_id=breeding.id,
+                ),
+                HealthEvent(
+                    farm_id=farm_one,
+                    animal_id=doe.id,
+                    date=today(),
+                    type="TREATMENT",
+                ),
+            ]
+        )
+        await db.commit()
+
+    # (1) The metadata invariant: sorted_tables puts every child after its
+    # parent, so reversed() is a valid child-first deletion order.
+    from app.db import Base
+
+    position = {table.name: index for index, table in enumerate(Base.metadata.sorted_tables)}
+    farm_scoped = {
+        table.name
+        for table in Base.metadata.tables.values()
+        if "farm_id" in table.c and table.name != "farms"
+    }
+    assert farm_scoped, "expected farm-scoped tables in the metadata"
+    for table in Base.metadata.tables.values():
+        if table.name not in farm_scoped:
+            continue
+        for fk in table.foreign_keys:
+            parent = fk.column.table.name
+            # Self-references (animals.dam_id/sire_id) delete in the same
+            # statement and need no ordering.
+            if parent in farm_scoped and parent != table.name:
+                assert position[table.name] > position[parent], (
+                    f"{table.name} sorts before its parent {parent}: "
+                    "reversed sorted_tables is no longer child-first"
+                )
+
+    # (2) The behavioural pin: the full graph deletes in that order.
+    async with get_sessionmaker()() as db:
+        for table in reversed(Base.metadata.sorted_tables):
+            if table.name not in farm_scoped:
+                continue
+            await db.execute(
+                text(f'DELETE FROM "{table.name}" WHERE farm_id = :farm_id'),
+                {"farm_id": farm_one},
+            )
+        await db.commit()
+
+    async with get_sessionmaker()() as db:
+        for table_name in sorted(farm_scoped):
+            remaining = (
+                await db.execute(
+                    text(f'SELECT count(*) FROM "{table_name}" WHERE farm_id = :farm_id'),
+                    {"farm_id": farm_one},
+                )
+            ).scalar_one()
+            assert remaining == 0, f"{table_name} still holds farm-one rows"
+        neighbor_rows = (
+            await db.execute(
+                text("SELECT count(*) FROM animals WHERE farm_id = :farm_id"),
+                {"farm_id": farm_two},
+            )
+        ).scalar_one()
+        assert neighbor_rows == 1

@@ -21,7 +21,68 @@ from ..models import (
     WeightRecord,
 )
 from ..models.species import GOAT_PROFILE
+from ..simulation.market import BAKRID_DATES_BY_YEAR  # read-only calendar import
 from ..utils import add_months, business_date, today
+
+# The Bakrid hold window: males whose projected market finish lands inside
+# the two months before the festival are worth holding for the premium.
+BAKRID_HOLD_WINDOW_MONTHS = 2
+
+
+def next_bakrid_date(reference: date) -> date | None:
+    """First Bakrid (Eid al-Adha) date strictly after ``reference``.
+
+    The embedded calendar (simulation/market.py) is month-resolution and
+    verified through 2032; beyond its last year there is no honest next date.
+    """
+    for year in sorted(BAKRID_DATES_BY_YEAR):
+        month, day = BAKRID_DATES_BY_YEAR[year]
+        candidate = date(year, month, day)
+        if candidate > reference:
+            return candidate
+    return None
+
+
+async def bakrid_hold_advisory(db: AsyncSession, farm: Farm) -> dict[str, Any] | None:
+    """Males approaching the sale window whose finish lands before Bakrid.
+
+    A male's projected finish date is his effective DOB plus the meat-sale
+    window's upper age (9 months). When that date falls inside the two months
+    before the next Bakrid, holding him for the festival market beats selling
+    into the regular one. Returns the structured advisory
+    ``{"key": "bakrid_hold", "args": {"count": n, "festival_date": iso}}``,
+    or None when no male qualifies (or the calendar has no next date).
+    """
+    reference_date = today(farm.timezone)
+    festival = next_bakrid_date(reference_date)
+    if festival is None:
+        return None
+    window_start = add_months(festival, -BAKRID_HOLD_WINDOW_MONTHS)
+    effective_dob = func.coalesce(Animal.date_of_birth, Animal.estimated_dob)
+    finish_date = cast(
+        effective_dob + func.make_interval(0, MEAT_SALE_AGE_MONTHS[1]),
+        Date,
+    )
+    count = (
+        await db.execute(
+            select(func.count(Animal.id)).where(
+                Animal.farm_id == farm.id,
+                Animal.status == AnimalStatus.ACTIVE.value,
+                Animal.sex == "M",
+                effective_dob.is_not(None),
+                # Still approaching: not yet past the sale window today.
+                effective_dob > add_months(reference_date, -MEAT_SALE_AGE_MONTHS[1]),
+                finish_date >= window_start,
+                finish_date <= festival,
+            )
+        )
+    ).scalar_one()
+    if not count:
+        return None
+    return {
+        "key": "bakrid_hold",
+        "args": {"count": int(count), "festival_date": festival.isoformat()},
+    }
 
 
 def _age_months(dob: date | None, reference_date: date) -> int | None:

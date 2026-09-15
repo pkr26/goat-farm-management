@@ -299,6 +299,20 @@ _VOCABULARY_CONSTRAINT_SQL: dict[tuple[str, str], str] = {
     ("animals", "ck_animals_current_bucket"): f"current_bucket IN ({_BUCKETS_SQL})",
     ("animals", "ck_animals_status"): "status IN ('ACTIVE', 'SOLD', 'DEAD', 'CULLED')",
     (
+        "animals",
+        "ck_animals_disposal_method",
+    ): (
+        "disposal_method IS NULL OR disposal_method IN "
+        "('DEEP_BURIAL', 'BURNING', 'RENDERING', 'COMPOSTING', 'OTHER')"
+    ),
+    (
+        "animals",
+        "ck_animals_coat_color",
+    ): (
+        "coat_color IS NULL OR coat_color IN "
+        "('black', 'black_patched', 'brown', 'white', 'spotted')"
+    ),
+    (
         "bucket_moves",
         "ck_bucket_moves_from_bucket",
     ): f"from_bucket IS NULL OR from_bucket IN ({_BUCKETS_SQL})",
@@ -331,6 +345,10 @@ _VOCABULARY_CONSTRAINT_SQL: dict[tuple[str, str], str] = {
         "health_events",
         "ck_health_events_type",
     ): "type IN ('VACCINE', 'DEWORMING', 'TREATMENT', 'FOOTBATH', 'VITAMIN', 'EXAM', 'FECAL_EXAM')",
+    (
+        "health_events",
+        "ck_health_events_route",
+    ): "route IS NULL OR route IN ('SC', 'IM', 'IV', 'ORAL', 'TOPICAL', 'INTRANASAL')",
     ("feeding_records", "ck_feeding_records_shift"): "shift IN ('MORNING', 'AFTERNOON', 'NIGHT')",
     ("feeding_records", "ck_feeding_records_bucket"): f"bucket IN ({_BUCKETS_SQL})",
     (
@@ -350,7 +368,7 @@ _VOCABULARY_CONSTRAINT_SQL: dict[tuple[str, str], str] = {
         "'WEANING', 'BUCKET_MOVE', 'QUARANTINE', 'FEED', 'CLEANING', 'OTHER', "
         "'KIDDING_WATCH', 'BIRTHING_KIT', 'HEALTH_CHECK', 'HEAT_WATCH', "
         "'HOOF_TRIMMING', 'SPRAYING', 'DISINFECTION', 'WEIGHING', 'REBREED', "
-        "'BUCK_ROTATION', 'INSURANCE')"
+        "'BUCK_ROTATION', 'INSURANCE', 'WATER')"
     ),
     ("transactions", "ck_transactions_type"): "type IN ('INCOME', 'EXPENSE')",
     (
@@ -465,7 +483,9 @@ async def test_direct_sql_rejects_invalid_domain_values_and_states(
             ("ck_animals_parent_identity",),
         ),
         InvalidMutation(
-            "UPDATE animals SET birth_weight = 'Infinity'::float8 WHERE id = :id",
+            # numeric(8,2) rejects Infinity at the type boundary; NaN stores
+            # and the named finite-value CHECK catches it.
+            "UPDATE animals SET birth_weight = 'NaN' WHERE id = :id",
             {"id": ids["animal"]},
             ("ck_animals_birth_weight_bounded",),
         ),

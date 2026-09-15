@@ -19,7 +19,7 @@ from app.models import Animal, BreedingRecord, Farm, KiddingRecord
 from app.schemas.common import MAX_PAGE_OFFSET
 from app.utils import today
 
-from .conftest import owner_with_farm
+from .conftest import login_and_rotate, owner_with_farm
 
 UPCOMING_TOTAL = 135
 OVERDUE_TOTAL = 137
@@ -436,18 +436,8 @@ async def test_kidding_scoped_pregnancy_lookup_resolves_deep_link_outside_pages(
         headers=owner,
     )
     assert worker.status_code == 201, worker.text
-    login = await client.post(
-        "/api/auth/login",
-        json={
-            "email": "kidding-deep-link@example.com",
-            "password": "workerpass123",
-        },
-    )
-    assert login.status_code == 200, login.text
-    manage_only = {
-        "Authorization": f"Bearer {login.json()['access_token']}",
-        "X-Farm-Id": str(farm_id),
-    }
+    manage_only = await login_and_rotate(client, "kidding-deep-link@example.com", "workerpass123")
+    manage_only = manage_only | {"X-Farm-Id": str(farm_id)}
 
     # Kidding access does not imply breeding-register access, yet the exact
     # live pregnancy referenced by a KIDDING_DUE task remains resolvable.

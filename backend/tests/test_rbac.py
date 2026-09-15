@@ -23,7 +23,7 @@ from app.seed import seed_default_roles
 from app.services import complete_task
 from app.utils import today
 
-from .conftest import owner_with_farm
+from .conftest import owner_with_farm, provisioned_worker_login
 
 WORKER_PW = "workerpass123"
 
@@ -89,7 +89,7 @@ async def worker_headers(
     rid = await role_id(client, owner, code)
     resp = await add_worker(client, owner, rid, email)
     assert resp.status_code == 201, resp.text
-    headers, user_id = await login_user(client, email, WORKER_PW)
+    headers, user_id = await provisioned_worker_login(client, email, WORKER_PW)
     return headers | {"X-Farm-Id": owner["X-Farm-Id"]}, user_id
 
 

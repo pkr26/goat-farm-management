@@ -44,7 +44,7 @@ from app.services.breeding import mark_unassessed, record_ultrasound_result
 from app.services.tasks import _schedule_rebreed
 from app.utils import add_months, today
 
-from .conftest import owner_with_farm, register
+from .conftest import owner_with_farm, provisioned_worker_login, register
 
 WORKER_PW = "workerpass123"
 GESTATION_DAYS = 150
@@ -420,12 +420,8 @@ async def worker_headers(
         headers=owner,
     )
     assert resp.status_code == 201, resp.text
-    resp = await client.post("/api/auth/login", json={"email": email, "password": WORKER_PW})
-    assert resp.status_code == 200, resp.text
-    return {
-        "Authorization": f"Bearer {resp.json()['access_token']}",
-        "X-Farm-Id": owner["X-Farm-Id"],
-    }
+    headers, _user_id = await provisioned_worker_login(client, email, WORKER_PW)
+    return headers | {"X-Farm-Id": owner["X-Farm-Id"]}
 
 
 async def custom_breeding_viewer_headers(
@@ -448,12 +444,8 @@ async def custom_breeding_viewer_headers(
         headers=owner,
     )
     assert worker.status_code == 201, worker.text
-    login = await client.post("/api/auth/login", json={"email": email, "password": WORKER_PW})
-    assert login.status_code == 200, login.text
-    return {
-        "Authorization": f"Bearer {login.json()['access_token']}",
-        "X-Farm-Id": owner["X-Farm-Id"],
-    }
+    headers, _ = await provisioned_worker_login(client, email, WORKER_PW)
+    return headers | {"X-Farm-Id": owner["X-Farm-Id"]}
 
 
 # ---------------------------------------------------------------------------
@@ -3821,3 +3813,54 @@ async def test_rebreed_prompt_completes_when_the_doe_is_reserviced(
     assert len(rebreed) == 1
     assert rebreed[0]["status"] == "DONE"
     assert rebreed[0]["completed_by_id"] is not None
+
+
+# ---------------------------------------------------------------------------
+# Generated-duty localization contract (title_key / title_args)
+# ---------------------------------------------------------------------------
+async def test_pregnancy_program_duties_carry_title_keys_and_args(
+    client: httpx.AsyncClient,
+) -> None:
+    """Every duty the service program generates publishes a stable key."""
+    headers = await owner_with_farm(client)
+    _doe, _buck, br = await pregnant_doe(client, headers, tag="KEY-DOE")
+    tasks = await all_tasks(client, headers)
+    by_category = {t["category"]: t for t in tasks if t["breeding_record_id"] == br["id"]}
+
+    check = by_category["ULTRASOUND"]
+    assert check["title_key"] == "pregnancy_check"
+    assert check["title_args"]["tag"] == "KEY-DOE"
+    assert check["title_args"]["due_date"] == check["due_date"]
+
+    vaccine = by_category["VACCINE"]
+    assert vaccine["title_key"] in {"pre_kidding_vaccine", "pre_kidding_vaccine_booster"}
+    assert vaccine["title_args"]["tag"] == "KEY-DOE"
+
+    move = by_category["BUCKET_MOVE"]
+    assert move["title_key"] in {"move_to_delivery", "move_to_pregnancy_late"}
+
+    assert by_category["KIDDING_DUE"]["title_key"] == "kidding_due"
+    kit = by_category["BIRTHING_KIT"]
+    assert kit["title_key"] == "birthing_kit_check"
+    assert kit["title_args"]["kidding_date"] == by_category["KIDDING_DUE"]["due_date"]
+
+    watches = [t for t in tasks if t["category"] == "KIDDING_WATCH"]
+    assert watches
+    assert {t["title_key"] for t in watches} == {"kidding_watch"}
+    offsets = {t["title_args"]["days_before"] for t in watches}
+    assert 0 in offsets and max(offsets) > 0
+    for watch in watches:
+        assert watch["title_args"]["tag"] == "KEY-DOE"
+        assert watch["title_args"]["due_date"] == watch["due_date"]
+
+
+async def test_kidding_followup_duties_carry_title_keys(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    _doe, _buck, br = await pregnant_doe(client, headers, tag="KEY-KIDDOE", gestation_days=150)
+    await make_kidding(client, headers, br["id"])
+    tasks = await all_tasks(client, headers)
+    by_key = {t["title_key"]: t for t in tasks if t["breeding_record_id"] == br["id"]}
+    assert "wean_kids" in by_key
+    assert "post_kidding_dam_check" in by_key
+    assert "kidding_stall_cleanout" in by_key
+    assert by_key["wean_kids"]["title_args"]["tag"] == "KEY-KIDDOE"

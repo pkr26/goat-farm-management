@@ -87,6 +87,12 @@ class Farm(Base):
     )
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        default=utcnow,
+        onupdate=utcnow,
+        server_default=text("timezone('UTC', now())"),
+        server_onupdate=text("timezone('UTC', now())"),
+    )
 
     owner: Mapped[User] = relationship(back_populates="farms")
     animals: Mapped[list[Animal]] = relationship(back_populates="farm")

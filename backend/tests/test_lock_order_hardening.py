@@ -41,7 +41,7 @@ from app.models import (
 )
 from app.utils import today, utcnow
 
-from .conftest import owner_with_farm
+from .conftest import login_and_rotate, owner_with_farm
 from .test_breeding_extended import pregnant_doe
 from .test_finance_extended import correction_payload, get_finance, iso
 from .test_finance_extended import make_animal as make_finance_animal
@@ -169,15 +169,10 @@ async def login_worker(
     owner: dict[str, str],
     email: str,
 ) -> dict[str, str]:
-    response = await client.post(
-        "/api/auth/login",
-        json={"email": email, "password": WORKER_PASSWORD},
-    )
-    assert response.status_code == 200, response.text
-    return {
-        "Authorization": f"Bearer {response.json()['access_token']}",
-        "X-Farm-Id": owner["X-Farm-Id"],
-    }
+    # The provisioned worker must be past the must-change-password fence for
+    # the raced mutation to reach the lock under test; rotate explicitly.
+    headers = await login_and_rotate(client, email, WORKER_PASSWORD)
+    return headers | {"X-Farm-Id": owner["X-Farm-Id"]}
 
 
 async def finish_pair(

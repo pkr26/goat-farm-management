@@ -52,7 +52,6 @@ from ..services import (
     task_scope,
     verify_task,
 )
-from ..services.cadence import ensure_cadence_tasks
 from ..utils import today
 from ._shared import TASK_LOADS, task_action_url, task_out, visible_to
 
@@ -265,10 +264,11 @@ async def list_tasks(
     completed_limit: Annotated[int, Query(ge=1, le=200)] = 100,
     completed_offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
 ) -> TaskTabsOut:
-    """All five v1 tabs as deterministic, independently pageable lists."""
-    # Materialize today's recurring husbandry duties before the queries so the
-    # board reflects the farm's cadence calendar (idempotent per business day).
-    await ensure_cadence_tasks(db, farm)
+    """All five v1 tabs as deterministic, independently pageable lists.
+
+    Read-only: recurring husbandry duties are materialized by the background
+    cadence sweep (main.py), never on this hot read path.
+    """
     now = today(farm.timezone)
     scoped = (await task_scope(db, farm, user)).options(*TASK_LOADS)
     pending = scoped.where(actionable_pending_task_predicate())
@@ -548,6 +548,7 @@ async def create_task(
                 assigned_role_id=role_id,
                 assigned_user_id=worker_id,
                 recur_days=payload.recur_days,
+                created_by_id=user.id,
             )
             # Re-fetch with TASK_LOADS while the idempotency transaction is
             # still open so its exact first response is persisted atomically.

@@ -22,7 +22,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
 from ..utils import today, utcnow
-from .enums import HealthEventType, sql_in_values
+from .enums import AdministrationRoute, HealthEventType, sql_in_values
 
 if TYPE_CHECKING:
     from .animals import Animal
@@ -50,6 +50,10 @@ class HealthEvent(Base):
         CheckConstraint(
             f"type IN ({sql_in_values(HealthEventType)})",
             name="ck_health_events_type",
+        ),
+        CheckConstraint(
+            f"route IS NULL OR route IN ({sql_in_values(AdministrationRoute)})",
+            name="ck_health_events_route",
         ),
         CheckConstraint(
             "animal_id IS NOT NULL OR purchase_batch_id IS NOT NULL",
@@ -132,7 +136,7 @@ class HealthEvent(Base):
     product_name: Mapped[str | None] = mapped_column(String(120))
     disease_target: Mapped[str | None] = mapped_column(String(120))
     dose: Mapped[str | None] = mapped_column(String(60))
-    route: Mapped[str | None] = mapped_column(String(20))  # SC / Oral / IM
+    route: Mapped[str | None] = mapped_column(String(20))  # AdministrationRoute enum
     vet_name: Mapped[str | None] = mapped_column(String(120))
     cost: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     next_due_date: Mapped[dt.date | None]

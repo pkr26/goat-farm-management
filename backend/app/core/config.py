@@ -206,6 +206,14 @@ class Settings(BaseSettings):
     deleted_membership_cleanup_batch_size: int = Field(default=500, ge=1, le=10_000)
     deleted_membership_cleanup_max_batches: int = Field(default=10, ge=1, le=100)
 
+    # Recurring husbandry duties are materialized by a short-interval
+    # background sweep (GET /api/tasks is read-only). The sweep pages the
+    # tenant list in finite keyset batches; the per-farm advisory lock inside
+    # the cadence service serializes any overlap with a concurrent sweep.
+    cadence_materialization_interval_seconds: int = Field(default=300, ge=10)
+    cadence_materialization_farm_batch_size: int = Field(default=100, ge=1, le=1000)
+    cadence_materialization_max_batches: int = Field(default=10, ge=1, le=100)
+
     # Reject oversized JSON/form bodies before Starlette buffers/parses them.
     # This is an application backstop; the edge proxy should enforce the same
     # or a smaller limit before traffic reaches uvicorn.

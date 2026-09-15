@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     CheckConstraint,
@@ -17,9 +17,11 @@ from sqlalchemy import (
     or_,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
+from ..utils import utcnow
 from .constants import MAX_TASK_TITLE_LENGTH, VERIFICATION_REQUIRED_CATEGORIES
 from .enums import TaskCategory, TaskStatus, sql_in_values
 
@@ -116,8 +118,19 @@ class Task(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
     title: Mapped[str] = mapped_column(String(MAX_TASK_TITLE_LENGTH))
-    due_date: Mapped[date] = mapped_column(index=True)
-    status: Mapped[str] = mapped_column(String(10), default=TaskStatus.PENDING.value, index=True)
+    # Localization contract for server-generated duties: a stable snake_case
+    # key plus structured args the client renders in the worker's language
+    # (Telugu catalog lives in the frontend); ``title`` stays the English
+    # fallback. Manual duties leave title_key NULL and title_args {}.
+    title_key: Mapped[str | None] = mapped_column(String(60))
+    title_args: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default=text("'{}'::jsonb")
+    )
+    # Single-column status/due_date indexes were dropped: every query
+    # combining them is farm-scoped and served by the composite
+    # ix_tasks_farm_status_due or the PENDING partials below.
+    due_date: Mapped[date]
+    status: Mapped[str] = mapped_column(String(10), default=TaskStatus.PENDING.value)
     animal_id: Mapped[int | None] = mapped_column(ForeignKey("animals.id"), index=True)
     purchase_batch_id: Mapped[int | None] = mapped_column(
         ForeignKey("purchase_batches.id"), index=True
@@ -149,6 +162,13 @@ class Task(Base):
     # state, so they describe the rejection the row is currently carrying.
     rejected_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     rejected_at: Mapped[datetime | None]
+
+    # Creation attribution: manual duties record their creator; generated
+    # duties keep created_by_id NULL (no single user made that call).
+    created_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
     # Recurring duty: on completion the next occurrence is spawned this many
     # days after the current due_date (e.g. 1 = daily cleaning).

@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     ForeignKeyConstraint,
     Index,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -284,6 +285,9 @@ class KidEntry(Base):
             ["animals.farm_id", "animals.id"],
             name="fk_kid_entries_farm_animal",
         ),
+        # Covers the composite FK's reverse lookups (animal -> its birth-row)
+        # and the tenant joins that scan kid_entries by (farm_id, animal_id).
+        Index("ix_kid_entries_farm_animal", "farm_id", "animal_id"),
         Index(
             "uq_kid_entries_farm_tag",
             "farm_id",
@@ -307,7 +311,8 @@ class KidEntry(Base):
     kidding_record_id: Mapped[int] = mapped_column(ForeignKey("kidding_records.id"), index=True)
     tag: Mapped[str | None] = mapped_column(String(50))
     sex: Mapped[str] = mapped_column(String(1))
-    birth_weight: Mapped[float | None]
+    # Exact numeric like Animal.birth_weight / WeightRecord.weight_kg.
+    birth_weight: Mapped[float | None] = mapped_column(Numeric(8, 2, asdecimal=False))
     status: Mapped[str] = mapped_column(String(10), default=KidStatus.ALIVE.value)
     mortality_reported_at: Mapped[date | None]
     # Neonatal care facts: NULL = not recorded (legacy rows / skipped checks);

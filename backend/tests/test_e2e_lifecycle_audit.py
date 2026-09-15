@@ -22,7 +22,7 @@ from app.db import get_sessionmaker
 from app.models import BucketMove
 from app.utils import today, utcnow
 
-from .conftest import owner_with_farm
+from .conftest import owner_with_farm, provisioned_worker_login
 
 # ---------------------------------------------------------------------------
 # Helpers (API-driven, self-contained)
@@ -1003,12 +1003,8 @@ async def _worker(client: httpx.AsyncClient, owner: dict, code: str, email: str)
         headers=owner,
     )
     assert resp.status_code == 201, resp.text
-    login = await client.post("/api/auth/login", json={"email": email, "password": "auditpass123"})
-    assert login.status_code == 200, login.text
-    return {
-        "Authorization": f"Bearer {login.json()['access_token']}",
-        "X-Farm-Id": owner["X-Farm-Id"],
-    }
+    headers, _ = await provisioned_worker_login(client, email, "auditpass123")
+    return headers | {"X-Farm-Id": owner["X-Farm-Id"]}
 
 
 async def test_rbac_move_and_health_permissions(client: httpx.AsyncClient) -> None:

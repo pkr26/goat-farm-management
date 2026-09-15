@@ -61,10 +61,15 @@ def conception_rate(records: Iterable[BreedingRecord]) -> float | None:
 # inspection and the start of the rest period; day 30 pairs the Goat Pox
 # vaccine with the pre-release fecal recheck) — everything downstream that
 # derives work from this table must key on the entry, not the offset alone.
-QUARANTINE_PROTOCOL = [
+#
+# ``_QUARANTINE_PROTOCOL`` carries each duty's localization key as a fourth
+# element; the public QUARANTINE_PROTOCOL keeps the historical 3-tuple shape
+# (offset, category, title) for consumers that predate title keys.
+_QUARANTINE_PROTOCOL = [
     (
         1,
         TaskCategory.QUARANTINE,
+        "quarantine_arrival_inspection",
         "Day 0–1: arrival inspection — dehydration (skin tent/gums), injuries, "
         "lameness, temperature; isolate sick immediately; handle quarantine "
         "animals LAST (dedicated boots/tools)",
@@ -72,22 +77,58 @@ QUARANTINE_PROTOCOL = [
     (
         1,
         TaskCategory.QUARANTINE,
+        "quarantine_rest",
         "Days 1–3: rest, electrolyte/jaggery water, dry roughage only, zero grain",
     ),
-    (4, TaskCategory.DEWORMING, "Day 4: deworm — Albendazole/Closantel oral + Ivermectin SC"),
-    (5, TaskCategory.QUARANTINE, "Days 5–9: liver tonic in water + Vitamin AD3E injection"),
-    (10, TaskCategory.VACCINE, "Day 10: vaccinate PPR (live viral, SC)"),
+    (
+        4,
+        TaskCategory.DEWORMING,
+        "quarantine_deworm",
+        "Day 4: deworm — Albendazole/Closantel oral + Ivermectin SC",
+    ),
+    (
+        5,
+        TaskCategory.QUARANTINE,
+        "quarantine_liver_tonic",
+        "Days 5–9: liver tonic in water + Vitamin AD3E injection",
+    ),
+    (10, TaskCategory.VACCINE, "quarantine_ppr_vaccine", "Day 10: vaccinate PPR (live viral, SC)"),
     (
         13,
         TaskCategory.QUARANTINE,
+        "quarantine_fecal_exam",
         "Day 13: fecal/dung sample exam — confirm day-4 deworm efficacy "
         "(record result as a FECAL_EXAM health event)",
     ),
-    (20, TaskCategory.VACCINE, "Day 20: vaccinate ET + Tetanus (toxoid, SC)"),
-    (30, TaskCategory.VACCINE, "Day 30: vaccinate Goat Pox (live viral, SC)"),
-    (30, TaskCategory.QUARANTINE, "Day 30: fecal recheck + clinical review before release"),
-    (40, TaskCategory.VACCINE, "Day 40: vaccinate FMD (killed, SC)"),
-    (45, TaskCategory.BUCKET_MOVE, "Day 45: 10% zinc sulfate footbath → release to FOUNDATION"),
+    (
+        20,
+        TaskCategory.VACCINE,
+        "quarantine_et_tetanus_vaccine",
+        "Day 20: vaccinate ET + Tetanus (toxoid, SC)",
+    ),
+    (
+        30,
+        TaskCategory.VACCINE,
+        "quarantine_goat_pox_vaccine",
+        "Day 30: vaccinate Goat Pox (live viral, SC)",
+    ),
+    (
+        30,
+        TaskCategory.QUARANTINE,
+        "quarantine_prerelease_review",
+        "Day 30: fecal recheck + clinical review before release",
+    ),
+    (40, TaskCategory.VACCINE, "quarantine_fmd_vaccine", "Day 40: vaccinate FMD (killed, SC)"),
+    (
+        45,
+        TaskCategory.BUCKET_MOVE,
+        "quarantine_release",
+        "Day 45: 10% zinc sulfate footbath → release to FOUNDATION",
+    ),
+]
+
+QUARANTINE_PROTOCOL = [
+    (offset, category, title) for offset, category, _title_key, title in _QUARANTINE_PROTOCOL
 ]
 
 
@@ -97,6 +138,9 @@ class QuarantineTaskSpec(TypedDict):
     due_date: date
     category: str
     title: str
+    # Localization contract (see Task.title_key / title_args).
+    title_key: str
+    title_args: dict[str, object]
 
 
 def no_control_characters(value: str) -> str:
@@ -128,14 +172,20 @@ def quarantine_schedule(batch: PurchaseBatch) -> list[QuarantineTaskSpec]:
     prefix.)
     """
     schedule: list[QuarantineTaskSpec] = []
-    protocol = QUARANTINE_PROTOCOL
     prefix = f"[Batch #{batch.id}] "
-    for day_offset, category, protocol_title in protocol:
+    for day_offset, category, title_key, protocol_title in _QUARANTINE_PROTOCOL:
+        due_date = batch.date + timedelta(days=day_offset - 1)
         schedule.append(
             {
-                "due_date": batch.date + timedelta(days=day_offset - 1),
+                "due_date": due_date,
                 "category": category.value,
                 "title": f"{prefix}{protocol_title}",
+                "title_key": title_key,
+                "title_args": {
+                    "batch_id": batch.id,
+                    "day": day_offset,
+                    "due_date": due_date.isoformat(),
+                },
             }
         )
     return schedule

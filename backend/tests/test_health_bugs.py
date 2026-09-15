@@ -98,7 +98,9 @@ async def test_event_route_within_schema_limit_should_not_500(client: httpx.Asyn
         json={
             "animal_id": animal["id"],
             "type": "VACCINE",
-            "route": "subcutaneous-left-flank",  # 25 chars: beyond the String(20) column
+            # Outside the bounded route vocabulary (and beyond the String(20)
+            # column): rejected at the schema boundary.
+            "route": "subcutaneous-left-flank",
         },
         headers=headers,
     )

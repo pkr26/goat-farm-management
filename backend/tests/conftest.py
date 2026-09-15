@@ -134,6 +134,13 @@ _ROTATED_EMAILS: set[str] = set()
 async def _rotate_provisioned_password(response: httpx.Response) -> None:
     """Transparent forced-rotation for owner-provisioned worker logins.
 
+    OPT-IN ONLY: attached to the shared client by the
+    ``auto_rotate_worker_logins`` fixture, never by default — a default-on
+    hook rewrites worker-login 401s into 200s and could mask a genuinely
+    broken login. Tests should prefer the explicit ``login_and_rotate``
+    helper; this hook exists for flows (cookie/session juggling) that
+    cannot drive the rotation themselves.
+
     Production blocks domain mutations until the worker changes an
     owner-set password; the test suite's workers act immediately, so the
     shared client finishes the rotation with a deterministic derived
@@ -280,10 +287,23 @@ async def client() -> AsyncGenerator[httpx.AsyncClient]:
         base_url="http://test",
         event_hooks={
             "request": [_auto_idempotency_key],
-            "response": [_rotate_provisioned_password],
         },
     ) as c:
         yield c
+
+
+@pytest.fixture()
+async def auto_rotate_worker_logins(
+    client: httpx.AsyncClient,
+) -> AsyncGenerator[httpx.AsyncClient]:
+    """Opt in to transparent owner-provisioned-worker password rotation.
+
+    The default client must never rewrite a 401 into a 200: a broken worker
+    login would then pass silently. Tests whose flows cannot drive the
+    rotation explicitly (``login_and_rotate``) request this fixture instead.
+    """
+    client.event_hooks["response"].append(_rotate_provisioned_password)
+    yield client
 
 
 async def register(
@@ -310,7 +330,7 @@ async def login_and_rotate(client: httpx.AsyncClient, email: str, password: str)
         headers={"X-No-Auto-Rotate": "1"},
     )
     if resp.status_code == 401:
-        # An earlier hook rotation already changed this credential.
+        # An earlier rotation already changed this credential.
         password = f"{password}!r1"
         resp = await client.post(
             "/api/auth/login",
@@ -332,6 +352,23 @@ async def login(client: httpx.AsyncClient, email: str, password: str) -> dict:
     resp = await client.post("/api/auth/login", json={"email": email, "password": password})
     assert resp.status_code == 200, resp.text
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
+
+async def provisioned_worker_login(
+    client: httpx.AsyncClient, email: str, password: str
+) -> tuple[dict, int]:
+    """Explicitly rotate an owner-provisioned worker's first login; returns
+    (bearer headers, user id).
+
+    Worker helpers across the suite must use this (or login_and_rotate)
+    rather than a bare ``login``: the default client no longer rewrites
+    worker-login 401s, so a provisioned account that never rotated would
+    fail loudly here instead of being silently repaired mid-flight.
+    """
+    headers = await login_and_rotate(client, email, password)
+    me = await client.get("/api/auth/me", headers=headers)
+    assert me.status_code == 200, me.text
+    return headers, me.json()["id"]
 
 
 async def create_farm(

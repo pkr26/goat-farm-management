@@ -25,11 +25,10 @@ PRESET_ROLE_PARENT = "c3d4e5f6a7b1"
 PRESET_ROLE_INTEGRITY = "d5e7f9a1b3c4"
 KIDDING_LOCK_ORDER_PARENT = PRESET_ROLE_INTEGRITY
 KIDDING_LOCK_ORDER = "e7f9a1b3c5d8"
-# Autogenerate-drift checks must run at the CURRENT head (husbandry-standards
-# chain: vocabulary CHECK widenings → kidding care fields → purchase
-# provenance → sale/death audit fields → insurance register → premium
-# history → maintenance-recipe data fix).
-HEAD = "f2a3b4c5d6e7"
+# Autogenerate-drift checks must run at the CURRENT head (backend-core audit
+# wave: task provenance/title keys → updated_at/phenotype/vocabularies →
+# exact weight numerics + index hygiene → kidding parity backfill).
+HEAD = "e0f4a8b2c6d5"
 LEGACY_LOSS_NOTE = "Legacy pregnancy-loss row; original date and cause were not captured."
 ADMIN_URL = "postgresql://localhost:5432/postgres"
 
@@ -855,6 +854,110 @@ async def test_kidding_trigger_migration_splits_insert_and_update_lock_paths() -
                 )
                 == 0
             )
+        finally:
+            await connection.close()
+    finally:
+        await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+
+
+PARITY_BACKFILL_PARENT = "d9e3f7a1b5c4"
+
+
+async def test_kidding_parity_backfill_numbers_legacy_rows_per_doe() -> None:
+    """e0f4a8b2c6d5 backfills NULL parities ordered by (date, id) per doe."""
+    database = _throwaway_name("parity_backfill")
+    await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+    await _admin(f'CREATE DATABASE "{database}"')
+    database_url = f"postgresql://localhost:5432/{database}"
+    try:
+        await _alembic(database, "upgrade", PARITY_BACKFILL_PARENT)
+        connection = await asyncpg.connect(database_url)
+        try:
+            user_id = await connection.fetchval(
+                """
+                INSERT INTO users (email, password_hash, created_at)
+                VALUES ('parity-owner@farm.in', 'unused', timezone('UTC', now()))
+                RETURNING id
+                """
+            )
+            farm_id = await connection.fetchval(
+                """
+                INSERT INTO farms (name, owner_id, created_at, updated_at)
+                VALUES ('Parity Farm', $1, timezone('UTC', now()), timezone('UTC', now()))
+                RETURNING id
+                """,
+                user_id,
+            )
+            doe_id = await connection.fetchval(
+                """
+                INSERT INTO animals (
+                    farm_id, tag_number, breed, sex, source, current_bucket, status,
+                    cull_candidate, movement_restricted, suspected_scheduled_disease,
+                    restriction_version, created_at, updated_at
+                )
+                VALUES ($1, 'PARITY-DOE', 'Osmanabadi', 'F', 'PURCHASED', 'BREEDING',
+                        'ACTIVE', false, false, false, 0,
+                        timezone('UTC', now()), timezone('UTC', now()))
+                RETURNING id
+                """,
+                farm_id,
+            )
+            # Legacy rows: two kiddings on one recorded date (insertion order
+            # breaks the tie) and one earlier, all with NULL parity.
+            first_id = await connection.fetchval(
+                """
+                INSERT INTO kidding_records (farm_id, doe_id, date, ease, parity)
+                VALUES ($1, $2, DATE '2025-11-02', 'NORMAL', NULL)
+                RETURNING id
+                """,
+                farm_id,
+                doe_id,
+            )
+            same_day_first = await connection.fetchval(
+                """
+                INSERT INTO kidding_records (farm_id, doe_id, date, ease, parity)
+                VALUES ($1, $2, DATE '2026-04-20', 'NORMAL', NULL)
+                RETURNING id
+                """,
+                farm_id,
+                doe_id,
+            )
+            same_day_second = await connection.fetchval(
+                """
+                INSERT INTO kidding_records (farm_id, doe_id, date, ease, parity)
+                VALUES ($1, $2, DATE '2026-04-20', 'NORMAL', NULL)
+                RETURNING id
+                """,
+                farm_id,
+                doe_id,
+            )
+            # A row the service already numbered must not be renumbered.
+            kept = await connection.fetchval(
+                """
+                INSERT INTO kidding_records (farm_id, doe_id, date, ease, parity)
+                VALUES ($1, $2, DATE '2026-05-01', 'NORMAL', 4)
+                RETURNING id
+                """,
+                farm_id,
+                doe_id,
+            )
+        finally:
+            await connection.close()
+
+        await _alembic(database, "upgrade", HEAD)
+        connection = await asyncpg.connect(database_url)
+        try:
+            parity = {
+                row["id"]: row["parity"]
+                for row in await connection.fetch(
+                    "SELECT id, parity FROM kidding_records WHERE farm_id = $1",
+                    farm_id,
+                )
+            }
+            assert parity[first_id] == 1
+            assert parity[same_day_first] == 2
+            assert parity[same_day_second] == 3
+            assert parity[kept] == 4
         finally:
             await connection.close()
     finally:

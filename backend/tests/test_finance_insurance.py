@@ -854,7 +854,8 @@ async def test_mortality_memo_values_deaths_at_the_realized_rate(
     assert memo["window_months"] == 12
     assert memo["head_count"] == 1
     # 30 kg (last recorded weight) × ₹500/kg (realized rate) = ₹15,000.
-    assert memo["estimated_loss"] == 15000.0
+    # Money reaches the wire as an exact decimal string, never a binary float.
+    assert memo["estimated_loss"] == "15000.00"
     assert "last recorded weight" in memo["basis"]
     # Ledger-neutral: the memo never touches the P&L totals.
     assert summary["total_expense"] == 0.0

@@ -46,7 +46,7 @@ from app.security import (
 )
 from app.utils import today
 
-from .conftest import OWNER_PW, login, owner_with_farm, register
+from .conftest import OWNER_PW, login, login_and_rotate, owner_with_farm, register
 
 ALREADY_REGISTERED = "That email is already registered."
 HISTORY_CEILING_DETAIL = (
@@ -139,7 +139,9 @@ async def add_worker(
 async def worker_login(
     client: httpx.AsyncClient, email: str, password: str = "workerpass123"
 ) -> dict:
-    return await login(client, email, password)
+    # Provisioned worker: rotate explicitly; the default client no longer
+    # rewrites a worker-login 401 into a 200.
+    return await login_and_rotate(client, email, password)
 
 
 def set_refresh_cookie(client: httpx.AsyncClient, token: str) -> None:
@@ -2617,7 +2619,7 @@ async def test_account_export_is_machine_readable_and_tenant_minimal(
     )
     assert task.status_code == 201, task.text
 
-    worker = await login(client, "exporter@farm.in", "workerpass123")
+    worker = await login_and_rotate(client, "exporter@farm.in", "workerpass123")
     resp = await client.get("/api/auth/account/export", headers=worker)
     assert resp.status_code == 200, resp.text
     assert resp.headers["content-disposition"].startswith("attachment;")
@@ -2688,7 +2690,7 @@ async def test_account_delete_requires_password_rejects_owners_and_cleans_worker
     )
     assert duty.status_code == 201, duty.text
 
-    worker = await login(client, "departing@farm.in", "workerpass123")
+    worker = await login_and_rotate(client, "departing@farm.in", "workerpass123")
     stolen_refresh = client.cookies.get(COOKIE)
     wrong = await client.request(
         "DELETE",
@@ -2702,8 +2704,8 @@ async def test_account_delete_requires_password_rejects_owners_and_cleans_worker
     deleted = await client.request(
         "DELETE",
         "/api/auth/account",
-        # The shared test client completes the forced rotation on login, so
-        # the worker's current password is the derived rotated form.
+        # The worker completed the forced rotation at login, so the current
+        # password is the derived rotated form.
         json={"current_password": "workerpass123!r1"},
         headers=worker,
     )
@@ -3685,3 +3687,76 @@ async def test_garbage_refreshes_do_not_lock_out_a_co_located_session(
     set_refresh_cookie(client, victim_cookie)
     victim = await client.post("/api/auth/refresh")
     assert victim.status_code != 429, victim.text
+
+
+# ---------------------------------------------------------------------------
+# Default test client never rewrites worker logins (L4: rotation is opt-in)
+# ---------------------------------------------------------------------------
+async def test_default_client_does_not_rotate_or_mask_worker_logins(
+    client: httpx.AsyncClient,
+) -> None:
+    """A broken worker login can no longer be silently repaired by the client.
+
+    The old default response hook rotated owner-provisioned passwords
+    transparently (rewriting later 401s into 200s). Without any fixture the
+    same sequence must now show the un-rotated truth: the worker is still
+    flagged, the fence 403s, and the provisioned password still works —
+    while a wrong password stays a plain 401.
+    """
+    owner = await owner_with_farm(client, email="nomask-owner@farm.in")
+    await add_worker(client, owner, "CLEANER", "nomask@farm.in")
+
+    first = await client.post(
+        "/api/auth/login", json={"email": "nomask@farm.in", "password": "workerpass123"}
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["user"]["must_change_password"] is True
+    headers = {"Authorization": f"Bearer {first.json()['access_token']}"}
+    headers["X-Farm-Id"] = owner["X-Farm-Id"]
+    fenced = await client.get("/api/tasks", headers=headers)
+    assert fenced.status_code == 403, fenced.text
+
+    # No hidden rotation happened: the provisioned password still logs in.
+    second = await client.post(
+        "/api/auth/login", json={"email": "nomask@farm.in", "password": "workerpass123"}
+    )
+    assert second.status_code == 200, second.text
+    # And a wrong password surfaces as 401, never a rewritten 200.
+    wrong = await client.post(
+        "/api/auth/login", json={"email": "nomask@farm.in", "password": "wrongpass123"}
+    )
+    assert wrong.status_code == 401, wrong.text
+
+
+async def test_opt_in_fixture_restores_transparent_rotation(
+    client: httpx.AsyncClient,
+    auto_rotate_worker_logins: httpx.AsyncClient,
+) -> None:
+    """The legacy hook still exists for flows that cannot rotate explicitly."""
+    owner = await owner_with_farm(client, email="optin-owner@farm.in")
+    await add_worker(client, owner, "CLEANER", "optin@farm.in")
+    logged_in = await auto_rotate_worker_logins.post(
+        "/api/auth/login", json={"email": "optin@farm.in", "password": "workerpass123"}
+    )
+    assert logged_in.status_code == 200, logged_in.text
+    assert logged_in.json()["user"]["must_change_password"] is False
+    headers = {"Authorization": f"Bearer {logged_in.json()['access_token']}"}
+    headers["X-Farm-Id"] = owner["X-Farm-Id"]
+    assert (await client.get("/api/tasks", headers=headers)).status_code == 200
+    # The hook retried the original password with the derived form, proving
+    # the rotation landed: an UNHOOKED client sees the derived credential as
+    # current and the original as stale.
+    from app.main import create_app
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app()), base_url="http://test"
+    ) as unhooked:
+        derived = await unhooked.post(
+            "/api/auth/login",
+            json={"email": "optin@farm.in", "password": "workerpass123!r1"},
+        )
+        assert derived.status_code == 200, derived.text
+        stale = await unhooked.post(
+            "/api/auth/login", json={"email": "optin@farm.in", "password": "workerpass123"}
+        )
+        assert stale.status_code == 401, stale.text

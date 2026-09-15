@@ -25,6 +25,17 @@ from ..models.species import GOAT_PROFILE
 from ..utils import today, utcnow
 
 
+def canonicalize_breed(value: str) -> str:
+    """Trim and case-normalize a breed name ("" when nothing remains).
+
+    Breed is free text for the odd crossbred purchase, but "Osmanabadi",
+    " osmanabadi" and "OSMANABADI" must not fragment the pure-line views —
+    and the ck_animals_breed_nonempty CHECK rejects the blank result of
+    normalizing whitespace-only input at the database layer too.
+    """
+    return " ".join(value.split()).title()
+
+
 def bucket_transition_error(
     animal: Animal,
     to_bucket: str,

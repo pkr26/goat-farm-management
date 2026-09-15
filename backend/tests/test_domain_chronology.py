@@ -272,3 +272,62 @@ async def test_status_cannot_predate_later_weight_or_health_fact(
         headers=owner,
     )
     assert response.status_code == 422, response.text
+
+
+async def test_chronology_fact_probes_are_farm_scoped(client: httpx.AsyncClient) -> None:
+    """Every lifecycle-fact subquery carries the tenant predicate.
+
+    The weight and bucket-move probes used to filter by animal_id alone while
+    their health/kidding/breeding siblings also pinned farm_id; on a
+    multi-tenant schema the fact queries must all scope by farm (defense in
+    depth — a stray cross-tenant row must never move another farm's
+    chronology boundary).
+    """
+    from sqlalchemy import event
+
+    from app.db import get_engine
+
+    owner = await owner_with_farm(client)
+    animal = await make_doe(client, owner, "STATUS-SCOPED")
+
+    statements: list[str] = []
+
+    def capture_statement(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        statements.append(statement.lower())
+
+    engine = get_engine().sync_engine
+    event.listen(engine, "before_cursor_execute", capture_statement)
+    try:
+        response = await client.post(
+            f"/api/animals/{animal['id']}/status",
+            json={"new_status": "CULLED", "date": today().isoformat()},
+            headers=owner,
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", capture_statement)
+    assert response.status_code == 200, response.text
+
+    def fact_probes(aggregate: str) -> list[str]:
+        # Only the chronology fact subqueries: the scalar max()/min() probes
+        # (other readers filter these tables by animal_id alone on purpose).
+        return [statement for statement in statements if aggregate in statement]
+
+    for aggregate, table in (
+        ("max(weight_records.date)", "weight_records"),
+        ("min(weight_records.date)", "weight_records"),
+        ("max(bucket_moves.effective_date)", "bucket_moves"),
+        ("min(bucket_moves.effective_date)", "bucket_moves"),
+    ):
+        probes = fact_probes(aggregate)
+        for probe in probes:
+            assert f"{table}.farm_id" in probe, probe
+    # The status change itself runs the max() probes; both were captured.
+    assert fact_probes("max(weight_records.date)")
+    assert fact_probes("max(bucket_moves.effective_date)")

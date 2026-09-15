@@ -553,7 +553,7 @@ async def test_dead_records_coded_cause_disposal_and_necropsy(
         "DEAD",
         mortality_cause="pneumonia after unseasonal rain",
         mortality_cause_code="PNEUMONIA",
-        disposal_method="Buried on farm, deep pit with lime",
+        disposal_method="DEEP_BURIAL",
         necropsy_done=True,
         necropsy_findings="Anteroventral lung consolidation; pleural adhesions.",
     )
@@ -574,7 +574,7 @@ async def test_dead_records_coded_cause_disposal_and_necropsy(
     )
     assert free_text == "pneumonia after unseasonal rain"  # legacy field keeps working
     assert code == "PNEUMONIA"
-    assert disposal == "Buried on farm, deep pit with lime"
+    assert disposal == "DEEP_BURIAL"
     assert necropsy_done is True
     assert findings == "Anteroventral lung consolidation; pleural adhesions."
 
@@ -601,7 +601,7 @@ async def test_dead_without_necropsy_persists_false_and_nones(client: httpx.Asyn
     [
         ("DEAD", {"mortality_cause_code": "OLD_AGE_TYPOS"}, "mortality_cause_code"),
         ("DEAD", {"necropsy_findings": "lung lesions"}, "necropsy_done=true"),
-        ("DEAD", {"necropsy_done": True, "disposal_method": "buried"}, None),  # allowed
+        ("DEAD", {"necropsy_done": True, "disposal_method": "DEEP_BURIAL"}, None),  # allowed
         ("SOLD", {"sale_price_per_kg": 500.0}, "requires sale_weight_kg"),
         ("CULLED", {"sale_weight_kg": 25.0}, "require SOLD status"),
         ("CULLED", {"sale_price_per_kg": 500.0}, "require SOLD status"),
@@ -671,13 +671,13 @@ async def test_sale_and_death_facts_are_exposed_on_animal_out(
         "DEAD",
         mortality_cause="enterotoxaemia",
         mortality_cause_code="ENTEROTOXAEMIA",
-        disposal_method="buried",
+        disposal_method="DEEP_BURIAL",
         necropsy_done=True,
         necropsy_findings="Gut haemorrhage consistent with ET",
     )
     assert resp.status_code == 200, resp.text
     detail = (await client.get(f"/api/animals/{dead['id']}", headers=headers)).json()["animal"]
     assert detail["mortality_cause_code"] == "ENTEROTOXAEMIA"
-    assert detail["disposal_method"] == "buried"
+    assert detail["disposal_method"] == "DEEP_BURIAL"
     assert detail["necropsy_done"] is True
     assert detail["necropsy_findings"] == "Gut haemorrhage consistent with ET"

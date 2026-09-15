@@ -1,6 +1,7 @@
 """Pydantic schemas for the finance module."""
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -108,7 +109,10 @@ class MortalityMemoOut(BaseModel):
 
     window_months: int
     head_count: int
-    estimated_loss: float | None
+    # Decimal to the wire (serialized as a JSON string): the estimate is
+    # money, and a binary float would leak paise drift into the one figure the
+    # memo exists to state exactly.
+    estimated_loss: Decimal | None
     basis: str
 
 

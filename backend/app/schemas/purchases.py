@@ -94,6 +94,8 @@ class PurchaseBatchOut(BaseModel):
     avg_weight_kg: float | None
     total_price: float | None
     notes: str | None
+    created_at: dt.datetime
+    created_by_id: int | None
     animals_created: int = 0
     open_tasks: int = 0  # pending quarantine tasks
 

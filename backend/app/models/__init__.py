@@ -39,12 +39,15 @@ from .constants import (
 )
 from .core import Farm, FarmMembership, RefreshSession, Role, User
 from .enums import (
+    AdministrationRoute,
     AnimalSource,
     AnimalStatus,
     BirthType,
     BreedingMethod,
     BreedingOutcome,
     Bucket,
+    CoatColor,
+    DisposalMethod,
     FeedingShift,
     HealthEventType,
     IngredientCategory,
@@ -106,6 +109,7 @@ __all__ = [
     "ULTRASOUND_AFTER_BREEDING_DAYS",
     "VERIFICATION_REQUIRED_CATEGORIES",
     "WEANING_DAYS",
+    "AdministrationRoute",
     "Animal",
     "AnimalSource",
     "AnimalStatus",
@@ -118,6 +122,8 @@ __all__ = [
     "BucketDefinition",
     "BucketFeedSetting",
     "BucketMove",
+    "CoatColor",
+    "DisposalMethod",
     "Farm",
     "FarmMembership",
     "FeedFinishedStock",

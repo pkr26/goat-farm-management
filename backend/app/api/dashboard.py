@@ -41,6 +41,7 @@ from ..schemas.dashboard import (
     BreedingStatsOut,
     BucketCountOut,
     BucketReportRow,
+    DashboardAdvisoryOut,
     DashboardOut,
     InsuranceExpiringOut,
     MortalityOut,
@@ -54,6 +55,7 @@ from ..schemas.summaries import (
     DashboardWeightOut,
 )
 from ..services import actionable_pending_task_predicate, ready_to_move_suggestions, task_scope
+from ..services.dashboard import bakrid_hold_advisory
 from ..utils import today
 from ._shared import task_out
 
@@ -247,6 +249,9 @@ async def dashboard(
     The insurance-expiring block summarizes the finance register (policy
     numbers, cover, renewal dates), so it follows the register's own
     ``finance.view`` gate with the same withheld-not-empty convention.
+
+    The optional ``advisory`` (Bakrid hold window) restates herd composition,
+    so it follows the herd summary's ``animals.view`` gate (null without it).
     """
     can_view_animals = "animals.view" in perms
     buckets: list[BucketCountOut] | None = None
@@ -472,6 +477,10 @@ async def dashboard(
             for row in held_rows
         ]
 
+    # Bakrid hold advisory: a herd-composition fact (count of marketable
+    # males), so it follows the herd-summary block's animals.view gate.
+    advisory = await bakrid_hold_advisory(db, farm) if can_view_animals else None
+
     return DashboardOut(
         buckets=buckets,
         total_active=total_active,
@@ -518,6 +527,7 @@ async def dashboard(
         recent_weights_total=recent_weights_total,
         insurance_expiring=insurance_expiring,
         insurance_expiring_total=insurance_expiring_total,
+        advisory=(DashboardAdvisoryOut.model_validate(advisory) if advisory is not None else None),
         preview_limit=DASHBOARD_PREVIEW_LIMIT,
         recent_weights_limit=RECENT_WEIGHTS_LIMIT,
     )

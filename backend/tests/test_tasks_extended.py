@@ -40,7 +40,7 @@ from app.permissions import (
 from app.services.tasks import task_scope
 from app.utils import today
 
-from .conftest import owner_with_farm
+from .conftest import owner_with_farm, provisioned_worker_login
 
 WORKER_PW = "workerpass123"
 
@@ -113,7 +113,7 @@ async def worker_headers(
     """Owner adds a worker with preset role `code`; returns (farm headers, user id)."""
     rid = await role_id(client, owner, code)
     await add_worker(client, owner, rid, email, name)
-    headers, user_id = await login_user(client, email)
+    headers, user_id = await provisioned_worker_login(client, email, WORKER_PW)
     return headers | {"X-Farm-Id": owner["X-Farm-Id"]}, user_id
 
 
@@ -361,6 +361,7 @@ async def test_create_every_safe_manual_category(client: httpx.AsyncClient, cate
         "REBREED",
         "BUCK_ROTATION",
         "INSURANCE",
+        "WATER",
     ],
 )
 async def test_create_rejects_system_workflow_categories(
@@ -509,6 +510,8 @@ async def test_create_response_shape(client: httpx.AsyncClient) -> None:
     assert set(duty) == {
         "id",
         "title",
+        "title_key",
+        "title_args",
         "due_date",
         "status",
         "category",
@@ -530,6 +533,8 @@ async def test_create_response_shape(client: httpx.AsyncClient) -> None:
         "skip_reason",
         "rejected_by_id",
         "rejected_at",
+        "created_at",
+        "created_by_id",
         "assigned_role_name",
         "assigned_user_name",
         "animal_tag",
@@ -1033,7 +1038,7 @@ async def test_custom_role_without_tasks_view_403(client: httpx.AsyncClient) -> 
     owner = await owner_with_farm(client)
     rid = await make_custom_role(client, owner, "Observer", ["dashboard.view"])
     await add_worker(client, owner, rid, "observer@farm.in")
-    headers, _ = await login_user(client, "observer@farm.in")
+    headers, _ = await provisioned_worker_login(client, "observer@farm.in", WORKER_PW)
     headers |= {"X-Farm-Id": owner["X-Farm-Id"]}
     resp = await client.get("/api/tasks", headers=headers)
     assert resp.status_code == 403
@@ -1044,7 +1049,7 @@ async def test_view_only_role_cannot_create(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     rid = await make_custom_role(client, owner, "Viewer", ["dashboard.view", "tasks.view"])
     await add_worker(client, owner, rid, "viewer@farm.in")
-    headers, _ = await login_user(client, "viewer@farm.in")
+    headers, _ = await provisioned_worker_login(client, "viewer@farm.in", WORKER_PW)
     headers |= {"X-Farm-Id": owner["X-Farm-Id"]}
     resp = await post_duty(client, headers, title="X", due_date=iso(today()))
     assert resp.status_code == 403
@@ -1056,7 +1061,7 @@ async def test_view_only_role_cannot_complete(client: httpx.AsyncClient) -> None
     duty = await make_duty(client, owner, "Protected")
     rid = await make_custom_role(client, owner, "Viewer", ["dashboard.view", "tasks.view"])
     await add_worker(client, owner, rid, "viewer@farm.in")
-    headers, _ = await login_user(client, "viewer@farm.in")
+    headers, _ = await provisioned_worker_login(client, "viewer@farm.in", WORKER_PW)
     headers |= {"X-Farm-Id": owner["X-Farm-Id"]}
     resp = await complete_duty(client, headers, duty["id"])
     assert resp.status_code == 403
@@ -1068,7 +1073,7 @@ async def test_view_only_role_cannot_skip(client: httpx.AsyncClient) -> None:
     duty = await make_duty(client, owner, "Protected")
     rid = await make_custom_role(client, owner, "Viewer", ["dashboard.view", "tasks.view"])
     await add_worker(client, owner, rid, "viewer@farm.in")
-    headers, _ = await login_user(client, "viewer@farm.in")
+    headers, _ = await provisioned_worker_login(client, "viewer@farm.in", WORKER_PW)
     headers |= {"X-Farm-Id": owner["X-Farm-Id"]}
     resp = await client.post(
         f"/api/tasks/{duty['id']}/skip", json={"reason": "seasonal standdown"}, headers=headers
@@ -1082,7 +1087,7 @@ async def test_view_only_role_cannot_verify(client: httpx.AsyncClient) -> None:
     assert (await complete_duty(client, owner, duty["id"])).status_code == 200
     rid = await make_custom_role(client, owner, "Viewer", ["dashboard.view", "tasks.view"])
     await add_worker(client, owner, rid, "viewer@farm.in")
-    headers, _ = await login_user(client, "viewer@farm.in")
+    headers, _ = await provisioned_worker_login(client, "viewer@farm.in", WORKER_PW)
     headers |= {"X-Farm-Id": owner["X-Farm-Id"]}
     resp = await client.post(f"/api/tasks/{duty['id']}/verify", headers=headers)
     assert resp.status_code == 403
@@ -1095,7 +1100,7 @@ async def test_view_only_role_cannot_reject(client: httpx.AsyncClient) -> None:
     assert (await complete_duty(client, owner, duty["id"])).status_code == 200
     rid = await make_custom_role(client, owner, "Viewer", ["dashboard.view", "tasks.view"])
     await add_worker(client, owner, rid, "viewer@farm.in")
-    headers, _ = await login_user(client, "viewer@farm.in")
+    headers, _ = await provisioned_worker_login(client, "viewer@farm.in", WORKER_PW)
     headers |= {"X-Farm-Id": owner["X-Farm-Id"]}
     resp = await client.post(f"/api/tasks/{duty['id']}/reject", json={"note": "x"}, headers=headers)
     assert resp.status_code == 403
@@ -1571,7 +1576,7 @@ async def test_tasks_only_worker_cannot_trigger_legacy_manual_animal_side_effect
         ["tasks.view", "tasks.complete"],
     )
     await add_worker(client, owner, role, "checklist@farm.in")
-    worker, _ = await login_user(client, "checklist@farm.in")
+    worker, _ = await provisioned_worker_login(client, "checklist@farm.in", WORKER_PW)
     worker["X-Farm-Id"] = owner["X-Farm-Id"]
     animal_id = await make_animal(client, owner, f"NO-SIDE-EFFECT-{category}")
     farm_id = int(owner["X-Farm-Id"])
@@ -3346,3 +3351,49 @@ def test_herd_round_duty_links_to_the_health_form() -> None:
         task_action_url(Task(farm_id=1, title="x", due_date=today(), category="HOOF_TRIMMING"))
         is None
     )
+
+
+# ---------------------------------------------------------------------------
+# Creation provenance + localization contract (tasks.created_at/created_by_id,
+# title_key/title_args)
+# ---------------------------------------------------------------------------
+async def test_manual_duty_records_its_creator_and_has_no_title_key(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    duty = await make_duty(client, owner, "Sweep the store room")
+    assert duty["title_key"] is None
+    assert duty["title_args"] == {}
+    assert duty["created_at"] is not None
+
+    async with get_sessionmaker()() as db:
+        owner_id = (await db.execute(select(User.id).order_by(User.id).limit(1))).scalar_one()
+        row = await db.get(Task, duty["id"])
+        assert row is not None
+        assert row.created_by_id == owner_id
+        assert row.created_at is not None
+    # Exposed on the wire for the board too.
+    tabs = await get_tabs(client, owner)
+    wire = next(t for t in all_tasks(tabs) if t["id"] == duty["id"])
+    assert wire["created_by_id"] == owner_id
+    assert wire["title_key"] is None
+
+
+async def test_recurring_successor_keeps_provenance_and_title_key(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    duty = await make_duty(client, owner, "Daily sweep", recur_days=1)
+    done = await client.post(f"/api/tasks/{duty['id']}/complete", headers=owner)
+    assert done.status_code == 200, done.text
+    tabs = await get_tabs(client, owner)
+    successors = [
+        t
+        for t in all_tasks(tabs)
+        if t["recurring_series_id"] == duty["recurring_series_id"]
+        and t["id"] != duty["id"]
+        and t["status"] == "PENDING"
+    ]
+    assert len(successors) == 1
+    assert successors[0]["created_by_id"] == duty["created_by_id"]
+    assert successors[0]["title_key"] is None

@@ -77,10 +77,17 @@ async def _add_task(
     animal_id: int | None = None,
     purchase_batch_id: int | None = None,
     breeding_record_id: int | None = None,
+    *,
+    title_key: str | None = None,
+    title_args: dict[str, object] | None = None,
 ) -> Task:
+    """Add one generated duty; ``title_key``/``title_args`` are the client's
+    localization contract while ``title`` stays the English fallback."""
     task = Task(
         farm_id=farm_id,
         title=title,
+        title_key=title_key,
+        title_args=dict(title_args) if title_args is not None else {},
         due_date=due_date,
         category=category.value,
         animal_id=animal_id,

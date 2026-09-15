@@ -1,6 +1,7 @@
 """Pydantic schemas for dashboard and reports."""
 
 import datetime as dt
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -52,6 +53,14 @@ class InsuranceExpiringOut(BaseModel):
     animal_tag: str | None = None
 
 
+class DashboardAdvisoryOut(BaseModel):
+    """A structured ops advisory: a stable key plus its arguments, so the
+    client renders it localized (same contract as task title keys)."""
+
+    key: str
+    args: dict[str, Any]
+
+
 class DashboardOut(BaseModel):
     # Herd counts by bucket (the pregnancy/breeding-programme buckets among
     # them), the active total and the sex split restate animal-register facts
@@ -93,6 +102,12 @@ class DashboardOut(BaseModel):
     # the totals above; the finance register holds the full list).
     insurance_expiring: list[InsuranceExpiringOut]
     insurance_expiring_total: int | None
+    # Optional, additive ops advisory (Bakrid hold window): males whose
+    # projected market finish lands in the two months before the next Bakrid
+    # are worth holding for the festival premium. None when no animal
+    # qualifies, when the caller lacks animals.view, or when the calendar
+    # has no next date.
+    advisory: DashboardAdvisoryOut | None = None
     # All operational lists above except recent_weights use this cap.
     preview_limit: int
     recent_weights_limit: int

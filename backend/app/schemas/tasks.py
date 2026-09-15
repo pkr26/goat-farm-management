@@ -1,7 +1,7 @@
 """Pydantic schemas for the tasks/duties module."""
 
 from datetime import date, datetime, timedelta
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -31,6 +31,7 @@ TaskCategoryStr = Literal[
     "REBREED",
     "BUCK_ROTATION",
     "INSURANCE",
+    "WATER",
 ]
 
 # Manual duties are intentionally operational checklists. Workflow categories
@@ -73,6 +74,10 @@ class TaskOut(BaseModel):
 
     id: int
     title: str
+    # Localization contract for generated duties: render the key+args in the
+    # worker's language; ``title`` remains the English fallback.
+    title_key: str | None
+    title_args: dict[str, Any]
     due_date: date
     status: TaskStatusStr
     category: TaskCategoryStr
@@ -94,6 +99,8 @@ class TaskOut(BaseModel):
     skip_reason: str | None
     rejected_by_id: int | None
     rejected_at: datetime | None
+    created_at: datetime
+    created_by_id: int | None
     # enriched for display
     assigned_role_name: str | None = None
     assigned_user_name: str | None = None

@@ -4,14 +4,18 @@ Domain rules under test:
 - Seasonal calendar rounds (FMD Sep/Mar, ET+HS May, Goat Pox Nov, CCPP Jan,
   deworming Jun/Jan) fire once per (category, month, year) and are herd-level.
 - Interval rounds (hoof trimming, spraying, disinfection, weighing) respect
-  their lookback windows; a round due inside the window suppresses the next.
-- The daily feed-room routine dedupes on (exact title, due date, PENDING).
+  their lookback windows; a round due inside the window — including an
+  operator-scheduled one due in the coming weeks — suppresses the next.
+- The daily feed-room routine and the daily water check dedupe on (exact
+  title, due date, any status).
 - Feed reorder duties fire per under-level ingredient unless a PENDING FEED
   duty already names that ingredient.
 - Buck rotation fires per male ≥ GOAT_PROFILE.buck_rotation_age_months with a
   365-day dedupe, coalescing dob/estimated_dob for the age math.
 - A farm with no ACTIVE animals is a complete no-op.
-- GET /api/tasks (the board hook) materializes the cadence idempotently.
+- GET /api/tasks is read-only; the background sweep (run_ensure here)
+  materializes the cadence idempotently, and every generated duty carries
+  its localization key (title_key/title_args).
 
 Business dates are frozen through the same monkeypatched ``today`` helper the
 health suite uses (the farm-local business-date indirection), so no test
@@ -494,11 +498,17 @@ async def test_empty_farm_is_a_no_op(
 
 
 # ---------------------------------------------------------------------------
-# Board hook
+# Board hook (removed: the GET is read-only; the sweep materializes)
 # ---------------------------------------------------------------------------
-async def test_task_board_load_materializes_cadence_idempotently(
+async def test_task_board_load_is_read_only_and_the_sweep_materializes(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """GET /api/tasks never mutates the board; cadence arrives via the sweep.
+
+    Before the split, the list endpoint took the farm advisory lock and
+    committed generated duties inside a read request. Now a bare board load
+    returns only what the background sweep (or any earlier write) committed.
+    """
     headers = await owner_with_farm(client)
     await make_animal(client, headers, "H-001")
     farm_id = int(headers["X-Farm-Id"])
@@ -513,12 +523,17 @@ async def test_task_board_load_materializes_cadence_idempotently(
     first = await client.get("/api/tasks", headers=headers)
     assert first.status_code == 200, first.text
     fmd_title = FMD_TITLE_TEMPLATE.format(month="September", year=2026)
-    today_titles = [t["title"] for t in first.json()["today"]]
+    assert fmd_title not in [t["title"] for t in first.json()["today"]]
+    assert await farm_tasks(farm_id) == []
+
+    await run_ensure(farm_id)
+    second = await client.get("/api/tasks", headers=headers)
+    assert second.status_code == 200, second.text
+    today_titles = [t["title"] for t in second.json()["today"]]
     assert fmd_title in today_titles
     assert ROUTINE_TITLE in today_titles
 
-    second = await client.get("/api/tasks", headers=headers)
-    assert second.status_code == 200, second.text
+    await run_ensure(farm_id)
     fmd_tasks = [t for t in await farm_tasks(farm_id, "VACCINE") if t.title == fmd_title]
     assert len(fmd_tasks) == 1
     routine = [t for t in await farm_tasks(farm_id, "FEED") if t.title == ROUTINE_TITLE]
@@ -689,3 +704,102 @@ async def test_backfill_never_precedes_farm_creation(
         DEWORM_TITLE_TEMPLATE.format(month="June", year=2026),
         FMD_TITLE_TEMPLATE.format(month="September", year=2026),
     ]
+
+
+async def test_interval_round_forward_window_suppresses_operator_scheduled_round(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An operator-created same-category duty due NEXT week counts too.
+
+    The dedupe probe used to cover only [today - lookback, today]: a hoof
+    trimming round already scheduled for next week did not suppress today's
+    auto round, and the board grew a duplicate pair. The window now extends
+    _INTERVAL_FORWARD_DEDUPE_DAYS ahead.
+    """
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "F-001")
+    farm_id = int(headers["X-Farm-Id"])
+    day = freeze_business_date(monkeypatch, date(2026, 9, 14))
+    await seed_history_task(
+        farm_id,
+        category="HOOF_TRIMMING",
+        title="Hoof trimming round (operator-scheduled)",
+        due_date=day + timedelta(days=7),
+        status=TaskStatus.PENDING.value,
+    )
+
+    await run_ensure(farm_id)
+    hoof = [t for t in await farm_tasks(farm_id, "HOOF_TRIMMING")]
+    assert len(hoof) == 1
+    assert hoof[0].title == "Hoof trimming round (operator-scheduled)"
+
+    # Beyond the forward window the auto round fires again.
+    await seed_history_task(
+        farm_id,
+        category="SPRAYING",
+        title="Spray round scheduled far ahead",
+        due_date=day + timedelta(days=31),
+        status=TaskStatus.PENDING.value,
+    )
+    await run_ensure(farm_id)
+    spray_titles = sorted(t.title for t in await farm_tasks(farm_id, "SPRAYING"))
+    assert spray_titles == [
+        SPRAY_TITLE,
+        "Spray round scheduled far ahead",
+    ]
+
+
+async def test_daily_water_check_fires_once_per_business_day(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The trough round is its own daily WATER duty, deduped any-status."""
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "W-001")
+    farm_id = int(headers["X-Farm-Id"])
+    day = freeze_business_date(monkeypatch, date(2026, 9, 14))
+
+    await run_ensure(farm_id)
+    water = await farm_tasks(farm_id, "WATER")
+    assert len(water) == 1
+    assert water[0].due_date == day
+    assert water[0].title_key == "daily_water_check"
+    assert water[0].title_args["due_date"] == day.isoformat()
+    # The trough duty routes to the feed crew like the feed routine.
+    assert water[0].assigned_role_id is not None
+
+    # Completed today still proves today's round exists; nothing re-mints.
+    async with get_sessionmaker()() as db:
+        row = await db.get(Task, water[0].id)
+        assert row is not None
+        row.status = TaskStatus.DONE.value
+        row.completed_at = utcnow()
+        await db.commit()
+    await run_ensure(farm_id)
+    assert len(await farm_tasks(farm_id, "WATER")) == 1
+
+    # The next business day gets its own copy.
+    freeze_business_date(monkeypatch, date(2026, 9, 15))
+    await run_ensure(farm_id)
+    assert len(await farm_tasks(farm_id, "WATER")) == 2
+
+
+async def test_generated_duties_carry_title_keys_and_english_fallbacks(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every sweep-generated duty publishes title_key + structured args."""
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "K-001")
+    farm_id = int(headers["X-Farm-Id"])
+    freeze_business_date(monkeypatch, date(2026, 9, 14))
+
+    await run_ensure(farm_id)
+    tasks = await farm_tasks(farm_id)
+    assert tasks
+    for task in tasks:
+        assert task.title_key is not None, task.title
+        assert task.title  # English fallback always populated
+        assert task.title_args["due_date"] == task.due_date.isoformat()
+    by_category = {task.category: task.title_key for task in tasks}
+    assert by_category["WATER"] == "daily_water_check"
+    assert by_category["WEIGHING"] == "monthly_weighing_round"
+    assert by_category["HOOF_TRIMMING"] == "hoof_trimming_round"

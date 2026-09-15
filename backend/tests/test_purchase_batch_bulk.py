@@ -23,6 +23,7 @@ from app.models import (
     Task,
     TaskCategory,
     Transaction,
+    User,
     WeightRecord,
 )
 from app.schemas.common import MAX_INT32_ID
@@ -659,3 +660,55 @@ async def test_arrival_weights_fall_back_to_the_batch_average_when_omitted(
     rows = await _arrival_weight_rows(created.json()["id"])
     assert [row[1] for row in rows] == [30.0, 30.0, 30.0]
     assert {row[2] for row in rows} == {"Estimated from purchase batch average"}
+
+
+async def test_batch_provenance_and_quarantine_task_title_keys(
+    client: httpx.AsyncClient,
+) -> None:
+    """The batch records its creator; every protocol duty carries its key."""
+    owner = await owner_with_farm(client)
+    created = await client.post(
+        "/api/purchases/new",
+        json={
+            "date": today().isoformat(),
+            "supplier": "Provenance supplier",
+            "count": 3,
+            "create_animals": True,
+        },
+        headers=owner,
+    )
+    assert created.status_code == 201, created.text
+    batch_id = created.json()["id"]
+    assert created.json()["created_at"] is not None
+
+    detail = await client.get(f"/api/purchases/{batch_id}", headers=owner)
+    assert detail.status_code == 200, detail.text
+    batch = detail.json()["batch"]
+    assert batch["created_at"] is not None
+
+    tasks = detail.json()["tasks"]
+    assert len(tasks) == len(QUARANTINE_PROTOCOL)
+    expected_keys = {
+        "quarantine_arrival_inspection",
+        "quarantine_rest",
+        "quarantine_deworm",
+        "quarantine_liver_tonic",
+        "quarantine_ppr_vaccine",
+        "quarantine_fecal_exam",
+        "quarantine_et_tetanus_vaccine",
+        "quarantine_goat_pox_vaccine",
+        "quarantine_prerelease_review",
+        "quarantine_fmd_vaccine",
+        "quarantine_release",
+    }
+    assert {t["title_key"] for t in tasks} == expected_keys
+    for task in tasks:
+        assert task["title_args"]["batch_id"] == batch_id
+        assert task["title_args"]["due_date"] == task["due_date"]
+
+    async with get_sessionmaker()() as db:
+        owner_id = (await db.execute(select(User.id).order_by(User.id).limit(1))).scalar_one()
+        row = await db.get(PurchaseBatch, batch_id)
+        assert row is not None
+        assert row.created_by_id == owner_id
+        assert row.created_at is not None

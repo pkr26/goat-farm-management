@@ -66,6 +66,14 @@ def test_animal_vocabularies_match_enums() -> None:
     assert _literal_values(animals.AnimalSourceStr) == {s.value for s in models.AnimalSource}
     assert _literal_values(animals.BirthTypeStr) == {b.value for b in models.BirthType}
     assert _literal_values(animals.Sex) == {s.value for s in models.Sex}
+    assert _literal_values(animals.DisposalMethodStr) == {m.value for m in models.DisposalMethod}
+    assert _literal_values(animals.CoatColorStr) == {c.value for c in models.CoatColor}
+
+
+def test_health_route_str_matches_enum() -> None:
+    assert _literal_values(health.AdministrationRouteStr) == {
+        r.value for r in models.AdministrationRoute
+    }
 
 
 def test_breeding_vocabularies_match_enums() -> None:

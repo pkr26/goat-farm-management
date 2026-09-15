@@ -1068,22 +1068,6 @@ async def change_role(
     )
 
 
-@router.post("/workers/{membership_id}/toggle", include_in_schema=False)
-async def retired_toggle_worker(
-    membership_id: int,
-    db: DbSession,
-    user: CurrentUser,
-    farm: CurrentFarm,
-    perms: TEAM_PERM,
-) -> None:
-    """Refuse the retry-unsafe legacy command instead of inverting twice."""
-    raise HTTPException(
-        status_code=405,
-        detail="Worker toggle was retired; send the desired state to the status endpoint.",
-        headers={"Allow": "PUT"},
-    )
-
-
 @router.put("/workers/{membership_id}/status")
 async def set_worker_status(
     payload: WorkerStatusIn,

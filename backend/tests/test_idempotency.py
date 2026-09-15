@@ -64,7 +64,12 @@ from app.services.idempotency import (
 from app.utils import money as actual_money
 from app.utils import today, utcnow
 
-from .conftest import create_farm, login, owner_with_farm, register
+from .conftest import (
+    create_farm,
+    owner_with_farm,
+    provisioned_worker_login,
+    register,
+)
 
 WORKER_PASSWORD = "workerpass123"
 
@@ -1112,7 +1117,9 @@ async def test_keys_are_isolated_by_actor_and_farm(client: httpx.AsyncClient) ->
         headers=owner,
     )
     assert worker.status_code == 201, worker.text
-    worker_headers = await login(client, "retry-clerk@farm.in", WORKER_PASSWORD)
+    worker_headers, _ = await provisioned_worker_login(
+        client, "retry-clerk@farm.in", WORKER_PASSWORD
+    )
     worker_headers |= {"X-Farm-Id": owner["X-Farm-Id"]}
 
     payload = finance_payload(amount=88)

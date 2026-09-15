@@ -25,6 +25,10 @@ from .summaries import AnimalIdentityOut
 HealthEventTypeStr = Literal[
     "VACCINE", "DEWORMING", "TREATMENT", "FOOTBATH", "VITAMIN", "EXAM", "FECAL_EXAM"
 ]
+# Bounded administration-route vocabulary (models.enums.AdministrationRoute;
+# ck_health_events_route). Was free text ("SC", "Oral", ...); the canonical
+# codes are upper-case.
+AdministrationRouteStr = Literal["SC", "IM", "IV", "ORAL", "TOPICAL", "INTRANASAL"]
 # Ad-hoc bucket treatments stay at 250 in the API. Batch-linked quarantine
 # protocols must cover every schema-valid purchase batch; otherwise counts
 # 251..MAX_BATCH_COUNT create duties that can never be completed.
@@ -52,7 +56,7 @@ class HealthEventOut(BaseModel):
     product_name: str | None
     disease_target: str | None
     dose: str | None
-    route: str | None
+    route: AdministrationRouteStr | None
     vet_name: str | None
     cost: float | None
     next_due_date: dt.date | None
@@ -236,9 +240,7 @@ class HealthEventIn(StrictInputModel):
     product_name: PostgresText | None = Field(default=None, max_length=120)
     disease_target: PostgresText | None = Field(default=None, max_length=120)
     dose: PostgresText | None = Field(default=None, max_length=60)
-    route: PostgresText | None = Field(
-        default=None, max_length=20
-    )  # health_events.route is String(20)
+    route: AdministrationRouteStr | None = None  # health_events.route vocabulary
     vet_name: PostgresText | None = Field(default=None, max_length=120)
     cost: NonNegativeMoneyFloat | None = None
     next_due_date: dt.date | None = None

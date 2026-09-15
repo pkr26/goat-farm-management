@@ -386,6 +386,8 @@ async def _schedule_rebreed(db: AsyncSession, farm_id: int, doe: Animal, due: da
             due,
             TaskCategory.REBREED,
             animal_id=doe.id,
+            title_key="rebreed",
+            title_args={"tag": doe.tag_number, "due_date": due.isoformat()},
         )
     else:
         existing.due_date = due
@@ -824,6 +826,8 @@ async def spawn_next_occurrence(db: AsyncSession, task: Task) -> Task:
             .values(
                 farm_id=task.farm_id,
                 title=task.title,
+                title_key=task.title_key,
+                title_args=task.title_args,
                 due_date=due,
                 status=TaskStatus.PENDING.value,
                 category=task.category,
@@ -835,6 +839,7 @@ async def spawn_next_occurrence(db: AsyncSession, task: Task) -> Task:
                 assigned_user_id=task.assigned_user_id,
                 recur_days=task.recur_days,
                 recurring_series_id=task.recurring_series_id,
+                created_by_id=task.created_by_id,
             )
             .on_conflict_do_nothing(constraint="uq_task_recurring_series_due")
             .returning(Task.id)
@@ -930,6 +935,7 @@ async def create_manual_task(
     assigned_role_id: int | None = None,
     assigned_user_id: int | None = None,
     recur_days: int | None = None,
+    created_by_id: int | None = None,
 ) -> Task:
     """Owner/manager-created duty (not auto-generated)."""
     task = Task(
@@ -943,6 +949,7 @@ async def create_manual_task(
         assigned_user_id=assigned_user_id,
         recur_days=recur_days,
         recurring_series_id=str(uuid4()) if recur_days else None,
+        created_by_id=created_by_id,
     )
     db.add(task)
     await db.flush()

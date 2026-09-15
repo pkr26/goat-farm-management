@@ -17,12 +17,11 @@ from app.db import get_sessionmaker
 from app.models import Farm, FarmMembership, Role, Task, User
 from app.utils import today, utcnow
 
-from .conftest import owner_with_farm
+from .conftest import owner_with_farm, provisioned_worker_login
 from .test_team_extended import (
     WORKER_PW,
     add_worker,
     create_custom_role,
-    login_user,
     membership_id,
     permissions_of,
     role_id,
@@ -47,7 +46,7 @@ async def test_tombstoned_role_fails_closed_for_auth_and_live_assignment(
     )
     added = await add_worker(client, owner, role["id"], "retired@farm.in")
     assert added.status_code == 201, added.text
-    worker = await login_user(client, "retired@farm.in", WORKER_PW)
+    worker, _ = await provisioned_worker_login(client, "retired@farm.in", WORKER_PW)
     worker["X-Farm-Id"] = owner["X-Farm-Id"]
 
     # Simulate a damaged/out-of-process tombstone with a living membership.
@@ -268,7 +267,7 @@ async def test_team_manager_cannot_assign_richer_role_to_alternate_account(
 
     # Authenticate as the alternate account and verify the failed assignment
     # did not confer either finance access or the manager's team.manage power.
-    alternate = await login_user(client, "bounded-alternate@farm.in", WORKER_PW)
+    alternate, _ = await provisioned_worker_login(client, "bounded-alternate@farm.in", WORKER_PW)
     alternate["X-Farm-Id"] = owner["X-Farm-Id"]
     assert set((await permissions_of(client, alternate))["permissions"]) == set(cleaner_permissions)
     assert (await client.get("/api/finance", headers=alternate)).status_code == 403
@@ -308,7 +307,9 @@ async def test_team_manager_cannot_reset_richer_alternate_credentials(
         json={"email": "finance-worker@farm.in", "password": "hijackedpass123"},
     )
     assert hijacked.status_code == 401, hijacked.text
-    alternate = await login_user(client, "finance-worker@farm.in", "originalpass123")
+    alternate, _ = await provisioned_worker_login(
+        client, "finance-worker@farm.in", "originalpass123"
+    )
     alternate["X-Farm-Id"] = owner["X-Farm-Id"]
     assert (await client.get("/api/finance", headers=alternate)).status_code == 200
     assert (await client.get("/api/finance", headers=manager)).status_code == 403
@@ -338,7 +339,7 @@ async def test_team_manager_cannot_toggle_richer_worker(
     )
 
     # The richer worker remains active and can still use its original account.
-    richer_worker = await login_user(client, "finance-worker@farm.in", WORKER_PW)
+    richer_worker, _ = await provisioned_worker_login(client, "finance-worker@farm.in", WORKER_PW)
     richer_worker["X-Farm-Id"] = owner["X-Farm-Id"]
     assert (await client.get("/api/finance", headers=richer_worker)).status_code == 200
 

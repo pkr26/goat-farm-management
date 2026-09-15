@@ -42,6 +42,7 @@ from ..schemas.animals import (
     AnimalOut,
     AnimalProfileOut,
     AnimalStatusStr,
+    AnimalUpdateIn,
     BucketMoveOut,
     BucketStr,
     MoveIn,
@@ -74,7 +75,7 @@ from ..services import (
 # Not re-exported from ``..services`` yet; imported from their modules so the
 # batch-duty sweep can run beside the per-animal one and the status sweep can
 # close a never-scanned service.
-from ..services.animals import skip_pending_tasks_for_empty_batch
+from ..services.animals import canonicalize_breed, skip_pending_tasks_for_empty_batch
 from ..services.breeding import mark_unassessed
 from ..utils import MONEY_QUANTUM, money, today
 from ._shared import AnimalComputedFacts, animal_computed_facts, animal_out, unique_constraint_name
@@ -526,7 +527,12 @@ async def create_animal(
                         date_of_birth=payload.date_of_birth,
                         estimated_dob=payload.estimated_dob,
                         birth_type=payload.birth_type,
-                        breed=payload.breed.strip() or GOAT_PROFILE.default_breed,
+                        # Canonical form (" osmanabadi " -> "Osmanabadi") keeps
+                        # the pure-line views coherent; the empty input still
+                        # resolves to the species default here.
+                        breed=canonicalize_breed(payload.breed) or GOAT_PROFILE.default_breed,
+                        coat_color=payload.coat_color,
+                        horned=payload.horned,
                         birth_weight=payload.birth_weight,
                         purchase_date=(payload.purchase_date or farm_date)
                         if managed_purchase
@@ -633,6 +639,34 @@ async def create_animal(
         response_type=AnimalOut,
         mutate=mutate,
     )
+
+
+@router.patch("/{animal_id}")
+async def update_animal(
+    payload: AnimalUpdateIn,
+    animal_id: int,
+    db: DbSession,
+    farm: CurrentFarm,
+    perms: Annotated[set[str], Depends(require_perm("animals.create"))],
+) -> AnimalOut:
+    """Edit the phenotype record (coat colour / horns) of a live animal.
+
+    Only fields present in the payload are written; an explicit null clears
+    the stored value back to unrecorded. Identity, provenance and lifecycle
+    fields stay with their authoritative endpoints.
+    """
+    animal = await _get_animal(db, farm.id, animal_id, for_update=True)
+    if animal.status != AnimalStatus.ACTIVE.value:
+        raise HTTPException(
+            status_code=409, detail=f"{animal.tag_number} is {animal.status.lower()}"
+        )
+    supplied = payload.model_fields_set
+    if "coat_color" in supplied:
+        animal.coat_color = payload.coat_color
+    if "horned" in supplied:
+        animal.horned = payload.horned
+    await db.commit()
+    return await _animal_out(db, animal, today(farm.timezone), farm.timezone, perms)
 
 
 @router.get("/{animal_id}")

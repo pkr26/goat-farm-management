@@ -300,6 +300,7 @@ def test_task_category_role_map_targets_valid_categories_and_presets() -> None:
         ("REBREED", "MANAGER"),
         ("BUCK_ROTATION", "MANAGER"),
         ("INSURANCE", "ACCOUNTANT"),
+        ("WATER", "FEEDER"),
     ],
 )
 def test_task_category_role_map_matches_spec(category: str, role_code: str) -> None:
@@ -384,6 +385,7 @@ ENUM_CASES = [
             "REBREED",
             "BUCK_ROTATION",
             "INSURANCE",
+            "WATER",
         },
     ),
 ]
@@ -1724,9 +1726,9 @@ def test_health_event_accepts_every_type(event_type: str) -> None:
             "next_due_authority": "Veterinarian prescription VET-001",
         },
         {"scope": "animal", "animal_id": 1, "type": "TREATMENT", "cost": 0.0},
-        {"scope": "animal", "animal_id": 1, "type": "TREATMENT", "route": "R" * 20},
-        # NOTE: a 60-char route was previously "valid" here, but the column is
-        # String(20) — the schema cap is now 20, so that case moved to invalid.
+        {"scope": "animal", "animal_id": 1, "type": "TREATMENT", "route": "ORAL"},
+        # The route vocabulary is bounded now (AdministrationRoute): free-text
+        # routes of ANY length are invalid, so the old at-cap case moved down.
         {"scope": "animal", "animal_id": 1, "type": "TREATMENT", "dose": "D" * 60},
         {"scope": "animal", "animal_id": 1, "type": "TREATMENT", "task_id": 5},
     ],
@@ -1754,6 +1756,8 @@ def test_health_event_valid(payload: dict) -> None:
         {"scope": "animal", "animal_id": 1, "type": "TREATMENT", "dose": "D" * 61},
         {"scope": "animal", "animal_id": 1, "type": "TREATMENT", "route": "R" * 21},
         {"scope": "animal", "animal_id": 1, "type": "TREATMENT", "route": "R" * 61},
+        {"scope": "animal", "animal_id": 1, "type": "TREATMENT", "route": "R" * 20},
+        {"scope": "animal", "animal_id": 1, "type": "TREATMENT", "route": "oral"},
         {"scope": "animal", "animal_id": 1, "type": "TREATMENT", "vet_name": "V" * 121},
         {"scope": "animal", "animal_id": 1, "type": "VACCINE", "task_id": 0},
         {"scope": "animal", "animal_id": 1, "type": "VACCINE", "bucket": "PASTURE"},
@@ -2316,7 +2320,8 @@ async def test_status_notes_at_db_column_limit(client: httpx.AsyncClient) -> Non
     assert resp.status_code == 200, resp.text
 
 
-async def test_health_route_at_db_column_limit(client: httpx.AsyncClient) -> None:
+async def test_health_route_vocabulary_value_round_trips(client: httpx.AsyncClient) -> None:
+    """A canonical route code is accepted and stored verbatim."""
     headers = await owner_with_farm(client)
     animal_id = await _make_animal(client, headers)
     resp = await client.post(
@@ -2325,11 +2330,12 @@ async def test_health_route_at_db_column_limit(client: httpx.AsyncClient) -> Non
             "scope": "animal",
             "animal_id": animal_id,
             "type": "TREATMENT",
-            "route": "R" * 20,  # health_events.route String(20)
+            "route": "SC",  # AdministrationRoute vocabulary (was free text)
         },
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
+    assert resp.json()[0]["route"] == "SC"
 
 
 async def test_finance_notes_at_db_column_limit(client: httpx.AsyncClient) -> None:

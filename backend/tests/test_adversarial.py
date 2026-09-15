@@ -41,7 +41,7 @@ from app.db import get_sessionmaker
 from app.models import BucketMove
 from app.utils import today
 
-from .conftest import login, owner_with_farm
+from .conftest import login_and_rotate, owner_with_farm, provisioned_worker_login
 
 
 # ---------------------------------------------------------------------------
@@ -278,7 +278,10 @@ async def role_ids_by_code(client: httpx.AsyncClient, headers: dict) -> dict[str
 
 
 async def worker_headers(client: httpx.AsyncClient, email: str, password: str, owner: dict) -> dict:
-    return (await login(client, email, password)) | {"X-Farm-Id": owner["X-Farm-Id"]}
+    # Provisioned worker: rotate explicitly (the default client never
+    # rewrites a worker-login 401 into a 200 anymore).
+    headers, _user_id = await provisioned_worker_login(client, email, password)
+    return headers | {"X-Farm-Id": owner["X-Farm-Id"]}
 
 
 # ---------------------------------------------------------------------------
@@ -1273,7 +1276,7 @@ async def test_team_takeover_and_escalation_guards(client: httpx.AsyncClient) ->
     )
     assert resp.status_code == 201, resp.text
     mid = resp.json()["id"]
-    w_auth = await login(client, "w@farm.in", "workerpass123")
+    w_auth = await login_and_rotate(client, "w@farm.in", "workerpass123")
     resp = await client.post("/api/auth/farms", json={"name": "W Farm"}, headers=w_auth)
     assert resp.status_code == 201, resp.text
     resp = await client.post(
@@ -1281,7 +1284,7 @@ async def test_team_takeover_and_escalation_guards(client: httpx.AsyncClient) ->
     )
     assert resp.status_code == 400
     resp = await client.post(
-        "/api/auth/login", json={"email": "w@farm.in", "password": "workerpass123"}
+        "/api/auth/login", json={"email": "w@farm.in", "password": "workerpass123!r1"}
     )
     assert resp.status_code == 200  # password untouched…
     resp = await client.post(

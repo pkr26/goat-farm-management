@@ -11,7 +11,7 @@ from sqlalchemy import text
 import app.api.planner as planner_api
 from app.core.config import get_settings
 
-from .conftest import login, owner_with_farm
+from .conftest import owner_with_farm, provisioned_worker_login
 
 WORKER_PW = "workerpass123"
 START = "2026-01"
@@ -32,7 +32,7 @@ async def worker_headers(
         headers=owner,
     )
     assert resp.status_code == 201, resp.text
-    headers = await login(client, email, WORKER_PW)
+    headers, _user_id = await provisioned_worker_login(client, email, WORKER_PW)
     return headers | {"X-Farm-Id": owner["X-Farm-Id"]}
 
 

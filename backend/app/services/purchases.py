@@ -77,6 +77,8 @@ async def schedule_quarantine_tasks(db: AsyncSession, farm: Farm, batch: Purchas
             item["due_date"],
             TaskCategory(item["category"]),
             purchase_batch_id=batch.id,
+            title_key=item["title_key"],
+            title_args=item["title_args"],
         )
 
 
@@ -137,6 +139,7 @@ async def create_purchase_batch(
         avg_weight_kg=avg_weight_kg,
         total_price=exact_total_price,
         notes=notes or None,
+        created_by_id=created_by_id,
     )
     db.add(batch)
     await db.flush()

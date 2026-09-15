@@ -21,7 +21,7 @@ from app.models import Farm, FarmMembership, RefreshSession, Role, Task, User
 from app.security import verify_password
 from app.utils import today, utcnow
 
-from .conftest import owner_with_farm
+from .conftest import login_and_rotate, owner_with_farm
 
 WORKER_PASSWORD = "workerpass123"
 REFRESH_COOKIE = get_settings().refresh_cookie_name
@@ -55,15 +55,11 @@ async def create_worker(
 async def login_worker(
     client: httpx.AsyncClient, owner: dict[str, str], email: str
 ) -> dict[str, str]:
-    response = await client.post(
-        "/api/auth/login",
-        json={"email": email, "password": WORKER_PASSWORD},
-    )
-    assert response.status_code == 200, response.text
-    return {
-        "Authorization": f"Bearer {response.json()['access_token']}",
-        "X-Farm-Id": owner["X-Farm-Id"],
-    }
+    # Rotate explicitly at first login: the worker's current password is the
+    # derived WORKER_PASSWORD + "!r1" form (account deletion is fenced behind
+    # must_change_password otherwise).
+    headers = await login_and_rotate(client, email, WORKER_PASSWORD)
+    return headers | {"X-Farm-Id": owner["X-Farm-Id"]}
 
 
 async def create_task(

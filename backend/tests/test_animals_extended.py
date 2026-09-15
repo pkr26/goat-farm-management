@@ -24,7 +24,7 @@ import pytest
 
 from app.utils import today
 
-from .conftest import owner_with_farm, register
+from .conftest import owner_with_farm, provisioned_worker_login, register
 
 WORKER_PW = "workerpass123"
 
@@ -129,12 +129,8 @@ async def worker_headers(client: httpx.AsyncClient, owner: dict, code: str, emai
         headers=owner,
     )
     assert resp.status_code == 201, resp.text
-    resp = await client.post("/api/auth/login", json={"email": email, "password": WORKER_PW})
-    assert resp.status_code == 200, resp.text
-    return {
-        "Authorization": f"Bearer {resp.json()['access_token']}",
-        "X-Farm-Id": owner["X-Farm-Id"],
-    }
+    headers, _user_id = await provisioned_worker_login(client, email, WORKER_PW)
+    return headers | {"X-Farm-Id": owner["X-Farm-Id"]}
 
 
 async def custom_worker_headers(
@@ -162,12 +158,8 @@ async def custom_worker_headers(
         headers=owner,
     )
     assert worker.status_code == 201, worker.text
-    login = await client.post("/api/auth/login", json={"email": email, "password": WORKER_PW})
-    assert login.status_code == 200, login.text
-    return {
-        "Authorization": f"Bearer {login.json()['access_token']}",
-        "X-Farm-Id": owner["X-Farm-Id"],
-    }
+    headers, _user_id = await provisioned_worker_login(client, email, WORKER_PW)
+    return headers | {"X-Farm-Id": owner["X-Farm-Id"]}
 
 
 # Breeding-flow helpers (for profile kids / cull-flag tests).
@@ -1061,8 +1053,9 @@ async def test_create_breed_too_long_422(client: httpx.AsyncClient) -> None:
     base = {"tag_number": "G-1", "sex": "F", "source": "PURCHASED", "current_bucket": "FOUNDATION"}
     resp = await post_animal(client, owner, base | {"breed": "B" * 61})
     assert resp.status_code == 422
+    # The 60-char maximum still fits, canonicalized (trim + case-normalize).
     animal = await make_animal(client, owner, tag="G-2", breed="B" * 60)
-    assert animal["breed"] == "B" * 60
+    assert animal["breed"] == ("B" * 60).title()
 
 
 async def test_create_seller_name_too_long_422(client: httpx.AsyncClient) -> None:
@@ -3654,3 +3647,151 @@ async def test_selling_the_sire_leaves_the_does_service_open(
     sold = await mark_status(client, headers, buck["id"], "SOLD", sale_price=5000)
     assert sold.status_code == 200, sold.text
     assert (await _breeding_record(client, headers, br["id"]))["outcome"] == "PENDING"
+
+
+# ---------------------------------------------------------------------------
+# Phenotype record (Osmanabadi pure-line tracking: coat_color / horned)
+# ---------------------------------------------------------------------------
+async def test_phenotype_create_read_update_and_clear(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, "PH-001", sex="M", coat_color="black", horned=True)
+    assert animal["coat_color"] == "black"
+    assert animal["horned"] is True
+
+    # Omitted fields stay untouched; supplied fields change.
+    patch = await client.patch(
+        f"/api/animals/{animal['id']}", json={"coat_color": "black_patched"}, headers=headers
+    )
+    assert patch.status_code == 200, patch.text
+    assert patch.json()["coat_color"] == "black_patched"
+    assert patch.json()["horned"] is True
+
+    # An explicit null clears back to unrecorded.
+    cleared = await client.patch(
+        f"/api/animals/{animal['id']}",
+        json={"coat_color": None, "horned": None},
+        headers=headers,
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["coat_color"] is None
+    assert cleared.json()["horned"] is None
+
+    detail = await client.get(f"/api/animals/{animal['id']}", headers=headers)
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["animal"]["coat_color"] is None
+
+
+async def test_phenotype_rejects_out_of_vocabulary_and_non_active(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    bad_create = await post_animal(
+        client,
+        headers,
+        {
+            "tag_number": "PH-002",
+            "sex": "M",
+            "source": "PURCHASED",
+            "current_bucket": "FOUNDATION",
+            "coat_color": "grey",
+            "historical_import_reason": "Existing-herd test fixture",
+        },
+    )
+    assert bad_create.status_code == 422, bad_create.text
+
+    animal = await make_animal(client, headers, "PH-003")
+    bad_patch = await client.patch(
+        f"/api/animals/{animal['id']}", json={"coat_color": "grey"}, headers=headers
+    )
+    assert bad_patch.status_code == 422, bad_patch.text
+
+    dead = await mark_status(client, headers, animal["id"], "DEAD", mortality_cause_code="UNKNOWN")
+    assert dead.status_code == 200, dead.text
+    gone = await client.patch(
+        f"/api/animals/{animal['id']}", json={"horned": True}, headers=headers
+    )
+    assert gone.status_code == 409, gone.text
+
+
+async def test_phenotype_check_constraint_rejects_direct_sql(client: httpx.AsyncClient) -> None:
+    from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
+
+    from app.db import get_sessionmaker
+
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, "PH-004")
+    async with get_sessionmaker()() as db:
+        with pytest.raises(DBAPIError) as caught:
+            await db.execute(
+                text("UPDATE animals SET coat_color = 'grey' WHERE id = :id"),
+                {"id": animal["id"]},
+            )
+            await db.commit()
+    assert "ck_animals_coat_color" in str(caught.value)
+
+
+async def test_breed_is_canonicalized_on_write(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, "BR-001", breed="  osmanabadi ")
+    assert animal["breed"] == "Osmanabadi"
+    cross = await make_animal(client, headers, "BR-002", breed="sirohi x osmanabadi")
+    assert cross["breed"] == "Sirohi X Osmanabadi"
+    # The empty input still resolves to the species default.
+    defaulted = await make_animal(client, headers, "BR-003", breed="")
+    assert defaulted["breed"] == "Osmanabadi"
+
+    # The CHECK pins the same rule for out-of-band writers.
+    from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
+
+    from app.db import get_sessionmaker
+
+    async with get_sessionmaker()() as db:
+        with pytest.raises(DBAPIError) as caught:
+            await db.execute(
+                text("UPDATE animals SET breed = '   ' WHERE id = :id"),
+                {"id": animal["id"]},
+            )
+            await db.commit()
+    assert "ck_animals_breed_nonempty" in str(caught.value)
+
+
+async def test_animal_and_farm_rows_track_updated_at(client: httpx.AsyncClient) -> None:
+    """updated_at is stamped at insert and moves forward on every mutation."""
+    from sqlalchemy import update as sql_update
+
+    from app.db import get_sessionmaker
+    from app.models import Animal, Farm
+
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, "UA-001", coat_color="black")
+    farm_id = int(headers["X-Farm-Id"])
+
+    async with get_sessionmaker()() as db:
+        row = await db.get(Animal, animal["id"])
+        farm = await db.get(Farm, farm_id)
+        assert row is not None and farm is not None
+        assert row.updated_at is not None and farm.updated_at is not None
+        # Force a stale marker: the next mutation must move it forward.
+        await db.execute(
+            sql_update(Animal)
+            .where(Animal.id == animal["id"])
+            .values(updated_at=row.updated_at - timedelta(days=1))
+        )
+        await db.execute(
+            sql_update(Farm).where(Farm.id == farm_id).values(name=farm.name + " (renamed)")
+        )
+        await db.commit()
+
+    patch = await client.patch(
+        f"/api/animals/{animal['id']}", json={"coat_color": "brown"}, headers=headers
+    )
+    assert patch.status_code == 200, patch.text
+    async with get_sessionmaker()() as db:
+        row = await db.get(Animal, animal["id"])
+        farm = await db.get(Farm, farm_id)
+        assert row is not None and farm is not None
+        assert row.updated_at > row.created_at
+        assert farm.updated_at > farm.created_at
+        assert farm.name.endswith(" (renamed)")

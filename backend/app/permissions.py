@@ -294,6 +294,8 @@ TASK_CATEGORY_ROLE_MAP: dict[str, str] = {
     "REBREED": "MANAGER",
     "BUCK_ROTATION": "MANAGER",
     "INSURANCE": "ACCOUNTANT",
+    # The daily trough round is the feed crew's work, like the feed routine.
+    "WATER": "FEEDER",
 }
 
 
@@ -356,4 +358,5 @@ TASK_CATEGORY_ACTION_PERMISSIONS: dict[str, frozenset[str]] = {
     "REBREED": frozenset(),
     "BUCK_ROTATION": frozenset(),
     "INSURANCE": frozenset(),
+    "WATER": frozenset(),
 }

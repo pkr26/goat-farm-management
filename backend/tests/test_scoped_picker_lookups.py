@@ -6,8 +6,8 @@ import httpx
 
 from app.utils import today
 
-from .conftest import owner_with_farm
-from .test_tasks_extended import add_worker, login_user, make_custom_role
+from .conftest import owner_with_farm, provisioned_worker_login
+from .test_tasks_extended import add_worker, make_custom_role
 
 WORKER_PW = "workerpass123"
 
@@ -71,7 +71,7 @@ async def limited_worker(
 ) -> dict:
     role_id = await make_custom_role(client, owner, name, permissions)
     await add_worker(client, owner, role_id, email)
-    headers, _user_id = await login_user(client, email, WORKER_PW)
+    headers, _user_id = await provisioned_worker_login(client, email, WORKER_PW)
     return headers | {"X-Farm-Id": owner["X-Farm-Id"]}
 
 

@@ -613,6 +613,12 @@ async def create_breeding_record(
         TaskCategory.ULTRASOUND,
         animal_id=doe.id,
         breeding_record_id=br.id,
+        title_key="pregnancy_check",
+        title_args={
+            "tag": doe.tag_number,
+            "breeding_date": breeding_date.isoformat(),
+            "due_date": ultrasound_date.isoformat(),
+        },
     )
     # The return-to-heat window is the first chance to catch a failed service
     # (~21-day oestrous cycle: a doe standing heat again 18–21 days after
@@ -631,6 +637,11 @@ async def create_breeding_record(
         TaskCategory.HEAT_WATCH,
         animal_id=doe.id,
         breeding_record_id=br.id,
+        title_key="return_to_heat_watch",
+        title_args={
+            "tag": doe.tag_number,
+            "due_date": (breeding_date + timedelta(days=EARLIEST_RETURN_TO_HEAT_DAYS)).isoformat(),
+        },
     )
     # This service answers the doe's re-breeding prompt — the REBREED duty's
     # purpose is exactly this record. Complete it now (attributed to the
@@ -835,6 +846,11 @@ async def record_ultrasound_result(
             TaskCategory.VACCINE,
             animal_id=doe.id,
             breeding_record_id=br.id,
+            title_key="pre_kidding_vaccine",
+            title_args={
+                "tag": doe.tag_number,
+                "due_date": (ekd - timedelta(days=40)).isoformat(),
+            },
         )
         # The seeded ET+TT template promises two doses 15 days apart;
         # the booster closes that gap (primary + booster pre-kidding).
@@ -846,6 +862,11 @@ async def record_ultrasound_result(
             TaskCategory.VACCINE,
             animal_id=doe.id,
             breeding_record_id=br.id,
+            title_key="pre_kidding_vaccine_booster",
+            title_args={
+                "tag": doe.tag_number,
+                "due_date": (ekd - timedelta(days=25)).isoformat(),
+            },
         )
         await _add_task(
             db,
@@ -855,6 +876,12 @@ async def record_ultrasound_result(
             TaskCategory.BUCKET_MOVE,
             animal_id=doe.id,
             breeding_record_id=br.id,
+            title_key="move_to_delivery",
+            title_args={
+                "tag": doe.tag_number,
+                "kidding_date": ekd.isoformat(),
+                "due_date": (ekd - timedelta(days=15)).isoformat(),
+            },
         )
         # Ration step-up at gestation day 100 (EKD − 50): the EARLY→LATE pen
         # move the seeded bucket definitions promise. Kept breeding-linked so
@@ -868,6 +895,11 @@ async def record_ultrasound_result(
             TaskCategory.BUCKET_MOVE,
             animal_id=doe.id,
             breeding_record_id=br.id,
+            title_key="move_to_pregnancy_late",
+            title_args={
+                "tag": doe.tag_number,
+                "due_date": (ekd - timedelta(days=PREGNANCY_LATE_MOVE_DAYS_BEFORE_EKD)).isoformat(),
+            },
         )
         # The birthing kit must exist before the first kid does. The checklist
         # is the duty's operational content, so the tag is the fitted part (see
@@ -887,6 +919,12 @@ async def record_ultrasound_result(
             TaskCategory.BIRTHING_KIT,
             animal_id=doe.id,
             breeding_record_id=br.id,
+            title_key="birthing_kit_check",
+            title_args={
+                "tag": doe.tag_number,
+                "kidding_date": ekd.isoformat(),
+                "due_date": (ekd - timedelta(days=profile.birthing_kit_lead_days)).isoformat(),
+            },
         )
         # One watch duty per day across the final week: the kidding window
         # opens at 145 days (EKD − 5), and the signs (udder fill, tail-head
@@ -914,6 +952,13 @@ async def record_ultrasound_result(
                 TaskCategory.KIDDING_WATCH,
                 animal_id=doe.id,
                 breeding_record_id=br.id,
+                title_key="kidding_watch",
+                title_args={
+                    "tag": doe.tag_number,
+                    "kidding_date": ekd.isoformat(),
+                    "days_before": watch_offset,
+                    "due_date": (ekd - timedelta(days=watch_offset)).isoformat(),
+                },
             )
         await _add_task(
             db,
@@ -923,6 +968,8 @@ async def record_ultrasound_result(
             TaskCategory.KIDDING_DUE,
             animal_id=doe.id,
             breeding_record_id=br.id,
+            title_key="kidding_due",
+            title_args={"tag": doe.tag_number, "due_date": ekd.isoformat()},
         )
     else:
         br.outcome = BreedingOutcome.FAILED.value

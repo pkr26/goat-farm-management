@@ -25,7 +25,7 @@ from app.models import (
 )
 from app.utils import today, utcnow
 
-from .conftest import owner_with_farm
+from .conftest import owner_with_farm, provisioned_worker_login
 
 HISTORY_SIZE = 105
 WORKER_PASSWORD = "workerpass123"
@@ -197,15 +197,10 @@ async def _animals_only_worker(client: httpx.AsyncClient, owner: dict[str, str])
         headers=owner,
     )
     assert worker.status_code == 201, worker.text
-    login = await client.post(
-        "/api/auth/login",
-        json={"email": "profile-viewer@example.com", "password": WORKER_PASSWORD},
+    headers, _ = await provisioned_worker_login(
+        client, "profile-viewer@example.com", WORKER_PASSWORD
     )
-    assert login.status_code == 200, login.text
-    return {
-        "Authorization": f"Bearer {login.json()['access_token']}",
-        "X-Farm-Id": owner["X-Farm-Id"],
-    }
+    return headers | {"X-Farm-Id": owner["X-Farm-Id"]}
 
 
 async def test_profile_histories_have_exact_totals_independent_pages_and_constant_queries(

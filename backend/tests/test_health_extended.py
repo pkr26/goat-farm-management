@@ -25,8 +25,8 @@ from sqlalchemy import text
 from app.db import get_sessionmaker
 from app.utils import add_months, today
 
-from .conftest import login, owner_with_farm
-from .test_tasks_extended import add_worker, login_user, make_custom_role, worker_headers
+from .conftest import owner_with_farm, provisioned_worker_login
+from .test_tasks_extended import add_worker, make_custom_role, worker_headers
 
 WORKER_PW = "workerpass123"
 
@@ -181,7 +181,7 @@ async def worker_with_role(client: httpx.AsyncClient, owner: dict, code: str, em
         headers=owner,
     )
     assert resp.status_code == 201, resp.text
-    headers = await login(client, email, WORKER_PW)
+    headers, _ = await provisioned_worker_login(client, email, WORKER_PW)
     return headers | {"X-Farm-Id": owner["X-Farm-Id"]}
 
 
@@ -238,7 +238,7 @@ async def test_record_event_full_fields_roundtrip(client: httpx.AsyncClient) -> 
         product_name="Albendazole",
         disease_target="Deworming",
         dose="5 ml",
-        route="Oral",
+        route="ORAL",
         vet_name="Dr. Rao",
         cost=150.5,
         next_due_date=iso(future),
@@ -251,7 +251,7 @@ async def test_record_event_full_fields_roundtrip(client: httpx.AsyncClient) -> 
     assert event["product_name"] == "Albendazole"
     assert event["disease_target"] == "Deworming"
     assert event["dose"] == "5 ml"
-    assert event["route"] == "Oral"
+    assert event["route"] == "ORAL"
     assert event["vet_name"] == "Dr. Rao"
     assert event["cost"] == 150.5
     assert event["next_due_date"] == iso(future)
@@ -354,9 +354,10 @@ async def test_record_event_blank_strings_become_null(client: httpx.AsyncClient)
         product_name="   ",
         disease_target="",
         dose="",
-        route="",
         vet_name="",
         notes="  ",
+        # route omitted: the vocabulary is bounded now, so a blank string is
+        # a 422 rather than a stored NULL (pinned by the assertion below).
     )
     event = events[0]
     assert event["product_name"] is None
@@ -1625,7 +1626,7 @@ async def test_event_task_closure_enforces_assignment(client: httpx.AsyncClient)
         client, headers, "Floater", ["health.view", "health.manage"]
     )
     await add_worker(client, headers, floater_role, "floater@farm.in")
-    floater, _floater_id = await login_user(client, "floater@farm.in")
+    floater, _floater_id = await provisioned_worker_login(client, "floater@farm.in", WORKER_PW)
     floater |= {"X-Farm-Id": headers["X-Farm-Id"]}
 
     resp = await post_event(
@@ -2748,7 +2749,7 @@ async def test_purchase_detail_uses_permission_scoped_animal_and_task_shapes(
         client, owner, "Purchase Reader", ["purchases.view"]
     )
     await add_worker(client, owner, purchase_only_role, "purchase-reader@farm.in")
-    purchase_only, _ = await login_user(client, "purchase-reader@farm.in")
+    purchase_only, _ = await provisioned_worker_login(client, "purchase-reader@farm.in", WORKER_PW)
     purchase_only |= {"X-Farm-Id": owner["X-Farm-Id"]}
 
     operator_role = await make_custom_role(
@@ -2758,7 +2759,7 @@ async def test_purchase_detail_uses_permission_scoped_animal_and_task_shapes(
         ["purchases.view", "animals.view", "tasks.view"],
     )
     await add_worker(client, owner, operator_role, "purchase-operator@farm.in")
-    operator, _ = await login_user(client, "purchase-operator@farm.in")
+    operator, _ = await provisioned_worker_login(client, "purchase-operator@farm.in", WORKER_PW)
     operator |= {"X-Farm-Id": owner["X-Farm-Id"]}
 
     # Make one schedule row visible through the task module's normal role
@@ -2794,6 +2795,8 @@ async def test_purchase_detail_uses_permission_scoped_animal_and_task_shapes(
         == {
             "id",
             "title",
+            "title_key",
+            "title_args",
             "due_date",
             "status",
             "category",
@@ -2819,6 +2822,8 @@ async def test_purchase_detail_uses_permission_scoped_animal_and_task_shapes(
     assert set(hidden_task) == {
         "id",
         "title",
+        "title_key",
+        "title_args",
         "due_date",
         "status",
         "category",

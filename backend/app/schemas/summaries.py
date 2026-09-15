@@ -79,6 +79,10 @@ class QuarantineScheduleTaskOut(BaseModel):
 
     id: int
     title: str
+    # Localization contract (same as TaskOut): stable key + args, with the
+    # English title as fallback. Args carry no attribution or supplier data.
+    title_key: str | None
+    title_args: dict[str, object]
     due_date: date
     status: TaskStatusStr
     category: TaskCategoryStr

@@ -53,6 +53,22 @@ async def test_page_offsets_have_a_driver_safe_upper_bound(
     assert response.status_code == 422, response.text
 
 
+async def test_page_offset_bound_is_a_shallow_scan_ceiling(client: httpx.AsyncClient) -> None:
+    """The offset ceiling is 10_000: deeper offsets are a deep-scan DoS.
+
+    Pins the bound itself (a regression back to the old million-row ceiling
+    fails here) and both sides of it on a real route.
+    """
+    assert MAX_PAGE_OFFSET == 10_000
+    owner = await owner_with_farm(client)
+    accepted = await client.get("/api/animals", params={"offset": MAX_PAGE_OFFSET}, headers=owner)
+    assert accepted.status_code == 200, accepted.text
+    rejected = await client.get(
+        "/api/animals", params={"offset": MAX_PAGE_OFFSET + 1}, headers=owner
+    )
+    assert rejected.status_code == 422, rejected.text
+
+
 @pytest.mark.parametrize(
     ("method", "url"),
     [

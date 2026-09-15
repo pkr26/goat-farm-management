@@ -6,7 +6,7 @@ opt-in Markdown ledger — mirroring the planner API suite's shape.
 
 import httpx
 
-from .conftest import login, owner_with_farm
+from .conftest import login_and_rotate, owner_with_farm
 
 WORKER_PW = "workerpass123"
 
@@ -145,7 +145,7 @@ async def _worker_with_role(
         headers=owner,
     )
     assert resp.status_code == 201, resp.text
-    headers = await login(client, email, WORKER_PW)
+    headers = await login_and_rotate(client, email, WORKER_PW)
     return headers | {"X-Farm-Id": owner["X-Farm-Id"]}
 
 

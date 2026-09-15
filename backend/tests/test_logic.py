@@ -403,7 +403,7 @@ async def test_ultrasound_pregnant_creates_twelve_followup_tasks(
     assert [t["status"] for t in tasks_by_category(tasks, "ULTRASOUND")] == ["DONE"]
 
     ekd = date.fromisoformat(br["expected_kidding_date"])
-    # The cadence engine boards herd-level rounds on GET /api/tasks (e.g. the
+    # The cadence sweep boards herd-level rounds in the background (e.g. the
     # seasonal FMD vaccination round) — the pregnancy follow-ups are exactly
     # the twelve doe-scoped duties below.
     doe_tasks = [t for t in tasks if t["animal_id"] == doe["id"]]

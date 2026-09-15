@@ -48,7 +48,7 @@ from app.models import (
 from app.schemas.common import MAX_PAGE_OFFSET
 from app.simulation import SimulationAssumptions
 
-from .conftest import login, owner_with_farm
+from .conftest import owner_with_farm, provisioned_worker_login
 
 WORKER_PW = "workerpass123"
 
@@ -93,7 +93,7 @@ async def worker_headers(
     role_id = resp.json()["id"]
     resp = await add_worker(client, owner, role_id, email)
     assert resp.status_code == 201, resp.text
-    headers = await login(client, email, WORKER_PW)
+    headers, _user_id = await provisioned_worker_login(client, email, WORKER_PW)
     return headers | {"X-Farm-Id": owner["X-Farm-Id"]}
 
 

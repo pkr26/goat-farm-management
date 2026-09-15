@@ -66,7 +66,10 @@ async def require_status_after_recorded_facts(
     )
     latest_weight = (
         select(func.max(WeightRecord.date))
-        .where(WeightRecord.animal_id == animal.id)
+        .where(
+            WeightRecord.farm_id == animal.farm_id,
+            WeightRecord.animal_id == animal.id,
+        )
         .scalar_subquery()
     )
     latest_health = (
@@ -92,6 +95,7 @@ async def require_status_after_recorded_facts(
         # on that entry date. Later bucket transitions are real lifecycle
         # facts and therefore do constrain a terminal status date.
         .where(
+            BucketMove.farm_id == animal.farm_id,
             BucketMove.animal_id == animal.id,
             BucketMove.from_bucket.is_not(None),
         )
@@ -146,7 +150,10 @@ async def require_purchase_before_recorded_facts(
     )
     first_weight = (
         select(func.min(WeightRecord.date))
-        .where(WeightRecord.animal_id == animal.id)
+        .where(
+            WeightRecord.farm_id == animal.farm_id,
+            WeightRecord.animal_id == animal.id,
+        )
         .scalar_subquery()
     )
     first_health = (
@@ -167,7 +174,11 @@ async def require_purchase_before_recorded_facts(
     )
     first_subsequent_move = (
         select(func.min(BucketMove.effective_date))
-        .where(BucketMove.animal_id == animal.id, BucketMove.from_bucket.is_not(None))
+        .where(
+            BucketMove.farm_id == animal.farm_id,
+            BucketMove.animal_id == animal.id,
+            BucketMove.from_bucket.is_not(None),
+        )
         .scalar_subquery()
     )
     row = (

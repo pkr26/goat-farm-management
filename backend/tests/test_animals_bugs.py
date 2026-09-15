@@ -19,7 +19,7 @@ from app.db import get_sessionmaker
 from app.models import Animal, KidEntry
 from app.utils import today
 
-from .conftest import owner_with_farm
+from .conftest import owner_with_farm, provisioned_worker_login
 from .test_breeding_extended import (
     WORKER_PW,
     all_tasks,
@@ -55,12 +55,8 @@ async def _animals_view_only_viewer(
         headers=owner,
     )
     assert worker.status_code == 201, worker.text
-    login = await client.post("/api/auth/login", json={"email": email, "password": WORKER_PW})
-    assert login.status_code == 200, login.text
-    return {
-        "Authorization": f"Bearer {login.json()['access_token']}",
-        "X-Farm-Id": owner["X-Farm-Id"],
-    }
+    headers, _ = await provisioned_worker_login(client, email, WORKER_PW)
+    return headers | {"X-Farm-Id": owner["X-Farm-Id"]}
 
 
 async def _make_animal(client: httpx.AsyncClient, headers: dict, tag: str = "A-001") -> dict:
@@ -497,14 +493,8 @@ async def test_restriction_version_redacted_without_health_view(
         headers=owner,
     )
     assert worker.status_code == 201, worker.text
-    login = await client.post(
-        "/api/auth/login", json={"email": "animal-reader@farm.in", "password": WORKER_PW}
-    )
-    assert login.status_code == 200, login.text
-    viewer = {
-        "Authorization": f"Bearer {login.json()['access_token']}",
-        "X-Farm-Id": owner["X-Farm-Id"],
-    }
+    viewer, _ = await provisioned_worker_login(client, "animal-reader@farm.in", WORKER_PW)
+    viewer = viewer | {"X-Farm-Id": owner["X-Farm-Id"]}
 
     redacted = await get_animal(client, viewer, animal["id"])
     # The effective operational hold stays visible so the mover can act

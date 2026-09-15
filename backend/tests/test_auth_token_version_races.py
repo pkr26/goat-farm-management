@@ -16,7 +16,7 @@ from app.schemas.auth import FarmCreateIn
 from app.security import verify_password_async as real_verify_password_async
 from app.security import verify_password_with_work_async as real_verify_password_with_work_async
 
-from .conftest import owner_with_farm
+from .conftest import login_and_rotate, owner_with_farm
 
 WORKER_PASSWORD = "workerpass123"
 
@@ -123,12 +123,7 @@ async def test_farm_creation_winning_makes_owner_reset_ineligible(
         farm_name="Affiliation Farm",
     )
     membership = await _provision_worker(client, owner, "affiliation-worker@farm.in")
-    login = await client.post(
-        "/api/auth/login",
-        json={"email": "affiliation-worker@farm.in", "password": WORKER_PASSWORD},
-    )
-    assert login.status_code == 200, login.text
-    worker_headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    worker_headers = await login_and_rotate(client, "affiliation-worker@farm.in", WORKER_PASSWORD)
     created = await client.post(
         "/api/auth/farms",
         json={"name": "Worker-owned Farm"},
@@ -156,15 +151,8 @@ async def test_unsafe_worker_authorization_uses_reset_safe_lock_order(
     )
     email = "auth-order-worker@farm.in"
     membership = await _provision_worker(client, owner, email)
-    logged_in = await client.post(
-        "/api/auth/login",
-        json={"email": email, "password": WORKER_PASSWORD},
-    )
-    assert logged_in.status_code == 200, logged_in.text
-    worker_headers = {
-        "Authorization": f"Bearer {logged_in.json()['access_token']}",
-        "X-Farm-Id": owner["X-Farm-Id"],
-    }
+    worker_headers = await login_and_rotate(client, email, WORKER_PASSWORD)
+    worker_headers = worker_headers | {"X-Farm-Id": owner["X-Farm-Id"]}
     task = await client.post(
         "/api/tasks",
         json={
@@ -230,12 +218,7 @@ async def test_reset_winning_during_argon_rejects_exact_stale_snapshot(
     email = f"{operation}-race-worker@farm.in"
     membership = await _provision_worker(client, owner, email)
     worker_id = membership["user_id"]
-    logged_in = await client.post(
-        "/api/auth/login",
-        json={"email": email, "password": WORKER_PASSWORD},
-    )
-    assert logged_in.status_code == 200, logged_in.text
-    worker_headers = {"Authorization": f"Bearer {logged_in.json()['access_token']}"}
+    worker_headers = await login_and_rotate(client, email, WORKER_PASSWORD)
 
     started = asyncio.Event()
     release = asyncio.Event()
@@ -325,12 +308,7 @@ async def test_account_tombstone_serializes_before_roster_mutation(
     email = f"{lifecycle}-tombstone-worker@farm.in"
     membership = await _provision_worker(client, owner, email)
     worker_id = membership["user_id"]
-    logged_in = await client.post(
-        "/api/auth/login",
-        json={"email": email, "password": WORKER_PASSWORD},
-    )
-    assert logged_in.status_code == 200, logged_in.text
-    worker_headers = {"Authorization": f"Bearer {logged_in.json()['access_token']}"}
+    worker_headers = await login_and_rotate(client, email, WORKER_PASSWORD)
 
     if lifecycle == "status":
         deactivated = await client.put(

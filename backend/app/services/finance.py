@@ -132,13 +132,20 @@ async def _spawn_renewal_task(db: AsyncSession, farm_id: int, policy: InsuranceP
     The duty names the policy number (herd-level rows have no animal to
     link) and carries the animal for per-animal policies.
     """
+    due = policy.renewal_date - timedelta(days=INSURANCE_RENEWAL_LEAD_DAYS)
     await _add_task(
         db,
         farm_id,
         f"Insurance renewal due: policy {policy.policy_number}",
-        policy.renewal_date - timedelta(days=INSURANCE_RENEWAL_LEAD_DAYS),
+        due,
         TaskCategory.INSURANCE,
         animal_id=policy.animal_id,
+        title_key="insurance_renewal",
+        title_args={
+            "policy_number": policy.policy_number,
+            "renewal_date": policy.renewal_date.isoformat(),
+            "due_date": due.isoformat(),
+        },
     )
 
 
@@ -496,6 +503,9 @@ async def mortality_memo(db: AsyncSession, farm: Farm, n_months: int = 12) -> di
     return {
         "window_months": n_months,
         "head_count": head_count,
-        "estimated_loss": float(estimated_loss) if estimated_loss is not None else None,
+        # Decimal to the wire (MortalityMemoOut serializes it as a JSON
+        # string): casting money through float re-introduced the paise drift
+        # the money() quantization just removed.
+        "estimated_loss": estimated_loss,
         "basis": basis,
     }

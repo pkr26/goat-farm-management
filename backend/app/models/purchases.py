@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, ForeignKey, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, ForeignKey, Numeric, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
-from ..utils import today
+from ..utils import today, utcnow
 
 if TYPE_CHECKING:
     from .animals import Animal
@@ -70,6 +70,10 @@ class PurchaseBatch(Base):
     avg_weight_kg: Mapped[float | None]
     total_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
     animals: Mapped[list[Animal]] = relationship(
         back_populates="purchase_batch", foreign_keys="Animal.purchase_batch_id"

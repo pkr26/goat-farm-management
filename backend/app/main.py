@@ -51,6 +51,7 @@ from .schemas.ops import HealthStatusOut, ReadinessStatusOut, ReadinessUnavailab
 from .security import PasswordWorkCapacityError, prime_dummy_password_hash, validate_jwt_keypair
 from .seed import repair_legacy_data_batch, seed_startup
 from .services.animals import skip_inactive_animal_tasks_batch
+from .services.cadence import ensure_cadence_farm_batch
 from .services.idempotency import (
     IDEMPOTENCY_KEY_PATTERN,
     MAX_IDEMPOTENCY_KEY_LENGTH,
@@ -333,6 +334,43 @@ async def _deleted_membership_cleanup_loop(
         await asyncio.sleep(interval_seconds)
 
 
+async def _cadence_materialization_loop(
+    interval_seconds: int,
+    farm_batch_size: int,
+    max_batches: int,
+) -> None:
+    """Materialize recurring husbandry duties for every farm, in keyset pages.
+
+    The task board GET is read-only; this short-interval sweep is what brings
+    each farm's cadence calendar onto the board. Pages are finite and keyset
+    (id > cursor), and the per-farm advisory lock inside the cadence service
+    serializes any overlap between two sweeps of a rolling deploy.
+    """
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            processed_total = 0
+            after_farm_id = 0
+            for _batch in range(max_batches):
+                async with get_sessionmaker()() as db:
+                    processed, after_farm_id = await ensure_cadence_farm_batch(
+                        db,
+                        batch_size=farm_batch_size,
+                        after_farm_id=after_farm_id,
+                    )
+                    await db.commit()
+                metrics.record_maintenance_batch("cadence_materialization", processed)
+                processed_total += processed
+                if processed < farm_batch_size:
+                    break
+            if processed_total:
+                logger.info("cadence sweep materialized duties for %d farms", processed_total)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("periodic cadence materialization failed")
+
+
 def _enforce_production_private_key_mode() -> None:
     """RT-A-3: refuse to boot when the production private key is shared.
 
@@ -466,6 +504,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         ),
         name="deleted-membership-cleanup",
     )
+    cadence_materialization_task = asyncio.create_task(
+        _cadence_materialization_loop(
+            get_settings().cadence_materialization_interval_seconds,
+            get_settings().cadence_materialization_farm_batch_size,
+            get_settings().cadence_materialization_max_batches,
+        ),
+        name="cadence-materialization",
+    )
     try:
         yield
     finally:
@@ -474,12 +520,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         legacy_repair_task.cancel()
         inactive_animal_task_cleanup_task.cancel()
         deleted_membership_cleanup_task.cancel()
+        cadence_materialization_task.cancel()
         for cleanup_task in (
             refresh_cleanup_task,
             idempotency_cleanup_task,
             legacy_repair_task,
             inactive_animal_task_cleanup_task,
             deleted_membership_cleanup_task,
+            cadence_materialization_task,
         ):
             with suppress(asyncio.CancelledError):
                 await cleanup_task

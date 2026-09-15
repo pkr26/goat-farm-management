@@ -46,6 +46,13 @@ MortalityCauseStr = Literal[
     "OTHER",
     "UNKNOWN",
 ]
+# Coded carcass-disposal vocabulary (husbandry standards). Re-declares
+# models.enums.DisposalMethod like every other wire Literal; the parity test
+# keeps the two lists from drifting.
+DisposalMethodStr = Literal["DEEP_BURIAL", "BURNING", "RENDERING", "COMPOSTING", "OTHER"]
+# Osmanabadi phenotype vocabulary (models.enums.CoatColor): pure-line
+# tracking for the Bakrid premium (~73% black, ~90% of males horned).
+CoatColorStr = Literal["black", "black_patched", "brown", "white", "spotted"]
 BucketStr = Literal[
     "QUARANTINE",
     "FOUNDATION",
@@ -77,6 +84,8 @@ class AnimalCreateIn(StrictInputModel):
     # Empty means the species default breed (Osmanabadi), resolved
     # server-side.
     breed: PostgresText = Field(default="", max_length=60)
+    coat_color: CoatColorStr | None = None
+    horned: StrictBool | None = None
     date_of_birth: PastOrTodayDate | None = None
     estimated_dob: PastOrTodayDate | None = None
     birth_type: BirthTypeStr | None = None
@@ -134,6 +143,17 @@ class AnimalCreateIn(StrictInputModel):
         return self
 
 
+class AnimalUpdateIn(StrictInputModel):
+    """Owner edit of the phenotype record (pure-line tracking).
+
+    Both fields are nullable on purpose: omitted leaves the stored value,
+    explicit null clears it (unrecorded again).
+    """
+
+    coat_color: CoatColorStr | None = None
+    horned: StrictBool | None = None
+
+
 class AnimalOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -159,9 +179,11 @@ class AnimalOut(BaseModel):
     buyer_name: str | None
     mortality_cause: str | None
     mortality_cause_code: MortalityCauseStr | None
-    disposal_method: str | None
+    disposal_method: DisposalMethodStr | None
     necropsy_done: bool
     necropsy_findings: str | None
+    coat_color: CoatColorStr | None
+    horned: bool | None
     purchase_date: date | None
     purchase_price: float | None
     seller_name: str | None
@@ -280,7 +302,8 @@ class StatusChangeIn(StrictInputModel):
     )  # animals.status_notes String(255)
     mortality_cause: PostgresText | None = Field(default=None, max_length=120)
     mortality_cause_code: MortalityCauseStr | None = None
-    disposal_method: PostgresText | None = Field(default=None, max_length=60)
+    # Bounded carcass-disposal vocabulary (ck_animals_disposal_method).
+    disposal_method: DisposalMethodStr | None = None
     mortality_reported_at: PastOrTodayDate | None = None
     # A male sold with no birth or estimated date on record must have his age
     # fixed at sale time — the endpoint stamps this onto the animal before

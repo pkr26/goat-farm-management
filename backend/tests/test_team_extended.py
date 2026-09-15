@@ -26,7 +26,12 @@ from app.db import get_engine, get_sessionmaker
 from app.models import Farm, FarmMembership, Role, Task, User
 from app.utils import today, utcnow
 
-from .conftest import login_and_rotate, owner_with_farm, register
+from .conftest import (
+    login_and_rotate,
+    owner_with_farm,
+    provisioned_worker_login,
+    register,
+)
 
 WORKER_PW = "workerpass123"
 COOKIE = get_settings().refresh_cookie_name
@@ -214,6 +219,13 @@ TEAM_ENDPOINTS: list[tuple[str, str]] = [
 # Helpers (same patterns as tests/test_rbac.py)
 # ---------------------------------------------------------------------------
 async def login_user(client: httpx.AsyncClient, email: str, password: str) -> dict:
+    """Log in an account that has completed any forced rotation already.
+
+    Provisioned workers must log in through ``provisioned_worker_login``
+    (explicit rotation); re-logins after a rotation use the derived
+    ``f"{password}!r1"`` credential. A bare login with a stale provisioned
+    password now fails loudly — the default client no longer rewrites 401s.
+    """
     resp = await client.post("/api/auth/login", json={"email": email, "password": password})
     assert resp.status_code == 200, resp.text
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
@@ -269,7 +281,7 @@ async def worker_headers(client: httpx.AsyncClient, owner: dict, code: str, emai
     rid = await role_id(client, owner, code)
     resp = await add_worker(client, owner, rid, email)
     assert resp.status_code == 201, resp.text
-    headers = await login_user(client, email, WORKER_PW)
+    headers, _user_id = await provisioned_worker_login(client, email, WORKER_PW)
     return headers | {"X-Farm-Id": owner["X-Farm-Id"]}
 
 
@@ -338,7 +350,7 @@ async def team_manager_headers(
     resp = await add_worker(client, owner, role["id"], email)
     assert resp.status_code == 201, resp.text
     mid = resp.json()["id"]
-    headers = await login_user(client, email, WORKER_PW)
+    headers, _user_id = await provisioned_worker_login(client, email, WORKER_PW)
     return headers | {"X-Farm-Id": owner["X-Farm-Id"]}, mid
 
 
@@ -1221,7 +1233,7 @@ async def test_create_worker_cannot_add_worker_who_later_owned_a_farm(
     resp = await add_worker(client, owner_a, rid, "w@farm.in")
     assert resp.status_code == 201, resp.text
     # worker founds his own farm
-    worker = await login_user(client, "w@farm.in", WORKER_PW)
+    worker, _ = await provisioned_worker_login(client, "w@farm.in", WORKER_PW)
     resp = await client.post("/api/auth/farms", json={"name": "His Farm"}, headers=worker)
     assert resp.status_code == 201, resp.text
     # another farm can't absorb him anymore
@@ -1462,19 +1474,21 @@ async def test_reactivation_restores_access(client: httpx.AsyncClient) -> None:
     assert set(body["permissions"]) == PRESET_PERMS["MOVER"]
 
 
-async def test_legacy_toggle_is_refused_instead_of_inverting_on_retry(
+async def test_legacy_toggle_route_is_gone_instead_of_inverting_on_retry(
     client: httpx.AsyncClient,
 ) -> None:
+    """The retired toggle is unregistered: POST /toggle is now a plain 404.
+
+    A stub endpoint that 405ed by hand was kept while clients migrated; with
+    it deleted the path simply does not exist, and no code path can ever
+    invert the state twice. Desired state goes to the PUT status endpoint.
+    """
     owner = await owner_with_farm(client)
     await worker_headers(client, owner, "MOVER", "mover@farm.in")
     mid = await membership_id(client, owner, "mover@farm.in")
     for _retry in range(2):
         response = await client.post(f"/api/team/workers/{mid}/toggle", headers=owner)
-        assert response.status_code == 405, response.text
-        assert response.json() == {
-            "detail": "Worker toggle was retired; send the desired state to the status endpoint."
-        }
-        assert response.headers["allow"] == "PUT"
+        assert response.status_code == 404, response.text
     member = next(
         row for row in (await team_page(client, owner))["memberships"] if row["id"] == mid
     )
@@ -1576,7 +1590,7 @@ async def test_deactivation_preserves_personal_assignments_and_role_visibility(
     membership = added.json()["id"]
     peer = await add_worker(client, owner, cleaner_role, "peer@farm.in")
     assert peer.status_code == 201, peer.text
-    peer_headers = (await login_user(client, "peer@farm.in", WORKER_PW)) | {
+    peer_headers = (await provisioned_worker_login(client, "peer@farm.in", WORKER_PW))[0] | {
         "X-Farm-Id": owner["X-Farm-Id"]
     }
 
@@ -1784,7 +1798,7 @@ async def test_team_page_reset_capability_is_private_and_complete(
     toggled = await set_worker_active(client, owner_a, inactive.json()["id"], False)
     assert toggled.status_code == 200, toggled.text
 
-    owner_worker_auth = await login_user(client, "owner-worker@farm.in", WORKER_PW)
+    owner_worker_auth, _ = await provisioned_worker_login(client, "owner-worker@farm.in", WORKER_PW)
     created_farm = await client.post(
         "/api/auth/farms", json={"name": "Worker-owned Farm"}, headers=owner_worker_auth
     )
@@ -1933,7 +1947,7 @@ async def test_reset_password_happy_path(client: httpx.AsyncClient) -> None:
     # old password dies, new one works
     resp = await client.post("/api/auth/login", json={"email": "w@farm.in", "password": WORKER_PW})
     assert resp.status_code == 401
-    worker = await login_user(client, "w@farm.in", "brandnewpass1")
+    worker, _ = await provisioned_worker_login(client, "w@farm.in", "brandnewpass1")
     assert (
         await client.get("/api/tasks", headers=worker | {"X-Farm-Id": owner["X-Farm-Id"]})
     ).status_code == 200
@@ -1960,7 +1974,9 @@ async def test_reset_password_never_touches_a_farm_owner(client: httpx.AsyncClie
     owner_a = await owner_with_farm(client, email="a@farm.in", farm_name="Alpha Farm")
     await worker_headers(client, owner_a, "CLEANER", "w@farm.in")
     mid = await membership_id(client, owner_a, "w@farm.in")
-    worker = await login_user(client, "w@farm.in", WORKER_PW)
+    # The account already rotated at provisioning; the rotated credential is
+    # the current one and is past the must-change fence.
+    worker = await login_user(client, "w@farm.in", WORKER_PW + "!r1")
     resp = await client.post("/api/auth/farms", json={"name": "His Farm"}, headers=worker)
     assert resp.status_code == 201, resp.text
 
@@ -1971,8 +1987,8 @@ async def test_reset_password_never_touches_a_farm_owner(client: httpx.AsyncClie
     )
     assert resp.status_code == 400
     assert resp.json()["detail"] == "This account must use self-service password recovery."
-    # and his password is indeed unchanged
-    await login_user(client, "w@farm.in", WORKER_PW)
+    # and his password is indeed unchanged: the rotated credential still works
+    await login_user(client, "w@farm.in", WORKER_PW + "!r1")
 
 
 @pytest.mark.parametrize(
@@ -2243,7 +2259,7 @@ async def test_create_role_with_full_catalog(client: httpx.AsyncClient) -> None:
     # a worker holding it can open everything, including the team page
     resp = await add_worker(client, owner, role["id"], "deputy@farm.in")
     assert resp.status_code == 201, resp.text
-    deputy = await login_user(client, "deputy@farm.in", WORKER_PW)
+    deputy, _ = await provisioned_worker_login(client, "deputy@farm.in", WORKER_PW)
     deputy = deputy | {"X-Farm-Id": owner["X-Farm-Id"]}
     for url, _perm in GET_ENDPOINTS:
         resp = await client.get(url, headers=deputy)
@@ -2849,7 +2865,7 @@ async def _second_team_manager(client: httpx.AsyncClient, owner: dict) -> tuple[
     resp = await add_worker(client, owner, role["id"], "tm2@farm.in")
     assert resp.status_code == 201, resp.text
     mid = resp.json()["id"]
-    headers = await login_user(client, "tm2@farm.in", WORKER_PW)
+    headers, _ = await provisioned_worker_login(client, "tm2@farm.in", WORKER_PW)
     return headers | {"X-Farm-Id": owner["X-Farm-Id"]}, mid
 
 
@@ -2906,7 +2922,7 @@ async def test_team_manager_cannot_act_on_peer_manager(client: httpx.AsyncClient
     peer = next(m for m in team["memberships"] if m["id"] == mid2)
     assert peer["is_active"] is True
     assert peer["role_name"] == "Team Clerk 2"
-    await login_user(client, "tm2@farm.in", WORKER_PW)
+    await login_user(client, "tm2@farm.in", WORKER_PW + "!r1")
 
 
 async def test_owner_can_still_act_on_team_managers(client: httpx.AsyncClient) -> None:

@@ -31,6 +31,8 @@ from .enums import (
     BirthType,
     BreedingOutcome,
     Bucket,
+    CoatColor,
+    DisposalMethod,
     MortalityCause,
     Sex,
     sql_in_values,
@@ -47,6 +49,8 @@ if TYPE_CHECKING:
 _BUCKET_VALUES = sql_in_values(Bucket)
 _ANIMAL_STATUS_VALUES = sql_in_values(AnimalStatus)
 _MORTALITY_CAUSE_VALUES = sql_in_values(MortalityCause)
+_DISPOSAL_METHOD_VALUES = sql_in_values(DisposalMethod)
+_COAT_COLOR_VALUES = sql_in_values(CoatColor)
 
 
 class Animal(Base):
@@ -127,6 +131,20 @@ class Animal(Base):
         CheckConstraint(
             f"mortality_cause_code IS NULL OR mortality_cause_code IN ({_MORTALITY_CAUSE_VALUES})",
             name="ck_animals_mortality_cause_code",
+        ),
+        CheckConstraint(
+            f"disposal_method IS NULL OR disposal_method IN ({_DISPOSAL_METHOD_VALUES})",
+            name="ck_animals_disposal_method",
+        ),
+        CheckConstraint(
+            f"coat_color IS NULL OR coat_color IN ({_COAT_COLOR_VALUES})",
+            name="ck_animals_coat_color",
+        ),
+        # Free-text breed for the odd crossbred purchase, but never blank:
+        # an empty string would silently defeat the pure-line views.
+        CheckConstraint(
+            "btrim(breed) <> ''",
+            name="ck_animals_breed_nonempty",
         ),
         CheckConstraint(
             "(current_bucket <> 'MALE_KIDS' OR sex = 'M') AND "
@@ -215,7 +233,9 @@ class Animal(Base):
     sire_id: Mapped[int | None] = mapped_column(
         ForeignKey("animals.id", ondelete="SET NULL"), index=True
     )
-    birth_weight: Mapped[float | None]
+    # Exact numerics (never float8): weights feed paise-exact ₹/kg rates, so
+    # they store like sale_weight_kg while keeping the public float contract.
+    birth_weight: Mapped[float | None] = mapped_column(Numeric(8, 2, asdecimal=False))
 
     current_bucket: Mapped[str] = mapped_column(String(20))  # Bucket enum
     status: Mapped[str] = mapped_column(String(10), default=AnimalStatus.ACTIVE.value)
@@ -254,13 +274,24 @@ class Animal(Base):
     # reporting (the legacy free text above stays accepted for local detail),
     # carcass disposal, and an optional post-mortem record.
     mortality_cause_code: Mapped[str | None] = mapped_column(String(30))  # MortalityCause enum
-    disposal_method: Mapped[str | None] = mapped_column(String(60))
+    disposal_method: Mapped[str | None] = mapped_column(String(60))  # DisposalMethod enum
     necropsy_done: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=text("false")
     )
     necropsy_findings: Mapped[str | None] = mapped_column(Text)
+    # Osmanabadi phenotype (pure-line tracking for Bakrid premiums): ~73% of
+    # the breed is black, and ~90% of males carry horns. Both are nullable —
+    # unrecorded is a fact of its own, distinct from any value.
+    coat_color: Mapped[str | None] = mapped_column(String(20))  # CoatColor enum
+    horned: Mapped[bool | None] = mapped_column(Boolean)
     notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        default=utcnow,
+        onupdate=utcnow,
+        server_default=text("timezone('UTC', now())"),
+        server_onupdate=text("timezone('UTC', now())"),
+    )
 
     farm: Mapped[Farm] = relationship(back_populates="animals")
     purchase_batch: Mapped[PurchaseBatch | None] = relationship(
@@ -469,7 +500,8 @@ class WeightRecord(Base):
             ["animals.farm_id", "animals.id"],
             name="fk_weight_records_farm_animal",
         ),
-        Index("ix_weight_records_date", "date"),
+        # ix_weight_records_date was dropped: every farm-scoped weight query
+        # is served by the (date, id, animal) composite below.
         CheckConstraint("weight_kg > 0", name="ck_weight_records_weight_positive"),
         CheckConstraint(
             "bcs IS NULL OR bcs BETWEEN 1 AND 5",
@@ -485,7 +517,7 @@ class WeightRecord(Base):
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
     animal_id: Mapped[int] = mapped_column(ForeignKey("animals.id"), index=True)
     date: Mapped[date] = mapped_column(default=today)
-    weight_kg: Mapped[float]
+    weight_kg: Mapped[float] = mapped_column(Numeric(8, 2, asdecimal=False))
     bcs: Mapped[int | None]  # body condition score 1–5
     notes: Mapped[str | None] = mapped_column(String(255))
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))

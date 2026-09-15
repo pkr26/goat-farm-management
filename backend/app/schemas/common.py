@@ -17,10 +17,12 @@ MAX_ID = 2**62
 # not-found/invalid-id 4xx instead of letting asyncpg raise an int32
 # DataError (500). Routers guard every lookup with this bound.
 MAX_INT32_ID = 2**31 - 1
-# Offset pagination remains part of the current SPA contract. Bound it well
-# below PostgreSQL's bigint ceiling so arbitrary-precision query integers
-# cannot become driver errors or deliberately absurd scans.
-MAX_PAGE_OFFSET = 1_000_000
+# Offset pagination remains part of the current SPA contract. Bound it low:
+# deep offsets are a deep-scan DoS (every page re-scans and re-sorts the rows
+# it discards), and no farm view legitimately pages ten thousand rows in. The
+# ceiling also stays far below PostgreSQL's bigint limit so
+# arbitrary-precision query integers cannot become driver errors.
+MAX_PAGE_OFFSET = 10_000
 # Large enough for useful clinical/purchase narrative, small enough to avoid
 # accidentally persisting an attachment-sized blob in a Text column.
 MAX_FREE_TEXT_LENGTH = 4_000

@@ -341,6 +341,11 @@ async def record_kidding(
             TaskCategory.WEANING,
             animal_id=doe.id,
             breeding_record_id=br.id,
+            title_key="wean_kids",
+            title_args={
+                "tag": doe.tag_number,
+                "due_date": (kidding_date + timedelta(days=profile.weaning_days)).isoformat(),
+            },
         )
     else:
         mortality_dates = [
@@ -357,6 +362,13 @@ async def record_kidding(
             TaskCategory.BUCKET_MOVE,
             animal_id=doe.id,
             breeding_record_id=br.id,
+            title_key="move_to_resting",
+            title_args={
+                "tag": doe.tag_number,
+                "due_date": (
+                    recovery_anchor + timedelta(days=profile.postpartum_recovery_days)
+                ).isoformat(),
+            },
         )
     # Husbandry standards: the fresh doe gets a next-day dam check (HEALTH_CHECK
     # auto-routes to the farm's VET preset role) and the kidding stall a
@@ -374,6 +386,8 @@ async def record_kidding(
         TaskCategory.HEALTH_CHECK,
         animal_id=doe.id,
         breeding_record_id=br.id,
+        title_key="post_kidding_dam_check",
+        title_args={"tag": doe.tag_number, "due_date": postpartum_due.isoformat()},
     )
     await _add_task(
         db,
@@ -384,6 +398,8 @@ async def record_kidding(
         TaskCategory.CLEANING,
         animal_id=doe.id,
         breeding_record_id=br.id,
+        title_key="kidding_stall_cleanout",
+        title_args={"tag": doe.tag_number, "due_date": postpartum_due.isoformat()},
     )
     if any(
         kid["status"] == KidStatus.ALIVE.value
@@ -398,6 +414,8 @@ async def record_kidding(
             TaskCategory.HEALTH_CHECK,
             animal_id=doe.id,
             breeding_record_id=br.id,
+            title_key="kid_support",
+            title_args={"tag": doe.tag_number, "due_date": postpartum_due.isoformat()},
         )
     await db.flush()
     return record
@@ -614,6 +632,8 @@ async def replan_dam_after_last_kid_death(
             TaskCategory.BUCKET_MOVE,
             animal_id=dam.id,
             breeding_record_id=kidding.breeding_record_id,
+            title_key="move_to_resting",
+            title_args={"tag": dam.tag_number, "due_date": due.isoformat()},
         )
     else:
         existing.due_date = due

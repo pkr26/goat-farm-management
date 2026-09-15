@@ -33,7 +33,7 @@ from app.models import (
 )
 from app.utils import add_months, today, utcnow
 
-from .conftest import create_farm, owner_with_farm, register
+from .conftest import create_farm, owner_with_farm, provisioned_worker_login, register
 
 WORKER_PW = "workerpass123"
 
@@ -286,7 +286,7 @@ async def worker_headers(client: httpx.AsyncClient, owner: dict, role_id: int, e
         headers=owner,
     )
     assert resp.status_code == 201, resp.text
-    headers = await login_user(client, email, WORKER_PW)
+    headers, _user_id = await provisioned_worker_login(client, email, WORKER_PW)
     return headers | {"X-Farm-Id": owner["X-Farm-Id"]}
 
 
@@ -2958,6 +2958,8 @@ async def test_dashboard_task_rows_require_tasks_view_and_skip_task_scope(
     assert set(row) == {
         "id",
         "title",
+        "title_key",
+        "title_args",
         "due_date",
         "status",
         "category",
@@ -2979,6 +2981,8 @@ async def test_dashboard_task_rows_require_tasks_view_and_skip_task_scope(
         "skip_reason",
         "rejected_by_id",
         "rejected_at",
+        "created_at",
+        "created_by_id",
         "assigned_role_name",
         "assigned_user_name",
         "animal_tag",
