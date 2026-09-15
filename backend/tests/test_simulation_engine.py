@@ -23,6 +23,7 @@ kid survival below compounds 0.90 over the three kid-class slots.
 import hashlib
 import json
 import math
+from collections.abc import Callable
 from types import SimpleNamespace
 
 import pytest
@@ -1569,6 +1570,175 @@ def test_purchase_event_does_jump_at_event_month() -> None:
     assert any("Purchased 10 doe(s)" in note for note in m14.events)
     # Earlier months are identical to the baseline run.
     assert res.months[12].total_herd == pytest.approx(base.months[12].total_herd, abs=1e-9)
+
+
+def _empty_herd_event_toy(events: list[HerdEventAssumptions]) -> SimulationAssumptions:
+    """No starting stock, one standing buck, every graduate retained: the only
+    doe-pool inflow is the scheduled grower purchase under test."""
+    return event_toy(
+        events,
+        does=0,
+        bucks=1,
+        max_breeding_does=0,
+        female_retention_fraction=1.0,
+    )
+
+
+def _first_month_with(predicate: Callable[[MonthlyRow], bool], res: SimulationResult) -> int:
+    for row in res.months:
+        if predicate(row):
+            return row.month
+    raise AssertionError("no month matched")
+
+
+def test_purchase_event_age_months_delays_grower_graduation() -> None:
+    """A 6-month-old purchased grower enters the chain at the 6-month slot
+    and reaches the doe pool ~3 months later than the mid-class default."""
+    aged = run_simulation(
+        _empty_herd_event_toy(
+            [
+                HerdEventAssumptions(
+                    month=1,
+                    kind="purchase",
+                    animal_class="female_grower",
+                    count=10,
+                    age_months=6,
+                )
+            ]
+        ),
+        with_break_even=False,
+    )
+    default = run_simulation(
+        _empty_herd_event_toy(
+            [HerdEventAssumptions(month=1, kind="purchase", animal_class="female_grower", count=10)]
+        ),
+        with_break_even=False,
+    )
+    aged_grad = _first_month_with(lambda r: _doe_pool(r) > 0.0, aged)
+    default_grad = _first_month_with(lambda r: _doe_pool(r) > 0.0, default)
+    # Mid-class placement (age 9 in the 6-11 chain) graduates in month 3; a
+    # true 6-month-old needs the full 6 months to the 12-month gate.
+    assert default_grad == 3
+    assert aged_grad == 6
+    # Same animals eventually arrive — within the grower-vs-adult mortality
+    # gap the two paths accumulate over the 3-month timing difference.
+    assert _doe_pool(aged.months[11]) == pytest.approx(_doe_pool(default.months[11]), rel=0.01)
+
+
+def test_purchase_event_age_months_shifts_first_kidding() -> None:
+    """Graduation +3 months moves the first monthly-engine kidding +3 months
+    (5-month gestation): month 8 mid-class vs month 11 for a 6-month-old."""
+    aged = run_simulation(
+        _empty_herd_event_toy(
+            [
+                HerdEventAssumptions(
+                    month=1,
+                    kind="purchase",
+                    animal_class="female_grower",
+                    count=10,
+                    age_months=6,
+                )
+            ]
+        ),
+        with_break_even=False,
+    )
+    default = run_simulation(
+        _empty_herd_event_toy(
+            [HerdEventAssumptions(month=1, kind="purchase", animal_class="female_grower", count=10)]
+        ),
+        with_break_even=False,
+    )
+    assert _first_month_with(lambda r: r.births > 0.0, default) == 8
+    assert _first_month_with(lambda r: r.births > 0.0, aged) == 11
+
+
+def test_purchase_event_age_months_prices_the_actual_age() -> None:
+    """Default valuation follows the arrival age, not the mid-class weight."""
+    a = flatten_market(
+        _empty_herd_event_toy(
+            [
+                HerdEventAssumptions(
+                    month=1,
+                    kind="purchase",
+                    animal_class="female_grower",
+                    count=10,
+                    age_months=6,
+                )
+            ]
+        )
+    )
+    res = run_simulation(a, with_break_even=False)
+    g = a.growth
+    fill = next(f for f in res.months[0].event_fills if f.kind == "purchase")
+    assert fill.price_per_head == pytest.approx(
+        weight_at_age(6, g, g.adult_weight_doe_kg) * a.sales.meat_price_per_kg
+    )
+
+
+@pytest.mark.parametrize(
+    ("animal_class", "age_months"),
+    [
+        ("female_kid", 0),
+        ("male_kid", 2),
+        ("female_weaner", 3),
+        ("male_weaner", 5),
+        ("female_grower", 6),
+        ("male_grower", 8),
+    ],
+)
+def test_purchase_event_age_months_valid_chain_ages_run(animal_class: str, age_months: int) -> None:
+    """Every young-stock class accepts an explicit in-chain arrival age (the
+    male grower bound is sale_age - 1 = 8 at the pinned sale age of 10... the
+    chain spans 6..sale_age-1)."""
+    event = HerdEventAssumptions(
+        month=1,
+        kind="purchase",
+        animal_class=animal_class,
+        count=3,
+        age_months=age_months,  # type: ignore[arg-type]
+    )
+    res = run_simulation(_empty_herd_event_toy([event]), with_break_even=False)
+    assert res.months[0].purchases_head == 3.0
+
+
+def test_event_age_months_validation() -> None:
+    def event_payload(**overrides: object) -> dict[str, object]:
+        return {
+            "month": 3,
+            "kind": "purchase",
+            "animal_class": "female_grower",
+            "count": 5,
+            "age_months": 6,
+            **overrides,
+        }
+
+    # Adults carry their own age machinery; the field is young-stock only.
+    with pytest.raises(ValidationError, match="young-stock"):
+        SimulationAssumptions(events=[event_payload(animal_class="doe")])  # type: ignore[list-item]
+    with pytest.raises(ValidationError, match="young-stock"):
+        SimulationAssumptions(events=[event_payload(animal_class="buck")])  # type: ignore[list-item]
+    # Sales draw proportionally from the pool; an arrival age is meaningless.
+    with pytest.raises(ValidationError, match="only meaningful for purchases"):
+        SimulationAssumptions(events=[event_payload(kind="sale")])  # type: ignore[list-item]
+    # Outside the class chain: below 6 or at/above afb (default 12).
+    with pytest.raises(ValidationError, match="outside the female_grower chain"):
+        SimulationAssumptions(events=[event_payload(age_months=5)])  # type: ignore[list-item]
+    with pytest.raises(ValidationError, match="outside the female_grower chain"):
+        SimulationAssumptions(events=[event_payload(age_months=12)])  # type: ignore[list-item]
+    # Kid chain is ages 0-2; weaner 3-5; male grower 6..sale_age-1.
+    with pytest.raises(ValidationError, match="outside the female_kid chain"):
+        SimulationAssumptions(events=[event_payload(animal_class="female_kid", age_months=3)])  # type: ignore[list-item]
+    with pytest.raises(ValidationError, match="outside the male_grower chain"):
+        SimulationAssumptions(events=[event_payload(animal_class="male_grower", age_months=9)])  # type: ignore[list-item]
+    # The grower bound follows afb: at afb 14 a 13-month-old is in-chain.
+    valid = SimulationAssumptions(
+        reproduction={"age_at_first_breeding_months": 14},  # type: ignore[dict-item]
+        events=[event_payload(age_months=13)],  # type: ignore[list-item]
+    )
+    assert valid.events[0].age_months == 13
+    # Schema sanity bound.
+    with pytest.raises(ValidationError):
+        SimulationAssumptions(events=[event_payload(age_months=31)])  # type: ignore[list-item]
 
 
 def test_purchase_events_per_class_jump_and_price() -> None:

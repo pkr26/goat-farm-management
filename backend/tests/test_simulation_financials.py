@@ -1201,6 +1201,60 @@ async def test_api_rejects_moratorium_covering_term(client: httpx.AsyncClient) -
     assert resp.status_code == 422, resp.text
 
 
+async def test_api_rejects_event_age_months_outside_class_chain(
+    client: httpx.AsyncClient,
+) -> None:
+    """Per-event purchase ages are validated against the class chain (and
+    rejected for adults): bad ages must be a clean 422, never a 500."""
+    headers = await owner_with_farm(client)
+    resp = await client.get("/api/simulation/defaults", headers=headers)
+    assert resp.status_code == 200, resp.text
+    assumptions = resp.json()
+    assumptions["meta"]["horizon_months"] = 12
+    bad_payloads = [
+        # Below the grower chain (6..afb-1).
+        {
+            "month": 1,
+            "kind": "purchase",
+            "animal_class": "female_grower",
+            "count": 10,
+            "age_months": 4,
+        },
+        # At/above the first-breeding age (default afb = 12).
+        {
+            "month": 1,
+            "kind": "purchase",
+            "animal_class": "female_grower",
+            "count": 10,
+            "age_months": 12,
+        },
+        # Adults carry their own age machinery; the field is young-stock only.
+        {"month": 1, "kind": "purchase", "animal_class": "doe", "count": 5, "age_months": 24},
+        # Sales draw proportionally from the pool; an arrival age is meaningless.
+        {"month": 1, "kind": "sale", "animal_class": "male_grower", "count": 5, "age_months": 7},
+    ]
+    for event in bad_payloads:
+        assumptions["events"] = [event]
+        resp = await client.post(
+            "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
+        )
+        assert resp.status_code == 422, (event, resp.text)
+    # A valid in-chain age runs.
+    assumptions["events"] = [
+        {
+            "month": 1,
+            "kind": "purchase",
+            "animal_class": "female_grower",
+            "count": 10,
+            "age_months": 6,
+        }
+    ]
+    resp = await client.post(
+        "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+
+
 async def test_api_accepts_boundary_financing(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     resp = await client.get("/api/simulation/defaults", headers=headers)

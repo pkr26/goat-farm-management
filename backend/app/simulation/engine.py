@@ -21,11 +21,13 @@ Documented model approximations:
   scheduled events first spend ``purchased_doe_settling_months`` in a settling
   pool (fed, insured, mortal, but not served).
 - Scheduled herd events (``SimulationAssumptions.events``) are applied at the
-  start of their month, before aging/breeding/mortality, and purchased animals
-  are placed mid-class like foundation stock. Event purchases are operating
-  cost in that month (they never join the project cost); adult event sales are
-  booked at cull value, young-stock sales at live-weight meat value, unless an
-  explicit ``price_per_head`` is given.
+  start of their month, before aging/breeding/mortality. Purchased animals
+  are placed mid-class like foundation stock, unless the event carries an
+  explicit ``age_months`` — then young stock enters its class's age chain at
+  the matching slot (and is valued at that age's live weight). Event
+  purchases are operating cost in that month (they never join the project
+  cost); adult event sales are booked at cull value, young-stock sales at
+  live-weight meat value, unless an explicit ``price_per_head`` is given.
 - Conception is constrained by the available sire service capacity
   (``bucks * buck_doe_ratio``). A zero-buck herd cannot conceive, and an
   undersupplied battery serves a proportional share of ready does. Open does
@@ -340,6 +342,11 @@ _EVENT_LABELS = {
 # Event-sale classes booked as adult disposals (cull pricing); the rest are
 # young-stock meat sales.
 _EVENT_ADULT_CLASSES = ("doe", "buck")
+
+# Event-purchase classes that establish the NLM breeding unit: adult does and
+# bucks directly, plus female young stock raised into the doe pipeline. Meat-
+# bound male young stock never joins the breeding unit and does not count.
+_NLM_UNIT_CLASSES = ("doe", "buck", "female_kid", "female_weaner", "female_grower")
 
 
 def _draw(pool: list[float], requested: float) -> float:
@@ -725,21 +732,26 @@ def _run_core(
                     bucks_purchased_this_month += n
                     default_price = buck_purchase_price
                 elif event.animal_class == "female_kid":
-                    f_kid[1] += n  # mid-class (age 1), like foundation kids
-                    default_price = weight_at_age(1, g, doe_w) * meat_price
+                    age = event.age_months if event.age_months is not None else 1
+                    f_kid[age] += n  # mid-class (age 1) unless an arrival age is given
+                    default_price = weight_at_age(age, g, doe_w) * meat_price
                 elif event.animal_class == "male_kid":
-                    m_kid[1] += n
-                    default_price = male_weight_at_age(1, g, buck_w) * meat_price
+                    age = event.age_months if event.age_months is not None else 1
+                    m_kid[age] += n
+                    default_price = male_weight_at_age(age, g, buck_w) * meat_price
                 elif event.animal_class == "female_weaner":
-                    f_weaner[1] += n  # mid-class (age 4)
-                    default_price = weight_at_age(4, g, doe_w) * meat_price
+                    age = event.age_months if event.age_months is not None else 4
+                    f_weaner[age - 3] += n  # mid-class (age 4) unless an arrival age is given
+                    default_price = weight_at_age(age, g, doe_w) * meat_price
                 elif event.animal_class == "male_weaner":
-                    m_weaner[1] += n
-                    default_price = male_weight_at_age(4, g, buck_w) * meat_price
+                    age = event.age_months if event.age_months is not None else 4
+                    m_weaner[age - 3] += n
+                    default_price = male_weight_at_age(age, g, buck_w) * meat_price
                 elif event.animal_class == "female_grower":
                     if f_grower:
-                        default_price = weight_at_age(f_grower_mid_age, g, doe_w) * meat_price
-                        f_grower[len(f_grower) // 2] += n  # mid-class
+                        age = event.age_months if event.age_months is not None else f_grower_mid_age
+                        default_price = weight_at_age(age, g, doe_w) * meat_price
+                        f_grower[age - 6] += n  # mid-class unless an arrival age is given
                     else:
                         # afb == 6: keep the animal at the graduation boundary.
                         # She must still pass through the configured retention
@@ -749,8 +761,9 @@ def _run_core(
                         f_boundary_grower += n
                 else:  # male_grower
                     if m_grower:
-                        default_price = male_weight_at_age(m_grower_mid_age, g, buck_w) * meat_price
-                        m_grower[len(m_grower) // 2] += n  # mid-class
+                        age = event.age_months if event.age_months is not None else m_grower_mid_age
+                        default_price = male_weight_at_age(age, g, buck_w) * meat_price
+                        m_grower[age - 6] += n  # mid-class unless an arrival age is given
                     else:
                         # sale_age == 6: this is market-ready stock. Keep it at
                         # the explicit graduation boundary so a later ordered
@@ -1517,8 +1530,19 @@ def _run_core(
         # ELIGIBLE capital, which the scheme caps per unit size (~₹10,000 per
         # breeding head — the published bands run from a 100F+5M unit's ~₹10
         # lakh to a 500F+25M unit's ~₹50 lakh). Supersedes subsidy_fraction.
+        # The cap sizes the unit being ESTABLISHED, so it counts breeding
+        # stock bought through scheduled events (adult does/bucks, and female
+        # young stock raised into the doe pipeline) on top of the starting
+        # herd — a build-out that starts with an empty barn and buys every
+        # animal by event is still a 500F+25M unit to the scheme.
+        event_unit_head = sum(
+            event.count
+            for event in a.events
+            if event.kind == "purchase" and event.animal_class in _NLM_UNIT_CLASSES
+        )
         eligible_capital = min(
-            project_cost, NLM_CAPITAL_CEILING_PER_HEAD * (a.herd.does + a.herd.bucks)
+            project_cost,
+            NLM_CAPITAL_CEILING_PER_HEAD * (a.herd.does + a.herd.bucks + event_unit_head),
         )
         subsidy_amount = NLM_SUBSIDY_FRACTION * eligible_capital
     else:

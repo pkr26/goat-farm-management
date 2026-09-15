@@ -31,6 +31,7 @@ from app.simulation import (
 from app.simulation.assumptions import (
     SEMI_INTENSIVE_WEIGHT_CURVE,
     STALL_FED_WEIGHT_CURVE,
+    HerdEventAssumptions,
 )
 from app.simulation.engine import NLM_CAPITAL_CEILING_PER_HEAD, NLM_SUBSIDY_FRACTION
 from app.simulation.feed import DAYS_PER_MONTH
@@ -227,6 +228,74 @@ def test_nlm_subsidy_never_makes_equity_negative() -> None:
     assert result.metrics.loan_amount + result.metrics.subsidy_amount <= (
         result.metrics.project_cost + 1e-6
     )
+
+
+def test_nlm_subsidy_event_built_herd_counts_event_purchased_stock() -> None:
+    """The scheme sizes the unit being ESTABLISHED: a 50+2 unit bought
+    entirely through scheduled events earns the same subsidy as the same unit
+    stocked at month 0 (starting counts alone made the toggle inert)."""
+    starting = SimulationAssumptions()
+    starting.finance.nlm_subsidy = True
+    # A 50% loan keeps the equity floor (project cost - loan) above the
+    # capped subsidy, so the per-head ceiling is the binding constraint.
+    starting.finance.loan_fraction_of_project_cost = 0.5
+    starting_result = run_simulation(starting, with_break_even=False)
+
+    built = SimulationAssumptions(
+        herd=HerdAssumptions(does=0, bucks=0, auto_purchase_bucks=False),
+        events=[
+            HerdEventAssumptions(month=1, kind="purchase", animal_class="doe", count=50),
+            HerdEventAssumptions(month=1, kind="purchase", animal_class="buck", count=2),
+        ],
+    )
+    built.finance.nlm_subsidy = True
+    built.finance.loan_fraction_of_project_cost = 0.5
+    built_result = run_simulation(built, with_break_even=False)
+
+    ceiling = NLM_CAPITAL_CEILING_PER_HEAD * 52
+    assert built_result.metrics.project_cost > ceiling
+    assert built_result.metrics.subsidy_amount == pytest.approx(NLM_SUBSIDY_FRACTION * ceiling)
+    assert built_result.metrics.subsidy_amount == pytest.approx(
+        starting_result.metrics.subsidy_amount
+    )
+
+
+def test_nlm_subsidy_counts_event_female_young_stock_as_unit() -> None:
+    """Goat units are actually established by buying young females: event-
+    purchased female growers/weaners/kids are raised into the doe pipeline
+    and count toward the unit; meat-bound male young stock does not."""
+    a = SimulationAssumptions(
+        herd=HerdAssumptions(does=0, bucks=0, auto_purchase_bucks=False),
+        events=[
+            HerdEventAssumptions(month=1, kind="purchase", animal_class="female_grower", count=100),
+            HerdEventAssumptions(month=1, kind="purchase", animal_class="buck", count=5),
+            HerdEventAssumptions(month=1, kind="purchase", animal_class="male_grower", count=50),
+        ],
+    )
+    a.finance.nlm_subsidy = True
+    a.finance.loan_fraction_of_project_cost = 0.5
+    result = run_simulation(a, with_break_even=False)
+    ceiling = NLM_CAPITAL_CEILING_PER_HEAD * 105
+    assert result.metrics.project_cost > ceiling
+    assert result.metrics.subsidy_amount == pytest.approx(NLM_SUBSIDY_FRACTION * ceiling)
+
+
+def test_nlm_subsidy_mixed_starting_and_event_stock() -> None:
+    """Starting stock and event purchases add: 11 head at month 0 plus 41 by
+    event is the same 52-head unit as the default 50+2 herd."""
+    a = SimulationAssumptions(
+        herd=HerdAssumptions(does=10, bucks=1, auto_purchase_bucks=False),
+        events=[
+            HerdEventAssumptions(month=1, kind="purchase", animal_class="doe", count=40),
+            HerdEventAssumptions(month=1, kind="purchase", animal_class="buck", count=1),
+        ],
+    )
+    a.finance.nlm_subsidy = True
+    a.finance.loan_fraction_of_project_cost = 0.5
+    result = run_simulation(a, with_break_even=False)
+    ceiling = NLM_CAPITAL_CEILING_PER_HEAD * 52
+    assert result.metrics.project_cost > ceiling
+    assert result.metrics.subsidy_amount == pytest.approx(NLM_SUBSIDY_FRACTION * ceiling)
 
 
 def test_dpr_markdown_states_the_scheme_basis_and_figures() -> None:

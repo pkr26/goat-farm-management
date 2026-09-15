@@ -1684,7 +1684,7 @@ def _build_notes(result: DailyOpsResult, run: _DailyOpsRun) -> list[str]:
     notes = [
         f"Goat farm simulation (species={result.species}).",
         (
-            "Breeding eligibility is age-gated (≥10 months); "
+            f"Breeding eligibility is age-gated (≥{_PROFILE.min_breeding_age_months} months); "
             "the live 22 kg weight gate is not modelled."
         ),
         (

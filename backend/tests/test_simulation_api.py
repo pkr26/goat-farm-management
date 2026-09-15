@@ -652,7 +652,9 @@ async def test_scenario_events_roundtrip(client: httpx.AsyncClient) -> None:
     assumptions["events"] = [purchase_event()]
 
     created = await create_scenario(client, headers, "Events plan", assumptions)
-    assert created["assumptions"]["events"] == [purchase_event() | {"price_per_head": None}]
+    assert created["assumptions"]["events"] == [
+        purchase_event() | {"price_per_head": None, "age_months": None}
+    ]
 
     fetched = await client.get(f"/api/simulation/scenarios/{created['id']}", headers=headers)
     assert fetched.status_code == 200

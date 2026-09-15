@@ -24,6 +24,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.models.lifecycle import LEGAL_BUCKET_TRANSITIONS
+from app.models.species import GOAT_PROFILE
 from app.simulation.daily_ops import (
     DAILY_OPS_MODEL_VERSION,
     AnimalStartSpec,
@@ -665,6 +666,24 @@ def test_explanations_echo_the_run_numbers() -> None:
     assert by_key["reproduction"].figures["kids_born_alive"] == result.totals.kids_born_alive
     # Notes carry the v1 caveats.
     assert any("Goat farm simulation" in note for note in result.notes)
+
+
+def test_notes_quote_the_live_breeding_age_gate() -> None:
+    """The eligibility note must read GOAT_PROFILE.min_breeding_age_months,
+    not a hardcoded age that can drift from the enforced gate."""
+    result = run_daily_ops(
+        DailyOpsInput(
+            start_date=date(2026, 9, 1),
+            horizon_days=30,
+            seed=7,
+            animals=[_doe("D1"), _buck("B1")],
+            params=_quiet_params(),
+        )
+    )
+    assert any(
+        f"age-gated (≥{GOAT_PROFILE.min_breeding_age_months} months)" in note
+        for note in result.notes
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -17879,6 +17879,19 @@
               }
             ],
             "title": "Price Per Head"
+          },
+          "age_months": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 30.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age Months"
           }
         },
         "additionalProperties": false,
@@ -17890,7 +17903,7 @@
           "count"
         ],
         "title": "HerdEventAssumptions",
-        "description": "One scheduled herd event: a purchase or sale applied at the start of a\nsimulation month (before that month's aging, breeding and mortality).\n\nPurchases are charged as operating cost in that month (not added to the\nproject cost); sales are booked as meat/cull revenue. ``price_per_head``\noverrides the default valuation \u2014 purchases default to the class purchase\nprice (adults) or live-weight meat value (young stock); sales default to\nlive-weight meat value for young stock and cull value for adults."
+        "description": "One scheduled herd event: a purchase or sale applied at the start of a\nsimulation month (before that month's aging, breeding and mortality).\n\nPurchases are charged as operating cost in that month (not added to the\nproject cost); sales are booked as meat/cull revenue. ``price_per_head``\noverrides the default valuation \u2014 purchases default to the class purchase\nprice (adults) or live-weight meat value (young stock); sales default to\nlive-weight meat value for young stock and cull value for adults.\n\n``age_months`` is the arrival age of purchased young stock: it places the\nanimals at the matching slot of their class's age chain (and prices them\nat that age's live weight) instead of the mid-class default \u2014 a 6-month-\nold grower has another ~6 months to the breeding gate, not ~3. ``None``\nkeeps the historical mid-class placement. Adults are already aged by\ntheir own machinery (the foundation doe-age window), so the field is\nrejected for doe/buck events and for sales; the per-class bounds are\nvalidated in ``SimulationAssumptions`` (they depend on afb/sale age)."
       },
       "HerdSnapshotOut": {
         "properties": {

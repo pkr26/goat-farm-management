@@ -906,6 +906,15 @@ class HerdEventAssumptions(_Group):
     overrides the default valuation — purchases default to the class purchase
     price (adults) or live-weight meat value (young stock); sales default to
     live-weight meat value for young stock and cull value for adults.
+
+    ``age_months`` is the arrival age of purchased young stock: it places the
+    animals at the matching slot of their class's age chain (and prices them
+    at that age's live weight) instead of the mid-class default — a 6-month-
+    old grower has another ~6 months to the breeding gate, not ~3. ``None``
+    keeps the historical mid-class placement. Adults are already aged by
+    their own machinery (the foundation doe-age window), so the field is
+    rejected for doe/buck events and for sales; the per-class bounds are
+    validated in ``SimulationAssumptions`` (they depend on afb/sale age).
     """
 
     month: int = Field(ge=1)  # 1-based simulation month; <= meta.horizon_months
@@ -923,6 +932,10 @@ class HerdEventAssumptions(_Group):
     count: FiniteFloat = Field(gt=0.0, le=MAX_HEAD)  # head (expected-value float, like all counts)
     # ₹; None = default valuation.
     price_per_head: FiniteFloat | None = Field(default=None, ge=0.0, le=MAX_MONEY)
+    # Arrival age of purchased young stock; None = mid-class placement.
+    # Schema bound only — the class-specific chain bounds (kid 0-2, weaner
+    # 3-5, grower 6..chain end) are cross-validated against afb/sale age.
+    age_months: int | None = Field(default=None, ge=0, le=30)
 
 
 # Dairy/buffalo assumption keys retired when the model went goat-meat-only
@@ -998,6 +1011,41 @@ class SimulationAssumptions(_Group):
                 raise ValueError(
                     f"event month {event.month} exceeds the simulation horizon "
                     f"({self.meta.horizon_months} months)"
+                )
+        return self
+
+    @model_validator(mode="after")
+    def _event_age_within_class_chain(self) -> "SimulationAssumptions":
+        afb = self.reproduction.age_at_first_breeding_months
+        sale_age = self.growth.sale_age_months
+        # Inclusive age bounds of each young-stock class's engine chain. The
+        # grower chains end one month short of graduation (afb / sale age);
+        # when graduation is at 6 the chain is empty and the boundary stock
+        # is exactly that age.
+        chain_bounds = {
+            "female_kid": (0, 2),
+            "male_kid": (0, 2),
+            "female_weaner": (3, 5),
+            "male_weaner": (3, 5),
+            "female_grower": (6, max(6, afb - 1)),
+            "male_grower": (6, max(6, sale_age - 1)),
+        }
+        for event in self.events:
+            if event.age_months is None:
+                continue
+            if event.kind != "purchase":
+                raise ValueError("event age_months is only meaningful for purchases")
+            bounds = chain_bounds.get(event.animal_class)
+            if bounds is None:
+                raise ValueError(
+                    f"event age_months is only meaningful for young-stock classes, "
+                    f"not {event.animal_class}"
+                )
+            lo, hi = bounds
+            if not lo <= event.age_months <= hi:
+                raise ValueError(
+                    f"event age_months {event.age_months} is outside the "
+                    f"{event.animal_class} chain ({lo}-{hi} months)"
                 )
         return self
 

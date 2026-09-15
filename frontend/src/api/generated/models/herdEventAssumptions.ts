@@ -16,6 +16,15 @@ import type { HerdEventAssumptionsKind } from './herdEventAssumptionsKind';
  * overrides the default valuation — purchases default to the class purchase
  * price (adults) or live-weight meat value (young stock); sales default to
  * live-weight meat value for young stock and cull value for adults.
+ *
+ * ``age_months`` is the arrival age of purchased young stock: it places the
+ * animals at the matching slot of their class's age chain (and prices them
+ * at that age's live weight) instead of the mid-class default — a 6-month-
+ * old grower has another ~6 months to the breeding gate, not ~3. ``None``
+ * keeps the historical mid-class placement. Adults are already aged by
+ * their own machinery (the foundation doe-age window), so the field is
+ * rejected for doe/buck events and for sales; the per-class bounds are
+ * validated in ``SimulationAssumptions`` (they depend on afb/sale age).
  */
 export interface HerdEventAssumptions {
   /** @minimum 1 */
@@ -28,4 +37,5 @@ export interface HerdEventAssumptions {
      */
   count: number;
   price_per_head?: number | null;
+  age_months?: number | null;
 }
