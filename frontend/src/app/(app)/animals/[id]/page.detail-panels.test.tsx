@@ -310,7 +310,7 @@ describe("AnimalProfilePage guards", () => {
           status_date: "2026-07-30",
           mortality_cause: "enterotoxaemia",
           mortality_cause_code: "ENTEROTOXAEMIA",
-          disposal_method: "buried",
+          disposal_method: "DEEP_BURIAL",
           necropsy_done: true,
           necropsy_findings: "Gut haemorrhage consistent with ET",
           mortality_reported_at: "2026-07-31",
@@ -319,7 +319,7 @@ describe("AnimalProfilePage guards", () => {
       await renderProfile();
 
       expect(detailValue("Cause code")).toBe("Enterotoxaemia");
-      expect(detailValue("Disposal method")).toBe("buried");
+      expect(detailValue("Disposal method")).toBe("Deep burial");
       expect(detailValue("Necropsy performed")).toBe("Yes");
       expect(detailValue("Necropsy findings")).toBe("Gut haemorrhage consistent with ET");
     });

@@ -1137,7 +1137,7 @@ describe("FinancePage — mortality memo", () => {
         mortality_loss: {
           window_months: 12,
           head_count: 1,
-          estimated_loss: 15000,
+          estimated_loss: "15000.00",
           basis: "Deaths in the last 12 months valued at each animal's last recorded weight.",
         },
       }),

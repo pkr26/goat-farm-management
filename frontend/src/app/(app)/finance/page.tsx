@@ -71,7 +71,7 @@ import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { useAuth } from "@/lib/auth-context";
 import { enumLabel } from "@/lib/enum-labels";
 import { useLanguage, type Language } from "@/lib/i18n";
-import { farmToday, formatDate, formatMoney } from "@/lib/format";
+import { farmToday, formatDate, formatMoney, formatMoneyDecimal } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import {
   isPersistableNonnegativeMoney,
@@ -198,7 +198,7 @@ function memoDescription(
     const loss =
       mortality.estimated_loss === null
         ? "loss unvalued — no weighed sale in the window"
-        : formatMoney(mortality.estimated_loss);
+        : formatMoneyDecimal(mortality.estimated_loss);
     parts.push(
       `${mortality.head_count} death${mortality.head_count === 1 ? "" : "s"} in the last ` +
         `${mortality.window_months} months, est. ${loss} (memo — not an expense).`,

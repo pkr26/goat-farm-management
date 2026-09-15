@@ -13,6 +13,7 @@ import statistics
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
+from ..models.species import GOAT_PROFILE
 from .assumptions import (
     MAX_FODDER_YIELD_T,
     MAX_MONEY,
@@ -25,6 +26,11 @@ from .results import MonteCarloResult, PercentileBand, SensitivityItem
 from .shocks import MonthlyShockPath
 
 _Mutator = Callable[[SimulationAssumptions], None]
+
+# Schema ceiling on reproduction.litter_size (le=4.0), anchored on the same
+# biology the ops write path enforces. Read the profile constant so a future
+# profile change moves the schema bound and these clamps together.
+_MAX_LITTER = float(GOAT_PROFILE.max_litter_size)
 _Reader = Callable[[SimulationAssumptions], float]
 _Labeller = Callable[[float, float], str]
 
@@ -231,7 +237,7 @@ def _apply_draws(a: SimulationAssumptions, draws: dict[str, float]) -> Simulatio
     # model with wider bounds. Clamp both sides of every bounded perturbation.
     variant.reproduction.litter_size = max(
         0.5,
-        min(4.0, variant.reproduction.litter_size * draws["litter_size"]),
+        min(_MAX_LITTER, variant.reproduction.litter_size * draws["litter_size"]),
     )
     # Preserve a schema-valid base of 1.0 when this risk is disabled. The old
     # 0.98 cap changed deterministic assumptions even for a multiplier of 1.
@@ -591,9 +597,10 @@ def run_sensitivity(a: SimulationAssumptions) -> list[SensitivityItem]:
                 "litter_size",
                 max(0.5, v.reproduction.litter_size * 0.8),
             ),
-            # Clamp at 4.0 (schema ceiling); mirrors _apply_draws' Monte Carlo clamp.
+            # Clamp at the schema ceiling; mirrors _apply_draws' Monte Carlo
+            # clamp (_MAX_LITTER, anchored on GOAT_PROFILE.max_litter_size).
             lambda v: setattr(
-                v.reproduction, "litter_size", min(4.0, v.reproduction.litter_size * 1.2)
+                v.reproduction, "litter_size", min(_MAX_LITTER, v.reproduction.litter_size * 1.2)
             ),
         ),
         _SensitivityCase(

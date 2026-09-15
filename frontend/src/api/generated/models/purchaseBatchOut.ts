@@ -19,6 +19,8 @@ export interface PurchaseBatchOut {
   avg_weight_kg: number | null;
   total_price: number | null;
   notes: string | null;
+  created_at: string;
+  created_by_id: number | null;
   animals_created?: number;
   open_tasks?: number;
 }

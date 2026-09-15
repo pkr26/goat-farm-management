@@ -4,6 +4,7 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { GrowthAssumptionsGrowthRegime } from './growthAssumptionsGrowthRegime';
 
 /**
  * Live-weight curve and sale-age policy.
@@ -14,8 +15,16 @@
  * field weights to 6 months (fast pre-weaning gain on dam's milk, ~3.2 kg/mo
  * to ~12 kg at 3 m), then tracks the farm's commercial stall-fed finish so
  * males reach the SPEC sale window (8-9 mo / 24-28 kg) on schedule.
+ *
+ * ``growth_regime`` selects which calibrated curve supplies the table when
+ * no explicit table is given: ``stall_fed`` (the managed-herd AICRP/NARI
+ * curve, default) or ``semi_intensive`` (the CIRG field curve of grazing
+ * Osmanabadi, roughly half the stall-fed gains to 3 months). Set the regime
+ * at construction time (or pass an explicit table); mutating the regime on
+ * an existing instance does not re-derive an already-materialized table.
  */
 export interface GrowthAssumptions {
+  growth_regime?: GrowthAssumptionsGrowthRegime;
   /**
      * @maximum 1000
      * @exclusiveMinimum 0

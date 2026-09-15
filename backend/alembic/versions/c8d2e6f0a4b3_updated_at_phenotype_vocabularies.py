@@ -11,9 +11,9 @@ Audit remediation wave (backend-core workstream):
   b2c3d4e5f6a8), backfilled from created_at and then NOT NULL.
 - ``animals.coat_color`` / ``animals.horned`` — the Osmanabadi phenotype
   record (pure-line tracking for Bakrid premiums), both nullable.
-- Bounded vocabularies, single-sourced from models/enums.py via
-  sql_in_values like every sibling CHECK (rendered bytes pinned by
-  tests/test_domain_check_constraints.py):
+- Bounded vocabularies, hardcoded as tuples in this revision (migrations
+  must not drift with models/enums.py after they have run; the rendered
+  bytes are pinned by tests/test_domain_check_constraints.py):
   - ``ck_animals_coat_color`` over CoatColor;
   - ``ck_animals_disposal_method`` over DisposalMethod — the column was free
     text, so legacy values are first normalized (case-insensitive spelling
@@ -27,6 +27,7 @@ Audit remediation wave (backend-core workstream):
 All CHECKs are created NOT VALID and validated in the same revision (the
 f8a2c4e6b1d9 / b6d8f0a2c4e6 pattern): brief ACCESS EXCLUSIVE for the catalog
 swap, then SHARE UPDATE EXCLUSIVE validation that never stalls reads/writes.
+Every lock wait is bounded by SET LOCAL lock_timeout.
 """
 
 from collections.abc import Sequence
@@ -90,6 +91,10 @@ def _normalize_or_refuse(table: str, column: str, mapping_sql: str, vocabulary: 
 
 
 def upgrade() -> None:
+    # Bound every lock wait: the normalization UPDATEs, the updated_at
+    # NOT-NULL swap and the CHECK validations queue behind ordinary farm
+    # traffic otherwise.
+    op.execute(sa.text("SET LOCAL lock_timeout = '10s'"))
     for table in ("animals", "farms"):
         op.add_column(table, sa.Column("updated_at", sa.DateTime(), nullable=True))
         op.execute(f"UPDATE {table} SET updated_at = created_at WHERE updated_at IS NULL")

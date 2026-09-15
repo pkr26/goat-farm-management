@@ -29,8 +29,8 @@ describe("speciesAwareLabel", () => {
 });
 
 describe("simulationFieldHelp — every documented field key resolves", () => {
-  it("covers all 159 assumption fields across all 12 sections", () => {
-    expect(SIMULATION_HELP_PATHS).toHaveLength(159);
+  it("covers all 154 assumption fields across all 12 sections", () => {
+    expect(SIMULATION_HELP_PATHS).toHaveLength(154);
     for (const path of [
       "meta.horizon_months",
       "herd.does",
@@ -43,7 +43,7 @@ describe("simulationFieldHelp — every documented field key resolves", () => {
       "culling.buck_doe_ratio",
       "growth.growth_regime",
       "growth.weight_by_age_months",
-      "sales.male_calf_price_per_head",
+      "sales.manure_income_per_adult_per_year",
       "sales.milk_sale_litres_per_doe_day",
       "sales.milk_price_per_litre",
       "feed.water_litres_lactating_doe_per_day",
@@ -58,7 +58,7 @@ describe("simulationFieldHelp — every documented field key resolves", () => {
     }
   });
 
-  it("carries no dairy-machinery keys (meat-goat profile)", () => {
+  it("carries no dairy-machinery or retired sexed-semen keys (meat-goat profile)", () => {
     for (const path of [
       "sales.lactation_milk_litres",
       "sales.milk_price_per_kg_fat",
@@ -70,15 +70,22 @@ describe("simulationFieldHelp — every documented field key resolves", () => {
       "sales.monthly_milk_price_multipliers",
       "sales.annual_milk_price_growth_rate",
       "sales.calf_milk_litres_per_day_per_calf",
+      "sales.male_calf_sell_at_birth_fraction",
+      "sales.male_calf_price_per_head",
+      "reproduction.sexed_semen_services",
+      "reproduction.sexed_female_fraction",
+      "reproduction.sexed_conception_multiplier",
       "risk.disease_milk_yield_multiplier",
     ]) {
       expect(SIMULATION_HELP_PATHS, path).not.toContain(path);
     }
-    // Dairy keys must have no explanation at all (risk keys resolve through
+    // Retired keys must have no explanation at all (risk keys resolve through
     // the generic Monte Carlo machinery regardless of the variable).
     for (const path of [
       "sales.milk_price_per_kg_fat",
       "sales.calf_milk_litres_per_day_per_calf",
+      "sales.male_calf_price_per_head",
+      "reproduction.sexed_semen_services",
     ]) {
       expect(simulationFieldHelp(path, goat), path).toBeNull();
     }

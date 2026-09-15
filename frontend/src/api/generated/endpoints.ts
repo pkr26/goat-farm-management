@@ -31,6 +31,7 @@ import type {
   AnimalOut,
   AnimalProfileApiAnimalsAnimalIdGetParams,
   AnimalProfileOut,
+  AnimalUpdateIn,
   BackwardPlanIn,
   BackwardPlanReport,
   BatchDetailApiPurchasesBatchIdGetParams,
@@ -2114,6 +2115,132 @@ export const useCreateAnimalApiAnimalsPost = <TError = ErrorType<ErrorOut | HTTP
         TContext
       > => {
       return useMutation(getCreateAnimalApiAnimalsPostMutationOptions(options), queryClient);
+    }
+
+export type updateAnimalApiAnimalsAnimalIdPatchResponse200 = {
+  data: AnimalOut
+  status: 200
+}
+
+export type updateAnimalApiAnimalsAnimalIdPatchResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type updateAnimalApiAnimalsAnimalIdPatchResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type updateAnimalApiAnimalsAnimalIdPatchResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type updateAnimalApiAnimalsAnimalIdPatchResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type updateAnimalApiAnimalsAnimalIdPatchResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type updateAnimalApiAnimalsAnimalIdPatchResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type updateAnimalApiAnimalsAnimalIdPatchResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type updateAnimalApiAnimalsAnimalIdPatchResponseSuccess = (updateAnimalApiAnimalsAnimalIdPatchResponse200) & {
+  headers: Headers;
+};
+export type updateAnimalApiAnimalsAnimalIdPatchResponseError = (updateAnimalApiAnimalsAnimalIdPatchResponse400 | updateAnimalApiAnimalsAnimalIdPatchResponse401 | updateAnimalApiAnimalsAnimalIdPatchResponse403 | updateAnimalApiAnimalsAnimalIdPatchResponse404 | updateAnimalApiAnimalsAnimalIdPatchResponse409 | updateAnimalApiAnimalsAnimalIdPatchResponse422 | updateAnimalApiAnimalsAnimalIdPatchResponse429) & {
+  headers: Headers;
+};
+
+export type updateAnimalApiAnimalsAnimalIdPatchResponse = (updateAnimalApiAnimalsAnimalIdPatchResponseSuccess | updateAnimalApiAnimalsAnimalIdPatchResponseError)
+
+export const getUpdateAnimalApiAnimalsAnimalIdPatchUrl = (animalId: number,) => {
+
+
+
+
+  return `/api/animals/${animalId}`
+}
+
+/**
+ * Edit the phenotype record (coat colour / horns) of a live animal.
+ *
+ * Only fields present in the payload are written; an explicit null clears
+ * the stored value back to unrecorded. Identity, provenance and lifecycle
+ * fields stay with their authoritative endpoints.
+ * @summary Update Animal
+ */
+export const updateAnimalApiAnimalsAnimalIdPatch = async (animalId: number,
+    animalUpdateIn: AnimalUpdateIn, options?: Parameters<typeof customInstance>[1]): Promise<updateAnimalApiAnimalsAnimalIdPatchResponse> => {
+
+  return customInstance<updateAnimalApiAnimalsAnimalIdPatchResponse>(getUpdateAnimalApiAnimalsAnimalIdPatchUrl(animalId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(animalUpdateIn)
+  }
+);}
+
+
+
+
+
+export const getUpdateAnimalApiAnimalsAnimalIdPatchMutationOptions = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAnimalApiAnimalsAnimalIdPatch>>, TError,{animalId: number;data: AnimalUpdateIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateAnimalApiAnimalsAnimalIdPatch>>, TError,{animalId: number;data: AnimalUpdateIn}, TContext> => {
+
+const mutationKey = ['updateAnimalApiAnimalsAnimalIdPatch'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateAnimalApiAnimalsAnimalIdPatch>>, {animalId: number;data: AnimalUpdateIn}> = (props) => {
+          const {animalId,data} = props ?? {};
+
+          return  updateAnimalApiAnimalsAnimalIdPatch(animalId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateAnimalApiAnimalsAnimalIdPatchMutationResult = NonNullable<Awaited<ReturnType<typeof updateAnimalApiAnimalsAnimalIdPatch>>>
+    export type UpdateAnimalApiAnimalsAnimalIdPatchMutationBody = AnimalUpdateIn
+    export type UpdateAnimalApiAnimalsAnimalIdPatchMutationError = ErrorType<ErrorOut | HTTPValidationError>
+
+    /**
+ * @summary Update Animal
+ */
+export const useUpdateAnimalApiAnimalsAnimalIdPatch = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAnimalApiAnimalsAnimalIdPatch>>, TError,{animalId: number;data: AnimalUpdateIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof updateAnimalApiAnimalsAnimalIdPatch>>,
+        TError,
+        {animalId: number;data: AnimalUpdateIn},
+        TContext
+      > => {
+      return useMutation(getUpdateAnimalApiAnimalsAnimalIdPatchMutationOptions(options), queryClient);
     }
 
 export type animalProfileApiAnimalsAnimalIdGetResponse200 = {
@@ -5451,6 +5578,9 @@ export const getListTasksApiTasksGetUrl = (params?: ListTasksApiTasksGetParams,)
 
 /**
  * All five v1 tabs as deterministic, independently pageable lists.
+ *
+ * Read-only: recurring husbandry duties are materialized by the background
+ * cadence sweep (main.py), never on this hot read path.
  * @summary List Tasks
  */
 export const listTasksApiTasksGet = async (params?: ListTasksApiTasksGetParams, options?: Parameters<typeof customInstance>[1]): Promise<listTasksApiTasksGetResponse> => {
@@ -9189,6 +9319,9 @@ export const getDashboardApiDashboardGetUrl = () => {
  * The insurance-expiring block summarizes the finance register (policy
  * numbers, cover, renewal dates), so it follows the register's own
  * ``finance.view`` gate with the same withheld-not-empty convention.
+ *
+ * The optional ``advisory`` (Bakrid hold window) restates herd composition,
+ * so it follows the herd summary's ``animals.view`` gate (null without it).
  * @summary Dashboard
  */
 export const dashboardApiDashboardGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<dashboardApiDashboardGetResponse> => {
@@ -12953,6 +13086,159 @@ export const useDeletePlanApiPlannerPlansPlanIdDelete = <TError = ErrorType<Erro
       > => {
       return useMutation(getDeletePlanApiPlannerPlansPlanIdDeleteMutationOptions(options), queryClient);
     }
+
+export type planDprApiPlannerPlansPlanIdDprGetResponse200 = {
+  data: unknown
+  status: 200
+}
+
+export type planDprApiPlannerPlansPlanIdDprGetResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type planDprApiPlannerPlansPlanIdDprGetResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type planDprApiPlannerPlansPlanIdDprGetResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type planDprApiPlannerPlansPlanIdDprGetResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type planDprApiPlannerPlansPlanIdDprGetResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type planDprApiPlannerPlansPlanIdDprGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type planDprApiPlannerPlansPlanIdDprGetResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type planDprApiPlannerPlansPlanIdDprGetResponseSuccess = (planDprApiPlannerPlansPlanIdDprGetResponse200) & {
+  headers: Headers;
+};
+export type planDprApiPlannerPlansPlanIdDprGetResponseError = (planDprApiPlannerPlansPlanIdDprGetResponse400 | planDprApiPlannerPlansPlanIdDprGetResponse401 | planDprApiPlannerPlansPlanIdDprGetResponse403 | planDprApiPlannerPlansPlanIdDprGetResponse404 | planDprApiPlannerPlansPlanIdDprGetResponse409 | planDprApiPlannerPlansPlanIdDprGetResponse422 | planDprApiPlannerPlansPlanIdDprGetResponse429) & {
+  headers: Headers;
+};
+
+export type planDprApiPlannerPlansPlanIdDprGetResponse = (planDprApiPlannerPlansPlanIdDprGetResponseSuccess | planDprApiPlannerPlansPlanIdDprGetResponseError)
+
+export const getPlanDprApiPlannerPlansPlanIdDprGetUrl = (planId: number,) => {
+
+
+
+
+  return `/api/planner/plans/${planId}/dpr`
+}
+
+/**
+ * DPR-style markdown projection summary of the plan's assumptions —
+ * unit size, capital outlay, subsidy and the 10-year NPV/DSCR figures —
+ * suitable for a NABARD/NLM loan application.
+ * @summary Plan Dpr
+ */
+export const planDprApiPlannerPlansPlanIdDprGet = async (planId: number, options?: Parameters<typeof customInstance>[1]): Promise<planDprApiPlannerPlansPlanIdDprGetResponse> => {
+
+  return customInstance<planDprApiPlannerPlansPlanIdDprGetResponse>(getPlanDprApiPlannerPlansPlanIdDprGetUrl(planId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getPlanDprApiPlannerPlansPlanIdDprGetQueryKey = (planId: number,) => {
+    return [
+    `/api/planner/plans/${planId}/dpr`
+    ] as const;
+    }
+
+
+export const getPlanDprApiPlannerPlansPlanIdDprGetQueryOptions = <TData = Awaited<ReturnType<typeof planDprApiPlannerPlansPlanIdDprGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(planId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof planDprApiPlannerPlansPlanIdDprGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getPlanDprApiPlannerPlansPlanIdDprGetQueryKey(planId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof planDprApiPlannerPlansPlanIdDprGet>>> = ({ signal }) => planDprApiPlannerPlansPlanIdDprGet(planId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: planId !== null && planId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof planDprApiPlannerPlansPlanIdDprGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type PlanDprApiPlannerPlansPlanIdDprGetQueryResult = NonNullable<Awaited<ReturnType<typeof planDprApiPlannerPlansPlanIdDprGet>>>
+export type PlanDprApiPlannerPlansPlanIdDprGetQueryError = ErrorType<ErrorOut | HTTPValidationError>
+
+
+export function usePlanDprApiPlannerPlansPlanIdDprGet<TData = Awaited<ReturnType<typeof planDprApiPlannerPlansPlanIdDprGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ planId: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof planDprApiPlannerPlansPlanIdDprGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof planDprApiPlannerPlansPlanIdDprGet>>,
+          TError,
+          Awaited<ReturnType<typeof planDprApiPlannerPlansPlanIdDprGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function usePlanDprApiPlannerPlansPlanIdDprGet<TData = Awaited<ReturnType<typeof planDprApiPlannerPlansPlanIdDprGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ planId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof planDprApiPlannerPlansPlanIdDprGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof planDprApiPlannerPlansPlanIdDprGet>>,
+          TError,
+          Awaited<ReturnType<typeof planDprApiPlannerPlansPlanIdDprGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function usePlanDprApiPlannerPlansPlanIdDprGet<TData = Awaited<ReturnType<typeof planDprApiPlannerPlansPlanIdDprGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ planId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof planDprApiPlannerPlansPlanIdDprGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Plan Dpr
+ */
+
+export function usePlanDprApiPlannerPlansPlanIdDprGet<TData = Awaited<ReturnType<typeof planDprApiPlannerPlansPlanIdDprGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ planId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof planDprApiPlannerPlansPlanIdDprGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getPlanDprApiPlannerPlansPlanIdDprGetQueryOptions(planId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export type runDailyOpsSimulationApiOpsSimRunPostResponse200 = {
   data: DailyOpsRunOut

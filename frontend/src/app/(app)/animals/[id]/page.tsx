@@ -23,6 +23,7 @@ import {
 } from "@/api/generated/endpoints";
 import {
   MoveInToBucket,
+  StatusChangeInDisposalMethod,
   StatusChangeInMortalityCauseCode,
   StatusChangeInNewStatus,
   type AnimalProfileOut,
@@ -89,6 +90,16 @@ const mortalityCauseCodeItems = (language: "en" | "te"): Record<string, string> 
   "": "— not coded —",
   ...Object.fromEntries(
     MORTALITY_CAUSE_CODES.map((code) => [code, enumLabel("mortalityCause", code, language)]),
+  ),
+});
+/** Bounded carcass-disposal vocabulary (DisposalMethod), offered in the wire
+ * enum's order and labelled through the enum catalog. */
+const DISPOSAL_METHODS = Object.values(StatusChangeInDisposalMethod);
+/** value → label map for the root `items` prop, in the active language. */
+const disposalMethodItems = (language: "en" | "te"): Record<string, string> => ({
+  "": "— not recorded —",
+  ...Object.fromEntries(
+    DISPOSAL_METHODS.map((method) => [method, enumLabel("disposalMethod", method, language)]),
   ),
 });
 const PROFILE_HISTORY_LIMIT = 25;
@@ -638,10 +649,7 @@ const statusSchema = z
       .max(120, "Mortality cause cannot exceed 120 characters")
       .optional(),
     mortality_cause_code: z.enum(MORTALITY_CAUSE_CODES as [string, ...string[]]).optional(),
-    disposal_method: z
-      .string()
-      .max(60, "Disposal method cannot exceed 60 characters")
-      .optional(),
+    disposal_method: z.enum(DISPOSAL_METHODS as [string, ...string[]]).optional(),
     mortality_reported_at: z.string().optional(),
     necropsy_done: z.boolean(),
     necropsy_findings: z
@@ -793,7 +801,7 @@ function StatusDialog({
                 : null,
             disposal_method:
               values.new_status === StatusChangeInNewStatus.DEAD
-                ? emptyToNull(values.disposal_method)
+                ? ((values.disposal_method ?? null) as StatusChangeInDisposalMethod)
                 : null,
             mortality_reported_at:
               values.new_status === StatusChangeInNewStatus.DEAD
@@ -1057,15 +1065,37 @@ function StatusDialog({
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="disposal-method">Disposal method</Label>
-                <Input
-                  id="disposal-method"
-                  maxLength={60}
-                  placeholder="burial, incineration…"
-                  aria-invalid={Boolean(errors.disposal_method) || undefined}
-                  aria-describedby={
-                    errors.disposal_method ? "disposal-method-error" : undefined
-                  }
-                  {...register("disposal_method")}
+                <Controller
+                  control={control}
+                  name="disposal_method"
+                  render={({ field }) => (
+                    <Select
+                      value={field.value ?? ""}
+                      onValueChange={(value) =>
+                        field.onChange(value === "" ? undefined : value)
+                      }
+                      items={disposalMethodItems(language)}
+                    >
+                      <SelectTrigger
+                        id="disposal-method"
+                        className="w-full"
+                        aria-invalid={Boolean(errors.disposal_method) || undefined}
+                        aria-describedby={
+                          errors.disposal_method ? "disposal-method-error" : undefined
+                        }
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">— not recorded —</SelectItem>
+                        {DISPOSAL_METHODS.map((method) => (
+                          <SelectItem key={method} value={method}>
+                            {enumLabel("disposalMethod", method, language)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 />
                 {errors.disposal_method && (
                   <p id="disposal-method-error" role="alert" className="text-sm text-destructive">
@@ -1747,7 +1777,9 @@ function ProfileBody({
                         {enumLabel("mortalityCause", a.mortality_cause_code, language)}
                       </Detail>
                     )}
-                    <Detail label="Disposal method">{a.disposal_method ?? "—"}</Detail>
+                    <Detail label="Disposal method">
+                      {enumLabel("disposalMethod", a.disposal_method, language)}
+                    </Detail>
                     <Detail label="Necropsy performed">
                       {/* Clinical facts fail closed without health.view. */}
                       {!canViewHealth ? "—" : a.necropsy_done ? "Yes" : "No"}

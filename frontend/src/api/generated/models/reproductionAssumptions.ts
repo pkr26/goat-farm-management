@@ -5,6 +5,7 @@
  * OpenAPI spec version: 2.0.0
  */
 import type { ParityMultipliers } from './parityMultipliers';
+import type { ReproductionAssumptionsWeaningDays } from './reproductionAssumptionsWeaningDays';
 
 /**
  * Breeding biology (monthly resolution).
@@ -25,6 +26,7 @@ export interface ReproductionAssumptions {
      * @maximum 12
      */
   lactation_months?: number;
+  weaning_days?: ReproductionAssumptionsWeaningDays;
   /**
      * @minimum 0
      * @maximum 12
@@ -50,21 +52,6 @@ export interface ReproductionAssumptions {
      * @maximum 0.5
      */
   stillbirth_rate?: number;
-  /**
-     * @minimum 0
-     * @maximum 6
-     */
-  sexed_semen_services?: number;
-  /**
-     * @minimum 0.5
-     * @maximum 1
-     */
-  sexed_female_fraction?: number;
-  /**
-     * @maximum 1
-     * @exclusiveMinimum 0
-     */
-  sexed_conception_multiplier?: number;
   /**
      * @minimum 0
      * @maximum 12

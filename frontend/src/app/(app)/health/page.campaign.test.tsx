@@ -265,6 +265,8 @@ function makeTask(overrides: Record<string, unknown>) {
   return {
     id: 1,
     title: "Deworm the new batch",
+    title_key: null,
+    title_args: {},
     due_date: TODAY,
     status: "PENDING",
     category: "DEWORMING",

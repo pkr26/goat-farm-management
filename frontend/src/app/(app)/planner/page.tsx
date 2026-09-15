@@ -15,6 +15,7 @@ import {
   Banknote,
   CalendarCheck,
   Database,
+  Download,
   FolderOpen,
   HeartPulse,
   Play,
@@ -33,6 +34,7 @@ import { toast } from "sonner";
 import {
   getPlanApiPlannerPlansPlanIdGet,
   getListPlansApiPlannerPlansGetQueryKey,
+  getPlanDprApiPlannerPlansPlanIdDprGetUrl,
   useBreedDefaultsApiSimulationDefaultsGet,
   useCreatePlanApiPlannerPlansPost,
   useDeletePlanApiPlannerPlansPlanIdDelete,
@@ -57,6 +59,7 @@ import { PageHeader } from "@/components/page-header";
 import { PermissionGate } from "@/components/permission-gate";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -83,10 +86,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ApiError } from "@/lib/api-client";
+import { ApiError, apiFetchText } from "@/lib/api-client";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { farmVocabulary, type FarmVocabulary } from "@/lib/farm-vocabulary";
 import { farmToday, formatMoney } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 
@@ -230,6 +234,7 @@ export function NumberField(
 
 function PlannerPageContent({ perms }: { perms: PermissionsState }) {
   const { can } = perms;
+  const t = useT();
   const allowed = can("simulation.view");
   const canManage = can("simulation.manage");
   const canUseHerd = can("animals.view");
@@ -258,6 +263,10 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
   const [basisSource, setBasisSource] = useState<"preset" | "herd" | "calibration" | "saved">(
     "preset",
   );
+  // NLM capital-subsidy toggle: part of the assumptions document the plan
+  // runs and saves against (finance.nlm_subsidy), kept as page state like the
+  // start month so a run and a save always agree.
+  const [nlmSubsidy, setNlmSubsidy] = useState(false);
   // A defaults response may only land while it is still the latest intent.
   const acceptDefaultsRef = useRef(true);
 
@@ -417,7 +426,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
   const [planError, setPlanError] = useState<string | null>(null);
   const [planInputsSnapshot, setPlanInputsSnapshot] = useState<string | null>(null);
 
-  const planInputsKey = `${startMonth}|${JSON.stringify(targets)}|${JSON.stringify(assumptions)}`;
+  const planInputsKey = `${startMonth}|${JSON.stringify(targets)}|${JSON.stringify(assumptions)}|${nlmSubsidy}`;
   const reportIsStale = report !== null && planInputsSnapshot !== planInputsKey;
 
   /** The anchored assumption document a run/save actually uses. */
@@ -427,6 +436,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
     return {
       ...assumptions,
       meta: { ...assumptions.meta, start_year_month: startMonth },
+      finance: { ...assumptions.finance, nlm_subsidy: nlmSubsidy },
     } as SimulationAssumptions;
   }
 
@@ -479,6 +489,9 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
   // here and the confirm dialog below performs it (same contract as the
   // simulation page's scenario delete).
   const [pendingDelete, setPendingDelete] = useState<PlannerPlanOut | null>(null);
+  /** Plan id whose DPR download is in flight (null = idle) — disables every
+   *  DPR button so two downloads never race. */
+  const [dprPendingId, setDprPendingId] = useState<number | null>(null);
 
   const plansPage = plansQuery.data?.status === 200 ? plansQuery.data.data : null;
   const savedPlans = plansPage ? plansPage.items.filter((item) => item.valid) : [];
@@ -611,6 +624,35 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
     }
   }
 
+  /** Fetch the DPR markdown for a saved plan and hand it to the browser as a
+   *  file download (the account-export pattern: object URL + anchor click). */
+  async function onDownloadDpr(plan: PlannerPlanOut) {
+    const farmScope = captureFarmScope();
+    setDprPendingId(plan.id);
+    try {
+      const markdown = await apiFetchText(getPlanDprApiPlannerPlansPlanIdDprGetUrl(plan.id));
+      if (!farmScope()) return;
+      const blob = new Blob([markdown], { type: "text/markdown" });
+      const href = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = href;
+      anchor.download = `dpr-${plan.id}.md`;
+      try {
+        document.body.appendChild(anchor);
+        anchor.click();
+      } finally {
+        anchor.remove();
+        URL.revokeObjectURL(href);
+      }
+      toast.success(t("planner.dprDownloaded"));
+    } catch (err) {
+      if (!farmScope()) return;
+      toast.error(errorMessage(err, t("planner.dprFailed")));
+    } finally {
+      setDprPendingId(null);
+    }
+  }
+
   function onOpenPlan(plan: PlannerPlanOut) {
     if (!plan.targets || !plan.assumptions) return;
     setTargets(
@@ -623,6 +665,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
     );
     setStartMonth(plan.start_year_month);
     setAssumptions(plan.assumptions);
+    setNlmSubsidy(plan.assumptions.finance?.nlm_subsidy === true);
     acceptDefaultsRef.current = false;
     // The plan carries its own assumptions; re-anchor the preset dropdowns to
     // the farm's species default so "Use my herd" / "Use farm records" bucket
@@ -954,7 +997,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
               disabled={!canUseHerd || snapshotQuery.isFetching}
             >
               <Database />
-              {snapshotQuery.isFetching ? "Loading…" : "Use my herd"}
+              {snapshotQuery.isFetching ? t("common.loading") : t("planner.useMyHerd")}
             </Button>
             <Button
               variant="outline"
@@ -969,6 +1012,19 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
             >
               {calibrationQuery.isFetching ? "Calibrating…" : "Use farm records"}
             </Button>
+          </div>
+          <div className="flex items-start gap-2 sm:col-span-2 lg:col-span-4">
+            <Checkbox
+              id="planner-nlm-subsidy"
+              checked={nlmSubsidy}
+              onCheckedChange={(checked) => setNlmSubsidy(checked === true)}
+            />
+            <div className="space-y-1">
+              <Label htmlFor="planner-nlm-subsidy" className="font-normal">
+                {t("planner.nlmSubsidy")}
+              </Label>
+              <p className="text-xs text-muted-foreground">{t("planner.nlmSubsidyHelp")}</p>
+            </div>
           </div>
           <p className="text-sm text-muted-foreground sm:col-span-2 lg:col-span-4" role="note">
             {basisSource === "preset" && "Starting from breed-preset defaults."}
@@ -1362,6 +1418,19 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                     variant="outline"
                     size="sm"
                     className="h-11 px-4"
+                    onClick={() => void onDownloadDpr(plan)}
+                    disabled={dprPendingId !== null}
+                    aria-label={t("planner.downloadDprFor", { name: plan.name })}
+                  >
+                    <Download />
+                    {dprPendingId === plan.id
+                      ? t("planner.downloadingDpr")
+                      : t("planner.downloadDpr")}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-11 px-4"
                     onClick={() => setPendingDelete(plan)}
                     disabled={!canManage || deletePlanMutation.isPending}
                     aria-label={`Delete plan ${plan.name}`}
@@ -1405,6 +1474,18 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                       <Button variant="outline" size="sm" onClick={() => onOpenPlan(plan)}>
                         <FolderOpen />
                         Open
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void onDownloadDpr(plan)}
+                        disabled={dprPendingId !== null}
+                        aria-label={t("planner.downloadDprFor", { name: plan.name })}
+                      >
+                        <Download />
+                        {dprPendingId === plan.id
+                          ? t("planner.downloadingDpr")
+                          : t("planner.downloadDpr")}
                       </Button>
                       <Button
                         variant="outline"

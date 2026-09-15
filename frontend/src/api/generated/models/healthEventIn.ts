@@ -5,6 +5,7 @@
  * OpenAPI spec version: 2.0.0
  */
 import type { HealthEventInBucket } from './healthEventInBucket';
+import type { HealthEventInRoute } from './healthEventInRoute';
 import type { HealthEventInScope } from './healthEventInScope';
 import type { HealthEventInType } from './healthEventInType';
 
@@ -18,7 +19,7 @@ export interface HealthEventIn {
   product_name?: string | null;
   disease_target?: string | null;
   dose?: string | null;
-  route?: string | null;
+  route?: HealthEventInRoute;
   vet_name?: string | null;
   cost?: number | null;
   next_due_date?: string | null;

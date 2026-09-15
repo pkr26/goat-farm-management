@@ -948,7 +948,7 @@ async def move_bucket(
             facts=transition_facts,
             resting_since=resting_since,
             # The BREEDING-entry gate inside enforces the goat thresholds
-            # (10 months / 22 kg), keeping juveniles out of the breeding
+            # (12 months / 22 kg), keeping juveniles out of the breeding
             # pool.
         )
     except ValueError as exc:

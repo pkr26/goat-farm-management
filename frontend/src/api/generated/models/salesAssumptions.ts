@@ -4,7 +4,6 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
-import type { SalesAssumptionsMilkCurveShape } from './salesAssumptionsMilkCurveShape';
 
 /**
  * Market prices, seasonality and selling costs (₹).
@@ -73,65 +72,14 @@ export interface SalesAssumptions {
   transport_cost_per_head?: number;
   /**
      * @minimum 0
+     * @maximum 10
+     */
+  milk_sale_litres_per_doe_day?: number;
+  /**
+     * @minimum 0
      * @maximum 1000000000
      */
   milk_price_per_litre?: number;
-  /**
-     * @minimum 0
-     * @maximum 100000
-     */
-  lactation_milk_litres?: number;
-  /**
-     * @minimum 0
-     * @maximum 30
-     */
-  calf_milk_litres_per_day_per_calf?: number;
-  /**
-     * @minimum 0
-     * @maximum 1000000000
-     */
-  milk_price_per_kg_fat?: number;
-  /**
-     * @minimum 0
-     * @maximum 12
-     */
-  milk_fat_pct?: number;
-  /**
-     * @minimum 0.5
-     * @maximum 1
-     */
-  milk_persistency_monthly?: number;
-  milk_curve_shape?: SalesAssumptionsMilkCurveShape;
-  /**
-     * @minimum 1
-     * @maximum 365
-     */
-  milk_peak_day?: number;
-  /**
-     * @minItems 12
-     * @maxItems 12
-     */
-  monthly_milk_yield_multipliers?: number[];
-  /**
-     * @minItems 12
-     * @maxItems 12
-     */
-  monthly_milk_price_multipliers?: number[];
-  /**
-     * @maximum 1
-     * @exclusiveMinimum -1
-     */
-  annual_milk_price_growth_rate?: number;
-  /**
-     * @minimum 0
-     * @maximum 1
-     */
-  male_calf_sell_at_birth_fraction?: number;
-  /**
-     * @minimum 0
-     * @maximum 1000000000
-     */
-  male_calf_price_per_head?: number;
   /**
      * @minimum 0
      * @maximum 1000000000

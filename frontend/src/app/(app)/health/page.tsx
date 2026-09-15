@@ -7,7 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { CalendarClock, Plus, SearchX, Syringe } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   Controller,
   useForm,
@@ -28,6 +28,7 @@ import {
 } from "@/api/generated/endpoints";
 import {
   HealthEventInBucket,
+  HealthEventInRoute,
   HealthEventInType,
   type HealthBulkTargetIn,
   type HealthBulkTargetPreviewOut,
@@ -42,7 +43,7 @@ import {
   HealthPurchaseBatchPicker,
 } from "@/components/health-target-pickers";
 import { enumLabel } from "@/lib/enum-labels";
-import { useLanguage, useT } from "@/lib/i18n";
+import { translate, useLanguage, useT, type TFn } from "@/lib/i18n";
 import { resolveTaskTitle } from "@/lib/task-title";
 import { PageHeader } from "@/components/page-header";
 import { PermissionGate } from "@/components/permission-gate";
@@ -97,10 +98,7 @@ import {
 import { addDays, farmToday, formatDate, formatMoney } from "@/lib/format";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { invalidateFarmData } from "@/lib/query-invalidation";
-import {
-  isPersistableNonnegativeMoney,
-  MIN_PERSISTED_MONEY_MESSAGE,
-} from "@/lib/persisted-numbers";
+import { isPersistableNonnegativeMoney } from "@/lib/persisted-numbers";
 import { permittedAppPath, withReturnTo } from "@/lib/permission-navigation";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
@@ -110,7 +108,9 @@ import { taskPrefill } from "./task-prefill";
 
 const EVENT_TYPES = Object.values(HealthEventInType);
 const BUCKETS = Object.values(HealthEventInBucket);
-const ROUTES = ["SC", "Oral", "IM"];
+/** Bounded administration-route vocabulary (AdministrationRoute): the wire
+ * accepts only these canonical upper-case codes now. */
+const ROUTES = Object.values(HealthEventInRoute);
 const MAX_HEALTH_EVENT_COST = 1_000_000_000;
 const MAX_HEALTH_EVENT_NOTES = 4_000;
 /** Mirrors backend/app/models/constants.py. An immutable event with a
@@ -181,8 +181,12 @@ function EventAnimalLabel({
 
 /** Exported for direct schema-level testing: the dialog's native date inputs
  * sanitize malformed values in the browser, so several guard branches are
- * unreachable through the UI alone. */
-export const eventSchema = z
+ * unreachable through the UI alone. The messages resolve through the i18n
+ * catalog, so the factory takes the caller's `t`; the exported `eventSchema`
+ * below is the English instance the mounted page replaces with the active
+ * language's. */
+export function buildEventSchema(t: TFn) {
+  return z
   .object({
     scope: z.enum(["animal", "bucket", "batch"]),
     animal_id: z.string().optional(),
@@ -201,22 +205,22 @@ export const eventSchema = z
     product_name: z.string().max(120).optional(),
     disease_target: z.string().max(120).optional(),
     dose: z.string().max(60).optional(),
-    route: z.string().max(20).optional(),
+    route: z.enum([NONE, ...ROUTES] as [string, ...string[]]).optional(),
     vet_name: z.string().max(120).optional(),
     // Stryker disable ConditionalExpression, StringLiteral: every blank-cost arm is equivalent — Number("") === 0 is finite, ≥ 0, persistable and ≤ MAX, so a blank passes all three refines with or without the === "" fast path (the payload maps a blank cost to null separately)
     cost: z
       .string()
       .refine(
         (s) => s === "" || (Number.isFinite(Number(s)) && Number(s) >= 0),
-        "Cost must be a number ≥ 0",
+        t("health.validation.costNonnegative"),
       )
       .refine(
         (s) => s === "" || isPersistableNonnegativeMoney(Number(s)),
-        MIN_PERSISTED_MONEY_MESSAGE,
+        t("health.validation.moneyMin"),
       )
       .refine(
         (s) => s === "" || Number(s) <= MAX_HEALTH_EVENT_COST,
-        "Cost cannot exceed ₹1,000,000,000",
+        t("health.validation.costTooLarge"),
       )
       .optional(),
     // Stryker restore ConditionalExpression, StringLiteral
@@ -236,7 +240,7 @@ export const eventSchema = z
     isolation_started_at: z.string().optional(),
     notes: z
       .string()
-      .max(MAX_HEALTH_EVENT_NOTES, "Notes cannot exceed 4000 characters")
+      .max(MAX_HEALTH_EVENT_NOTES, t("health.validation.notesTooLong", { max: MAX_HEALTH_EVENT_NOTES }))
       .optional(),
     task_id: z.string().optional(),
   })
@@ -246,40 +250,40 @@ export const eventSchema = z
     // letting blank-date submissions pass here and fail at the endpoint.
     const eventDate = v.date || farmToday();
     if (v.scope === "animal" && positiveIdString(v.animal_id) === null) {
-      ctx.addIssue({ code: "custom", path: ["animal_id"], message: "Pick an animal" });
+      ctx.addIssue({ code: "custom", path: ["animal_id"], message: t("health.validation.pickAnimal") });
     }
     if (v.scope === "bucket" && !v.bucket) {
-      ctx.addIssue({ code: "custom", path: ["bucket"], message: "Pick a bucket" });
+      ctx.addIssue({ code: "custom", path: ["bucket"], message: t("health.validation.pickBucket") });
     }
     if (v.scope === "batch" && positiveIdString(v.purchase_batch_id) === null) {
-      ctx.addIssue({ code: "custom", path: ["purchase_batch_id"], message: "Pick a batch" });
+      ctx.addIssue({ code: "custom", path: ["purchase_batch_id"], message: t("health.validation.pickBatch") });
     }
     if (v.task_id && v.task_id !== NONE && positiveIdString(v.task_id) === null) {
-      ctx.addIssue({ code: "custom", path: ["task_id"], message: "Pick a valid duty" });
+      ctx.addIssue({ code: "custom", path: ["task_id"], message: t("health.validation.pickDuty") });
     }
     if (v.date && v.date > farmToday()) {
-      ctx.addIssue({ code: "custom", path: ["date"], message: "Date cannot be in the future" });
+      ctx.addIssue({ code: "custom", path: ["date"], message: t("health.validation.dateFuture") });
     }
     if (v.next_due_date) {
       if (v.next_due_date <= eventDate) {
         ctx.addIssue({
           code: "custom",
           path: ["next_due_date"],
-          message: "Next due date must be after the event date",
+          message: t("health.validation.nextDueAfterEvent"),
         });
       }
       if (!v.schedule_template_name?.trim()) {
         ctx.addIssue({
           code: "custom",
           path: ["schedule_template_name"],
-          message: "Name the schedule used for a next-due date",
+          message: t("health.validation.nameSchedule"),
         });
       }
       if (!v.next_due_authority?.trim()) {
         ctx.addIssue({
           code: "custom",
           path: ["next_due_authority"],
-          message: "Record the authority for this next-due date",
+          message: t("health.validation.recordAuthority"),
         });
       }
     }
@@ -287,14 +291,14 @@ export const eventSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["product_manufactured_on"],
-        message: "Manufacture date cannot be in the future",
+        message: t("health.validation.manufactureFuture"),
       });
     }
     if (v.product_manufactured_on && v.product_manufactured_on > eventDate) {
       ctx.addIssue({
         code: "custom",
         path: ["product_manufactured_on"],
-        message: "Manufacture date cannot be after the event date",
+        message: t("health.validation.manufactureAfterEvent"),
       });
     }
     if (
@@ -305,21 +309,21 @@ export const eventSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["product_expires_on"],
-        message: "Expiry cannot be before manufacture date",
+        message: t("health.validation.expiryBeforeManufacture"),
       });
     }
     if (v.product_expires_on && v.product_expires_on < eventDate) {
       ctx.addIssue({
         code: "custom",
         path: ["product_expires_on"],
-        message: "Product was expired on the event date",
+        message: t("health.validation.productExpired"),
       });
     }
     if (v.vaccine_valid_until && v.vaccine_valid_until < eventDate) {
       ctx.addIssue({
         code: "custom",
         path: ["vaccine_valid_until"],
-        message: "Vaccine validity cannot be before the event date",
+        message: t("health.validation.validityBeforeEvent"),
       });
     }
     if (
@@ -330,7 +334,7 @@ export const eventSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["vaccine_valid_until"],
-        message: "Vaccine validity cannot extend beyond product expiry",
+        message: t("health.validation.validityBeyondExpiry"),
       });
     }
     if (v.withdrawal_until) {
@@ -338,13 +342,13 @@ export const eventSchema = z
         ctx.addIssue({
           code: "custom",
           path: ["withdrawal_until"],
-          message: "Withdrawal date cannot be before the event date",
+          message: t("health.validation.withdrawalBeforeEvent"),
         });
       } else if (v.withdrawal_until > addDays(eventDate, MAX_WITHDRAWAL_DAYS)) {
         ctx.addIssue({
           code: "custom",
           path: ["withdrawal_until"],
-          message: `Withdrawal date cannot be more than ${MAX_WITHDRAWAL_DAYS} days after the event`,
+          message: t("health.validation.withdrawalTooLong", { days: MAX_WITHDRAWAL_DAYS }),
         });
       }
     }
@@ -352,15 +356,21 @@ export const eventSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["disease_target"],
-        message: "Name the suspected scheduled disease",
+        message: t("health.validation.nameDisease"),
       });
     }
     for (const field of ["authority_notified_at", "isolation_started_at"] as const) {
       if (v[field] && v[field] > farmToday()) {
-        ctx.addIssue({ code: "custom", path: [field], message: "Date cannot be in the future" });
+        ctx.addIssue({ code: "custom", path: [field], message: t("health.validation.dateFuture") });
       }
     }
   });
+}
+
+/** English instance kept for direct schema-level tests and for the 422 field
+ *  mapper's key list (language-independent). The mounted page resolves the
+ *  active language through buildEventSchema(t). */
+export const eventSchema = buildEventSchema((key, vars) => translate("en", key, vars));
 type EventValues = z.infer<typeof eventSchema>;
 
 /** Every field rendered inside the collapsed "Advanced traceability &
@@ -574,12 +584,16 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
 
   /** value → label map for the local task select. */
   const taskItems: Record<string, string> = {
-    [NONE]: "— none —",
+    [NONE]: t("common.none"),
     ...Object.fromEntries(
       linkableHealthTasks.map((t) => [String(t.id), `${resolveTaskTitle(t, language)} (due ${formatDate(t.due_date)})`]),
     ),
   };
 
+  // Rebuilt when the language changes so client-side validation messages
+  // render in the active language; react-hook-form re-reads the resolver
+  // option every render.
+  const localizedSchema = useMemo(() => buildEventSchema(t), [t]);
   const {
     register,
     handleSubmit,
@@ -591,7 +605,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
     unregister,
     formState: { errors, isSubmitting },
   } = useForm<EventValues>({
-    resolver: zodResolver(eventSchema),
+    resolver: zodResolver(localizedSchema),
     defaultValues: eventDefaults(),
   });
   const wAnimalId = useWatch({ control, name: "animal_id" });
@@ -955,7 +969,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
             submissionEpoch.current !== epoch
           ) return;
           const message =
-            err instanceof ApiError ? err.detail : "Could not review the bulk target set.";
+            err instanceof ApiError ? err.detail : t("health.toast.reviewFailed");
           setRecordError(message);
           toast.error(message);
         }
@@ -982,7 +996,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
       product_name: values.product_name?.trim() || null,
       disease_target: values.disease_target?.trim() || null,
       dose: values.dose?.trim() || null,
-      route: values.route && values.route !== NONE ? values.route : null,
+      route: values.route && values.route !== NONE ? (values.route as HealthEventInRoute) : null,
       vet_name: values.vet_name?.trim() || null,
       cost: values.cost ? Number(values.cost) : null,
       next_due_date: values.next_due_date || null,
@@ -1023,8 +1037,10 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
       // even if this dialog session is already over on the SAME farm.
       toast.success(
         values.scope === "animal"
-          ? "Health event recorded."
-          : `Health event recorded for ${recordedCount} animal${recordedCount === 1 ? "" : "s"}.`,
+          ? t("health.toast.recorded")
+          : recordedCount === 1
+            ? t("health.toast.recordedForOne", { count: recordedCount })
+            : t("health.toast.recordedForMany", { count: recordedCount }),
       );
       invalidateFarmData(queryClient);
       // Beyond this point everything mutates dialog state. If the operator
@@ -1072,7 +1088,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
       }
       if (mappedFields.length === 0) {
         const message =
-          err instanceof ApiError ? err.detail : "Could not save the health event.";
+          err instanceof ApiError ? err.detail : t("health.toast.saveFailed");
         setRecordError(message);
         toast.error(message);
       } else if (unmapped.length > 0) {
@@ -1105,11 +1121,11 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
     return (
       <div className="space-y-6">
         <PageHeader
-          title="Health"
-          description="Vaccinations, deworming and treatments across the herd."
+          title={t("health.page.title")}
+          description={t("health.page.description")}
         />
         <div role="status" aria-live="polite">
-          <span className="sr-only">Loading health events…</span>
+          <span className="sr-only">{t("health.page.loading")}</span>
           {/* Mirrors the mounted page: the schedule picker card above the
            * event-log table region. */}
           <div className="space-y-6">
@@ -1134,8 +1150,8 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
         <StaleDataNotice onRetry={() => void eventsQuery.refetch()} />
       )}
       <PageHeader
-        title="Health"
-        description="Vaccinations, deworming and treatments across the herd."
+        title={t("health.page.title")}
+        description={t("health.page.description")}
         actions={
           canManage && (
             <Button
@@ -1146,7 +1162,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                 setOpen(true);
               }}
             >
-              <Plus aria-hidden="true" /> Add event
+              <Plus aria-hidden="true" /> {t("health.addEvent")}
             </Button>
           )
         }
@@ -1156,21 +1172,21 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <CalendarClock className="size-4 text-primary" />
-            Vaccination schedule per animal
+            {t("health.schedule.cardTitle")}
           </CardTitle>
           <CardDescription>
-            Pick an animal to see due dates and boosters from the vaccination templates.
+            {t("health.schedule.cardDescription")}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-end gap-2">
           <div className="space-y-1.5">
-            <Label htmlFor="schedule-animal">View schedule for</Label>
+            <Label htmlFor="schedule-animal">{t("health.schedule.viewFor")}</Label>
             <HealthAnimalPicker
               id="schedule-animal"
               value={scheduleAnimalId}
               onValueChange={setScheduleAnimalId}
-              placeholder="Pick an animal"
-              dialogTitle="Choose an animal schedule"
+              placeholder={t("health.form.animalPlaceholder")}
+              dialogTitle={t("health.schedule.pickerTitle")}
               className="w-64"
             />
           </div>
@@ -1186,24 +1202,24 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
               )
             }
           >
-            View
+            {t("health.schedule.view")}
           </Button>
         </CardContent>
       </Card>
 
       <DataTableCard
-        title="Event log"
-        description="Every recorded health event, newest scope first."
+        title={t("health.log.title")}
+        description={t("health.log.description")}
       >
         {events.length === 0 ? (
           <EmptyState
             icon={Syringe}
-            title="No health events recorded yet."
-            description="Recorded vaccinations, deworming and treatments will appear here."
+            title={t("health.log.emptyTitle")}
+            description={t("health.log.emptyDescription")}
           >
             {canManage && (
               <Link href="/health/new" className={buttonVariants({ size: "sm" })}>
-                Add health event
+                {t("health.form.title")}
               </Link>
             )}
           </EmptyState>
@@ -1236,20 +1252,22 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                   )}
                   {(e.product_lot || e.product_expires_on) && (
                     <p className="mt-0.5 text-xs text-muted-foreground">
-                      {e.product_lot && <>Lot {e.product_lot}</>}
+                      {e.product_lot && <>{t("health.log.lot", { lot: e.product_lot })}</>}
                       {e.product_lot && e.product_expires_on && " · "}
-                      {e.product_expires_on && <>Expires {formatDate(e.product_expires_on)}</>}
+                      {e.product_expires_on && (
+                        <>{t("health.log.expires", { date: formatDate(e.product_expires_on) })}</>
+                      )}
                     </p>
                   )}
                   {e.certificate_number && (
                     <p className="mt-0.5 text-xs text-muted-foreground">
-                      Certificate {e.certificate_number}
+                      {t("health.log.certificate", { number: e.certificate_number })}
                     </p>
                   )}
                   <p className="mt-1 text-xs text-muted-foreground">
                     {e.next_due_date ? (
                       <>
-                        Next due: <NextDue date={e.next_due_date} />
+                        {t("health.table.nextDue")}: <NextDue date={e.next_due_date} />
                         {e.schedule_template_name && (
                           <span className="block">
                             {e.schedule_template_name}
@@ -1258,12 +1276,12 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                         )}
                       </>
                     ) : (
-                      "No next due date"
+                      t("health.log.noNextDue")
                     )}
                   </p>
                   {e.suspected_scheduled_disease && (
                     <Badge variant="destructive" className="mt-1">
-                      Scheduled disease suspected
+                      {t("health.log.scheduledDiseaseSuspected")}
                     </Badge>
                   )}
                 </div>
@@ -1273,17 +1291,17 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
             <Table className="min-w-[900px]">
             <TableHeader>
               <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Animal</TableHead>
-                <TableHead>Product</TableHead>
-                <TableHead>Target</TableHead>
-                <TableHead>Dose</TableHead>
-                <TableHead>Route</TableHead>
-                <TableHead className="text-right">Cost</TableHead>
-                <TableHead>Next due</TableHead>
-                <TableHead>Notes</TableHead>
-                <TableHead>Traceability & holds</TableHead>
+                <TableHead>{t("health.table.date")}</TableHead>
+                <TableHead>{t("health.table.type")}</TableHead>
+                <TableHead>{t("health.table.animal")}</TableHead>
+                <TableHead>{t("health.table.product")}</TableHead>
+                <TableHead>{t("health.table.target")}</TableHead>
+                <TableHead>{t("health.table.dose")}</TableHead>
+                <TableHead>{t("health.table.route")}</TableHead>
+                <TableHead className="text-right">{t("health.table.cost")}</TableHead>
+                <TableHead>{t("health.table.nextDue")}</TableHead>
+                <TableHead>{t("health.table.notes")}</TableHead>
+                <TableHead>{t("health.table.traceability")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1326,29 +1344,29 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                   <TableCell>
                     <div className="min-w-48 space-y-1 text-xs">
                       {e.suspected_scheduled_disease && (
-                        <Badge variant="destructive">Scheduled disease suspected</Badge>
+                        <Badge variant="destructive">{t("health.log.scheduledDiseaseSuspected")}</Badge>
                       )}
-                      {e.product_lot && <p>Lot: {e.product_lot}</p>}
+                      {e.product_lot && <p>{t("health.log.lot", { lot: e.product_lot })}</p>}
                       {e.product_manufactured_on && (
-                        <p>Manufactured: {formatDate(e.product_manufactured_on)}</p>
+                        <p>{t("health.log.manufactured", { date: formatDate(e.product_manufactured_on) })}</p>
                       )}
                       {e.product_expires_on && (
-                        <p>Expires: {formatDate(e.product_expires_on)}</p>
+                        <p>{t("health.log.expires", { date: formatDate(e.product_expires_on) })}</p>
                       )}
                       {e.vaccine_valid_until && (
-                        <p>Vaccine valid until: {formatDate(e.vaccine_valid_until)}</p>
+                        <p>{t("health.log.vaccineValidUntil", { date: formatDate(e.vaccine_valid_until) })}</p>
                       )}
-                      {e.certificate_number && <p>Certificate: {e.certificate_number}</p>}
-                      {e.official_tag_number && <p>Official tag: {e.official_tag_number}</p>}
-                      {e.administered_by && <p>Administered by: {e.administered_by}</p>}
+                      {e.certificate_number && <p>{t("health.log.certificate", { number: e.certificate_number })}</p>}
+                      {e.official_tag_number && <p>{t("health.log.officialTag", { tag: e.official_tag_number })}</p>}
+                      {e.administered_by && <p>{t("health.log.administeredBy", { name: e.administered_by })}</p>}
                       {e.withdrawal_until && (
                         <p>{t("health.notForSaleUntil", { date: formatDate(e.withdrawal_until) })}</p>
                       )}
                       {e.authority_notified_at && (
-                        <p>Authority notified: {formatDate(e.authority_notified_at)}</p>
+                        <p>{t("health.log.authorityNotified", { date: formatDate(e.authority_notified_at) })}</p>
                       )}
                       {e.isolation_started_at && (
-                        <p>Isolation started: {formatDate(e.isolation_started_at)}</p>
+                        <p>{t("health.log.isolationStarted", { date: formatDate(e.isolation_started_at) })}</p>
                       )}
                       {!e.suspected_scheduled_disease &&
                         !e.product_lot &&
@@ -1372,7 +1390,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
         )}
         {eventsSettling && (
           <p role="status" className="pt-3 text-sm text-muted-foreground">
-            Updating health events…
+            {t("health.log.updating")}
           </p>
         )}
         <PaginationControls
@@ -1380,7 +1398,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
           limit={eventPayload.limit}
           offset={eventPayload.offset}
           onOffsetChange={setEventOffset}
-          label="health events"
+          label={t("health.pagination.label")}
           disabled={eventsSettling}
         />
       </DataTableCard>
@@ -1395,7 +1413,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
       >
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Add health event</DialogTitle>
+            <DialogTitle>{t("health.form.title")}</DialogTitle>
           </DialogHeader>
           <form
             onSubmit={handleSubmit(onSubmit, revealCollapsedErrors)}
@@ -1406,7 +1424,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                 whose payload must match the values the operator still sees. */}
             <fieldset disabled={recordMutation.isPending} className="space-y-4">
             <fieldset className="space-y-2">
-              <legend className="text-sm font-medium">Apply to</legend>
+              <legend className="text-sm font-medium">{t("health.form.applyTo")}</legend>
               <Controller
                 control={control}
                 name="scope"
@@ -1414,9 +1432,9 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                   <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
                     {(
                       [
-                        ["animal", "Single animal"],
-                        ["bucket", "Whole bucket"],
-                        ["batch", "Purchase batch"],
+                        ["animal", t("health.form.scopeAnimal")],
+                        ["bucket", t("health.form.scopeBucket")],
+                        ["batch", t("health.form.scopeBatch")],
                       ] as const
                     ).map(([value, label]) => (
                       <Label key={value} className="flex items-center gap-1.5 font-normal">
@@ -1440,7 +1458,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
               />
               {scope === "animal" && (
                 <div className="space-y-1.5">
-                  <Label htmlFor="event-animal">Animal *</Label>
+                  <Label htmlFor="event-animal">{t("health.form.animalLabel")}</Label>
                   <HealthAnimalPicker
                     id="event-animal"
                     value={wAnimalId || ""}
@@ -1454,8 +1472,8 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                       setRecordError(null);
                       setValue("animal_id", v, { shouldValidate: true });
                     }}
-                    placeholder="Pick an animal"
-                    dialogTitle="Choose an animal for this health event"
+                    placeholder={t("health.form.animalPlaceholder")}
+                    dialogTitle={t("health.form.animalPickerTitle")}
                     aria-invalid={Boolean(errors.animal_id) || undefined}
                     aria-describedby={errors.animal_id ? "event-animal-error" : undefined}
                   />
@@ -1464,7 +1482,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
               )}
               {scope === "bucket" && (
                 <div className="space-y-1.5">
-                  <Label htmlFor="event-bucket">Bucket *</Label>
+                  <Label htmlFor="event-bucket">{t("health.form.bucketLabel")}</Label>
                   <Select
                     value={wBucket || ""}
                     items={bucketItems}
@@ -1480,7 +1498,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                       aria-invalid={Boolean(errors.bucket) || undefined}
                       aria-describedby={errors.bucket ? "event-bucket-error" : undefined}
                     >
-                      <SelectValue placeholder="Pick a bucket" />
+                      <SelectValue placeholder={t("health.form.bucketPlaceholder")} />
                     </SelectTrigger>
                     <SelectContent>
                       {BUCKETS.map((b) => (
@@ -1495,7 +1513,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
               )}
               {scope === "batch" && (
                 <div className="space-y-1.5">
-                  <Label htmlFor="event-batch">Purchase batch *</Label>
+                  <Label htmlFor="event-batch">{t("health.form.batchLabel")}</Label>
                   <HealthPurchaseBatchPicker
                     id="event-batch"
                     value={wPurchaseBatchId || ""}
@@ -1507,8 +1525,8 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                       setRecordError(null);
                       setValue("purchase_batch_id", v, { shouldValidate: true });
                     }}
-                    placeholder="Pick a batch"
-                    dialogTitle="Choose a purchase batch for this health event"
+                    placeholder={t("health.form.batchPlaceholder")}
+                    dialogTitle={t("health.form.batchPickerTitle")}
                     aria-invalid={Boolean(errors.purchase_batch_id) || undefined}
                     aria-describedby={errors.purchase_batch_id ? "event-batch-error" : undefined}
                   />
@@ -1523,18 +1541,16 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                 className="rounded-lg border border-warning/40 bg-warning-tint/50 p-3 text-sm text-warning-tint-foreground"
               >
                 <p className="font-medium">
-                  Reviewed target snapshot: {bulkPreview.target_count} active animal
-                  {bulkPreview.target_count === 1 ? "" : "s"}
+                  {bulkPreview.target_count === 1
+                    ? t("health.form.reviewedSnapshotOne", { count: bulkPreview.target_count })
+                    : t("health.form.reviewedSnapshotMany", { count: bulkPreview.target_count })}
                 </p>
                 <p className="mt-1 text-xs">
-                  Confirming records only the reviewed IDs. An animal that joins an unlinked scope
-                  afterward is not silently added; if a reviewed animal leaves the scope (or a
-                  linked batch no longer matches exactly), the server rejects the write and
-                  requires a fresh review.
+                  {t("health.form.reviewedExplainer")}
                 </p>
                 {bulkPreview.target_animals.length > 0 ? (
                   <ul
-                    aria-label="Reviewed target animals"
+                    aria-label={t("health.form.reviewedListLabel")}
                     className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded border border-warning/30 bg-background/60 px-2 py-1.5 text-xs"
                   >
                     {bulkPreview.target_animals.map((animal) => (
@@ -1547,14 +1563,14 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                 ) : (
                   <EmptyState
                     icon={SearchX}
-                    title="No active animals are in this reviewed target."
-                    description="Pick a different target above — recording this one would save nothing."
+                    title={t("health.form.reviewedEmptyTitle")}
+                    description={t("health.form.reviewedEmptyDescription")}
                     className="mt-2 py-8"
                   />
                 )}
                 <details className="mt-2">
                   <summary className="cursor-pointer text-xs font-medium">
-                    Review exact animal IDs
+                    {t("health.form.reviewIds")}
                   </summary>
                   {bulkPreview.target_animal_ids.length > 0 ? (
                     <p className="mt-1 break-words font-mono text-xs">
@@ -1563,8 +1579,8 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                   ) : (
                     <EmptyState
                       icon={SearchX}
-                      title="No active animal IDs were returned."
-                      description="The reviewed snapshot is empty — choose a different target above."
+                      title={t("health.form.reviewIdsEmptyTitle")}
+                      description={t("health.form.reviewIdsEmptyDescription")}
                       className="mt-1 py-8"
                     />
                   )}
@@ -1574,7 +1590,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="date">Date (defaults to today)</Label>
+                <Label htmlFor="date">{t("health.form.dateLabel")}</Label>
                 <Input
                   id="date"
                   type="date"
@@ -1586,7 +1602,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                 <FieldError id="event-date-error" message={errors.date?.message} />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="event-type">Type</Label>
+                <Label htmlFor="event-type">{t("health.form.typeLabel")}</Label>
                 <Select
                   value={wType}
                   onValueChange={(v) => {
@@ -1608,11 +1624,11 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="product_name">Product name</Label>
+                <Label htmlFor="product_name">{t("health.form.productNameLabel")}</Label>
                 <Input
                   id="product_name"
                   maxLength={120}
-                  placeholder="e.g. PPR vaccine"
+                  placeholder={t("health.form.productNamePlaceholder")}
                   aria-invalid={Boolean(errors.product_name) || undefined}
                   aria-describedby={errors.product_name ? "product-name-error" : undefined}
                   {...register("product_name")}
@@ -1620,7 +1636,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                 <FieldError id="product-name-error" message={errors.product_name?.message} />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="disease_target">Disease target</Label>
+                <Label htmlFor="disease_target">{t("health.form.diseaseTargetLabel")}</Label>
                 <Input
                   id="disease_target"
                   maxLength={120}
@@ -1631,11 +1647,11 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                 <FieldError id="disease-target-error" message={errors.disease_target?.message} />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="dose">Dose</Label>
+                <Label htmlFor="dose">{t("health.form.doseLabel")}</Label>
                 <Input
                   id="dose"
                   maxLength={60}
-                  placeholder="e.g. 1 ml"
+                  placeholder={t("health.form.dosePlaceholder")}
                   aria-invalid={Boolean(errors.dose) || undefined}
                   aria-describedby={errors.dose ? "event-dose-error" : undefined}
                   {...register("dose")}
@@ -1643,7 +1659,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                 <FieldError id="event-dose-error" message={errors.dose?.message} />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="event-route">Route</Label>
+                <Label htmlFor="event-route">{t("health.form.routeLabel")}</Label>
                 <Select
                   value={wRoute || NONE}
                   onValueChange={(v) => setValue("route", v)}
@@ -1663,7 +1679,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="vet_name">Vet</Label>
+                <Label htmlFor="vet_name">{t("health.form.vetLabel")}</Label>
                 <Input
                   id="vet_name"
                   maxLength={120}
@@ -1674,7 +1690,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                 <FieldError id="event-vet-error" message={errors.vet_name?.message} />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="cost">Total cost (₹, split evenly)</Label>
+                <Label htmlFor="cost">{t("health.form.costLabel")}</Label>
                 <Input
                   id="cost"
                   inputMode="decimal"
@@ -1686,7 +1702,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                 <FieldError id="event-cost-error" message={errors.cost?.message} />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="next_due_date">Next due date</Label>
+                <Label htmlFor="next_due_date">{t("health.form.nextDueLabel")}</Label>
                 <Input
                   id="next_due_date"
                   type="date"
@@ -1701,7 +1717,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                 )}
               </div>
               {canViewTasks && tasksQuery.isLoading && (
-                <InlineLoading>Loading linked duties…</InlineLoading>
+                <InlineLoading>{t("health.form.loadingDuties")}</InlineLoading>
               )}
               {canViewTasks && tasksQuery.isError && (
                 <div
@@ -1711,7 +1727,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                   <p className="text-destructive">
                     {tasksQuery.error instanceof ApiError
                       ? tasksQuery.error.detail
-                      : "Could not load linked duties."}
+                      : t("health.form.dutiesLoadFailed")}
                   </p>
                   <Button
                     type="button"
@@ -1719,14 +1735,13 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                     variant="outline"
                     onClick={() => void tasksQuery.refetch()}
                   >
-                    Retry linked duties
+                    {t("health.form.retryDuties")}
                   </Button>
                 </div>
               )}
               {unresolvedPrefillTask && (
                 <p role="alert" className="text-sm text-destructive sm:col-span-2">
-                  Could not link duty #{unresolvedPrefillTask} — it is unavailable or no
-                  longer a pending health duty. Record the event without it.
+                  {t("health.form.unresolvedDuty", { id: unresolvedPrefillTask })}
                 </p>
               )}
               {(() => {
@@ -1736,14 +1751,16 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                 if (!linkedTask || linkedTask.due_date <= farmToday()) return null;
                 return (
                   <p role="status" className="sm:col-span-2 text-sm text-muted-foreground">
-                    Duty #{linkedTask.id} is not due until {formatDate(linkedTask.due_date)} — the
-                    server rejects an event dated before then.
+                    {t("health.form.dutyNotDue", {
+                      id: linkedTask.id,
+                      date: formatDate(linkedTask.due_date),
+                    })}
                   </p>
                 );
               })()}
               {canViewTasks && linkableHealthTasks.length > 0 && (
                 <div className="space-y-1.5">
-                  <Label htmlFor="event-task">Linked duty (completes it)</Label>
+                  <Label htmlFor="event-task">{t("health.form.linkedDutyLabel")}</Label>
                   <Select
                     value={wTaskId || NONE}
                     onValueChange={(v) => applyTask(v)}
@@ -1753,7 +1770,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={NONE}>— none —</SelectItem>
+                      <SelectItem value={NONE}>{t("common.none")}</SelectItem>
                       {linkableHealthTasks.map((t) => (
                         <SelectItem key={t.id} value={String(t.id)}>
                           {resolveTaskTitle(t, language)} (due {formatDate(t.due_date)})
@@ -1770,15 +1787,14 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
               onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
             >
               <summary className="cursor-pointer text-sm font-medium">
-                Advanced traceability & compliance
+                {t("health.form.advancedTitle")}
               </summary>
               <p className="mt-2 text-xs text-muted-foreground">
-                Record the product trail, authorised schedule, statutory notification and
-                movement/withdrawal holds when they apply.
+                {t("health.form.advancedIntro")}
               </p>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Label htmlFor="schedule_template_name">Schedule/template name</Label>
+                  <Label htmlFor="schedule_template_name">{t("health.form.templateLabel")}</Label>
                   {/* A vaccine/deworming event is only accepted with an exact
                       seeded programme name, and no other screen reveals those
                       names — free text here 422'd every time. Offer the list
@@ -1802,7 +1818,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                               errors.schedule_template_name ? "schedule-template-error" : undefined
                             }
                           >
-                            <SelectValue placeholder="Select a seeded programme" />
+                            <SelectValue placeholder={t("health.form.templatePlaceholder")} />
                           </SelectTrigger>
                           <SelectContent>
                             {templateOptions.map((template) => (
@@ -1826,7 +1842,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                     />
                   )}
                   {templateIsSeeded && scheduleTemplates.isLoading && (
-                    <InlineLoading>Loading programmes…</InlineLoading>
+                    <InlineLoading>{t("health.form.loadingTemplates")}</InlineLoading>
                   )}
                   {errors.schedule_template_name && (
                     <p id="schedule-template-error" role="alert" className="text-sm text-destructive">
@@ -1835,11 +1851,11 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                   )}
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="next_due_authority">Next-due authority</Label>
+                  <Label htmlFor="next_due_authority">{t("health.form.nextDueAuthorityLabel")}</Label>
                   <Input
                     id="next_due_authority"
                     maxLength={120}
-                    placeholder="e.g. veterinarian prescription / official schedule"
+                    placeholder={t("health.form.nextDueAuthorityPlaceholder")}
                     aria-invalid={Boolean(errors.next_due_authority) || undefined}
                     aria-describedby={errors.next_due_authority ? "next-due-authority-error" : undefined}
                     {...register("next_due_authority")}
@@ -1851,15 +1867,15 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                   )}
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="product_lot">Product lot/batch</Label>
+                  <Label htmlFor="product_lot">{t("health.form.lotLabel")}</Label>
                   <Input id="product_lot" maxLength={120} {...register("product_lot")} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="administered_by">Administered by</Label>
+                  <Label htmlFor="administered_by">{t("health.form.administeredByLabel")}</Label>
                   <Input id="administered_by" maxLength={120} {...register("administered_by")} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="product_manufactured_on">Product manufactured</Label>
+                  <Label htmlFor="product_manufactured_on">{t("health.form.manufacturedLabel")}</Label>
                   <Input
                     id="product_manufactured_on"
                     type="date"
@@ -1875,7 +1891,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                   )}
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="product_expires_on">Product expires</Label>
+                  <Label htmlFor="product_expires_on">{t("health.form.expiresLabel")}</Label>
                   <Input
                     id="product_expires_on"
                     type="date"
@@ -1890,7 +1906,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                   )}
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="vaccine_valid_until">Vaccine valid until</Label>
+                  <Label htmlFor="vaccine_valid_until">{t("health.form.vaccineValidLabel")}</Label>
                   <Input
                     id="vaccine_valid_until"
                     type="date"
@@ -1905,7 +1921,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                   )}
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="withdrawal_until">Withdrawal until</Label>
+                  <Label htmlFor="withdrawal_until">{t("health.form.withdrawalLabel")}</Label>
                   <Input
                     id="withdrawal_until"
                     type="date"
@@ -1920,11 +1936,11 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                   )}
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="certificate_number">Certificate number</Label>
+                  <Label htmlFor="certificate_number">{t("health.form.certificateLabel")}</Label>
                   <Input id="certificate_number" maxLength={120} {...register("certificate_number")} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="official_tag_number">Official tag number</Label>
+                  <Label htmlFor="official_tag_number">{t("health.form.officialTagLabel")}</Label>
                   <Input id="official_tag_number" maxLength={80} {...register("official_tag_number")} />
                 </div>
                 <div className="flex items-center gap-2 sm:col-span-2">
@@ -1951,13 +1967,13 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                     )}
                   />
                   <Label htmlFor="suspected_scheduled_disease" className="font-normal">
-                    Suspected scheduled/notifiable disease — apply movement restriction
+                    {t("health.form.suspectedDiseaseLabel")}
                   </Label>
                 </div>
                 {suspectedScheduledDisease && (
                   <>
                     <div className="space-y-1.5">
-                      <Label htmlFor="authority_notified_at">Authority notified date</Label>
+                      <Label htmlFor="authority_notified_at">{t("health.form.authorityNotifiedLabel")}</Label>
                       <Input
                         id="authority_notified_at"
                         type="date"
@@ -1973,7 +1989,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                       )}
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="isolation_started_at">Isolation started date</Label>
+                      <Label htmlFor="isolation_started_at">{t("health.form.isolationStartedLabel")}</Label>
                       <Input
                         id="isolation_started_at"
                         type="date"
@@ -1993,7 +2009,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
               </div>
             </details>
             <div className="space-y-1.5">
-              <Label htmlFor="notes">Notes</Label>
+              <Label htmlFor="notes">{t("health.form.notesLabel")}</Label>
               <Textarea
                 id="notes"
                 rows={2}
@@ -2010,7 +2026,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
             </div>
             {recordError && (
               <p role="alert" className="text-sm text-destructive">
-                {recordError} Check the event details, then try again.
+                {recordError} {t("health.form.errorSuffix")}
               </p>
             )}
             <DialogFooter>
@@ -2025,18 +2041,18 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                     announced "Reviewing targets…" while the immutable event
                     was being written. */}
                 {previewMutation.isPending
-                  ? "Reviewing targets…"
+                  ? t("health.form.reviewing")
                   : isSubmitting || eventSubmission.pending
-                    ? "Saving…"
+                    ? t("health.form.saving")
                     : scope !== "animal" && !bulkPreview
-                      ? "Review target animals"
+                      ? t("health.form.reviewTargets")
                       : scope !== "animal"
-                        ? `Confirm for ${previewCount} ${
-                            previewCount === 1 ? "animal" : "animals"
-                          }`
+                        ? previewCount === 1
+                          ? t("health.form.confirmForOne", { count: previewCount })
+                          : t("health.form.confirmForMany", { count: previewCount })
                         : recordError
-                          ? "Retry save"
-                          : "Save event"}
+                          ? t("health.form.retrySave")
+                          : t("health.form.save")}
               </Button>
             </DialogFooter>
             </fieldset>
@@ -2049,15 +2065,16 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
 
 export default function HealthPage() {
   const perms = usePermissions();
+  const t = useT();
   return (
     <Suspense
       fallback={
         <div className="space-y-6" role="status" aria-live="polite">
           <PageHeader
-            title="Health"
-            description="Vaccinations, deworming and treatments across the herd."
+            title={t("health.page.title")}
+            description={t("health.page.description")}
           />
-          <span className="sr-only">Loading health events…</span>
+          <span className="sr-only">{t("health.page.loading")}</span>
           <PageSkeleton cards={2} />
         </div>
       }
@@ -2065,8 +2082,8 @@ export default function HealthPage() {
       <PermissionGate
         perms={perms}
         perm="health.view"
-        label="Health"
-        description="Vaccinations, deworming and treatments across the herd."
+        label={t("health.page.title")}
+        description={t("health.page.description")}
         cards={2}
       >
         <HealthPageContent perms={perms} />

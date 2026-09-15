@@ -5,7 +5,9 @@
  * OpenAPI spec version: 2.0.0
  */
 import type { AnimalOutBirthType } from './animalOutBirthType';
+import type { AnimalOutCoatColor } from './animalOutCoatColor';
 import type { AnimalOutCurrentBucket } from './animalOutCurrentBucket';
+import type { AnimalOutDisposalMethod } from './animalOutDisposalMethod';
 import type { AnimalOutMortalityCauseCode } from './animalOutMortalityCauseCode';
 import type { AnimalOutSex } from './animalOutSex';
 import type { AnimalOutSource } from './animalOutSource';
@@ -32,9 +34,11 @@ export interface AnimalOut {
   buyer_name: string | null;
   mortality_cause: string | null;
   mortality_cause_code: AnimalOutMortalityCauseCode;
-  disposal_method: string | null;
+  disposal_method: AnimalOutDisposalMethod;
   necropsy_done: boolean;
   necropsy_findings: string | null;
+  coat_color: AnimalOutCoatColor;
+  horned: boolean | null;
   purchase_date: string | null;
   purchase_price: number | null;
   seller_name: string | null;

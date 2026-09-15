@@ -1715,7 +1715,7 @@ describe("AnimalProfilePage", () => {
       await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
       await user.type(within(dialog).getByLabelText("Mortality cause"), "Fever after rain");
       await pickOption(user, within(dialog).getByLabelText(/cause \(coded\)/i), "Pneumonia");
-      await user.type(within(dialog).getByLabelText(/disposal method/i), "Burial on farm");
+      await pickOption(user, within(dialog).getByLabelText(/disposal method/i), "Deep burial");
 
       // Findings stay hidden until a necropsy was actually performed.
       expect(within(dialog).queryByLabelText(/necropsy findings/i)).not.toBeInTheDocument();
@@ -1731,7 +1731,7 @@ describe("AnimalProfilePage", () => {
         new_status: "DEAD",
         mortality_cause: "Fever after rain",
         mortality_cause_code: "PNEUMONIA",
-        disposal_method: "Burial on farm",
+        disposal_method: "DEEP_BURIAL",
         necropsy_done: true,
         necropsy_findings: "Lung consolidation, bronchopneumonia.",
       });

@@ -86,6 +86,7 @@ import math
 from dataclasses import dataclass, field
 from functools import cached_property
 
+from ..models.species import GOAT_PROFILE
 from .assumptions import (
     MAX_MONEY,
     GrowthAssumptions,
@@ -958,8 +959,9 @@ def _run_core(
             # Species biology, matching the ops write path's litter caps
             # (services.kidding → SpeciesProfile.max_litter_size): Osmanabadi
             # goats litter up to quadruplets. The projection must never
-            # accept litters the farm's own recording would reject.
-            max_litter = 4.0
+            # accept litters the farm's own recording would reject, so the
+            # cap reads the same profile constant rather than a copy.
+            max_litter = float(GOAT_PROFILE.max_litter_size)
             effective_litter_size = min(
                 max_litter,
                 r.litter_size
@@ -1352,13 +1354,11 @@ def _run_core(
         # kids and growers add fractionally to workload. Charging the full
         # threshold per standing head tripled the flagship 50+2 unit's labour
         # bill and made the default preset a guaranteed-rejection model.
-        # Labour scales with ADULT breeding females, not standing head: the
-        # cited TNAU/NABARD norm is one worker per ~50 does *with progeny* —
-        # kids and growers add fractionally to workload. Attendants come in
-        # HALF units (ceil(2 x does / threshold) / 2, floored at half a unit
-        # for any non-empty flock): a 3-doe hobby flock books a half-time
-        # attendant at ₹7,000/month, not a full ₹14,000 hire — the old
-        # whole-labourer floor made small flocks uninsurable-on-paper. With
+        # Attendants come in HALF units (ceil(2 x does / threshold) / 2,
+        # floored at half a unit for any non-empty flock): a 3-doe hobby
+        # flock books a half-time attendant at ₹7,000/month, not a full
+        # ₹14,000 hire — the old whole-labourer floor made small flocks
+        # uninsurable-on-paper. With
         # ``costs.family_labour`` the cash line is zero (the family works the
         # flock); the narrative report discloses the market wage forgone.
         if all_does_now <= 0:

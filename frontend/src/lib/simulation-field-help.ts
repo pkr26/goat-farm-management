@@ -39,7 +39,7 @@ export const SIMULATION_SECTION_HELP: Record<string, (v: FarmVocabulary) => stri
   herd: (v) =>
     `The animals on the ground on day 1, their purchase prices, and the replacement policy: how many home-grown females are kept as breeding stock and whether the breeding pool has a ceiling. A bought-in adult ${v.femaleAdult} first spends a settling period acclimatising before her first service.`,
   reproduction: (v) =>
-    `Breeding biology at monthly resolution: conception per service, gestation length, ${v.parturition} interval, and — for AI herds — the sexed-semen policy and the repeat-breeder cull rule.`,
+    `Breeding biology at monthly resolution: conception per service, gestation length, ${v.parturition} interval, and the repeat-breeder cull rule.`,
   mortality: () =>
     `Death rates by class. Kid and weaner rates are whole-phase rates (the share of a crop lost across the whole 3-month class); grower and adult rates are annual.`,
   culling: (v) =>
@@ -58,13 +58,6 @@ export const SIMULATION_SECTION_HELP: Record<string, (v: FarmVocabulary) => stri
     "Monte Carlo controls: how many risk runs, the random seed, the triangular spread each uncertain parameter is drawn from, and the probability/severity of disease, drought and market crashes.",
   optimization: () =>
     "The bounded search that varies herd size, sale age, retention and loan share to find the best feasible plan under your DSCR, cost and funding-gap constraints.",
-};
-
-/** Goat-noun labels for fields whose backend key still carries the generic
- * engine's "calf" naming — the key is the API contract, the label is UI copy. */
-const FIELD_LABEL_OVERRIDES: Record<string, string> = {
-  "sales.male_calf_sell_at_birth_fraction": "Male kid sell-at-birth fraction",
-  "sales.male_calf_price_per_head": "Male kid price per head",
 };
 
 /** Per-field help, keyed by "section.key" exactly as the editor addresses it. */
@@ -150,22 +143,13 @@ const FIELD_HELP: Record<string, (v: FarmVocabulary) => FieldHelp> = {
     body: `${v.youngPlural} born per ${v.parturition} (average — 1.6 means twins roughly half the time for goats). The model caps litters at the species maximum (4 for goats).`,
   }),
   "reproduction.sex_ratio_female": () => ({
-    body: "Share of births that are female under conventional breeding/natural service (~0.5). Sexed semen overrides this per service (see the sexed-semen fields).",
+    body: "Share of births that are female under natural service (~0.5).",
   }),
   "reproduction.age_at_first_breeding_months": () => ({
     body: `Age at which a home-grown female is first served (and the age at which surplus females are sold). ~10 months/22 kg for goats.`,
   }),
   "reproduction.stillbirth_rate": () => ({
     body: "Share of births born dead — lost before any meat value accrues.",
-  }),
-  "reproduction.sexed_semen_services": () => ({
-    body: "First N services of each breeding attempt use sexed semen (AI breeding policy). 0 disables sexed semen and keeps the flat female ratio above. Typical: 2 of 3 services sexed, then conventional.",
-  }),
-  "reproduction.sexed_female_fraction": () => ({
-    body: "Share of female births from a sexed-semen service (~0.90 in field programmes). Must exceed the conventional female ratio to represent sexed semen at all.",
-  }),
-  "reproduction.sexed_conception_multiplier": () => ({
-    body: "Conception penalty on sexed-semen services versus conventional (~0.85 = a 15% penalty, the field-documented cost of female-biased births).",
   }),
   "reproduction.max_services_before_cull": () => ({
     body: `A female failing this many consecutive services is culled as a repeat breeder (standard 3-service discipline). 0 disables — females are re-served indefinitely. Repeat breeders leave the breeding pool immediately.`,
@@ -264,12 +248,6 @@ const FIELD_HELP: Record<string, (v: FarmVocabulary) => FieldHelp> = {
   }),
   "sales.milk_price_per_litre": () => ({
     body: "₹/litre for the surplus-milk line (~₹30 farm-gate for goat milk sold locally in Telangana). Only applies when the litres-per-doe-day above is above zero.",
-  }),
-  "sales.male_calf_sell_at_birth_fraction": (v) => ({
-    body: `Fraction of MALE births sold in the first week at a flat per-head price (the sexed-semen strategy's default exit — under 90% female births the few males conceived on later services are still worth more sold young than reared). The remainder is grown to the sale age and sold for meat at live weight. 0 = keep and grow every male ${v.young}.`,
-  }),
-  "sales.male_calf_price_per_head": (v) => ({
-    body: `Flat price for a week-old male ${v.young} sold at birth (₹/head). 0 disables the at-birth channel entirely.`,
   }),
   "sales.manure_income_per_adult_per_year": () => ({
     body: `Yearly income per adult animal from manure/dung (₹ — slurry, biogas savings, or sale). A small but real income line; counted separately from meat.`,
@@ -621,11 +599,9 @@ export function simulationFieldHelp(
   const factory = FIELD_HELP[path];
   if (!factory) return null;
   return {
-    label:
-      FIELD_LABEL_OVERRIDES[path] ??
-      speciesAwareLabel(
-        key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-      ),
+    label: speciesAwareLabel(
+      key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+    ),
     help: factory(v),
   };
 }

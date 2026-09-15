@@ -6,10 +6,13 @@
  */
 import type { TaskOutCategory } from './taskOutCategory';
 import type { TaskOutStatus } from './taskOutStatus';
+import type { TaskOutTitleArgs } from './taskOutTitleArgs';
 
 export interface TaskOut {
   id: number;
   title: string;
+  title_key: string | null;
+  title_args: TaskOutTitleArgs;
   due_date: string;
   status: TaskOutStatus;
   category: TaskOutCategory;
@@ -31,6 +34,8 @@ export interface TaskOut {
   skip_reason: string | null;
   rejected_by_id: number | null;
   rejected_at: string | null;
+  created_at: string;
+  created_by_id: number | null;
   assigned_role_name?: string | null;
   assigned_user_name?: string | null;
   animal_tag?: string | null;

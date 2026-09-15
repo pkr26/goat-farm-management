@@ -117,6 +117,14 @@ const SIMPLE_LABELS: Record<string, Record<string, string>> = {
     ANIMAL_STATUS_CHANGE: "Herd exit (administrative close)",
     OTHER: "Other",
   },
+  // Bounded carcass-disposal vocabulary (animals.DisposalMethod).
+  disposalMethod: {
+    DEEP_BURIAL: "Deep burial",
+    BURNING: "Burning / incineration",
+    RENDERING: "Rendering plant",
+    COMPOSTING: "Composting",
+    OTHER: "Other",
+  },
   outcome: {
     PENDING: "Awaiting check",
     CONFIRMED_PREGNANT: "Confirmed pregnant",
@@ -252,6 +260,13 @@ const TE_LABELS: { [K in EnumKind]?: Record<string, string> } = {
     ANIMAL_STATUS_CHANGE: "మంద నుండి తొలగింపు (పరిపాలనా మూసివేత)",
     OTHER: "ఇతర",
   },
+  disposalMethod: {
+    DEEP_BURIAL: "లోతుగా పాతడం",
+    BURNING: "దహనం",
+    RENDERING: "రెండరింగ్ కర్మాగారం",
+    COMPOSTING: "కంపోస్టింగ్",
+    OTHER: "ఇతర",
+  },
   outcome: {
     PENDING: "పరీక్ష వేచి ఉంది",
     CONFIRMED_PREGNANT: "గర్భం ధృవీకరించబడింది",
@@ -295,6 +310,7 @@ export type EnumKind =
   | "mortalityCause"
   | "outcome"
   | "lossCause"
+  | "disposalMethod"
   | "insuranceStatus"
   | "bucket";
 

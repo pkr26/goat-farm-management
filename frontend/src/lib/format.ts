@@ -26,6 +26,25 @@ export function formatMoney(value: number | null | undefined): string {
   return `${negative ? "-" : ""}₹${grouped}${fracPart === "00" ? "" : "." + fracPart}`;
 }
 
+/** ₹ with Indian digit grouping for API Decimal-as-string amounts
+ * ("1234567.50"): grouped as text, never through a float, so paise survive
+ * intact at any magnitude. Unparseable/missing → "—". */
+export function formatMoneyDecimal(value: string | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  const trimmed = value.trim();
+  if (!/^-?\d+(\.\d+)?$/.test(trimmed)) return "—";
+  const [intRaw, fracRaw = ""] = trimmed.replace(/^-/, "").split(".");
+  const intPart = intRaw.replace(/^0+(?=\d)/, "");
+  // Two paise digits by convention; more arrive only from a wider-precision
+  // wire and are shown verbatim rather than silently rounded.
+  const fracPart = fracRaw === "" ? "00" : fracRaw.padEnd(2, "0");
+  const negative = trimmed.startsWith("-") && (intPart !== "0" || fracPart !== "00");
+  const lastThree = intPart.slice(-3);
+  const rest = intPart.slice(0, -3);
+  const grouped = rest ? rest.replace(/\B(?=(\d{2})+(?!\d))/g, ",") + "," + lastThree : lastThree;
+  return `${negative ? "-" : ""}₹${grouped}${fracPart === "00" ? "" : "." + fracPart}`;
+}
+
 /** YYYY-MM-DD of today in UTC. Retained for UTC-specific utilities/tests;
  * business dates should use farmToday() so they follow the selected farm. */
 export function utcToday(): string {

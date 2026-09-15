@@ -13,6 +13,6 @@
 export interface MortalityMemoOut {
   window_months: number;
   head_count: number;
-  estimated_loss: number | null;
+  estimated_loss: string | null;
   basis: string;
 }

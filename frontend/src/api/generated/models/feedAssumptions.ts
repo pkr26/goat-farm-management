@@ -169,4 +169,34 @@ export interface FeedAssumptions {
      * @maximum 1
      */
   fodder_storage_loss_fraction_monthly?: number;
+  /**
+     * @minimum 0
+     * @maximum 50
+     */
+  water_litres_kid_per_day?: number;
+  /**
+     * @minimum 0
+     * @maximum 50
+     */
+  water_litres_weaner_per_day?: number;
+  /**
+     * @minimum 0
+     * @maximum 50
+     */
+  water_litres_grower_per_day?: number;
+  /**
+     * @minimum 0
+     * @maximum 50
+     */
+  water_litres_doe_per_day?: number;
+  /**
+     * @minimum 0
+     * @maximum 50
+     */
+  water_litres_lactating_doe_per_day?: number;
+  /**
+     * @minimum 0
+     * @maximum 50
+     */
+  water_litres_buck_per_day?: number;
 }

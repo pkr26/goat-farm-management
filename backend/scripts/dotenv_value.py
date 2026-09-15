@@ -32,7 +32,12 @@ def main() -> int:
 
     env_file = Path(sys.argv[1])
     key = sys.argv[2] if single_key else None
-    snapshot_pairs = list(zip(sys.argv[3::2], sys.argv[4::2], strict=True)) if snapshot_mode else []
+    # complete_snapshot_pairs already guarantees the two slices are equal in
+    # length, so a plain zip() is exact here; zip(strict=True) would only add a
+    # Python >= 3.10 requirement to a script that runs under the system python3.
+    snapshot_pairs = (
+        list(zip(sys.argv[3::2], sys.argv[4::2])) if snapshot_mode else []  # noqa: B905
+    )
 
     try:
         from dotenv import dotenv_values

@@ -2,7 +2,13 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { formatDate, formatFarmDateTime, formatMoney, setActiveFarmTimezone } from "./format";
+import {
+  formatDate,
+  formatFarmDateTime,
+  formatMoney,
+  formatMoneyDecimal,
+  setActiveFarmTimezone,
+} from "./format";
 
 describe("formatMoney", () => {
   it("groups digits the Indian way (2-2-3) with the rupee symbol", () => {
@@ -28,6 +34,28 @@ describe("formatMoney", () => {
     expect(formatMoney(NaN)).toBe("—");
     expect(formatMoney(Infinity)).toBe("—");
     expect(formatMoney(-Infinity)).toBe("—");
+  });
+});
+
+describe("formatMoneyDecimal", () => {
+  it("groups API Decimal strings the Indian way without float rounding", () => {
+    expect(formatMoneyDecimal("1234567.50")).toBe("₹12,34,567.50");
+    expect(formatMoneyDecimal("15000.00")).toBe("₹15,000");
+    expect(formatMoneyDecimal("999.9")).toBe("₹999.90");
+    // Beyond float-safe integer range the paise must still survive verbatim.
+    expect(formatMoneyDecimal("9007199254740993.25")).toBe("₹9,00,71,99,25,47,40,993.25");
+  });
+
+  it("prefixes negatives but never renders minus-zero", () => {
+    expect(formatMoneyDecimal("-1234.50")).toBe("-₹1,234.50");
+    expect(formatMoneyDecimal("-0.00")).toBe("₹0");
+  });
+
+  it("renders an em dash for missing or unparseable values", () => {
+    expect(formatMoneyDecimal(null)).toBe("—");
+    expect(formatMoneyDecimal(undefined)).toBe("—");
+    expect(formatMoneyDecimal("")).toBe("—");
+    expect(formatMoneyDecimal("not-a-number")).toBe("—");
   });
 });
 

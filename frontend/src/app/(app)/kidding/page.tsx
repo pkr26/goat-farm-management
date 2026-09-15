@@ -1323,7 +1323,7 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
               <div key={k.id} className="space-y-1.5 rounded-xl border bg-card p-3 shadow-xs">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-medium">{formatDate(k.date)}</span>
-                  <StatusBadge status={k.ease}>{EASE_ITEMS[k.ease] ?? k.ease}</StatusBadge>
+                  <StatusBadge status={k.ease}>{easeItems(language)[k.ease] ?? k.ease}</StatusBadge>
                 </div>
                 <p className="text-sm">{doeCell(k.doe_id, k.doe_tag)}</p>
                 {kiddingCareFacts(k) && (

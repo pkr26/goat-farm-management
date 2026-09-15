@@ -75,6 +75,8 @@ function makeAnimal(overrides: Partial<AnimalOut>): AnimalOut {
     disposal_method: null,
     necropsy_done: false,
     necropsy_findings: null,
+    coat_color: null,
+    horned: null,
     purchase_date: null,
     purchase_price: null,
     seller_name: null,
@@ -136,6 +138,8 @@ function makeTask(overrides: Partial<TaskOut>): TaskOut {
   return {
     id: 1,
     title: "Task",
+    title_key: null,
+    title_args: {},
     due_date: TODAY,
     status: "PENDING",
     category: "OTHER",
@@ -157,6 +161,8 @@ function makeTask(overrides: Partial<TaskOut>): TaskOut {
     skip_reason: null,
     rejected_by_id: null,
     rejected_at: null,
+    created_at: "2026-01-01T00:00:00Z",
+    created_by_id: null,
     action_url: null,
     ...overrides,
   };
@@ -391,12 +397,12 @@ describe("HealthPage (mutation hardening)", () => {
     const rich = cardOf(/Not for sale until/);
     expect(within(rich).getByText("PPR vaccine")).toBeInTheDocument();
     expect(within(rich).getByText(/Not for sale until 1 Aug 2026/)).toBeInTheDocument();
-    expect(within(rich).getByText("Lot LOT-77 · Expires 1 Mar 2027")).toBeInTheDocument();
-    expect(within(rich).getByText("Certificate CERT-9")).toBeInTheDocument();
+    expect(within(rich).getByText("Lot: LOT-77 · Expires: 1 Mar 2027")).toBeInTheDocument();
+    expect(within(rich).getByText("Certificate: CERT-9")).toBeInTheDocument();
     expect(
       within(rich).getByText("Annual PPR programme · Farm veterinarian"),
     ).toBeInTheDocument();
-    // The desktop table keeps its own colon'd wording for the same fields.
+    // Both surfaces share the catalog's colon'd wording for the same fields.
     expect(within(desktop).getByText("Certificate: CERT-9")).toBeInTheDocument();
     expect(screen.getAllByText("Scheduled disease suspected")).toHaveLength(2);
 
@@ -409,8 +415,8 @@ describe("HealthPage (mutation hardening)", () => {
     expect(bare.querySelectorAll("p.mt-0\\.5")).toHaveLength(0);
 
     // A card with only one of lot/expiry prints exactly that one line.
-    expect(within(cardOf("Expires 1 Mar 2027")).getByText("Expires 1 Mar 2027")).toBeInTheDocument();
-    expect(within(cardOf("Lot LOT-88")).getByText("Lot LOT-88")).toBeInTheDocument();
+    expect(within(cardOf("Expires: 1 Mar 2027")).getByText("Expires: 1 Mar 2027")).toBeInTheDocument();
+    expect(within(cardOf("Lot: LOT-88")).getByText("Lot: LOT-88")).toBeInTheDocument();
   });
 
   it("prints an em dash in the notes column of an empty event", async () => {

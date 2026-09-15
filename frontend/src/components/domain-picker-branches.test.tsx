@@ -81,6 +81,8 @@ function animal(overrides: Partial<AnimalOut> = {}): AnimalOut {
     disposal_method: null,
     necropsy_done: false,
     necropsy_findings: null,
+    coat_color: null,
+    horned: null,
     purchase_date: null,
     purchase_price: null,
     seller_name: null,

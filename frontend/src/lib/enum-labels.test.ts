@@ -43,6 +43,12 @@ describe("enumLabel", () => {
     expect(enumLabel("mortalityCause", "NEW_CAUSE")).toBe("New Cause");
   });
 
+  it("labels the bounded disposal methods, in Telugu too", () => {
+    expect(enumLabel("disposalMethod", "DEEP_BURIAL")).toBe("Deep burial");
+    expect(enumLabel("disposalMethod", "COMPOSTING")).toBe("Composting");
+    expect(enumLabel("disposalMethod", "DEEP_BURIAL", "te")).toBe("లోతుగా పాతడం");
+  });
+
   it("labels the goat buckets", () => {
     expect(enumLabel("bucket", "PREGNANCY_EARLY")).toBe("Pregnancy A");
     expect(enumLabel("bucket", "MALE_KIDS")).toBe("Male kids");

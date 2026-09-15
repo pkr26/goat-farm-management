@@ -56,6 +56,7 @@ export interface MonthlyRow {
   fodder_surplus_kg: number;
   fodder_stock_kg_dm: number;
   fodder_waste_kg_dm: number;
+  water_litres: number;
   events?: string[];
   event_fills?: EventFill[];
 }

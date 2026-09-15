@@ -13,27 +13,27 @@ export type AnimalProfileApiAnimalsAnimalIdGetParams = {
 history_limit?: number;
 /**
  * @minimum 0
- * @maximum 1000000
+ * @maximum 10000
  */
 kids_offset?: number;
 /**
  * @minimum 0
- * @maximum 1000000
+ * @maximum 10000
  */
 weights_offset?: number;
 /**
  * @minimum 0
- * @maximum 1000000
+ * @maximum 10000
  */
 moves_offset?: number;
 /**
  * @minimum 0
- * @maximum 1000000
+ * @maximum 10000
  */
 health_events_offset?: number;
 /**
  * @minimum 0
- * @maximum 1000000
+ * @maximum 10000
  */
 breedings_offset?: number;
 };

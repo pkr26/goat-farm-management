@@ -5,6 +5,7 @@
  * OpenAPI spec version: 2.0.0
  */
 import type { AnimalCreateInBirthType } from './animalCreateInBirthType';
+import type { AnimalCreateInCoatColor } from './animalCreateInCoatColor';
 import type { AnimalCreateInCurrentBucket } from './animalCreateInCurrentBucket';
 import type { AnimalCreateInSex } from './animalCreateInSex';
 import type { AnimalCreateInSource } from './animalCreateInSource';
@@ -17,6 +18,8 @@ export interface AnimalCreateIn {
   current_bucket: AnimalCreateInCurrentBucket;
   /** @maxLength 60 */
   breed?: string;
+  coat_color?: AnimalCreateInCoatColor;
+  horned?: boolean | null;
   date_of_birth?: string | null;
   estimated_dob?: string | null;
   birth_type?: AnimalCreateInBirthType;

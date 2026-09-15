@@ -30,4 +30,5 @@ export const TaskOutCategory = {
   REBREED: 'REBREED',
   BUCK_ROTATION: 'BUCK_ROTATION',
   INSURANCE: 'INSURANCE',
+  WATER: 'WATER',
 } as const;

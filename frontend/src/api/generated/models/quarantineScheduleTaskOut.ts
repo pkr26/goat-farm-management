@@ -6,6 +6,7 @@
  */
 import type { QuarantineScheduleTaskOutCategory } from './quarantineScheduleTaskOutCategory';
 import type { QuarantineScheduleTaskOutStatus } from './quarantineScheduleTaskOutStatus';
+import type { QuarantineScheduleTaskOutTitleArgs } from './quarantineScheduleTaskOutTitleArgs';
 
 /**
  * Non-attributed quarantine schedule row for purchase workflows.
@@ -13,6 +14,8 @@ import type { QuarantineScheduleTaskOutStatus } from './quarantineScheduleTaskOu
 export interface QuarantineScheduleTaskOut {
   id: number;
   title: string;
+  title_key: string | null;
+  title_args: QuarantineScheduleTaskOutTitleArgs;
   due_date: string;
   status: QuarantineScheduleTaskOutStatus;
   category: QuarantineScheduleTaskOutCategory;

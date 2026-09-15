@@ -4,6 +4,7 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { HealthEventOutRoute } from './healthEventOutRoute';
 import type { HealthEventOutType } from './healthEventOutType';
 
 export interface HealthEventOut {
@@ -15,7 +16,7 @@ export interface HealthEventOut {
   product_name: string | null;
   disease_target: string | null;
   dose: string | null;
-  route: string | null;
+  route: HealthEventOutRoute;
   vet_name: string | null;
   cost: number | null;
   next_due_date: string | null;

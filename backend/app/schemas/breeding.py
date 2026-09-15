@@ -15,6 +15,10 @@ from .common import (
     StrictInt,
 )
 
+# AI and AI_SEXED stay in the wire vocabulary, reserved for a future AI
+# workflow; today the goat-meat protocol is natural cover and
+# services.breeding.create_breeding_record rejects both by design (pinned by
+# test_ai_methods_refused_for_goats and test_red_m2_goat_farm_rejects_ai_service).
 BreedingMethodValue = Literal["NATURAL", "AI", "AI_SEXED"]
 
 

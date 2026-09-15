@@ -39,6 +39,7 @@ export interface FinanceAssumptions {
      * @maximum 0.9
      */
   subsidy_fraction?: number;
+  nlm_subsidy?: boolean;
   /**
      * @minimum 0
      * @maximum 0.5

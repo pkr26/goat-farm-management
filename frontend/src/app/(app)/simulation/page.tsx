@@ -206,9 +206,10 @@ const FIELD_BOUNDS: Record<
   "reproduction.litter_size": { min: 0.5, max: 4 },
   "reproduction.age_at_first_breeding_months": { min: 6, max: 30 },
   "reproduction.stillbirth_rate": { min: 0, max: 0.5 },
-  // Sexed-semen AI levers. They arrive with the next contract regen; the
-  // record is plain, so listing them now costs nothing and the bounds are
-  // ready the moment the defaults payload starts carrying the keys.
+  // Sexed-semen AI levers — PERMANENTLY retired from the API contract when the
+  // model went goat-meat-only: the backend strips these keys from every
+  // assumptions payload (_RETIRED_DAIRY_FIELDS), so they can never reach the
+  // editor. The bounds below stay only as documentation of the old contract.
   "reproduction.sexed_semen_services": { min: 0, max: 6 },
   "reproduction.sexed_female_fraction": { min: 0.5, max: 1 },
   "reproduction.sexed_conception_multiplier": { exclusiveMin: 0, max: 1 },
@@ -316,7 +317,8 @@ const FIELD_UNITS: Record<string, string> = {
   // An integer head-count ratio (1 buck per N does), not a 0-1 fraction: the
   // heuristic chain's trailing `ratio` test would otherwise caption it one.
   "culling.buck_doe_ratio": "females per male",
-  // Sexed-semen AI levers (next contract regen — see FIELD_BOUNDS).
+  // Sexed-semen AI levers — permanently retired and stripped server-side
+  // (see FIELD_BOUNDS above); these unit captions never render.
   "reproduction.sexed_semen_services": "services",
   "reproduction.sexed_female_fraction": "%",
   "reproduction.sexed_conception_multiplier": "×",
@@ -735,9 +737,10 @@ type SectionValues = Record<string, unknown>;
 /** Whole litres with Indian digit grouping for the water-demand figures. */
 const litres = (value: number): string => Math.round(value).toLocaleString("en-IN");
 
-/** Dairy-machinery assumption keys removed for the goat-meat profile. The
- * backend is deleting them from the defaults payload; until it does, the
- * editor filters them here so they never render (or validate) on screen. */
+/** Dairy-machinery assumption keys permanently retired for the goat-meat
+ * profile (backend SimulationAssumptions._drop_retired_dairy_fields strips
+ * them server-side). This filter remains as defense against stale cached
+ * payloads so they never render (or validate) on screen. */
 const DAIRY_HIDDEN_FIELDS = new Set([
   "sales.lactation_milk_litres",
   "sales.milk_price_per_kg_fat",

@@ -72,6 +72,8 @@ function makeAnimal(overrides: Partial<AnimalOut>): AnimalOut {
     disposal_method: null,
     necropsy_done: false,
     necropsy_findings: null,
+    coat_color: null,
+    horned: null,
     purchase_date: null,
     purchase_price: null,
     seller_name: null,
@@ -133,6 +135,8 @@ function makeTask(overrides: Partial<TaskOut>): TaskOut {
   return {
     id: 1,
     title: "Task",
+    title_key: null,
+    title_args: {},
     due_date: TODAY,
     status: "PENDING",
     category: "OTHER",
@@ -154,6 +158,8 @@ function makeTask(overrides: Partial<TaskOut>): TaskOut {
     skip_reason: null,
     rejected_by_id: null,
     rejected_at: null,
+    created_at: "2026-01-01T00:00:00Z",
+    created_by_id: null,
     action_url: null,
     ...overrides,
   };
@@ -328,17 +334,20 @@ describe("HealthPage wire contracts and closed-control labels", () => {
     expect((await screen.findAllByRole("option")).map((option) => option.textContent)).toEqual([
       "—",
       "SC",
-      "Oral",
       "IM",
+      "IV",
+      "ORAL",
+      "TOPICAL",
+      "INTRANASAL",
     ]);
 
-    await user.click(screen.getByRole("option", { name: "Oral" }));
-    expect(routeTrigger).toHaveTextContent("Oral");
+    await user.click(screen.getByRole("option", { name: "ORAL" }));
+    expect(routeTrigger).toHaveTextContent("ORAL");
 
     await pickOption(user, within(dialog).getByRole("combobox", { name: "Animal *" }), /G-003/);
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
     await waitFor(() => expect(postBody).not.toBeNull());
-    expect(postBody).toMatchObject({ route: "Oral", animal_id: 3 });
+    expect(postBody).toMatchObject({ route: "ORAL", animal_id: 3 });
   });
 
   it("opens with no target preselected on either target scope", async () => {

@@ -13,7 +13,7 @@ export type BatchDetailApiPurchasesBatchIdGetParams = {
 animals_limit?: number;
 /**
  * @minimum 0
- * @maximum 1000000
+ * @maximum 10000
  */
 animals_offset?: number;
 };

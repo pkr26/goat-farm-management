@@ -131,6 +131,10 @@ def _drop_invalid_index(index_name: str) -> None:
 
 
 def upgrade() -> None:
+    # Bound lock waits for the ALTER COLUMN TYPE rewrites (ACCESS EXCLUSIVE
+    # on three hot tables). The CONCURRENTLY index work below runs in an
+    # autocommit block, outside this transaction, and is unaffected.
+    op.execute(sa.text("SET LOCAL lock_timeout = '10s'"))
     # Offline (--sql) generation cannot inspect data; emit the caveat into
     # the generated script and keep the preflight for online runs.
     if context.is_offline_mode():
@@ -182,6 +186,8 @@ def downgrade() -> None:
         )
         op.execute(text(f"DROP INDEX CONCURRENTLY IF EXISTS {_NEW_INDEX}"))
 
+    # Back inside the transaction: the float8 rewrite takes ACCESS EXCLUSIVE.
+    op.execute(text("SET LOCAL lock_timeout = '10s'"))
     for table, column in reversed(_WEIGHT_COLUMNS):
         op.alter_column(
             table,

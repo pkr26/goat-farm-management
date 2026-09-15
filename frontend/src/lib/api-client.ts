@@ -697,6 +697,18 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   return data;
 }
 
+/** apiFetch variant for non-JSON success bodies (the planner DPR endpoint
+ *  serves text/markdown): identical auth/farm/timeout scaffolding and error
+ *  mapping, but the body is read as text. */
+export async function apiFetchText(path: string, init: RequestInit = {}): Promise<string> {
+  const sessionScope = authSessionEpoch;
+  const resp = await apiResponse(path, init);
+  assertAuthSession(sessionScope);
+  const data = await runScopedToAuthSession(() => resp.text(), sessionScope);
+  assertAuthSession(sessionScope);
+  return data;
+}
+
 /** The only /api/auth/* paths exempt from the 401→refresh retry: a 401 there
  *  IS the answer (bad credentials / no refresh cookie), and retrying
  *  /api/auth/refresh itself would recurse. Every other path — including

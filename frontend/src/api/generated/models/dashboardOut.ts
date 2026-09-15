@@ -6,6 +6,7 @@
  */
 import type { AnimalIdentityOut } from './animalIdentityOut';
 import type { BucketCountOut } from './bucketCountOut';
+import type { DashboardAdvisoryOut } from './dashboardAdvisoryOut';
 import type { DashboardKiddingDueOut } from './dashboardKiddingDueOut';
 import type { DashboardOutSexCounts } from './dashboardOutSexCounts';
 import type { DashboardOutStatusTotals } from './dashboardOutStatusTotals';
@@ -38,6 +39,7 @@ export interface DashboardOut {
   recent_weights_total: number | null;
   insurance_expiring: InsuranceExpiringOut[];
   insurance_expiring_total: number | null;
+  advisory?: DashboardAdvisoryOut | null;
   preview_limit: number;
   recent_weights_limit: number;
 }

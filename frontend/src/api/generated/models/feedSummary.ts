@@ -19,4 +19,6 @@ export interface FeedSummary {
   land_requirement_acres: number;
   fodder_deficit_months: number;
   peak_fodder_stock_kg_dm: number;
+  annual_water_litres: number[];
+  peak_water_litres_per_day: number;
 }

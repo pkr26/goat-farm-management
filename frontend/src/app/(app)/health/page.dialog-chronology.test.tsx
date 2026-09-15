@@ -89,6 +89,8 @@ function makeTask(overrides: Partial<TaskOut>): TaskOut {
   return {
     id: 1,
     title: "Task",
+    title_key: null,
+    title_args: {},
     due_date: TODAY,
     status: "PENDING",
     category: "HOOF_TRIM" as TaskOutCategory,
@@ -110,6 +112,8 @@ function makeTask(overrides: Partial<TaskOut>): TaskOut {
     skip_reason: null,
     rejected_by_id: null,
     rejected_at: null,
+    created_at: "2026-01-01T00:00:00Z",
+    created_by_id: null,
     action_url: null,
     ...overrides,
   };

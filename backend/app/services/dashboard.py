@@ -213,7 +213,7 @@ async def ready_to_move_suggestions(
         .subquery("dashboard_animal_context")
     )
 
-    # Biology thresholds mirror every write path's GOAT_PROFILE (10 mo/22 kg
+    # Biology thresholds mirror every write path's GOAT_PROFILE (12 mo/22 kg
     # breeding, gestation day 100/135; goats move to the kidding pen ~2 weeks
     # out, 150−15=135).
     profile = GOAT_PROFILE

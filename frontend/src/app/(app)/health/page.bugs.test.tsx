@@ -67,6 +67,8 @@ const ANIMAL: AnimalOut = {
   disposal_method: null,
   necropsy_done: false,
   necropsy_findings: null,
+  coat_color: null,
+  horned: null,
   purchase_date: null,
   purchase_price: null,
   seller_name: null,
@@ -89,6 +91,8 @@ const ANIMAL: AnimalOut = {
 const DUTY: TaskOut = {
   id: 8,
   title: "Deworm Kaveri",
+  title_key: null,
+  title_args: {},
   due_date: TODAY,
   status: "PENDING",
   category: "DEWORMING",
@@ -110,6 +114,8 @@ const DUTY: TaskOut = {
   skip_reason: null,
   rejected_by_id: null,
   rejected_at: null,
+  created_at: "2026-01-01T00:00:00Z",
+  created_by_id: null,
   action_url: null,
 };
 

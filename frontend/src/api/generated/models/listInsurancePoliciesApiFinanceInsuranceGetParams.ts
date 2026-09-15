@@ -16,7 +16,7 @@ animal_id?: number | null;
 limit?: number;
 /**
  * @minimum 0
- * @maximum 1000000
+ * @maximum 10000
  */
 offset?: number;
 };
