@@ -80,7 +80,7 @@ def osmanabadi(system: System = "stall_fed") -> SimulationAssumptions:
 
 
 def sirohi(system: System = "stall_fed") -> SimulationAssumptions:
-    """Sirohi: heavier dual-purpose breed, moderate milk, mostly single kids."""
+    """Sirohi: heavier dual-purpose breed, mostly single kids."""
     a = SimulationAssumptions(
         herd=HerdAssumptions(
             doe_purchase_price=9000.0,  # NABARD unit costs, heavier breed
@@ -97,7 +97,6 @@ def sirohi(system: System = "stall_fed") -> SimulationAssumptions:
             adult_weight_buck_kg=50.0,
             weight_by_age_months=_scaled_weights(1.18, 3.0),
         ),
-        sales=SalesAssumptions(lactation_milk_litres=110.0),  # NBAGR: ~0.7 kg/d x 150 d
     )
     return apply_system(a, system)
 
@@ -120,13 +119,12 @@ def barbari(system: System = "stall_fed") -> SimulationAssumptions:
             weight_by_age_months=_scaled_weights(0.85, 2.0),
             sale_age_months=8,
         ),
-        sales=SalesAssumptions(lactation_milk_litres=90.0),  # dual-purpose, ~0.6 kg/d
     )
     return apply_system(a, system)
 
 
 def jamunapari(system: System = "stall_fed") -> SimulationAssumptions:
-    """Jamunapari: large dairy-type breed, high milk, slower maturity."""
+    """Jamunapari: large dual-purpose breed, slower maturity."""
     a = SimulationAssumptions(
         herd=HerdAssumptions(
             doe_purchase_price=11000.0,
@@ -135,7 +133,6 @@ def jamunapari(system: System = "stall_fed") -> SimulationAssumptions:
         reproduction=ReproductionAssumptions(
             litter_size=1.3,  # NBAGR: mostly singles
             age_at_first_breeding_months=15,
-            lactation_months=6,  # long dairy lactation
         ),
         growth=GrowthAssumptions(
             birth_weight_kg=3.5,
@@ -143,13 +140,12 @@ def jamunapari(system: System = "stall_fed") -> SimulationAssumptions:
             adult_weight_buck_kg=55.0,
             weight_by_age_months=_scaled_weights(1.3, 3.5),
         ),
-        sales=SalesAssumptions(lactation_milk_litres=200.0),  # NBAGR: ~1.1 kg/d x 180 d
     )
     return apply_system(a, system)
 
 
 def beetal(system: System = "stall_fed") -> SimulationAssumptions:
-    """Beetal: large dual-purpose Punjab breed, good milk and prolificacy."""
+    """Beetal: large dual-purpose Punjab breed, good prolificacy."""
     a = SimulationAssumptions(
         herd=HerdAssumptions(
             doe_purchase_price=10000.0,
@@ -158,7 +154,6 @@ def beetal(system: System = "stall_fed") -> SimulationAssumptions:
         reproduction=ReproductionAssumptions(
             litter_size=1.6,
             age_at_first_breeding_months=14,
-            lactation_months=5,
         ),
         growth=GrowthAssumptions(
             birth_weight_kg=3.2,
@@ -166,7 +161,6 @@ def beetal(system: System = "stall_fed") -> SimulationAssumptions:
             adult_weight_buck_kg=46.0,
             weight_by_age_months=_scaled_weights(1.2, 3.2),
         ),
-        sales=SalesAssumptions(lactation_milk_litres=175.0),  # NBAGR: ~1.2 kg/d x 150 d
     )
     return apply_system(a, system)
 

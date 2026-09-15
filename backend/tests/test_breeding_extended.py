@@ -498,10 +498,10 @@ async def test_candidate_excludes_young_doe(client: httpx.AsyncClient) -> None:
     assert await candidate_ids(client, headers) == []
 
 
-async def test_candidate_age_boundary_ten_months(client: httpx.AsyncClient) -> None:
+async def test_candidate_age_boundary_twelve_months(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
-    doe = await make_doe_aged_months(client, headers, "D-10MO", months=10)
-    assert doe["age_months"] == 10
+    doe = await make_doe_aged_months(client, headers, "D-12MO", months=12)
+    assert doe["age_months"] == 12
     assert await candidate_ids(client, headers) == [doe["id"]]
 
 
@@ -509,7 +509,7 @@ async def test_candidate_age_uses_exact_whole_month_boundary(
     client: httpx.AsyncClient,
 ) -> None:
     headers = await owner_with_farm(client)
-    cutoff = add_months(today(), -10)
+    cutoff = add_months(today(), -12)
     ready = await make_animal(
         client,
         headers,

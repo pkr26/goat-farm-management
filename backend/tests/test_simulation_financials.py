@@ -450,9 +450,9 @@ def test_mass_balance_events_every_class() -> None:
     assert_mass_balance(a)
 
 
-def test_mass_balance_semi_intensive_milk_breed() -> None:
+def test_mass_balance_semi_intensive_with_surplus_milk() -> None:
     a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=36))
-    a.sales.lactation_milk_litres = 110.0
+    a.sales.milk_sale_litres_per_doe_day = 0.8
     a.feed.grazing_dm_fraction = 0.3
     assert_mass_balance(a)
 
@@ -587,7 +587,7 @@ def test_irr_zeroes_npv_profitable_run() -> None:
 
 def test_irr_zeroes_npv_milk_breed() -> None:
     a = SimulationAssumptions()
-    a.sales.lactation_milk_litres = 175.0
+    a.sales.milk_sale_litres_per_doe_day = 1.2
     a.sales.meat_price_per_kg = 450.0
     value = npv_at_returned_irr(a)
     assert value is not None

@@ -82,6 +82,9 @@ class MonthlyRow(BaseModel):
     fodder_surplus_kg: float  # green DM: cultivated supply - requirement (negative = deficit)
     fodder_stock_kg_dm: float  # closing usable stored green-fodder DM
     fodder_waste_kg_dm: float  # storage loss plus production above storage capacity
+    # Litres of water the herd drank this month (per-class daily demand over
+    # the month; see FeedAssumptions for the Deccan-summer calibration).
+    water_litres: float
     # Human-readable log of scheduled herd events applied this month
     # (SimulationAssumptions.events); empty when nothing was scheduled.
     events: list[str] = Field(default_factory=list)
@@ -175,6 +178,8 @@ class FeedSummary(BaseModel):
     land_requirement_acres: float  # from the horizon-average green DM need
     fodder_deficit_months: int  # months where cultivated supply fell short
     peak_fodder_stock_kg_dm: float
+    annual_water_litres: list[float]  # the herd's water demand, per year
+    peak_water_litres_per_day: float  # highest daily demand in any month
 
 
 class ProjectCostBreakdown(BaseModel):

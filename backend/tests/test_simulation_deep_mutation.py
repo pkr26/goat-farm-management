@@ -22,16 +22,14 @@ from app.simulation import (
     SalesAssumptions,
     SimulationAssumptions,
     amortization_schedule,
-    curve_from_assumptions,
     mirr,
     monthly_emi,
-    monthly_milk_curve,
     monthly_mortality_rate,
     run_simulation,
 )
 from app.simulation.assumptions import HerdEventAssumptions as Event
 from app.simulation.assumptions import ParityMultipliers
-from app.simulation.defaults import barbari, beetal, jamunapari
+from app.simulation.defaults import barbari, beetal
 from app.simulation.engine import (
     _pool_avg_weight,
     break_even_meat_price,
@@ -76,9 +74,6 @@ from app.simulation.optimization import (
     run_optimization,
 )
 from app.simulation.planner import build_plan_report, close_gaps, plan_probabilities
-
-# Dairy-mode mechanics run against a dairy-goat milk breed (Jamunapari).
-murrah_dairy = jamunapari
 
 
 def toy_assumptions(**herd_overrides: object) -> SimulationAssumptions:
@@ -127,64 +122,6 @@ def test_osmanabadi_weight_curve_arithmetic() -> None:
     from itertools import pairwise
 
     assert all(b > a for a, b in pairwise(weights))
-
-
-# --- lactation: curve gates, shapes and normalisation ---------------------------
-
-
-def test_monthly_milk_curve_default_arguments_are_the_geometric_shape() -> None:
-    """Defaults: shape="geometric", persistency 0.93. Called with no args the
-    curve must decline geometrically (month 2 = 0.93 × month 1) and sum to the
-    litres argument exactly."""
-    curve = monthly_milk_curve(lactation_months=10, lactation_litres=1000.0)
-    assert curve[1] == pytest.approx(0.93 * curve[0])
-    assert sum(curve) == pytest.approx(1000.0)
-    assert len(curve) == 10
-
-
-def test_monthly_milk_curve_wood_shape_uses_peak_day_default() -> None:
-    """Wood shape with the default peak_day=65: yield rises to a peak near
-    month 3 (65/30.4 ≈ 2.1) then declines; still normalised to total litres."""
-    curve = monthly_milk_curve(
-        lactation_months=10, lactation_litres=1000.0, shape="wood", persistency_monthly=0.9
-    )
-    assert max(curve) == curve[2]
-    assert sum(curve) == pytest.approx(1000.0)
-    assert curve[0] < curve[2] > curve[9]
-
-
-def test_monthly_milk_curve_degenerate_guards() -> None:
-    # Non-positive months or litres → an all-zero curve of the requested length
-    # (exactly the requested length, never clamped to 1).
-    assert monthly_milk_curve(lactation_months=0, lactation_litres=100.0) == []
-    assert monthly_milk_curve(lactation_months=1, lactation_litres=0.0) == [0.0]
-    # months <= 0 AND litres > 0 is the empty case; months > 0 with litres == 0
-    # keeps the month count.
-    zeros = monthly_milk_curve(lactation_months=5, lactation_litres=0.0)
-    assert zeros == [0.0] * 5
-
-
-def test_curve_from_assumptions_passes_sales_fields_through() -> None:
-    """The adapter forwards shape/persistency/peak_day from the sales model;
-    dropping one field silently falls back to the geometric default."""
-    sales = SalesAssumptions(
-        lactation_milk_litres=600.0,
-        milk_curve_shape="wood",
-        milk_persistency_monthly=0.95,
-        milk_peak_day=40.0,
-    )
-    direct = monthly_milk_curve(
-        lactation_months=8,
-        lactation_litres=600.0,
-        shape="wood",
-        persistency_monthly=0.95,
-        peak_day=40.0,
-    )
-    assert curve_from_assumptions(sales, 8) == pytest.approx(direct)
-    # The wood shape with peak day 40 peaks in month 2, not the geometric
-    # month 1 — proves shape and peak_day actually flowed through.
-    curve = curve_from_assumptions(sales, 8)
-    assert curve[1] > curve[0]
 
 
 # --- market: Bakrid calendar arithmetic -----------------------------------------
@@ -415,18 +352,16 @@ def _neutral_draws() -> dict[str, float]:
     }
 
 
-def test_apply_draws_scales_both_milk_price_bases() -> None:
-    """The milk_price draw multiplies BOTH pricing bases by the same factor
-    (a division would move them in opposite directions; an assignment would
-    replace the calibrated price with the draw itself)."""
+def test_apply_draws_scales_the_milk_price() -> None:
+    """The milk_price draw multiplies the per-litre price by the draw factor
+    (a division would move it the wrong way; an assignment would replace the
+    calibrated price with the draw itself)."""
     a = SimulationAssumptions()
     a.sales.milk_price_per_litre = 100.0
-    a.sales.milk_price_per_kg_fat = 850.0
     draws = _neutral_draws()
     draws["milk_price"] = 2.0
     variant = _apply_draws(a, draws)
     assert variant.sales.milk_price_per_litre == pytest.approx(200.0)
-    assert variant.sales.milk_price_per_kg_fat == pytest.approx(1700.0)
     # A neutral draw leaves every other field untouched.
     assert variant.sales.meat_price_per_kg == a.sales.meat_price_per_kg
     assert variant.reproduction.litter_size == a.reproduction.litter_size
@@ -497,16 +432,12 @@ def test_scale_milk_price_low_and_high_factors() -> None:
     (or 1.2) — assignments would reset the price to the factor itself."""
     low = SimulationAssumptions()
     low.sales.milk_price_per_litre = 100.0
-    low.sales.milk_price_per_kg_fat = 850.0
     _scale_milk_price(low)
     assert low.sales.milk_price_per_litre == pytest.approx(80.0)
-    assert low.sales.milk_price_per_kg_fat == pytest.approx(680.0)
     high = SimulationAssumptions()
     high.sales.milk_price_per_litre = 100.0
-    high.sales.milk_price_per_kg_fat = 850.0
     _scale_milk_price_high(high)
     assert high.sales.milk_price_per_litre == pytest.approx(120.0)
-    assert high.sales.milk_price_per_kg_fat == pytest.approx(1020.0)
 
 
 def test_histogram_bins_and_degenerate_range() -> None:
@@ -800,123 +731,43 @@ def test_toy_goat_mass_balance_and_month_one_head() -> None:
     assert all(m.culls_head == 0.0 for m in result.months)
 
 
-# Dairy-mode mechanics fixture: the historical Murrah anchoring knobs on a
-# dairy-goat base (mixed foundation, 60 does, AI service, 2/10/10
-# waiting/gestation/lactation) so the hand-derived arithmetic in the
-# dairy-mode mirror tests stays exact.
-def _dairy_mode_fixture() -> SimulationAssumptions:
-    a = jamunapari()
-    a.herd.does = 60
-    a.herd.bucks = 0
-    a.herd.max_breeding_does = 0
-    a.herd.auto_purchase_bucks = False
-    a.herd.foundation_flock_state = "mixed"
-    a.reproduction.conception_rate = 0.45
-    a.reproduction.gestation_months = 10
-    a.reproduction.lactation_months = 10
-    a.reproduction.months_open_before_breeding = 2
-    a.reproduction.litter_size = 1.0
-    a.mortality.kid_pre_weaning = 0.10
-    # Fat-based procurement pricing (the fat-pair path the mirrors price on).
-    a.sales.milk_price_per_litre = 58.0
-    a.sales.calf_milk_litres_per_day_per_calf = 2.5
-    a.sales.milk_price_per_kg_fat = 850.0
-    a.sales.milk_fat_pct = 6.8
-    # Flat parity keeps the mirrored conception/litter arithmetic exact (the
-    # default parity table scales both below 1.0).
-    a.reproduction.parity_multipliers = ParityMultipliers(litter_size=[1.0], conception_rate=[1.0])
-    return a
-
-
-def test_dairy_mass_balance_and_foundation_overlay_mirrors() -> None:
-    """Murrah (mixed foundation, dairy mode): month-1 pools and milk follow
-    the documented overlay anchoring, hand-derived here.
-
-    n_slots = 1 (serving) + 2 (waiting) + 10 (gestation) = 13, p = 60/13.
-    Foundation overlay: waiting slots i=0,1 → lact[0..1] += p; serving →
-    lact[2] += p; gestation j → month-since-calving 2+K+j with K = round(1/
-    0.45) = 2 → indices 4..13, of which 4..9 fall inside the 10-month
-    lactation. After the month-1 progression shift plus the fresh p from the
-    gestation slot graduating, the milking overlay holds p at stages
-    {0,1,2,3,5,6,7,8,9} — 10p of the 60 does."""
-    a = _dairy_mode_fixture()
-    a.meta.horizon_months = 13
-    result = run_simulation(a, with_break_even=False)
-    _assert_mass_balance(a, result)
-
-    p = 60.0 / 13.0
-    s_adult = 1.0 - monthly_mortality_rate(a.mortality.adult)
-    # The stage-9 foundation cohort dries off in the month-1 shift and the
-    # fresh calving refills stage 0: still 9 cohorts on test (the same set
-    # the milk mirror below sums).
-    lactating_m1 = 9 * p * s_adult
-    assert result.months[0].lactating_does == pytest.approx(lactating_m1, rel=1e-9)
-
-    curve = curve_from_assumptions(a.sales, a.reproduction.lactation_months)
-    milk_litres = (
-        sum(curve[stage] for stage in (0, 1, 2, 3, 5, 6, 7, 8, 9))
-        * p
-        * s_adult
-        * a.sales.monthly_milk_yield_multipliers[7]
-    )
-    # Female calves born in month 1 drink before the milk is sold. Kid loss
-    # is a whole-phase rate: one month of it removes 1-(1-0.1)**(1/3).
-    kidding_m1 = p
-    born = kidding_m1 * 1.0 * (1.0 - a.reproduction.stillbirth_rate)
-    s_kid = (1.0 - a.mortality.kid_pre_weaning) ** (1.0 / 3.0)
-    f_kid_m1 = born * 0.5 * s_kid  # post-mortality
-    milk_litres -= f_kid_m1 * a.sales.calf_milk_litres_per_day_per_calf * DAYS_PER_MONTH
-    price = (
-        a.sales.milk_price_per_kg_fat
-        * a.sales.milk_fat_pct
-        / 100.0
-        * a.sales.monthly_milk_price_multipliers[7]
-    )
-    assert result.months[0].milk_revenue == pytest.approx(milk_litres * price, rel=1e-9)
-
-
-def test_dairy_mode_gate_boundaries() -> None:
-    """dairy_mode = litres > 0 AND lactation_months > 0 — each boundary is
-    observable through the litter cap (dairy 2 vs meat 4) and milk revenue."""
-
-    def litter_scenario(litres: float, months: int) -> SimulationAssumptions:
-        a = toy_assumptions()
-        a.reproduction.conception_rate = 1.0
-        a.reproduction.litter_size = 3.0
-        a.reproduction.stillbirth_rate = 0.0
-        a.reproduction.gestation_months = 2
-        a.reproduction.lactation_months = months
-        a.sales.lactation_milk_litres = litres
-        a.mortality.kid_pre_weaning = 0.0
-        a.mortality.kid_post_weaning = 0.0
-        a.mortality.adult = 0.0
-        a.meta.horizon_months = 12
-        return a
-
+def test_litter_cap_is_the_goat_species_cap() -> None:
+    """The projection's litter cap is species-keyed (goat quadruplets, 4.0 —
+    matching SpeciesProfile.max_litter_size), never a dairy carry-over: a
+    configured litter of 3.0 with the surplus-milk side-line both off and on
+    produces exactly 3.0 kids per kidding doe."""
+    a = toy_assumptions()
+    a.reproduction.conception_rate = 1.0
+    a.reproduction.litter_size = 3.0
+    a.reproduction.stillbirth_rate = 0.0
+    a.reproduction.gestation_months = 2
+    a.reproduction.lactation_months = 3
+    a.mortality.kid_pre_weaning = 0.0
+    a.mortality.kid_post_weaning = 0.0
+    a.mortality.adult = 0.0
+    a.meta.horizon_months = 12
     does = 10.0
-    # litres = 0.5 (inside (0,1]) with months = 3: dairy — litter capped at 2.
-    dairy = run_simulation(litter_scenario(0.5, 3))
-    assert dairy.months[2].births == pytest.approx(does * 2.0)
-    # litres = 0.0 exactly (boundary of ``> 0``): meat — litter up to 4.
-    meat = run_simulation(litter_scenario(0.0, 3))
-    assert meat.months[2].births == pytest.approx(does * 3.0)
-    # months = 1 (boundary of ``> 0`` on the other conjunct): still dairy, and
-    # the month of kidding itself sells milk.
-    one_month = run_simulation(litter_scenario(50.0, 1))
-    assert one_month.months[2].milk_revenue > 0.0
+    assert run_simulation(a).months[2].births == pytest.approx(does * 3.0)
+    # Turning the surplus-milk side-line on must not change the litter cap.
+    a.sales.milk_sale_litres_per_doe_day = 1.0
+    with_milk = run_simulation(a)
+    assert with_milk.months[2].births == pytest.approx(does * 3.0)
+    # ...and the kidding month sells the flat daily surplus per lactating doe.
+    assert with_milk.months[2].milk_revenue == pytest.approx(
+        with_milk.months[2].lactating_does * 1.0 * DAYS_PER_MONTH * a.sales.milk_price_per_litre
+    )
+    assert with_milk.months[2].milk_revenue > 0.0
 
 
 def test_service_buckets_and_repeat_cull_timing() -> None:
-    """sexed=2 (rate 0.5×0.85), max_services=3, conception 0.5: failures march
-    one bucket per month and only the THIRD failure culls — months 1-2 book
-    no culls, month 3 books the final failures.
-    m1: 10 serve sexed, 5.75 fail → bucket1
-    m2: 5.75 serve sexed, 3.30625 fail → bucket2
-    m3: 3.30625 serve conventional (0.5), 1.653125 fail the final service."""
+    """max_services=3, conception 0.5: failures march one bucket per month and
+    only the THIRD failure culls — months 1-2 book no culls, month 3 books the
+    final failures.
+    m1: 10 serve, 5 fail → bucket1
+    m2: 5 serve, 2.5 fail → bucket2
+    m3: 2.5 serve, 1.25 fail the final service."""
     a = toy_assumptions()
     a.reproduction.conception_rate = 0.5
-    a.reproduction.sexed_semen_services = 2
-    a.reproduction.sexed_conception_multiplier = 0.85
     a.reproduction.max_services_before_cull = 3
     a.mortality.adult = 0.0
     a.culling.doe_cull_rate_annual = 0.0
@@ -925,7 +776,7 @@ def test_service_buckets_and_repeat_cull_timing() -> None:
     result = run_simulation(a)
     assert result.months[0].culls_head == 0.0
     assert result.months[1].culls_head == 0.0
-    assert result.months[2].culls_head == pytest.approx(1.653125)
+    assert result.months[2].culls_head == pytest.approx(1.25)
     # With the repeat-breeder policy off, failures park in the last bucket
     # forever: no service-driven culls at all.
     parking = a.model_copy(deep=True)
@@ -934,13 +785,11 @@ def test_service_buckets_and_repeat_cull_timing() -> None:
     assert all(m.culls_head == 0.0 for m in parked.months)
 
 
-def test_service_bucket_count_takes_the_max_of_both_policies() -> None:
-    """n_service_buckets = max(sexed, max_services, 1): with max_services=4 >
-    sexed=2 the fourth failure (not the third) is the repeat cull."""
+def test_service_bucket_count_follows_the_cull_policy() -> None:
+    """n_service_buckets = max_services_before_cull: with max_services=4 the
+    fourth failure (not the third) is the repeat cull."""
     a = toy_assumptions()
     a.reproduction.conception_rate = 0.5
-    a.reproduction.sexed_semen_services = 2
-    a.reproduction.sexed_conception_multiplier = 0.85
     a.reproduction.max_services_before_cull = 4
     a.mortality.adult = 0.0
     a.culling.doe_cull_rate_annual = 0.0
@@ -948,36 +797,29 @@ def test_service_bucket_count_takes_the_max_of_both_policies() -> None:
     a.meta.horizon_months = 12
     result = run_simulation(a)
     assert result.months[2].culls_head == 0.0  # third failure parks in bucket 3
-    # m3: 3.30625 serve conventional, 1.653125 fail → bucket3;
-    # m4: those serve conventional once more, 0.8265625 fail and cull.
-    assert result.months[3].culls_head == pytest.approx(0.8265625)
+    # m3: 2.5 serve, 1.25 fail → bucket3;
+    # m4: those serve once more, 0.625 fail and cull.
+    assert result.months[3].culls_head == pytest.approx(0.625)
 
 
-def test_sexed_semen_female_fraction_blend() -> None:
-    """First two services are sexed (90% female), later ones conventional
-    (50%): with conception 0.5 the blended birth fraction is
-    (2.5·0.9 + 1.25·0.5)/3.75 over months 3-4 conceptions… here asserted on
-    the month-4 kiddings of a 2-month gestation model where every conception
-    of month 1 and 2 has arrived by month 4."""
+def test_births_follow_the_flat_sex_ratio() -> None:
+    """With natural service the female share of every kidding month's births
+    is exactly sex_ratio_female (0.6 here): no per-service bias remains."""
     a = toy_assumptions()
     a.reproduction.conception_rate = 0.5
     a.reproduction.gestation_months = 2
     a.reproduction.litter_size = 1.0
     a.reproduction.stillbirth_rate = 0.0
-    a.reproduction.sexed_semen_services = 2
-    a.reproduction.sexed_female_fraction = 0.9
-    a.reproduction.sex_ratio_female = 0.5
+    a.reproduction.sex_ratio_female = 0.6
     a.mortality.kid_pre_weaning = 0.0
     a.mortality.kid_post_weaning = 0.0
     a.mortality.adult = 0.0
     a.meta.horizon_months = 12
     result = run_simulation(a)
-    # Conceptions in months 1-2 are all sexed services → 90% female births in
-    # months 3-4.
     female_kids_m3 = result.months[2].f_kids
     births_m3 = result.months[2].births
     assert births_m3 > 0
-    assert female_kids_m3 == pytest.approx(0.9 * births_m3, rel=1e-9)
+    assert female_kids_m3 == pytest.approx(0.6 * births_m3, rel=1e-9)
 
 
 def test_eid_calendar_pricing_columns() -> None:
@@ -1109,16 +951,14 @@ def test_doe_and_buck_event_sale_default_cull_prices() -> None:
 
 
 def test_buck_service_capacity_policies() -> None:
-    """Dairy with no sires and no auto-purchase is AI: service is
-    technician-limited (unconstrained) — conceptions happen with zero bucks.
-    Meat mode with auto-purchase buys sires BEFORE service (conceptions land
-    in month 1)."""
-    dairy = _dairy_mode_fixture()
-    dairy.meta.horizon_months = 12
-    assert dairy.herd.bucks == 0
-    assert not dairy.herd.auto_purchase_bucks
-    result = run_simulation(dairy, with_break_even=False)
-    assert result.months[0].pregnant_does > 0.0
+    """A sire-less herd with no auto-purchase conceives nothing (goat service
+    is buck-limited, never technician-limited); with auto-purchase the sires
+    are bought BEFORE service, so conceptions land in month 1."""
+    sireless = toy_assumptions(bucks=0, auto_purchase_bucks=False)
+    sireless.culling.buck_doe_ratio = 10
+    result = run_simulation(sireless)
+    assert all(row.pregnant_does == 0.0 for row in result.months)
+    assert all(row.births == 0.0 for row in result.months)
 
     meat = toy_assumptions(bucks=0, auto_purchase_bucks=True)
     meat.culling.buck_doe_ratio = 10
@@ -1186,60 +1026,46 @@ def test_cull_revenue_books_head_times_price_times_weight() -> None:
     )
 
 
-def test_milk_price_basis_boundaries_and_factors() -> None:
-    """Fat-sourced pricing (₹/kg fat × fat%) wins when both are positive;
-    exactly-zero fat pricing falls back to ₹/litre (never a zero price)."""
+def test_surplus_milk_line_is_per_lactating_doe_day() -> None:
+    """Milk revenue = lactating does × milk_sale_litres_per_doe_day × days ×
+    ₹/litre, with the livestock growth trend (zeroed in the toy): halving the
+    daily rate halves the revenue, and the default (0) sells nothing."""
     a = toy_assumptions()
     a.reproduction.lactation_months = 3
     a.reproduction.gestation_months = 2
     a.reproduction.conception_rate = 1.0
-    a.sales.lactation_milk_litres = 300.0
-    a.sales.calf_milk_litres_per_day_per_calf = 0.0
-    a.mortality.kid_pre_weaning = 0.0
-    a.mortality.adult = 0.0
-    a.sales.annual_milk_price_growth_rate = 0.0
-    a.sales.monthly_milk_price_multipliers = [1.0] * 12
-    a.sales.monthly_milk_yield_multipliers = [1.0] * 12
-    a.meta.horizon_months = 12
-
-    fat = a.model_copy(deep=True)
-    fat.sales.milk_price_per_kg_fat = 850.0
-    fat.sales.milk_fat_pct = 6.8
-    fat.sales.milk_price_per_litre = 1.0  # must be IGNORED under fat pricing
-    result = run_simulation(fat)
-    litres_m3 = result.months[2].milk_revenue / (850.0 * 6.8 / 100.0)
-    assert litres_m3 > 0.0
-
-    litre = a.model_copy(deep=True)
-    litre.sales.milk_price_per_kg_fat = 0.0
-    litre.sales.milk_price_per_litre = 58.0
-    result = run_simulation(litre)
-    assert result.months[2].milk_revenue == pytest.approx(litres_m3 * 58.0, rel=1e-9)
-
-    # A price multiplier on the calendar month doubles the revenue of that
-    # month alone (toy starts 2026-08 → month 1 is calendar August, index 7).
-    doubled = litre.model_copy(deep=True)
-    doubled.sales.monthly_milk_price_multipliers = [1.0] * 7 + [2.0] + [1.0] * 4
-    result = run_simulation(doubled)
-    assert result.months[2].milk_revenue == pytest.approx(litres_m3 * 58.0, rel=1e-9)
-
-
-def test_calf_milk_consumption_clamps_at_zero() -> None:
-    """Calves drink before milk is sold, and saleable milk never goes
-    negative: with many calves and a tiny lactation the month floors at 0."""
-    a = toy_assumptions()
-    a.reproduction.lactation_months = 3
-    a.reproduction.gestation_months = 2
-    a.reproduction.conception_rate = 1.0
-    a.reproduction.litter_size = 4.0
-    a.sales.lactation_milk_litres = 1.0  # essentially nothing produced
-    a.sales.calf_milk_litres_per_day_per_calf = 5.0
+    a.sales.milk_sale_litres_per_doe_day = 0.8
+    a.sales.milk_price_per_litre = 58.0
     a.mortality.kid_pre_weaning = 0.0
     a.mortality.adult = 0.0
     a.meta.horizon_months = 12
     result = run_simulation(a)
+    month3 = result.months[2]
+    assert month3.lactating_does > 0.0
+    assert month3.milk_revenue == pytest.approx(
+        month3.lactating_does * 0.8 * DAYS_PER_MONTH * 58.0, rel=1e-9
+    )
+
+    halved = a.model_copy(deep=True)
+    halved.sales.milk_sale_litres_per_doe_day = 0.4
+    halved_result = run_simulation(halved)
+    assert halved_result.months[2].milk_revenue == pytest.approx(
+        month3.milk_revenue / 2.0, rel=1e-9
+    )
+
+    silent = run_simulation(toy_assumptions())
+    assert all(row.milk_revenue == 0.0 for row in silent.months)
+
+
+def test_surplus_milk_never_goes_negative() -> None:
+    """No lactating does (a sire-less herd) or a zero rate both book exactly
+    zero milk revenue — the flat side-line cannot dip below 0."""
+    a = toy_assumptions(bucks=0, auto_purchase_bucks=False)
+    a.sales.milk_sale_litres_per_doe_day = 1.0
+    a.meta.horizon_months = 12
+    result = run_simulation(a)
     for row in result.months:
-        assert row.milk_revenue >= 0.0
+        assert row.milk_revenue == 0.0
 
 
 def test_labour_is_zero_without_breeding_does() -> None:
@@ -1255,20 +1081,18 @@ def test_labour_is_zero_without_breeding_does() -> None:
     assert result.months[0].labour_cost == pytest.approx(0.5 * one_doe.costs.labour_per_month)
 
 
-def test_manure_covers_the_finishing_pen_and_bucks() -> None:
-    """Manure income = (breeding does + finishing pen + bucks) × rate / 12 —
-    the finishing does still eat and produce."""
-    a = _dairy_mode_fixture()
+def test_manure_covers_every_doe_pool_and_bucks() -> None:
+    """Manure income = (all breeding does — open + pregnant + lactating —
+    plus bucks) × rate / 12."""
+    a = toy_assumptions()
     a.meta.horizon_months = 13
-    a.sales.annual_livestock_price_growth_rate = 0.0
-    result = run_simulation(a, with_break_even=False)
+    result = run_simulation(a)
     m1 = result.months[0]
-    # Month 1 has no finishing head yet (foundation only), so the base is
-    # breeding does + bucks; bucks are auto-purchased in month 1 under the
-    # murrah policy? No — murrah runs AI (zero bucks, no auto-purchase).
-    breeding = m1.open_does + m1.pregnant_does
+    s_adult = 1.0 - monthly_mortality_rate(a.mortality.adult)
+    base = (10.0 + 1.0) * s_adult  # 10 open does + 1 buck, post-mortality
+    assert m1.open_does + m1.pregnant_does + m1.lactating_does == pytest.approx(10.0 * s_adult)
     assert m1.manure_revenue == pytest.approx(
-        breeding * a.sales.manure_income_per_adult_per_year / 12.0, rel=1e-9
+        base * a.sales.manure_income_per_adult_per_year / 12.0, rel=1e-9
     )
 
 
@@ -1457,9 +1281,8 @@ def test_assumptions_fingerprint_stability() -> None:
 
 
 def test_bucks_only_herd_feed_is_exactly_the_buck_ration() -> None:
-    """A bucks-only herd eats exactly the buck ration — any phantom
-    milking/dry doe head (the dairy zero-inits leaking into meat mode)
-    would add doe feed on top."""
+    """A bucks-only herd eats exactly the buck ration — any phantom doe
+    head leaking into the account would add doe feed on top."""
     from app.simulation.feed import class_feed, combine_feed
 
     a = toy_assumptions(does=0, bucks=2)
@@ -1505,102 +1328,24 @@ def test_crossing_roots_on_bracket_endpoints_do_not_bisect() -> None:
     assert floats == pytest.approx([1.0, 3.0], abs=1e-25)
 
 
-def test_dairy_mode_boundary_at_one_lactation_month() -> None:
-    """lactation_months == 1 is still dairy: the species litter cap (2) binds
-    where meat mode would allow the configured litter of 3."""
-    a = toy_assumptions()
-    a.reproduction.conception_rate = 1.0
-    a.reproduction.litter_size = 3.0
-    a.reproduction.stillbirth_rate = 0.0
-    a.reproduction.gestation_months = 2
-    a.reproduction.lactation_months = 1
-    a.sales.lactation_milk_litres = 50.0
-    a.mortality.kid_pre_weaning = 0.0
-    a.mortality.kid_post_weaning = 0.0
-    a.mortality.adult = 0.0
-    result = run_simulation(a)
-    assert result.months[2].births == pytest.approx(10 * 2.0)
-
-
-def test_service_bucket_count_drops_neither_policy() -> None:
-    """sexed=3 > max_services=1: the bucket count is max(3, 1) = 3, so the
-    repeat cull fires only on the third failure (month 3), not the first."""
+def test_repeat_cull_at_one_service_fires_immediately() -> None:
+    """max_services=1: the FIRST failed service is the repeat-breeder cull —
+    month 1 culls 10 × (1 − 0.5) = 5 does, not zero."""
     a = toy_assumptions()
     a.reproduction.conception_rate = 0.5
-    a.reproduction.sexed_semen_services = 3
-    a.reproduction.sexed_conception_multiplier = 1.0
     a.reproduction.max_services_before_cull = 1
     a.mortality.adult = 0.0
     a.culling.doe_cull_rate_annual = 0.0
     a.culling.max_doe_age_months = 180
     a.meta.horizon_months = 12
     result = run_simulation(a)
-    assert result.months[0].culls_head == 0.0
-    assert result.months[1].culls_head == 0.0
-    assert result.months[2].culls_head == pytest.approx(1.25)
-
-
-def _mirror_overlay_stages(waiting: int, gestation: int, lactation: int, k: int) -> set[int]:
-    """The documented dairy foundation anchoring, mirrored: waiting slot i →
-    i months fresh; a serving doe ~VWP months fresh (clamped into the
-    lactation window); a pregnant doe at gestation slot j → VWP+K+j months
-    fresh, kept only while still inside the lactation length."""
-    serving_anchor = min(waiting, lactation - 1)
-    stages = set(range(waiting))
-    if serving_anchor < lactation:
-        stages.add(serving_anchor)
-    for j in range(gestation):
-        index = min(waiting + k + j, lactation)  # ≥ lactation is dry
-        if index < lactation:
-            stages.add(index)
-    return stages
-
-
-def test_dairy_overlay_anchoring_kfloor_and_serving_clamp() -> None:
-    """conception 0.9 → K = 1 (the max(1, …) floor is not binding) and a
-    waiting period longer than the lactation clamps the serving anchor to the
-    last in-milk stage. Month-1 milk follows the mirrored stage set."""
-    a = _dairy_mode_fixture()
-    a.reproduction.conception_rate = 0.9
-    a.reproduction.months_open_before_breeding = 6
-    a.reproduction.lactation_months = 5
-    a.reproduction.gestation_months = 4
-    a.meta.horizon_months = 13
-    result = run_simulation(a, with_break_even=False)
-
-    k = max(1, round(1.0 / 0.9))
-    assert k == 1
-    init_stages = _mirror_overlay_stages(waiting=6, gestation=4, lactation=5, k=1)
-    # Month-1 progression: the stage-(L-1) cohort dries off, every other
-    # cohort ages one stage, and the fresh calving from the last gestation
-    # slot refills stage 0.
-    surviving = {s + 1 for s in init_stages if s + 1 < 5}
-    stage_set = surviving | {0}
-    p = 60.0 / (1 + 6 + 4)
-    s_adult = 1.0 - monthly_mortality_rate(a.mortality.adult)
-    lactating = len(stage_set) * p * s_adult
-    assert result.months[0].lactating_does == pytest.approx(lactating, rel=1e-9)
-    curve = curve_from_assumptions(a.sales, a.reproduction.lactation_months)
-    litres = (
-        sum(curve[s] for s in stage_set) * p * s_adult * a.sales.monthly_milk_yield_multipliers[7]
-    )
-    born = p * 1.0 * (1.0 - a.reproduction.stillbirth_rate)
-    s_kid = (1.0 - a.mortality.kid_pre_weaning) ** (1.0 / 3.0)
-    litres -= born * 0.5 * s_kid * a.sales.calf_milk_litres_per_day_per_calf * DAYS_PER_MONTH
-    price = (
-        a.sales.milk_price_per_kg_fat
-        * a.sales.milk_fat_pct
-        / 100.0
-        * a.sales.monthly_milk_price_multipliers[7]
-    )
-    assert result.months[0].milk_revenue == pytest.approx(litres * price, rel=1e-9)
+    assert result.months[0].culls_head == pytest.approx(5.0)
 
 
 def test_projected_peak_equals_max_herd_without_decay() -> None:
     """With zero mortality and no scheduled events the physical peak equals
-    the maximum month-end herd exactly — in meat mode (where ``lact`` is a
-    state pool that must count) and in dairy mode (where the finishing pen
-    must count once rate culls route does there)."""
+    the maximum month-end herd exactly (``lact`` is a state pool that must
+    count in the physical-head sum)."""
     meat = toy_assumptions()
     meat.mortality.kid_pre_weaning = 0.0
     meat.mortality.kid_post_weaning = 0.0
@@ -1610,62 +1355,11 @@ def test_projected_peak_equals_max_herd_without_decay() -> None:
     result = run_simulation(meat)
     # The physical peak is taken mid-month, so it can only exceed (never
     # fall below) the largest month-end balance; a mutant that drops the
-    # lactation state pool (meat) or the finishing pen (dairy) from the
-    # physical-head sum breaks this lower bound in exactly the months those
-    # pools are populated.
+    # lactation state pool from the physical-head sum breaks this lower
+    # bound in exactly the months that pool is populated.
     assert result.project_cost_breakdown.projected_peak_head >= (
         max(row.total_herd for row in result.months) - 1e-6
     )
-
-    dairy = _dairy_mode_fixture()
-    dairy.mortality.kid_pre_weaning = 0.0
-    dairy.mortality.kid_post_weaning = 0.0
-    dairy.mortality.grower = 0.0
-    dairy.mortality.adult = 0.0
-    dairy.meta.horizon_months = 14  # month 13-14 rate culls fill the finishing pen
-    dairy_result = run_simulation(dairy, with_break_even=False)
-    assert any(row.culls_head > 0 for row in dairy_result.months)
-    assert dairy_result.project_cost_breakdown.projected_peak_head >= (
-        max(row.total_herd for row in dairy_result.months) - 1e-6
-    )
-
-
-def test_mixed_foundation_anchor_shapes_parametric() -> None:
-    """Three foundation shapes pin the anchoring arithmetic exactly:
-    K = round(1/conception) floored at 1 (the K=1 case has conception 0.9),
-    the serving anchor clamped to the last in-milk stage, and gestation
-    cohorts kept only while still inside the lactation window."""
-    shapes = [
-        # (waiting, gestation, lactation, conception) — K = 1 and the preg
-        # overlay reaches into the lactation window.
-        (2, 10, 10, 0.9),
-        # Waiting longer than the lactation: the serving anchor clamps to
-        # L−1 (which dries off in the month-1 shift).
-        (10, 4, 10, 0.45),
-        # Waiting exactly one short of the lactation: anchor L−1 again, but
-        # with K = 2 the gestation overlay starts one stage later.
-        (9, 4, 10, 0.45),
-    ]
-    for waiting, gestation, lactation, conception in shapes:
-        a = _dairy_mode_fixture()
-        a.reproduction.months_open_before_breeding = waiting
-        a.reproduction.gestation_months = gestation
-        a.reproduction.lactation_months = lactation
-        a.reproduction.conception_rate = conception
-        a.meta.horizon_months = 13
-        result = run_simulation(a, with_break_even=False)
-
-        k = max(1, round(1.0 / conception))
-        init = _mirror_overlay_stages(
-            waiting=waiting, gestation=gestation, lactation=lactation, k=k
-        )
-        stage_set = {s + 1 for s in init if s + 1 < lactation} | {0}
-        n_slots = 1 + waiting + gestation
-        p = 60.0 / n_slots
-        s_adult = 1.0 - monthly_mortality_rate(a.mortality.adult)
-        assert result.months[0].lactating_does == pytest.approx(
-            len(stage_set) * p * s_adult, rel=1e-9
-        ), (waiting, gestation, lactation)
 
 
 def test_meat_mode_mixed_foundation_mass_balance() -> None:
@@ -1676,7 +1370,7 @@ def test_meat_mode_mixed_foundation_mass_balance() -> None:
     a = toy_assumptions()
     a.herd.foundation_flock_state = "mixed"
     a.reproduction.conception_rate = 0.5
-    a.reproduction.sexed_semen_services = 2  # a second bucket to plant into
+    a.reproduction.max_services_before_cull = 2  # a second bucket to plant into
     a.meta.horizon_months = 12
     result = run_simulation(a)
     _assert_mass_balance(a, result)
@@ -1696,14 +1390,3 @@ def test_physical_peak_tracks_max_herd_within_sub_head_slack() -> None:
     peak = result.project_cost_breakdown.projected_peak_head
     max_herd = max(row.total_herd for row in result.months)
     assert max_herd - 0.5 <= peak <= max_herd + 0.5
-
-    dairy = murrah_dairy()
-    dairy.mortality.kid_pre_weaning = 0.0
-    dairy.mortality.kid_post_weaning = 0.0
-    dairy.mortality.grower = 0.0
-    dairy.mortality.adult = 0.0
-    dairy.meta.horizon_months = 14
-    dairy_result = run_simulation(dairy, with_break_even=False)
-    dairy_peak = dairy_result.project_cost_breakdown.projected_peak_head
-    dairy_max = max(row.total_herd for row in dairy_result.months)
-    assert dairy_max - 0.5 <= dairy_peak <= dairy_max + 0.5

@@ -141,7 +141,6 @@ def test_species_policy_profiles_are_coherent() -> None:
     assert goat.voluntary_waiting_days == 14
     assert goat.failed_services_before_cull == 2
     assert goat.max_litter_size == 4
-    assert goat.max_daily_milk_litres == 0.0
     # SPEC: goat "day 100" EARLY→LATE exit, kidding pen ~2 weeks pre-due.
     assert goat.pregnancy_late_day == 100
     assert goat.prepartum_move_lead_days == 15

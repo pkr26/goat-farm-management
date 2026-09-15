@@ -43,6 +43,8 @@ from ..simulation.backward_planner import (
     build_backward_plan,
     month_offset,
 )
+from ..simulation.engine import run_simulation
+from ..simulation.planner import build_dpr_markdown
 from ..simulation.vocabulary import GOAT_NOUNS
 from ._run_limits import (
     _charge_run_budget,
@@ -428,6 +430,52 @@ async def update_plan(
     # schema tightening must not answer 422 as though nothing happened —
     # report it the way the list endpoint does, with valid=False.
     return _plan_out(plan, allow_invalid=True)
+
+
+@router.get("/plans/{plan_id}/dpr")
+async def plan_dpr(
+    db: DbSession,
+    user: CurrentUser,
+    farm: CurrentFarm,
+    perms: SimView,
+    plan_id: int,
+) -> Response:
+    """DPR-style markdown projection summary of the plan's assumptions —
+    unit size, capital outlay, subsidy and the 10-year NPV/DSCR figures —
+    suitable for a NABARD/NLM loan application."""
+    plan = await _get_plan(db, farm.id, plan_id)
+    # Targets are validated by the loader but the DPR prices the assumptions,
+    # not the sale targets.
+    _, assumptions = _load_plan_parts(plan)
+    plan_name = plan.name  # snapshot before the auth transaction ends
+    farm_id = farm.id
+    user_id = user.id
+    await db.rollback()
+
+    # One deterministic pass plus the break-even bisection (52 passes),
+    # priced like a /run without Monte Carlo.
+    cost = 53 * assumptions.meta.horizon_months
+
+    async def run() -> str:
+        _check_run_budget(farm_id, user_id, cost)
+        _charge_run_budget(farm_id, user_id, cost)
+
+        def build() -> str:
+            result = run_simulation(assumptions, nouns=GOAT_NOUNS)
+            if not _finite_payload(result.model_dump()):
+                raise HTTPException(
+                    status_code=422, detail="These inputs produce non-finite results."
+                )
+            return build_dpr_markdown(assumptions, result, plan_name=plan_name)
+
+        return await _offload(build)
+
+    markdown = await _with_run_limits(farm_id, user_id, run)
+    return Response(
+        content=markdown,
+        media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="dpr-{plan_id}.md"'},
+    )
 
 
 @router.delete("/plans/{plan_id}", status_code=204)

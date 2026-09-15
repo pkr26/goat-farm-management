@@ -69,6 +69,7 @@ from app.simulation.engine import (
     male_weight_at_age,
     phase_monthly_mortality_rate,
 )
+from app.simulation.feed import DAYS_PER_MONTH
 from app.simulation.finance import irr_roots
 from app.simulation.shocks import MonthlyShockPath
 
@@ -959,7 +960,7 @@ def test_breed_presets_and_systems() -> None:
             9_500,
             15_000,
             1.6,
-            10,
+            12,
             2,  # SPEC weaning+rebreed interval (GOAT_PROFILE.weaning_days=60)
             2.5,
             33,
@@ -970,24 +971,24 @@ def test_breed_presets_and_systems() -> None:
             370,
             0.15,
         ),
-        "sirohi": (9_000, 14_000, 1.4, 12, 2, 3.0, 40, 50, 1.18, 9, 110, 370, 0.15),
-        "barbari": (7_000, 10_000, 1.8, 10, 2, 2.0, 27, 30, 0.85, 8, 90, 370, 0.15),
+        "sirohi": (9_000, 14_000, 1.4, 12, 2, 3.0, 40, 50, 1.18, 9, 0, 370, 0.15),
+        "barbari": (7_000, 10_000, 1.8, 10, 2, 2.0, 27, 30, 0.85, 8, 0, 370, 0.15),
         "jamunapari": (
             11_000,
             16_000,
             1.3,
             15,
-            6,
+            2,
             3.5,
             45,
             55,
             1.3,
             9,
-            200,
+            0,
             370,
             0.15,
         ),
-        "beetal": (10_000, 15_000, 1.6, 14, 5, 3.2, 40, 46, 1.2, 9, 175, 370, 0.15),
+        "beetal": (10_000, 15_000, 1.6, 14, 2, 3.2, 40, 46, 1.2, 9, 0, 370, 0.15),
         "black_bengal": (
             4_500,
             6_000,
@@ -1047,7 +1048,10 @@ def test_breed_presets_and_systems() -> None:
         )
         assert preset.growth.weight_by_age_months == pytest.approx(expected_curve)
         assert preset.growth.sale_age_months == sale_age
-        assert preset.sales.lactation_milk_litres == milk_litres
+        # All presets are meat-mode: no saleable-milk configuration (the
+        # surplus-milk side-line is opt-in via milk_sale_litres_per_doe_day).
+        assert milk_litres == 0
+        assert preset.sales.milk_sale_litres_per_doe_day == 0.0
         assert preset.sales.meat_price_per_kg == meat_price
         assert preset.mortality.kid_pre_weaning == kid_mortality
 
@@ -1167,18 +1171,19 @@ def test_males_finishing_near_a_festival_are_held_and_sold_in_it() -> None:
 
 
 def test_milk_revenue_hand_check() -> None:
+    from app.simulation.feed import DAYS_PER_MONTH
+
     a = toy_assumptions()
-    a.sales.lactation_milk_litres = 110.0
-    # Flat persistency + zero milk-price growth keeps the curve at the monthly
-    # average, so the hand-check below stays litres/month arithmetic.
-    a.sales.milk_persistency_monthly = 1.0
-    a.sales.annual_milk_price_growth_rate = 0.0
+    a.sales.milk_sale_litres_per_doe_day = 0.8
     res = run_simulation(a, with_break_even=False)
     m6 = res.months[5]
-    # 110 L over the 2-month lactation pool (the SPEC weaning interval) at
-    # Rs 30/L -> Rs 1650 per milking doe-month.
-    assert m6.milk_revenue == pytest.approx(m6.lactating_does * (110.0 / 2.0) * 30.0, abs=1e-6)
-    # Osmanabadi default (0 L/lactation) earns nothing from milk.
+    # 0.8 L/doe/day over the month's lactating pool at Rs 30/L (the toy
+    # zeroes the livestock price growth, so the price stays flat).
+    assert m6.lactating_does > 0.0
+    assert m6.milk_revenue == pytest.approx(
+        m6.lactating_does * 0.8 * DAYS_PER_MONTH * 30.0, rel=1e-9
+    )
+    # Osmanabadi default (no surplus sold) earns nothing from milk.
     assert run_simulation(toy_assumptions(), with_break_even=False).months[5].milk_revenue == 0.0
 
 
@@ -2936,7 +2941,6 @@ def _mutation_empty_assumptions(horizon: int = 12) -> SimulationAssumptions:
             cull_doe_price_per_kg=0.0,
             cull_buck_price_per_kg=0.0,
             milk_price_per_litre=0.0,
-            lactation_milk_litres=0.0,
             manure_income_per_adult_per_year=0.0,
         ),
     )
@@ -3253,12 +3257,8 @@ def test_price_and_operating_shocks_multiply_each_revenue_and_cost_base() -> Non
     assumptions.reproduction.stillbirth_rate = 0.0
     assumptions.culling.buck_rotation_years = 10
     assumptions.sales.annual_livestock_price_growth_rate = 0.21
-    assumptions.sales.lactation_milk_litres = 120.0
+    assumptions.sales.milk_sale_litres_per_doe_day = 0.5
     assumptions.sales.milk_price_per_litre = 2.0
-    # Flat curve + milk-price growth matching the livestock rate keeps this
-    # hand-check in litres/month arithmetic.
-    assumptions.sales.milk_persistency_monthly = 1.0
-    assumptions.sales.annual_milk_price_growth_rate = 0.21
     assumptions.sales.manure_income_per_adult_per_year = 12.0
     assumptions.sales.selling_cost_fraction = 0.10
     assumptions.sales.transport_cost_per_head = 2.0
@@ -3281,14 +3281,15 @@ def test_price_and_operating_shocks_multiply_each_revenue_and_cost_base() -> Non
     month13 = _run_core(assumptions, shocks).months[12]
     livestock_growth = 1.21
     operating_growth = 1.21 * 2.0
-    # Dairy regime: lactating_does is a milking overlay of the open/pregnant
-    # pools, so the distinct adults are open + pregnant + bucks.
-    adult_head = month13.open_does + month13.pregnant_does + month13.bucks
+    # Meat regime: lactating_does is a state pool, so the distinct adults are
+    # open + pregnant + lactating + bucks.
+    adult_head = month13.open_does + month13.pregnant_does + month13.lactating_does + month13.bucks
 
     assert month13.lactating_does > 0.0
     assert month13.milk_revenue == pytest.approx(
         month13.lactating_does
-        * (assumptions.sales.lactation_milk_litres / assumptions.reproduction.lactation_months)
+        * assumptions.sales.milk_sale_litres_per_doe_day
+        * DAYS_PER_MONTH
         * assumptions.sales.milk_price_per_litre
         * livestock_growth
     )

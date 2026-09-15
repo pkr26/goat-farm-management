@@ -56,9 +56,6 @@ class SpeciesProfile:
     birth_weight_kg_range: tuple[float, float]
     # Cap on any single recorded live weight on the adult scale.
     max_adult_weight_kg: float
-    # Sanity band on one animal's total recorded yield per day (unused for
-    # goats; kept for profile-shape stability).
-    max_daily_milk_litres: float
     # Husbandry-standards scheduling knobs. Defaulted (unlike the v1 fields
     # above) so later profile additions stay additive; GOAT_PROFILE still
     # pins each value explicitly for the parity test.
@@ -87,10 +84,16 @@ GOAT_PROFILE = SpeciesProfile(
     min_gestation_days=100,
     max_gestation_days=200,
     pregnancy_check_after_service_days=32,
-    min_breeding_age_months=10,
+    # Doe first-service floor: field puberty for Osmanabadi is ~11.5 months
+    # and age-at-first-kidding norms run 19-20 months, so service at 12 months
+    # (plus the 22 kg weight gate) kids a maiden at ~17 months at the earliest.
+    min_breeding_age_months=12,
     min_breeding_weight_kg=22.0,
     min_sire_breeding_age_months=12,
     min_sire_breeding_weight_kg=25.0,
+    # Weaning policy: 60 days drives the ~8-month kidding interval this farm
+    # runs; 90 days is the conservative research standard. The projection
+    # mirrors whichever policy via ReproductionAssumptions.weaning_days.
     weaning_days=60,
     postpartum_recovery_days=14,
     pregnancy_late_day=100,  # SPEC: "Pregnancy A (day 35-100)" exits at day 100
@@ -101,7 +104,6 @@ GOAT_PROFILE = SpeciesProfile(
     max_litter_size=4,
     birth_weight_kg_range=(0.5, 8.0),
     max_adult_weight_kg=150.0,
-    max_daily_milk_litres=0.0,
     kidding_watch_start_days=5,
     birthing_kit_lead_days=7,
     postpartum_care_lead_days=1,

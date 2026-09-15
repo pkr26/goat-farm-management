@@ -38,8 +38,6 @@ MAX_LABOUR_PER_HEAD_THRESHOLD = 10**15
 # anything the domain can legitimately reach.
 MAX_MONEY = 1_000_000_000
 MAX_WEIGHT_KG = 1000
-# ~500x the highest-milk goat breed (Jamunapari, ~200 l/lactation).
-MAX_LACTATION_LITRES = 100_000
 # A million acres / a thousand tonnes DM per acre: orders of magnitude past
 # real fodder cultivation, small enough to keep area × yield products finite.
 MAX_FODDER_ACRES = 1_000_000
@@ -198,20 +196,24 @@ class ReproductionAssumptions(_Group):
     conception_rate: FiniteFloat = Field(
         default=0.85, ge=0.0, le=1.0
     )  # per service, ICAR herd models
-    # Bounds cover both modelled species: goats ~5 months (~150 days) and
-    # Murrah buffalo ~10.2 months (~310 days), with a 305-day (~10 month)
-    # lactation.
     gestation_months: int = Field(default=5, ge=1, le=12)  # ~150 days goats
-    # Months the meat-mode doe stays in the lactating pool after kidding
-    # before her rebreed wait begins — i.e. the WEANING-PLUS-REBREED interval,
-    # not a dairy lactation length (dairy presets set their own 5-10 below and
-    # in defaults.py). Default 2 aligns the projection with the operational
-    # SPEC (GOAT_PROFILE.weaning_days = 60 → 2 months at monthly resolution;
-    # daily_ops weans at day 60 with a 14-day VWP). The old 3 modelled a
-    # 90-day weaning the farm does not practice and stretched the kidding
-    # cycle to ~9-10 months against published Osmanabadi kidding intervals of
-    # 232-297 days (7.7-9.8 months; 5 + 2 + 1 = 8 sits inside that band).
+    # Months the doe stays in the lactating pool after kidding before her
+    # rebreed wait begins — i.e. the WEANING-PLUS-REBREED interval, not a
+    # saleable-milk lactation length. Default 2 aligns the projection with
+    # the operational SPEC (GOAT_PROFILE.weaning_days = 60 → 2 months at
+    # monthly resolution; daily_ops weans at day 60 with a 14-day VWP). The
+    # old 3 modelled a 90-day weaning the farm does not practice and
+    # stretched the kidding cycle to ~9-10 months against published
+    # Osmanabadi kidding intervals of 232-297 days (7.7-9.8 months;
+    # 5 + 2 + 1 = 8 sits inside that band). When ``weaning_days`` is 90 and
+    # no explicit lactation length is given, this derives to 3.
     lactation_months: int = Field(default=2, ge=1, le=12)
+    # Weaning policy: the operational day-60 wean (GOAT_PROFILE.weaning_days)
+    # drives the ~8-month kidding interval above; 90 is the conservative
+    # research standard (better kid thrift, longer doe recovery) and stretches
+    # the cycle by a month. Setting 90 without an explicit lactation_months
+    # moves that pool to 3 months so the projection honours the policy.
+    weaning_days: Literal[60, 90] = 60
     # Months a doe waits after lactation before rebreeding (post-partum anoestrus).
     # 1 for Osmanabadi: published kidding intervals run 232-297 days (7.7-9.8
     # months; improved-management herds ~195 d), so a 5-month gestation + 1
@@ -220,30 +222,19 @@ class ReproductionAssumptions(_Group):
     # year, and understated offtake ~20%.
     months_open_before_breeding: int = Field(default=1, ge=0, le=12)
     litter_size: FiniteFloat = Field(default=1.6, ge=0.5, le=4.0)  # kids born per kidding
-    # Fraction of births that are female under natural service/conventional
-    # semen (~0.5). AI programmes using sexed semen for the first services of
-    # each breeding attempt override this per service below.
+    # Fraction of births that are female under natural service (~0.5).
     sex_ratio_female: FiniteFloat = Field(default=0.5, ge=0.0, le=1.0)
     # Single-sourced with the operational breeding floor
-    # (GOAT_PROFILE.min_breeding_age_months = 10): the SPEC's "10-12 mo,
-    # >=22 kg" gate. The old 12 made the projection breed a month later than
-    # the write path allows.
-    age_at_first_breeding_months: int = Field(default=10, ge=6, le=30)
+    # (GOAT_PROFILE.min_breeding_age_months = 12): field puberty for
+    # Osmanabadi is ~11.5 months and age-at-first-kidding norms run 19-20
+    # months, so a 12-month first service plus the 22 kg weight gate kids a
+    # maiden doe at ~17 months at the earliest.
+    age_at_first_breeding_months: int = Field(default=12, ge=6, le=30)
     stillbirth_rate: FiniteFloat = Field(default=0.02, ge=0.0, le=0.5)
-    # --- sexed-semen AI policy (dairy; 0 disables and keeps the herd on the
-    # flat sex_ratio_female above) ---
-    # First N services of each breeding attempt use sexed semen. Field trials
-    # (KVK Guntur, UP sexed-semen programme, Genus ABS) report 88-91% female
-    # births from sexed doses at an 8-15 percentage-point conception penalty
-    # versus conventional semen (Sawant 2022: 40% vs 50%; Sharma 2024: 55.2%
-    # vs 63.6%).
-    sexed_semen_services: int = Field(default=0, ge=0, le=6)
-    sexed_female_fraction: FiniteFloat = Field(default=0.90, ge=0.5, le=1.0)
-    sexed_conception_multiplier: FiniteFloat = Field(default=0.85, gt=0.0, le=1.0)
     # A doe whose breeding attempt fails this many consecutive services is
-    # culled as a repeat breeder (standard Murrah farm discipline; the site
-    # plan's "3-service rule"). 0 disables — does are re-served indefinitely.
-    # Default 2 single-sources the operational flag
+    # culled as a repeat breeder (the site plan's "3-service rule"). 0
+    # disables — does are re-served indefinitely. Default 2 single-sources
+    # the operational flag
     # (models.species.GOAT_PROFILE.failed_services_before_cull = 2: the
     # daily-ops write path flags a doe as a cull candidate after two failed
     # services), so the projection and the farm's own worklist enforce one
@@ -255,13 +246,17 @@ class ReproductionAssumptions(_Group):
     # default-on with literature-anchored multipliers. See ParityMultipliers.
     parity_multipliers: ParityMultipliers = Field(default_factory=ParityMultipliers)
 
-    @model_validator(mode="after")
-    def _sexed_policy_is_coherent(self) -> "ReproductionAssumptions":
-        if self.sexed_semen_services > 0 and self.sexed_female_fraction <= self.sex_ratio_female:
-            raise ValueError(
-                "sexed_female_fraction must exceed sex_ratio_female to represent sexed semen"
-            )
-        return self
+    @model_validator(mode="before")
+    @classmethod
+    def _derive_lactation_from_weaning(cls, data: object) -> object:
+        # A 90-day weaning with no explicit lactation length moves the
+        # lactating pool to 3 months (90 days at monthly resolution); an
+        # explicit lactation_months always wins, and a model_dump round trip
+        # already carries the derived value, so this fires exactly once.
+        if isinstance(data, dict) and data.get("weaning_days") == 90:
+            data = {**data}
+            data.setdefault("lactation_months", 3)
+        return data
 
 
 class MortalityAssumptions(_Group):
@@ -303,6 +298,44 @@ class CullingAssumptions(_Group):
     buck_doe_ratio: int = Field(default=20, ge=1, le=100)
 
 
+# The two calibrated Osmanabadi live-weight curves (kg at ages 0..12 months).
+# STALL_FED: managed stall-fed herds (ICAR-AICRP/NARI records; see
+# GrowthAssumptions). SEMI_INTENSIVE: the CIRG field curve for grazing
+# Osmanabadi (~6.3 kg at 3 months, ~19.6 kg at 12 months) — field flocks run
+# at roughly half the stall-fed gains, so the same sale age sells a much
+# lighter animal. Both start at the 2.5 kg Osmanabadi birth weight.
+STALL_FED_WEIGHT_CURVE: tuple[float, ...] = (
+    2.5,
+    6.0,
+    9.5,
+    12.1,
+    14.6,
+    16.3,
+    17.8,
+    19.3,
+    20.8,
+    22.2,
+    23.5,
+    24.6,
+    25.6,
+)
+SEMI_INTENSIVE_WEIGHT_CURVE: tuple[float, ...] = (
+    2.5,
+    3.8,
+    5.1,
+    6.3,
+    8.0,
+    9.7,
+    11.3,
+    12.9,
+    14.5,
+    16.1,
+    17.3,
+    18.5,
+    19.6,
+)
+
+
 class GrowthAssumptions(_Group):
     """Live-weight curve and sale-age policy.
 
@@ -312,49 +345,52 @@ class GrowthAssumptions(_Group):
     field weights to 6 months (fast pre-weaning gain on dam's milk, ~3.2 kg/mo
     to ~12 kg at 3 m), then tracks the farm's commercial stall-fed finish so
     males reach the SPEC sale window (8-9 mo / 24-28 kg) on schedule.
+
+    ``growth_regime`` selects which calibrated curve supplies the table when
+    no explicit table is given: ``stall_fed`` (the managed-herd AICRP/NARI
+    curve, default) or ``semi_intensive`` (the CIRG field curve of grazing
+    Osmanabadi, roughly half the stall-fed gains to 3 months). Set the regime
+    at construction time (or pass an explicit table); mutating the regime on
+    an existing instance does not re-derive an already-materialized table.
     """
+
+    # Which calibrated growth curve ``weight_by_age_months`` defaults to.
+    # stall_fed: stall-fed managed herds (ICAR-AICRP/NARI records, 12.1 kg @
+    # 3 m, ~20.8 kg @ 9 m) — the curve that finishes males into the SPEC sale
+    # window. semi_intensive: CIRG field curve for grazing Osmanabadi
+    # (~6.3 kg @ 3 m, ~19.6 kg @ 12 m) — field flocks grow at roughly half
+    # the stall-fed rate, and a 9-month field male (~17.7 kg) is far below
+    # the 24-28 kg SPEC sale window, so field-system plans should expect
+    # later, lighter sales.
+    growth_regime: Literal["stall_fed", "semi_intensive"] = "stall_fed"
 
     birth_weight_kg: WeightKg = Field(default=2.5, gt=0.0)
     # Osmanabadi breed descriptors: doe 27-36 kg (status paper ~33).
     adult_weight_doe_kg: WeightKg = Field(default=33.0, gt=0.0)
     # NBAGR/Osmanabadi descriptors 33.5-36 kg; TNAU 35-40 kg for large males.
     adult_weight_buck_kg: WeightKg = Field(default=35.0, gt=0.0)
-    # Curve anchored on recorded field weights to 6 months (ICAR-AICRP/NARI:
-    # 12.1 kg @ 3 m, ~17 @ 6 m), then the farm's own stall-fed finish target:
-    # the operational SPEC sells males at 8-9 months / 24-28 kg, which the
-    # field-average yearling (20.5 kg) cannot reach — well-managed stall-fed
-    # males are recorded ~30 kg at 12 months, and this table tracks that
-    # commercial finishing so the projection prices the same animal the
-    # dashboard tells the farmer to sell (male @ 9 mo = 22.2 x 1.10 ≈ 24.4 kg).
+    # Stall-fed curve anchored on recorded field weights to 6 months
+    # (ICAR-AICRP/NARI: 12.1 kg @ 3 m, ~17 @ 6 m), then the farm's own
+    # stall-fed finish target: the operational SPEC sells males at 8-9 months
+    # / 24-28 kg, which the field-average yearling (20.5 kg) cannot reach —
+    # well-managed stall-fed males are recorded ~30 kg at 12 months, and this
+    # table tracks that commercial finishing so the projection prices the
+    # same animal the dashboard tells the farmer to sell (male @ 9 mo =
+    # 22.2 x 1.10 ≈ 24.4 kg). The semi_intensive regime substitutes the CIRG
+    # field curve (SEMI_INTENSIVE_WEIGHT_CURVE) when no table is given.
     weight_by_age_months: list[WeightKg] = Field(
-        default_factory=lambda: [
-            2.5,
-            6.0,
-            9.5,
-            12.1,
-            14.6,
-            16.3,
-            17.8,
-            19.3,
-            20.8,
-            22.2,
-            23.5,
-            24.6,
-            25.6,
-        ],
+        default_factory=lambda: list(STALL_FED_WEIGHT_CURVE),
         min_length=13,
         # Exactly ages 0..12. Longer tables previously overrode adult weight
         # because weight_at_age consulted list length before its adult branch.
         max_length=13,
     )
     # Age at which the linear approach from the yearling weight reaches the
-    # adult weight. 24 for goats; Murrah heifers mature far later (~500 kg at
-    # 36-42 months, NDRI growth studies) — the old hard-coded 24 put buffalo
-    # heifers at ~470 kg at 22 months when recorded animals are ~340-400 kg.
+    # adult weight. 24 months for Osmanabadi goats.
     adult_weight_age_months: int = Field(default=24, ge=13, le=120)
-    # Young males run heavier than female contemporaries (~10-20% in goats,
-    # ~5% in buffalo calves — ICAR growth studies). Applied to male
-    # kid/weaner/grower weights only; adult buck weight is set explicitly.
+    # Young males run heavier than female contemporaries (~10-20% in goats —
+    # ICAR growth studies). Applied to male kid/weaner/grower weights only;
+    # adult buck weight is set explicitly.
     young_male_weight_premium: FiniteFloat = Field(default=0.10, ge=0.0, le=0.5)
     # Age at which surplus males are sold for meat. Must be >= 6 so males pass
     # through the grower chain (weaning at 3, grower from 6). Single-sourced
@@ -363,6 +399,17 @@ class GrowthAssumptions(_Group):
     # on the default curve) sits inside that window. The old 10 sold a month
     # past the SPEC window at a weight below its floor.
     sale_age_months: int = Field(default=9, ge=6, le=24)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _apply_growth_regime_curve(cls, data: object) -> object:
+        # The regime selects the curve only when the caller did not pass an
+        # explicit table; a model_dump round trip carries the materialized
+        # table, so the derivation fires exactly once.
+        if isinstance(data, dict) and data.get("growth_regime") == "semi_intensive":
+            data = {**data}
+            data.setdefault("weight_by_age_months", list(SEMI_INTENSIVE_WEIGHT_CURVE))
+        return data
 
     @field_validator("weight_by_age_months")
     @classmethod
@@ -461,74 +508,24 @@ class SalesAssumptions(_Group):
     # (shared truck, ~5 AM loading) costs on the order of ₹100/head.
     selling_cost_fraction: FiniteFloat = Field(default=0.03, ge=0.0, le=0.5)
     transport_cost_per_head: FiniteFloat = Field(default=100.0, ge=0.0, le=MAX_MONEY)
+    # Optional surplus-milk sale (meat mode). Osmanabadi is a meat breed, but
+    # does genuinely yield 0.5-1.5 kg/day over their ~60-90 day lactation, so
+    # a farm CAN sell the surplus above the kids' needs. This is the saleable
+    # litres per lactating doe per day (0 = nothing sold, the default); the
+    # engine multiplies it by the lactating-doe pool, the days in the month
+    # and milk_price_per_litre. There is deliberately no lactation curve,
+    # fat pricing or calf-milk accounting — this is a meat projection with a
+    # small milk side-line, not a dairy model.
+    milk_sale_litres_per_doe_day: FiniteFloat = Field(default=0.0, ge=0.0, le=10.0)
+    # ₹/litre for the surplus-milk line (~₹30 farm-gate for goat milk sold
+    # locally in Telangana).
     milk_price_per_litre: FiniteFloat = Field(default=30.0, ge=0.0, le=MAX_MONEY)
-    # Total litres per lactation per doe; 0 for meat breeds (Osmanabadi),
-    # ~110 Sirohi, ~175 Beetal, ~200 Jamunapari (NBAGR descriptors),
-    # 1,800-2,200 for a commercial Murrah (ICAR/NDRI lactation records).
-    lactation_milk_litres: FiniteFloat = Field(default=0.0, ge=0.0, le=MAX_LACTATION_LITRES)
-    # Whole milk fed to retained pre-wean calves (dairy). The farm's own
-    # protocol whole-milk-feeds heifer calves to ~day 90 (~2-3 L/day falling
-    # to ~1 L, ~225 L per calf — NABARD/NDRI calf-rearing budgets carry this
-    # line). The engine nets it out of saleable litres; 0 disables (all milk
-    # saleable, calf rearing priced through calf-starter feed only).
-    calf_milk_litres_per_day_per_calf: FiniteFloat = Field(default=0.0, ge=0.0, le=30.0)
-    # --- dairy lactation economics (used when lactation_milk_litres > 0) ---
-    # Fat-based procurement is how Telangana cooperatives actually pay
-    # (Vijaya/Sangam ~₹840-865/kg fat 2025-26). When > 0, the effective
-    # ₹/litre is milk_price_per_kg_fat × milk_fat_pct / 100 and the flat
-    # per-litre price is ignored.
-    milk_price_per_kg_fat: FiniteFloat = Field(default=0.0, ge=0.0, le=MAX_MONEY)
-    # Murrah milk runs 6.0-7.5% fat.
-    milk_fat_pct: FiniteFloat = Field(default=0.0, ge=0.0, le=12.0)
-    # Geometric monthly decline in yield after peak (persistency ~0.89-0.93
-    # in recorded Murrah populations). The engine normalises the curve so the
-    # lactation total is exactly lactation_milk_litres.
-    milk_persistency_monthly: FiniteFloat = Field(default=0.93, ge=0.5, le=1.0)
-    # Lactation-curve family. "geometric" is the legacy shape (peak in the
-    # first month of milk, then milk_persistency_monthly decline); "wood" is
-    # Wood's incomplete gamma curve (see simulation/lactation.py), which rises
-    # from calving to a peak and then declines — the shape recorded for
-    # Murrah and river buffalo. Both normalise to the same lactation total.
-    milk_curve_shape: Literal["geometric", "wood"] = "geometric"
-    # Day in milk of peak yield, used when milk_curve_shape is "wood".
-    # Published Murrah/river-buffalo lactation-curve fits peak at day 57-73
-    # (~day 65 for Murrah); 65 is the research-backed default. The floor of
-    # 1 day keeps the Wood curve computable (a tinier peak underflows the
-    # gamma's exponential to zero in every monthly bucket).
-    milk_peak_day: FiniteFloat = Field(default=65.0, ge=1.0, le=365.0)
-    # Heat-stress seasonality of yield (Telangana: 10-20% summer trough) and
-    # flush/lean price seasonality; both January-indexed and validated like the
-    # meat multipliers.
-    monthly_milk_yield_multipliers: list[FiniteFloat] = Field(
-        default_factory=lambda: [1.0] * 12,
-        min_length=12,
-        max_length=12,
-    )
-    monthly_milk_price_multipliers: list[FiniteFloat] = Field(
-        default_factory=lambda: [1.0] * 12,
-        min_length=12,
-        max_length=12,
-    )
-    annual_milk_price_growth_rate: FiniteFloat = Field(default=0.05, gt=-1.0, le=1.0)
-    # Male buffalo calves: fraction of male births sold in the first week at a
-    # flat head price (₹2,000-3,000; the sexed-semen strategy makes this the
-    # default exit); the remainder grows on for live-weight meat sale at
-    # sale_age_months.
-    male_calf_sell_at_birth_fraction: FiniteFloat = Field(default=0.0, ge=0.0, le=1.0)
-    male_calf_price_per_head: FiniteFloat = Field(default=0.0, ge=0.0, le=MAX_MONEY)
     # ₹, TNAU budgets.
     manure_income_per_adult_per_year: FiniteFloat = Field(default=900.0, ge=0.0, le=MAX_MONEY)
 
     @field_validator("monthly_meat_price_multipliers")
     @classmethod
     def _bounded_meat_multipliers(cls, value: list[float]) -> list[float]:
-        if any(item <= 0.0 or item > MAX_SEASONAL_MULTIPLIER for item in value):
-            raise ValueError(f"monthly multipliers must be > 0 and <= {MAX_SEASONAL_MULTIPLIER:g}")
-        return value
-
-    @field_validator("monthly_milk_yield_multipliers", "monthly_milk_price_multipliers")
-    @classmethod
-    def _bounded_milk_multipliers(cls, value: list[float]) -> list[float]:
         if any(item <= 0.0 or item > MAX_SEASONAL_MULTIPLIER for item in value):
             raise ValueError(f"monthly multipliers must be > 0 and <= {MAX_SEASONAL_MULTIPLIER:g}")
         return value
@@ -632,6 +629,19 @@ class FeedAssumptions(_Group):
     initial_fodder_stock_kg_dm: FiniteFloat = Field(default=0.0, ge=0.0, le=MAX_MONEY)
     fodder_storage_capacity_kg_dm: FiniteFloat = Field(default=0.0, ge=0.0, le=MAX_MONEY)
     fodder_storage_loss_fraction_monthly: FiniteFloat = Field(default=0.02, ge=0.0, le=1.0)
+    # Water demand (litres/head/day) by class, so the resource plan prices
+    # water alongside fodder. ICAR/National Farm Innovations guidance for
+    # Deccan conditions: adults 5-10 L/day, but a LACTATING doe in the
+    # Telangana summer genuinely drinks 10-15 L/day — the old plans that
+    # carried only fodder acreage hid the single hardest summer constraint.
+    # These are planning means; the engine reports monthly litres and the
+    # peak daily demand by class.
+    water_litres_kid_per_day: FiniteFloat = Field(default=2.0, ge=0.0, le=50.0)
+    water_litres_weaner_per_day: FiniteFloat = Field(default=4.0, ge=0.0, le=50.0)
+    water_litres_grower_per_day: FiniteFloat = Field(default=6.0, ge=0.0, le=50.0)
+    water_litres_doe_per_day: FiniteFloat = Field(default=8.0, ge=0.0, le=50.0)
+    water_litres_lactating_doe_per_day: FiniteFloat = Field(default=12.0, ge=0.0, le=50.0)
+    water_litres_buck_per_day: FiniteFloat = Field(default=9.0, ge=0.0, le=50.0)
 
     @field_validator(
         "monthly_green_price_multipliers",
@@ -693,8 +703,7 @@ class CostsAssumptions(_Group):
     misc_overhead_per_month: FiniteFloat = Field(default=2000.0, ge=0.0, le=MAX_MONEY)
     # Labour, vet and misc overheads escalate with general inflation. The
     # meat/milk/feed price series all grow 4-6%/yr, so a 0% default let every
-    # cost line sit still for a decade while revenue compounded — flattering
-    # NPV by more than the project's entire NPV on the dairy preset. 5%
+    # cost line sit still for a decade while revenue compounded. 5%
     # matches the recent Indian CPI trend these lines actually track.
     operating_cost_growth_rate_annual: FiniteFloat = Field(default=0.05, gt=-1.0, le=1.0)
     # 2025-26 construction rates for a raised-floor stall-fed goat shed
@@ -730,6 +739,14 @@ class FinanceAssumptions(_Group):
     moratorium_months: int = Field(default=12, ge=0, le=60)
     # Capital subsidy as a fraction of project cost; reduces the promoter's equity.
     subsidy_fraction: FiniteFloat = Field(default=0.0, ge=0.0, le=0.9)
+    # National Livestock Mission (NLM) goat-unit toggle: when on, the engine
+    # replaces subsidy_fraction with the scheme's 50% back-ended capital
+    # subsidy, capped per unit size (eligible capital ~₹10,000 per breeding
+    # head — the published bands run from a 100F+5M unit's ~₹10 lakh up to a
+    # 500F+25M unit's ~₹50 lakh; shed, animals, fodder, equipment and
+    # insurance are all eligible). The subsidy is further capped so loan +
+    # subsidy never exceed the project cost (equity stays non-negative).
+    nlm_subsidy: bool = False
     discount_rate_annual: FiniteFloat = Field(default=0.12, ge=0.0, le=0.5)
     # Months of operating cost held as working capital inside the project
     # cost. A breeding-start unit sells its first animal around month 11-12
@@ -802,8 +819,8 @@ class RiskAssumptions(_Group):
     # run. 2**31-1 is well inside the exactly-representable range.
     seed: int = Field(default=42, ge=0, le=2**31 - 1)
     meat_price: RiskVariable = Field(default_factory=lambda: RiskVariable(low=0.80, high=1.20))
-    # Realized milk price (procurement revisions are the dairy's main price
-    # risk: Vijaya moved buffalo ₹48→₹59.50/L within 2025).
+    # Realized price of the optional surplus-milk side-line (local goat-milk
+    # sales are thin, negotiated sales, so the spread stays tight).
     milk_price: RiskVariable = Field(default_factory=lambda: RiskVariable(low=0.85, high=1.15))
     feed_price: RiskVariable = Field(default_factory=lambda: RiskVariable(low=0.90, high=1.25))
     adult_mortality: RiskVariable = Field(default_factory=lambda: RiskVariable(low=0.60, high=1.80))
@@ -908,6 +925,36 @@ class HerdEventAssumptions(_Group):
     price_per_head: FiniteFloat | None = Field(default=None, ge=0.0, le=MAX_MONEY)
 
 
+# Dairy/buffalo assumption keys retired when the model went goat-meat-only
+# (see SimulationAssumptions._drop_retired_dairy_fields). Kept as data, not
+# scattered string literals, so the API contract change is auditable.
+_RETIRED_DAIRY_FIELDS: dict[str, frozenset[str]] = {
+    "reproduction": frozenset(
+        {
+            "sexed_semen_services",
+            "sexed_female_fraction",
+            "sexed_conception_multiplier",
+        }
+    ),
+    "sales": frozenset(
+        {
+            "lactation_milk_litres",
+            "calf_milk_litres_per_day_per_calf",
+            "milk_price_per_kg_fat",
+            "milk_fat_pct",
+            "milk_persistency_monthly",
+            "milk_curve_shape",
+            "milk_peak_day",
+            "monthly_milk_yield_multipliers",
+            "monthly_milk_price_multipliers",
+            "annual_milk_price_growth_rate",
+            "male_calf_sell_at_birth_fraction",
+            "male_calf_price_per_head",
+        }
+    ),
+}
+
+
 class SimulationAssumptions(_Group):
     """Full assumption set; ``SimulationAssumptions()`` is a valid default run."""
 
@@ -927,6 +974,23 @@ class SimulationAssumptions(_Group):
     # unbounded work/payload vector.
     events: list[HerdEventAssumptions] = Field(default_factory=list, max_length=MAX_PLAN_EVENTS)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_retired_dairy_fields(cls, data: object) -> object:
+        # The dairy/buffalo machinery was removed from this goat-meat model
+        # (model 3.3.0). Stored scenarios and older frontends still carry the
+        # retired keys; strip them so those payloads keep validating instead
+        # of dying on the sub-models' extra="forbid". Any OTHER unknown key
+        # still fails loudly, so typo protection is unchanged.
+        if not isinstance(data, dict):
+            return data
+        data = {**data}
+        for group, retired in _RETIRED_DAIRY_FIELDS.items():
+            sub = data.get(group)
+            if isinstance(sub, dict):
+                data[group] = {key: value for key, value in sub.items() if key not in retired}
+        return data
+
     @model_validator(mode="after")
     def _events_within_horizon(self) -> "SimulationAssumptions":
         for event in self.events:
@@ -940,17 +1004,14 @@ class SimulationAssumptions(_Group):
     @model_validator(mode="after")
     def _festival_months_within_horizon(self) -> "SimulationAssumptions":
         if self.sales.festival_sale_months is None:
-            # Auto-fill only meat scenarios (a dairy preset explicitly passes
-            # [] to disable sacrificial-market pricing). Lazy import: market
+            # Every scenario is a meat scenario now, so the Bakrid calendar
+            # auto-fills for the run's own horizon. Lazy import: market
             # imports this module, so a top-level import would be circular.
-            if self.sales.lactation_milk_litres > 0.0:
-                self.sales.festival_sale_months = []
-            else:
-                from .market import bakrid_festival_months
+            from .market import bakrid_festival_months
 
-                self.sales.festival_sale_months = bakrid_festival_months(
-                    self.meta.start_year_month, self.meta.horizon_months
-                )
+            self.sales.festival_sale_months = bakrid_festival_months(
+                self.meta.start_year_month, self.meta.horizon_months
+            )
         if len(set(self.sales.festival_sale_months)) != len(self.sales.festival_sale_months):
             raise ValueError("sales.festival_sale_months must not contain duplicates")
         for month in self.sales.festival_sale_months:

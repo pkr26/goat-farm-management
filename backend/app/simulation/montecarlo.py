@@ -56,7 +56,8 @@ _DRAW_ORDER = (
     "fodder_yield",
     "operating_cost",
     # Last: pre-existing seeded runs draw the same values for the eight
-    # variables above; dairy runs additionally consume the milk draw.
+    # variables above; the milk draw only matters when the surplus-milk
+    # side-line is configured.
     "milk_price",
 )
 
@@ -67,7 +68,7 @@ _DRAW_ORDER = (
 _FACTOR_LOADINGS: dict[str, tuple[float, float, float]] = {
     # market, climate, disease
     "meat_price": (0.80, 0.00, 0.00),
-    # Milk shares the market factor with meat (dairy procurement cycles track
+    # Milk shares the market factor with meat (local milk prices track
     # feed/food inflation) with a slightly tighter loading.
     "milk_price": (0.70, 0.00, 0.00),
     "feed_price": (0.45, 0.60, 0.00),
@@ -197,9 +198,6 @@ def _apply_draws(a: SimulationAssumptions, draws: dict[str, float]) -> Simulatio
     )
     variant.sales.milk_price_per_litre = min(
         MAX_MONEY, variant.sales.milk_price_per_litre * draws["milk_price"]
-    )
-    variant.sales.milk_price_per_kg_fat = min(
-        MAX_MONEY, variant.sales.milk_price_per_kg_fat * draws["milk_price"]
     )
     # The feed-price draw is a PURCHASED-feed price risk: purchased green,
     # dry and concentrate are all bought at market prices. Home-grown green
@@ -517,12 +515,10 @@ def _months_label(base: float, applied: float) -> str:
 
 def _scale_milk_price(v: SimulationAssumptions) -> None:
     v.sales.milk_price_per_litre *= 0.8
-    v.sales.milk_price_per_kg_fat *= 0.8
 
 
 def _scale_milk_price_high(v: SimulationAssumptions) -> None:
     v.sales.milk_price_per_litre = min(MAX_MONEY, v.sales.milk_price_per_litre * 1.2)
-    v.sales.milk_price_per_kg_fat = min(MAX_MONEY, v.sales.milk_price_per_kg_fat * 1.2)
 
 
 def run_sensitivity(a: SimulationAssumptions) -> list[SensitivityItem]:
@@ -556,15 +552,9 @@ def run_sensitivity(a: SimulationAssumptions) -> list[SensitivityItem]:
             ),
         ),
         _SensitivityCase(
-            # Dairy's dominant price driver; the perturbation applies to both
-            # the per-litre and the per-kg-fat price so either pricing basis
-            # moves by the same proportion.
+            # The surplus-milk side-line's only price driver.
             "milk_price",
-            lambda v: (
-                v.sales.milk_price_per_litre
-                if v.sales.milk_price_per_kg_fat <= 0.0
-                else v.sales.milk_price_per_kg_fat
-            ),
+            lambda v: v.sales.milk_price_per_litre,
             _pct_label,
             _scale_milk_price,
             _scale_milk_price_high,

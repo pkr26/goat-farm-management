@@ -175,13 +175,28 @@ def build_metric_explanations(
             key="subsidy_amount",
             title="Subsidy",
             explanation=(
-                f"Capital subsidy at {_pct(fin.subsidy_fraction)} of the project cost: "
-                f"{_inr(m.subsidy_amount)}. This is money you do not have to invest or repay."
-                if m.subsidy_amount > 0.0
-                else "No capital subsidy is assumed. Set a subsidy fraction if your scheme "
-                "(e.g. NABARD/NLM) provides one."
+                (
+                    f"National Livestock Mission (NLM) back-ended capital subsidy: 50% of the "
+                    f"eligible capital (capped per unit size — the scheme's published bands run "
+                    f"from a 100F+5M unit's ~₹10 lakh to a 500F+25M unit's ~₹50 lakh, roughly "
+                    f"₹10,000 per breeding head; shed, animals, fodder, equipment and insurance "
+                    f"are all eligible). This run books {_inr(m.subsidy_amount)} — money you do "
+                    f"not have to invest or repay."
+                )
+                if fin.nlm_subsidy and m.subsidy_amount > 0.0
+                else (
+                    f"Capital subsidy at {_pct(fin.subsidy_fraction)} of the project cost: "
+                    f"{_inr(m.subsidy_amount)}. This is money you do not have to invest or repay."
+                    if m.subsidy_amount > 0.0
+                    else "No capital subsidy is assumed. Set a subsidy fraction or enable the "
+                    "NLM scheme toggle if your scheme (e.g. NABARD/NLM) provides one."
+                )
             ),
-            figures={"subsidy_amount": m.subsidy_amount, "subsidy_fraction": fin.subsidy_fraction},
+            figures={
+                "subsidy_amount": m.subsidy_amount,
+                "subsidy_fraction": fin.subsidy_fraction,
+                "nlm_subsidy": "on" if fin.nlm_subsidy else "off",
+            },
         )
     )
     out.append(
@@ -564,6 +579,31 @@ def _active_festival_months(assumptions: SimulationAssumptions) -> list[int]:
     return []
 
 
+def _litter_expectation_paragraphs(a: SimulationAssumptions, nouns: SpeciesNouns) -> list[str]:
+    """Litter-size expectation keyed to parity, for first-time operators.
+
+    Osmanabadi field records: twinning 35-40% and triplets 5-13% in mature
+    does, while maiden (first-parity) does mostly kid singles. The engine's
+    parity multipliers carry exactly that structure, so the report should
+    prepare the operator for multiples from the second kidding on.
+    """
+    r = a.reproduction
+    if r.litter_size <= 1.0:
+        return []
+    table = r.parity_multipliers.litter_size
+    maiden = r.litter_size * table[0]
+    mature = r.litter_size * table[1] if len(table) > 1 else r.litter_size
+    paragraphs = [
+        f"Expect multiples at {nouns.parturition}: this breed twins in about "
+        f"35-40% of {nouns.parturition}s and triplets run 5-13%, so the "
+        f"average mature litter is ~{mature:.2f} {nouns.young_plural}. "
+        f"First-time {nouns.female_plural} (parity 1) run lighter — about "
+        f"{maiden:.2f} on average, mostly singles — so a maiden crop of "
+        "singles is normal, not a problem."
+    ]
+    return paragraphs
+
+
 def _festival_paragraph(assumptions: SimulationAssumptions, result: SimulationResult) -> list[str]:
     months = _active_festival_months(assumptions)
     if not months:
@@ -604,8 +644,8 @@ def build_narrative_report(
 ) -> list[ReportSection]:
     """The full 'what this means for your farm' report, in display order.
 
-    ``nouns`` carries the farm's species vocabulary so a buffalo dairy report
-    reads "milking buffalo" and "calves", never goat nouns."""
+    ``nouns`` carries the product's species vocabulary (goat-only) so report
+    text and the monthly event log share one wording source."""
     m = result.metrics
     months = result.months
     horizon = a.meta.horizon_months
@@ -692,6 +732,7 @@ def build_narrative_report(
                 f"{nouns.young_plural}, loses "
                 f"{total_deaths:.0f} animals to mortality, sells {total_sold:.0f} for meat "
                 f"and disposes of {total_culled:.0f} as culls.",
+                *_litter_expectation_paragraphs(a, nouns),
             ],
             figures={
                 "start_herd": start.total_herd,
@@ -723,7 +764,7 @@ def build_narrative_report(
                     [
                         ("meat sales", meat),
                         ("cull sales", cull_rev),
-                        ("milk", milk),
+                        ("surplus milk", milk),
                         ("manure", manure),
                     ],
                     total_revenue,
@@ -817,6 +858,15 @@ def build_narrative_report(
                     if result.feed_summary.fodder_deficit_months > 0
                     else "."
                 ),
+                # Water belongs in the resource plan next to fodder: a
+                # lactating doe drinks 10-15 L/day in the Deccan summer, and
+                # the peak-day figure is what storage/borewell sizing must meet.
+                f"Water demand runs about "
+                f"{sum(result.feed_summary.annual_water_litres) / max(years, 1e-9) / 365.0:,.0f} "
+                f"litres/day on average, peaking near "
+                f"{result.feed_summary.peak_water_litres_per_day:,.0f} litres/day — a "
+                "lactating doe needs 10-15 L/day in the Deccan summer, so plan "
+                "storage and supply for the peak, not the average.",
             ],
             figures={
                 "total_opex": total_opex,
@@ -828,6 +878,8 @@ def build_narrative_report(
                 "insurance_cost": insurance,
                 "misc_cost": misc,
                 "land_requirement_acres": result.feed_summary.land_requirement_acres,
+                "annual_water_litres": sum(result.feed_summary.annual_water_litres),
+                "peak_water_litres_per_day": result.feed_summary.peak_water_litres_per_day,
             },
         )
     )

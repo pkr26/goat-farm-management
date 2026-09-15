@@ -1452,7 +1452,7 @@ def test_mirr_and_model_fingerprint_are_reproducible() -> None:
     a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=12))
     first = run_simulation(a, with_break_even=False)
     second = run_simulation(a, with_break_even=False)
-    assert first.model_version == "3.2.0"
+    assert first.model_version == "3.3.0"
     assert first.assumptions_fingerprint == second.assumptions_fingerprint
     changed = a.model_copy(deep=True)
     changed.sales.meat_price_per_kg += 1.0

@@ -175,7 +175,10 @@ async def test_defaults_known_breed(client: httpx.AsyncClient) -> None:
     assert assumptions["herd"]["does"] == 50
     resp = await client.get("/api/simulation/defaults", params={"breed": "sirohi"}, headers=headers)
     assert resp.status_code == 200
-    assert resp.json()["sales"]["lactation_milk_litres"] == 110.0
+    # Meat-mode presets carry the surplus-milk side-line at its zero default.
+    assert resp.json()["sales"]["milk_sale_litres_per_doe_day"] == 0.0
+    # Retired dairy keys are gone from the documented schema.
+    assert "lactation_milk_litres" not in resp.json()["sales"]
     resp = await client.get(
         "/api/simulation/defaults",
         params={"breed": "osmanabadi", "system": "semi_intensive"},
@@ -189,6 +192,31 @@ async def test_defaults_unknown_breed_400(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     resp = await client.get("/api/simulation/defaults", params={"breed": "merino"}, headers=headers)
     assert resp.status_code == 400
+
+
+async def test_run_tolerates_retired_dairy_fields(client: httpx.AsyncClient) -> None:
+    """Payloads from older frontends / stored scenarios may still carry the
+    retired dairy keys; they are stripped, not rejected. A genuinely unknown
+    key still 422s."""
+    headers = await owner_with_farm(client)
+    assumptions = await default_assumptions(client, headers)
+    assumptions["meta"]["horizon_months"] = 12  # cheap run
+    assumptions["sales"]["lactation_milk_litres"] = 110.0
+    assumptions["sales"]["milk_curve_shape"] = "wood"
+    assumptions["sales"]["milk_price_per_kg_fat"] = 850.0
+    assumptions["reproduction"]["sexed_semen_services"] = 2
+    resp = await client.post(
+        "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+    # The retired dairy values must not leak milk revenue into the meat run.
+    assert all(month["milk_revenue"] == 0.0 for month in resp.json()["months"])
+
+    assumptions["sales"]["not_a_real_field"] = 1.0
+    resp = await client.post(
+        "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
+    )
+    assert resp.status_code == 422
 
 
 async def test_defaults_breeds_list(client: httpx.AsyncClient) -> None:
@@ -1109,7 +1137,7 @@ async def test_run_can_return_bounded_optimization(client: httpx.AsyncClient) ->
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["model_version"] == "3.2.0"
+    assert body["model_version"] == "3.3.0"
     assert len(body["assumptions_fingerprint"]) == 64
     assert body["optimization"]["evaluated_candidates"] <= 3
     assert body["optimization"]["feasible_candidates"] >= 0

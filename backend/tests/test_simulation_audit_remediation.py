@@ -84,12 +84,12 @@ def test_horizon_inside_festival_coverage_warns_nothing() -> None:
     res = run_simulation(a, with_break_even=False)
     # The run ends in 2049, inside the 2050 table: no caveat.
     assert res.warnings == []
-    # A dairy-style run with the uplift explicitly disabled has nothing to
-    # warn about either.
-    dairy = a.model_copy(deep=True)
-    dairy.sales.lactation_milk_litres = 100.0
-    dairy_res = run_simulation(dairy, with_break_even=False)
-    assert dairy_res.warnings == []
+    # A run with the uplift explicitly disabled has nothing to warn about
+    # either.
+    no_festival = a.model_copy(deep=True)
+    no_festival.sales.festival_sale_months = []
+    no_festival_res = run_simulation(no_festival, with_break_even=False)
+    assert no_festival_res.warnings == []
 
 
 def test_festival_hold_degrades_gracefully_past_coverage() -> None:

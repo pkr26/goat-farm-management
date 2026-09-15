@@ -174,7 +174,7 @@ async def test_extreme_magnitudes_are_422(client: httpx.AsyncClient) -> None:
     cases: list[tuple[str, str, float]] = [
         ("sales", "meat_price_per_kg", 1e308),  # the exact crash vector
         ("sales", "milk_price_per_litre", 1e308),
-        ("sales", "lactation_milk_litres", 1e308),
+        ("sales", "milk_sale_litres_per_doe_day", 1e308),
         ("herd", "doe_purchase_price", 1e308),
         ("costs", "labour_per_month", 1e308),
         ("feed", "concentrate_price_per_kg", 1e15),  # past the ₹1e9 cap

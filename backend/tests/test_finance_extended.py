@@ -3583,8 +3583,10 @@ async def test_reports_cull_identities_require_breeding_view(
         tag="REPORT-PRIVATE",
         sex="F",
         bucket="BREEDING",
-        date_of_birth=iso(today() - timedelta(days=400)),
-        purchase_date=iso(today() - timedelta(days=400)),
+        # Old enough to clear the 12-month first-service floor at the most
+        # backdated breeding below (600 - 75 days ≈ 17 months).
+        date_of_birth=iso(today() - timedelta(days=600)),
+        purchase_date=iso(today() - timedelta(days=600)),
         purchase_price=7654.0,
         seller_name="Report Secret Seller",
         notes="Report-only users must not see this",
