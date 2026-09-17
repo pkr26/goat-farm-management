@@ -12,7 +12,8 @@ from decimal import Decimal
 from typing import Annotated, Any, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -230,10 +231,12 @@ async def review_finding(
 ) -> ScreeningFindingReviewOut:
     """Record a vet verdict on one finding (confirm / reject).
 
-    ``expected_status`` is optimistic concurrency: a review that races
-    another reviewer (or a re-screen) fails with 409 instead of silently
-    overwriting the corpus. Re-reviewing a settled finding re-submits with
-    its current status as ``expected_status``.
+    ``expected_status`` is optimistic concurrency: the transition runs as
+    one guarded UPDATE (``WHERE status = expected_status``), so a review
+    racing another reviewer — or a re-screen — fails with 409 instead of
+    silently overwriting the corpus, no matter how the requests interleave.
+    Re-reviewing a settled finding re-submits with its current status as
+    ``expected_status``.
     """
     if not 1 <= finding_id <= MAX_INT32_ID:
         raise HTTPException(status_code=404, detail="Screening finding not found")
@@ -248,7 +251,26 @@ async def review_finding(
     if finding is None:
         # Missing and cross-farm ids deliberately share one response.
         raise HTTPException(status_code=404, detail="Screening finding not found")
-    if finding.status != payload.expected_status:
+    result = cast(
+        CursorResult[Any],
+        await db.execute(
+            update(ScreeningFinding)
+            .where(
+                ScreeningFinding.farm_id == farm.id,
+                ScreeningFinding.id == finding_id,
+                ScreeningFinding.status == payload.expected_status,
+            )
+            .values(
+                status=payload.status,
+                reviewed_by_id=user.id,
+                reviewed_at=utcnow(),
+                review_note=payload.review_note,
+            )
+        ),
+    )
+    if result.rowcount != 1:
+        # The row exists (checked above) but its status moved between the
+        # read and the write: another reviewer won the race.
         raise HTTPException(
             status_code=409,
             detail=(
@@ -256,10 +278,6 @@ async def review_finding(
                 "reload and re-submit with the current status as expected_status"
             ),
         )
-    finding.status = payload.status
-    finding.reviewed_by_id = user.id
-    finding.reviewed_at = utcnow()
-    finding.review_note = payload.review_note
     await db.commit()
     await db.refresh(finding)
     return ScreeningFindingReviewOut.model_validate(finding)
@@ -520,15 +538,19 @@ async def _batch_progress(
             progress["images_screened"] += int(count)
         if status == "FLAGGED":
             progress["images_flagged"] += int(count)
-        bucket_key = bucket or "UNKNOWN"
-        bucket_progress = progress["buckets"].setdefault(
-            bucket_key, {"uploaded": 0, "screened": 0, "flagged": 0}
-        )
-        bucket_progress["uploaded"] += int(count)
-        if status in _TERMINAL_SCREENED_STATUSES:
-            bucket_progress["screened"] += int(count)
-        if status == "FLAGGED":
-            bucket_progress["flagged"] += int(count)
+        # Batch-linked rows always carry a bucket (the upload flow requires
+        # it); a NULL-bucket row (hand-written data, a future writer bug)
+        # still counts toward the totals but has no per-pen entry — "UNKNOWN"
+        # is not a bucket and would fail the output vocabulary.
+        if bucket is not None:
+            bucket_progress = progress["buckets"].setdefault(
+                bucket, {"uploaded": 0, "screened": 0, "flagged": 0}
+            )
+            bucket_progress["uploaded"] += int(count)
+            if status in _TERMINAL_SCREENED_STATUSES:
+                bucket_progress["screened"] += int(count)
+            if status == "FLAGGED":
+                bucket_progress["flagged"] += int(count)
 
     outs: dict[int, ScreeningBatchOut] = {}
     for batch_id, progress in aggregates.items():

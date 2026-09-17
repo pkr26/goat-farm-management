@@ -12614,7 +12614,7 @@
           "screening"
         ],
         "summary": "Review Finding",
-        "description": "Record a vet verdict on one finding (confirm / reject).\n\n``expected_status`` is optimistic concurrency: a review that races\nanother reviewer (or a re-screen) fails with 409 instead of silently\noverwriting the corpus. Re-reviewing a settled finding re-submits with\nits current status as ``expected_status``.",
+        "description": "Record a vet verdict on one finding (confirm / reject).\n\n``expected_status`` is optimistic concurrency: the transition runs as\none guarded UPDATE (``WHERE status = expected_status``), so a review\nracing another reviewer \u2014 or a re-screen \u2014 fails with 409 instead of\nsilently overwriting the corpus, no matter how the requests interleave.\nRe-reviewing a settled finding re-submits with its current status as\n``expected_status``.",
         "operationId": "review_finding_api_screening_findings__finding_id__review_post",
         "security": [
           {

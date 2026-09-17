@@ -57,13 +57,14 @@ async def _run_loop(stop: asyncio.Event) -> None:
             if summary.claimed or summary.notes:
                 logger.info(
                     "screening cycle: listed=%d claimed=%d healthy=%d flagged=%d "
-                    "skipped=%d errors=%d notes=%s",
+                    "skipped=%d errors=%d expired_uploads=%d notes=%s",
                     summary.listed,
                     summary.claimed,
                     summary.healthy,
                     summary.flagged,
                     summary.skipped,
                     summary.errors,
+                    summary.expired_uploads,
                     summary.notes,
                 )
         except Exception:

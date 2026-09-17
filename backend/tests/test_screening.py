@@ -14,6 +14,7 @@ import base64
 import datetime as dt
 import io
 import json
+import struct
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -59,6 +60,7 @@ from app.services.screening.specialists import (
     parse_specialist_response,
     specialist_for_region,
 )
+from app.utils import utcnow
 
 from .conftest import owner_with_farm
 
@@ -1283,3 +1285,153 @@ async def test_direct_bucket_key_carries_bucket(client: httpx.AsyncClient) -> No
         image = (await db.execute(select(ScreeningImage))).scalar_one()
     assert image.bucket == "QUARANTINE"
     assert image.status == "HEALTHY"
+
+
+# --------------------------------------------------------------------------
+# Regression: audit fixes (starvation, review race, bombs, NULL buckets)
+# --------------------------------------------------------------------------
+
+
+async def test_abandoned_pending_uploads_expire_and_free_the_budget(
+    client: httpx.AsyncClient,
+) -> None:
+    """The starvation bug this pins: PENDING rows whose presigned URL died
+    long ago used to be re-claimed every cycle, oldest first — once they
+    reached the per-cycle budget, no new key was ever screened again."""
+    headers = await owner_with_farm(client, email="abandoned@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    today = dt.date.today().isoformat()
+
+    # 12 abandoned rows (budget is 10 in _cycle_settings), aged far past
+    # the presign expiry + slack horizon.
+    aged = utcnow() - dt.timedelta(hours=3)
+    async with get_sessionmaker()() as db:
+        for i in range(12):
+            db.add(
+                ScreeningImage(
+                    farm_id=farm_id,
+                    s3_bucket="goat-photos",
+                    s3_key=f"raw/{farm_id}/2026-01-01/abandoned{i}.jpg",
+                    captured_date=dt.date(2026, 1, 1),
+                    status="PENDING",
+                    created_at=aged,
+                    updated_at=aged,
+                )
+            )
+        await db.commit()
+
+    storage = FakeStorage()
+    storage.objects[f"raw/{farm_id}/{today}/fresh.jpg"] = _jpeg_bytes(1000, 2000)
+    provider = CountingProvider(name="fake")
+    async with get_sessionmaker()() as db:
+        summary = await run_screening_cycle(
+            db, _cycle_settings(), storage, ProviderRotation([provider])
+        )
+        images = list(
+            (await db.execute(select(ScreeningImage).order_by(ScreeningImage.id))).scalars()
+        )
+
+    assert summary.expired_uploads == 12
+    assert any("expired to SKIPPED" in note for note in summary.notes)
+    # The fresh photo is claimed and screened in the same cycle — the
+    # abandoned rows no longer monopolize the budget.
+    assert summary.claimed == 1
+    assert summary.healthy == 1
+    assert provider.calls == 1
+    by_key = {image.s3_key: image for image in images}
+    assert by_key[f"raw/{farm_id}/{today}/fresh.jpg"].status == "HEALTHY"
+    for i in range(12):
+        abandoned = by_key[f"raw/{farm_id}/2026-01-01/abandoned{i}.jpg"]
+        assert abandoned.status == "SKIPPED"
+        assert "never arrived" in (abandoned.error or "")
+
+
+async def test_concurrent_reviews_resolve_to_exactly_one_verdict(
+    client: httpx.AsyncClient,
+) -> None:
+    """Two vets reviewing the same finding at the same moment: the guarded
+    UPDATE must let exactly one through — the loser gets a 409, never a
+    silent last-write-wins overwrite of the training corpus."""
+    headers = await owner_with_farm(client, email="race-owner@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    today = dt.date.today().isoformat()
+
+    storage = FakeStorage()
+    storage.objects[f"raw/{farm_id}/{today}/wide.jpg"] = _jpeg_bytes(2000, 1000)
+    async with get_sessionmaker()() as db:
+        await run_screening_cycle(
+            db, _cycle_settings(), storage, ProviderRotation([CountingProvider(name="fake")])
+        )
+        finding = (await db.execute(select(ScreeningFinding))).scalar_one()
+
+    confirm, reject = await asyncio.gather(
+        client.post(
+            f"/api/screening/findings/{finding.id}/review",
+            json={"status": "CONFIRMED", "expected_status": "PENDING_REVIEW"},
+            headers=headers,
+        ),
+        client.post(
+            f"/api/screening/findings/{finding.id}/review",
+            json={"status": "REJECTED", "expected_status": "PENDING_REVIEW"},
+            headers=headers,
+        ),
+    )
+    assert sorted([confirm.status_code, reject.status_code]) == [200, 409]
+    async with get_sessionmaker()() as db:
+        settled = (
+            await db.execute(select(ScreeningFinding).where(ScreeningFinding.id == finding.id))
+        ).scalar_one()
+    expected = "CONFIRMED" if confirm.status_code == 200 else "REJECTED"
+    assert settled.status == expected
+    assert settled.reviewed_at is not None
+
+
+def test_normalize_rejects_decompression_bomb() -> None:
+    # A PNG whose IHDR claims 60k×60k (3.6 Gpx) trips Pillow's
+    # decompression-bomb guard at open() — the guard's error is NOT an
+    # OSError, so it must be translated, not escape as a generic failure.
+    # The IHDR CRC is recomputed so the file survives the CRC check and
+    # actually reaches the pixel-budget check.
+    import zlib
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (64, 64)).save(buffer, format="PNG")
+    forged = bytearray(buffer.getvalue())
+    struct.pack_into(">II", forged, 16, 60_000, 60_000)
+    forged[29:33] = struct.pack(">I", zlib.crc32(bytes(forged[12:29])) & 0xFFFFFFFF)
+    with pytest.raises(ImageNormalizationError, match="pixel"):
+        normalize_image(bytes(forged), max_edge=1568)
+
+
+async def test_batch_progress_tolerates_null_bucket_rows(
+    client: httpx.AsyncClient,
+) -> None:
+    """Batch-linked rows always carry a bucket in practice, but a NULL
+    bucket (hand-written data, a future writer bug) must not turn the
+    batches listing into a 500 — it counts toward the totals with no
+    per-pen entry instead."""
+    headers = await owner_with_farm(client, email="null-bucket@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    batch = await client.post("/api/screening/batches", headers=headers)
+    assert batch.status_code == 201, batch.text
+    batch_id = batch.json()["id"]
+
+    async with get_sessionmaker()() as db:
+        db.add(
+            ScreeningImage(
+                farm_id=farm_id,
+                batch_id=batch_id,
+                s3_bucket="goat-photos",
+                s3_key=f"raw/{farm_id}/2026-09-17/legacy.jpg",
+                status="FLAGGED",
+            )
+        )
+        await db.commit()
+
+    listed = await client.get("/api/screening/batches", headers=headers)
+    assert listed.status_code == 200, listed.text
+    row = next(b for b in listed.json()["batches"] if b["id"] == batch_id)
+    assert row["images_uploaded"] == 1
+    assert row["images_screened"] == 1
+    assert row["images_flagged"] == 1
+    assert row["buckets"] == []

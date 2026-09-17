@@ -14244,10 +14244,12 @@ export const getReviewFindingApiScreeningFindingsFindingIdReviewPostUrl = (findi
 /**
  * Record a vet verdict on one finding (confirm / reject).
  *
- * ``expected_status`` is optimistic concurrency: a review that races
- * another reviewer (or a re-screen) fails with 409 instead of silently
- * overwriting the corpus. Re-reviewing a settled finding re-submits with
- * its current status as ``expected_status``.
+ * ``expected_status`` is optimistic concurrency: the transition runs as
+ * one guarded UPDATE (``WHERE status = expected_status``), so a review
+ * racing another reviewer — or a re-screen — fails with 409 instead of
+ * silently overwriting the corpus, no matter how the requests interleave.
+ * Re-reviewing a settled finding re-submits with its current status as
+ * ``expected_status``.
  * @summary Review Finding
  */
 export const reviewFindingApiScreeningFindingsFindingIdReviewPost = async (findingId: number,

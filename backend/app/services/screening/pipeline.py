@@ -9,7 +9,11 @@ One cycle is bounded (``screening_max_images_per_cycle``) and idempotent
 (the (bucket, key) unique constraint is the claim). New keys, stale
 PROCESSING rows (a crashed worker) and ERROR rows whose last attempt is at
 least an hour old are (re)claimed, so transient provider outages self-heal
-without operator action.
+without operator action. PENDING upload rows whose presigned URL expired
+long ago are swept to SKIPPED — an abandoned walkthrough must not occupy
+the cycle budget forever. Claims are committed durably with
+``FOR UPDATE SKIP LOCKED``, so even two workers sharing the database
+never process the same photo twice.
 """
 
 from __future__ import annotations
@@ -19,9 +23,11 @@ import datetime as dt
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import NamedTuple
+from typing import Any, NamedTuple, cast
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.config import Settings
@@ -75,6 +81,24 @@ STALE_PROCESSING_AFTER = dt.timedelta(minutes=10)
 # Provider blips (timeouts, 5xx) are common; permanent failure is rare.
 # ERROR rows are retried once the last attempt ages past this horizon.
 ERROR_RETRY_AFTER = dt.timedelta(hours=1)
+
+# Slack on top of the presign expiry before an un-PUT upload row is
+# terminalized: clock skew between the API host (row created_at) and the
+# database, plus a slow final S3 write, must not expire a live upload.
+PENDING_SWEEP_SLACK = dt.timedelta(hours=1)
+
+
+def pending_upload_abandoned_after(settings: Settings) -> dt.timedelta:
+    """How long a PENDING row may wait for its bytes.
+
+    A presigned PUT can only ever write bytes while the URL is alive; once
+    it has expired (plus slack) the row is permanently unfulfillable and is
+    swept to SKIPPED so it cannot occupy the cycle budget forever.
+    """
+    return (
+        dt.timedelta(seconds=settings.screening_presign_expiry_seconds)
+        + PENDING_SWEEP_SLACK
+    )
 
 # raw/<farm_id>/<YYYY-MM-DD>/[<BUCKET>/]<filename> — farm id, capture date
 # and (since the disease-check upload flow) the herd bucket ride the key
@@ -135,18 +159,64 @@ class CycleSummary:
     skipped: int = 0
     errors: int = 0
     retried_errors: int = 0
+    expired_uploads: int = 0
     notes: list[str] = field(default_factory=list)
 
 
-async def _claim_retry_rows(db: AsyncSession, limit: int, now: dt.datetime) -> list[ScreeningImage]:
+async def _expire_abandoned_uploads(
+    db: AsyncSession, now: dt.datetime, abandoned_after: dt.timedelta
+) -> int:
+    """Terminalize PENDING rows whose presigned URL expired long ago.
+
+    Without this, every abandoned walkthrough (URL minted, phone never
+    uploaded) permanently occupies a slot in the per-cycle budget — old
+    rows sort first, so once they reach ``max_images_per_cycle`` no new
+    key is ever claimed again. SKIPPED rows are terminal: the bytes can
+    no longer arrive, because the URL that could write them is dead.
+    """
+    result = cast(
+        CursorResult[Any],
+        await db.execute(
+            update(ScreeningImage)
+            .where(
+                ScreeningImage.status == ScreeningImageStatus.PENDING.value,
+                ScreeningImage.created_at < now - abandoned_after,
+            )
+            .values(
+                status=ScreeningImageStatus.SKIPPED.value,
+                error="presigned upload never arrived (URL expired)",
+            )
+        ),
+    )
+    return int(result.rowcount or 0)
+
+
+async def _claim_retry_rows(
+    db: AsyncSession,
+    limit: int,
+    now: dt.datetime,
+    abandoned_after: dt.timedelta,
+) -> tuple[list[ScreeningImage], int]:
     """PENDING uploads, stale PROCESSING claims and aged ERROR rows, oldest first.
 
     PENDING rows are how the presigned-upload flow pre-registers photos:
     the API inserts the row when it mints the URL, the phone PUTs the
     bytes, and the next cycle claims the row (skipping it quietly if the
-    object has not landed yet)."""
+    object has not landed yet). PENDING rows older than the presign
+    expiry are left for ``_expire_abandoned_uploads`` instead.
+
+    The claim is a durable commit (rows go to PROCESSING inside this
+    transaction): two workers running side by side cannot claim the same
+    row, because the second one's ``FOR UPDATE SKIP LOCKED`` scan skips
+    rows the first still holds and no longer sees the ones it committed.
+    A worker that crashes mid-cycle leaves PROCESSING rows that the stale
+    reclaim below picks up.
+
+    Returns the claimed rows plus how many of them were ERROR retries.
+    """
     retry_horizon = now - ERROR_RETRY_AFTER
     stale_horizon = now - STALE_PROCESSING_AFTER
+    pending_horizon = now - abandoned_after
     latest_run = (
         select(
             ScreeningRun.image_id.label("image_id"),
@@ -160,7 +230,10 @@ async def _claim_retry_rows(db: AsyncSession, limit: int, now: dt.datetime) -> l
         select(ScreeningImage)
         .outerjoin(latest_run, latest_run.c.image_id == ScreeningImage.id)
         .where(
-            (ScreeningImage.status == ScreeningImageStatus.PENDING.value)
+            (
+                (ScreeningImage.status == ScreeningImageStatus.PENDING.value)
+                & (ScreeningImage.created_at >= pending_horizon)
+            )
             | (
                 (ScreeningImage.status == ScreeningImageStatus.PROCESSING.value)
                 & (ScreeningImage.updated_at < stale_horizon)
@@ -172,8 +245,20 @@ async def _claim_retry_rows(db: AsyncSession, limit: int, now: dt.datetime) -> l
         )
         .order_by(ScreeningImage.created_at.asc())
         .limit(limit)
+        # Only screening_images rows are locked; the outer-joined subquery
+        # stays unlocked (PostgreSQL forbids locking its nullable side).
+        .with_for_update(skip_locked=True, of=ScreeningImage)
     )
-    return list(result.scalars())
+    rows = list(result.scalars())
+    error_retries = sum(
+        1 for row in rows if row.status == ScreeningImageStatus.ERROR.value
+    )
+    for row in rows:
+        row.status = ScreeningImageStatus.PROCESSING.value
+        row.error = None
+    await db.flush()
+    await db.commit()  # durable claim: released lock, visible PROCESSING
+    return rows, error_retries
 
 
 async def run_screening_cycle(
@@ -218,10 +303,22 @@ async def run_screening_cycle(
         )
 
     budget = settings.screening_max_images_per_cycle
-    # Pre-registered rows first (PENDING uploads, stale claims, aged
-    # errors) — claimed BEFORE this cycle mints new rows, so a fresh row
-    # can never be selected twice in one pass.
-    claimed: list[ScreeningImage] = await _claim_retry_rows(db, budget, utcnow())
+    abandoned_after = pending_upload_abandoned_after(settings)
+    # Expire abandoned uploads BEFORE claiming (same transaction): without
+    # the sweep, stale PENDING rows would monopolize the claim below.
+    expired = await _expire_abandoned_uploads(db, utcnow(), abandoned_after)
+    if expired:
+        summary.expired_uploads = expired
+        summary.notes.append(
+            f"{expired} abandoned PENDING uploads expired to SKIPPED "
+            f"(presigned URL older than {abandoned_after})"
+        )
+    # Pre-registered rows first (fresh PENDING uploads, stale claims, aged
+    # errors). The claim is committed durably and new rows below insert
+    # straight to PROCESSING, so no row can ever be processed twice — not
+    # within one cycle, and not across two workers sharing the database.
+    claimed, error_retries = await _claim_retry_rows(db, budget, utcnow(), abandoned_after)
+    summary.retried_errors += error_retries
 
     already_claimed: set[str] = set()
     if claimable_keys:
@@ -236,21 +333,42 @@ async def run_screening_cycle(
             ).scalars()
         )
 
-    for key in [k for k in claimable_keys if k not in already_claimed][
+    new_keys = [key for key in claimable_keys if key not in already_claimed][
         : max(0, budget - len(claimed))
-    ]:
-        candidate = parsed[key]
-        image = ScreeningImage(
-            farm_id=candidate.farm_id,
-            bucket=candidate.bucket,
-            s3_bucket=storage.bucket,
-            s3_key=key,
-            captured_date=candidate.captured_date,
-            status=ScreeningImageStatus.PENDING.value,
+    ]
+    if new_keys:
+        # ON CONFLICT DO NOTHING: a second worker (or a pre-registered
+        # upload row for the same key) loses the race silently instead of
+        # failing the cycle. Surviving rows insert directly as PROCESSING —
+        # the durable claim — so the commit below publishes them claimed.
+        inserted = await db.execute(
+            pg_insert(ScreeningImage)
+            .values(
+                [
+                    {
+                        "farm_id": parsed[key].farm_id,
+                        "bucket": parsed[key].bucket,
+                        "s3_bucket": storage.bucket,
+                        "s3_key": key,
+                        "captured_date": parsed[key].captured_date,
+                        "status": ScreeningImageStatus.PROCESSING.value,
+                    }
+                    for key in new_keys
+                ]
+            )
+            .on_conflict_do_nothing(index_elements=["s3_bucket", "s3_key"])
+            .returning(ScreeningImage.id)
         )
-        db.add(image)
-        claimed.append(image)
-    await db.flush()
+        inserted_ids = list(inserted.scalars())
+        await db.commit()
+        if inserted_ids:
+            claimed.extend(
+                (
+                    await db.execute(
+                        select(ScreeningImage).where(ScreeningImage.id.in_(inserted_ids))
+                    )
+                ).scalars()
+            )
 
     summary.claimed = len(claimed)
     for image in claimed:
@@ -572,8 +690,9 @@ async def _process_image(
     image: ScreeningImage,
     summary: CycleSummary,
 ) -> None:
-    if image.status == ScreeningImageStatus.ERROR.value:
-        summary.retried_errors += 1
+    # The claim already committed the row as PROCESSING (error cleared);
+    # re-asserting here keeps this function safe if it is ever handed a
+    # PENDING row directly.
     image.status = ScreeningImageStatus.PROCESSING.value
     image.error = None
     await db.flush()

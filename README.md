@@ -1026,7 +1026,11 @@ something to see.
   to a bounded derivative (EXIF stripped, longest edge
   `GOATFARM_SCREENING_IMAGE_MAX_EDGE_PX`), skips byte-identical duplicates,
   and runs the gate model. Everything is farm-scoped and per-image
-  committed, so one bad photo never blocks the batch.
+  committed, so one bad photo never blocks the batch. Claims commit
+  durably under `FOR UPDATE SKIP LOCKED` (two workers can never double-
+  screen a photo), and PENDING upload rows whose presigned URL expired
+  (plus an hour of slack) are swept to SKIPPED so an abandoned walkthrough
+  cannot occupy the cycle budget forever.
 - **Providers**: `GOATFARM_SCREENING_PROVIDER=anthropic` (Messages API) or
   `openai_compatible` (GLM / GPT / any OpenAI-shaped endpoint). Both answer
   the identical prompt + JSON contract (`app/services/screening/gate.py`).

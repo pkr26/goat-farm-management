@@ -50,6 +50,11 @@ def normalize_image(data: bytes, max_edge: int) -> NormalizedImage:
             rgb.save(buffer, format="JPEG", quality=JPEG_QUALITY, optimize=True)
     except UnidentifiedImageError as exc:
         raise ImageNormalizationError("not a recognizable image format") from exc
+    except Image.DecompressionBombError as exc:
+        # Not an OSError subclass: without this arm a hostile "photo" whose
+        # header claims billions of pixels escapes as a generic pipeline
+        # failure and retries hourly instead of a clean, labeled error.
+        raise ImageNormalizationError(f"image exceeds the decode pixel budget: {exc}") from exc
     except OSError as exc:
         raise ImageNormalizationError(f"image decode failed: {exc}") from exc
     encoded = buffer.getvalue()

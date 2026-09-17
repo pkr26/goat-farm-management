@@ -65,9 +65,10 @@ export function DiseaseCheckDialog({
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // A fresh walkthrough starts a fresh batch on open. Resetting local
-  // dialog state when `open` flips is the same derived-reset pattern the
-  // health page uses for its URL-driven offsets.
+  // A fresh walkthrough starts clean on open. The batch itself is minted
+  // lazily on the first successful upload attempt: opening the dialog to
+  // look around (or losing signal before any photo) must not leave empty
+  // ScreeningBatch rows piling up in the walkthrough list.
   useEffect(() => {
     if (!open) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -75,17 +76,7 @@ export function DiseaseCheckDialog({
     setSelectedBucket(null);
     setUploadedByBucket({});
     setPendingFile(null);
-    setSelectedBucket(null);
-    setUploadedByBucket({});
-    setPendingFile(null);
-    createBatch.mutate(undefined, {
-      onSuccess: (result) => {
-        if (result.status === 201) setBatchId(result.data.id);
-      },
-      onError: () => toast.error(t("screening.check.noBatch")),
-    });
-    // createBatch.mutate is stable; the effect must run per open only.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setPreviewUrl(null);
   }, [open]);
 
   // Revoke object URLs when the preview changes or the dialog closes.
@@ -110,13 +101,30 @@ export function DiseaseCheckDialog({
     setPreviewUrl(URL.createObjectURL(file));
   };
 
+  const ensureBatchId = async (): Promise<number | null> => {
+    if (batchId !== null) return batchId;
+    try {
+      const result = await createBatch.mutateAsync(undefined);
+      if (result.status === 201) {
+        setBatchId(result.data.id);
+        return result.data.id;
+      }
+      return null;
+    } catch {
+      toast.error(t("screening.check.noBatch"));
+      return null;
+    }
+  };
+
   const uploadPendingPhoto = async () => {
-    if (!pendingFile || !selectedBucket || batchId === null) return;
+    if (!pendingFile || !selectedBucket) return;
     setUploading(true);
     try {
+      const activeBatchId = await ensureBatchId();
+      if (activeBatchId === null) return;
       const extension = pendingFile.type === "image/png" ? ".png" : ".jpg";
       const result = await requestUploadApiScreeningUploadsPost({
-        batch_id: batchId,
+        batch_id: activeBatchId,
         bucket: selectedBucket as "BREEDING",
         file_name: `photo${extension}`,
         content_type: pendingFile.type as "image/jpeg" | "image/png",
@@ -253,7 +261,7 @@ export function DiseaseCheckDialog({
               </Button>
               <Button
                 onClick={uploadPendingPhoto}
-                disabled={pendingFile === null || uploading || batchId === null}
+                disabled={pendingFile === null || uploading}
               >
                 {uploading ? (
                   t("screening.check.uploading")

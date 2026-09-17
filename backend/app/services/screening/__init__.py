@@ -37,6 +37,7 @@ from .pipeline import (
     ParsedRawKey,
     normalized_derivative_key,
     parse_raw_key,
+    pending_upload_abandoned_after,
     run_screening_cycle,
 )
 from .providers import (
@@ -111,6 +112,7 @@ __all__ = [
     "parse_gate_response",
     "parse_raw_key",
     "parse_specialist_response",
+    "pending_upload_abandoned_after",
     "run_gate",
     "run_screening_cycle",
     "run_specialist",
