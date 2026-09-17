@@ -144,6 +144,52 @@ services:
       - goatfarm_app
       - goatfarm_data
 
+  # Disease-screening worker: same image as the API, different entrypoint.
+  # Polls the S3 bucket (GOATFARM_SCREENING_S3_PREFIX) and drives the gate
+  # model pipeline. Idles harmlessly while GOATFARM_SCREENING_ENABLED is
+  # false, so the service can ship in every environment.
+  screening-worker:
+    build: .
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    # Image normalization is the memory high-water mark: Pillow decodes one
+    # HD photo at a time inside a bounded per-cycle batch.
+    mem_limit: 1g
+    cpus: 1.0
+    logging: *default-logging
+    stop_grace_period: 40s
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      GOATFARM_DATABASE_URL: '${GOATFARM_DATABASE_URL:?copy .env.example to .env and set the full API URL}'
+      GOATFARM_DB_SSLMODE: ${GOATFARM_DB_SSLMODE:-disable}
+      GOATFARM_ENVIRONMENT: ${GOATFARM_ENVIRONMENT:-development}
+      GOATFARM_SCREENING_ENABLED: ${GOATFARM_SCREENING_ENABLED:-false}
+      GOATFARM_S3_ENDPOINT_URL: ${GOATFARM_S3_ENDPOINT_URL:-}
+      GOATFARM_S3_REGION: ${GOATFARM_S3_REGION:-us-east-1}
+      GOATFARM_S3_BUCKET: ${GOATFARM_S3_BUCKET:-}
+      GOATFARM_S3_ACCESS_KEY_ID: ${GOATFARM_S3_ACCESS_KEY_ID:-}
+      GOATFARM_S3_SECRET_ACCESS_KEY: ${GOATFARM_S3_SECRET_ACCESS_KEY:-}
+      GOATFARM_SCREENING_S3_PREFIX: ${GOATFARM_SCREENING_S3_PREFIX:-raw}
+      GOATFARM_SCREENING_POLL_INTERVAL_SECONDS: ${GOATFARM_SCREENING_POLL_INTERVAL_SECONDS:-300}
+      GOATFARM_SCREENING_MAX_IMAGES_PER_CYCLE: ${GOATFARM_SCREENING_MAX_IMAGES_PER_CYCLE:-50}
+      GOATFARM_SCREENING_PROVIDER: ${GOATFARM_SCREENING_PROVIDER:-anthropic}
+      GOATFARM_SCREENING_PROVIDER_ROTATION: '${GOATFARM_SCREENING_PROVIDER_ROTATION:-[]}'
+      GOATFARM_SCREENING_CROP_DETECTION_ENABLED: ${GOATFARM_SCREENING_CROP_DETECTION_ENABLED:-true}
+      GOATFARM_SCREENING_MAX_CROPS_PER_IMAGE: ${GOATFARM_SCREENING_MAX_CROPS_PER_IMAGE:-8}
+      GOATFARM_SCREENING_ANTHROPIC_API_KEY: ${GOATFARM_SCREENING_ANTHROPIC_API_KEY:-}
+      GOATFARM_SCREENING_ANTHROPIC_MODEL: ${GOATFARM_SCREENING_ANTHROPIC_MODEL:-claude-sonnet-4-5}
+      GOATFARM_SCREENING_OPENAI_API_KEY: ${GOATFARM_SCREENING_OPENAI_API_KEY:-}
+      GOATFARM_SCREENING_OPENAI_BASE_URL: ${GOATFARM_SCREENING_OPENAI_BASE_URL:-https://api.openai.com/v1}
+      GOATFARM_SCREENING_OPENAI_MODEL: ${GOATFARM_SCREENING_OPENAI_MODEL:-gpt-5}
+    command: ["python", "-m", "app.worker"]
+    networks:
+      - goatfarm_data
+
   frontend:
     build:
       context: ./frontend

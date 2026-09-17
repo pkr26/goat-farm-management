@@ -40,6 +40,7 @@ from .api import (
     ops_simulation,
     planner,
     purchases,
+    screening,
     simulation,
     tasks,
     team,
@@ -475,10 +476,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # edge IP; a bare deployment (or one that adds an OUTER TLS terminator
     # without extending GOATFARM_TRUSTED_PROXY_HOSTS) must hear about it.
     settings = get_settings()
-    if (
-        settings.environment == "production"
-        and not settings.trusted_proxy_hosts
-    ):
+    if settings.environment == "production" and not settings.trusted_proxy_hosts:
         logger.warning(
             "GOATFARM_TRUSTED_PROXY_HOSTS is empty in production: X-Forwarded-For "
             "is ignored and every client shares one rate-limit identity. If any "
@@ -553,9 +551,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         ),
         name="cadence-materialization",
     )
-    throttle_summary_task = asyncio.create_task(
-        _throttle_summary_loop(), name="throttle-summary"
-    )
+    throttle_summary_task = asyncio.create_task(_throttle_summary_loop(), name="throttle-summary")
     try:
         yield
     finally:
@@ -888,6 +884,7 @@ def create_app() -> FastAPI:
     app.include_router(simulation.router)
     app.include_router(planner.router)
     app.include_router(ops_simulation.router)
+    app.include_router(screening.router)
     return app
 
 

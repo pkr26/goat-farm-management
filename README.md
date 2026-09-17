@@ -1009,3 +1009,119 @@ frontend/
   credentialed and pinned to the frontend origin.
 - The v1 Jinja app was removed after the rewrite; its behavioral contract
   lives on in `backend/tests/`.
+
+## Disease screening (photo pipeline, Phase 1)
+
+Daily goat photos dropped into an S3 bucket are screened by a vision model
+for visible disease signs (orf lesions, pox, pinkeye, hoof infection, …).
+Healthy verdicts stop there — the cascade spends money only on photos with
+something to see.
+
+- **Upload layout**: `raw/<farm_id>/<YYYY-MM-DD>/<filename>` under the
+  configured bucket. The farm id and capture date ride the key itself.
+- **Worker**: `screening-worker` compose service (same image as the API,
+  `python -m app.worker`). Polls every
+  `GOATFARM_SCREENING_POLL_INTERVAL_SECONDS`, claims new keys (plus stale
+  PROCESSING rows and ERROR rows older than an hour), normalizes each photo
+  to a bounded derivative (EXIF stripped, longest edge
+  `GOATFARM_SCREENING_IMAGE_MAX_EDGE_PX`), skips byte-identical duplicates,
+  and runs the gate model. Everything is farm-scoped and per-image
+  committed, so one bad photo never blocks the batch.
+- **Providers**: `GOATFARM_SCREENING_PROVIDER=anthropic` (Messages API) or
+  `openai_compatible` (GLM / GPT / any OpenAI-shaped endpoint). Both answer
+  the identical prompt + JSON contract (`app/services/screening/gate.py`).
+- **Review**: `GET /api/screening/images` (list, latest verdict, pending
+  finding count) and `GET /api/screening/images/{id}` (runs, findings,
+  short-lived presigned photo URL) back the frontend **Photo screening**
+  page (health.view permission). Screenings are flags for a vet check, not
+  diagnoses.
+- **Off by default** (`GOATFARM_SCREENING_ENABLED=false` boots everything as
+  before); enabling with incomplete S3/provider credentials fails startup
+  fail-closed. All knobs: `backend/.env.example`.
+
+The three audit tables (`screening_images`, `screening_runs`,
+`screening_findings`) record provider, model, prompt version and confidence
+per call — the corpus later fine-tuning builds on.
+
+## Disease screening Phase 2: rotation, specialists, vet review
+
+The cascade now runs: **gate → (if flagged) specialists + cross-check**.
+
+- **Round-robin**: `GOATFARM_SCREENING_PROVIDER_ROTATION` is a JSON array of
+  named providers (e.g. `claude`, `glm`). The day's ordinal picks the gate
+  primary — Monday Claude, Tuesday GLM — with zero stored state; a failed
+  primary falls through to the next provider, and the run row records who
+  actually served (`detail.served_by`, `detail.fallbacks_failed`).
+- **Specialists**: gate observations map to body-region specialists
+  (skin/eye/hoof/udder/general) with bounded disease vocabularies (ORF,
+  goat pox, ringworm, mange, CL, pinkeye, FAMACHA anemia, foot rot,
+  FMD-suspect, mastitis, …). Specialist conditions become the findings;
+  unknown model guesses are coerced to `OTHER` with the original kept in
+  the note. If every specialist call fails, the gate's own observations
+  remain the findings — the queue is never silently empty.
+- **Cross-check**: flagged photos get one second-opinion gate call from the
+  *next* provider in the rotation. Disagreement does not drop the finding
+  (screening is cheap, a missed disease is not) — the review page shows
+  "models disagree" and the human decides.
+- **Vet review**: `POST /api/screening/findings/{id}/review`
+  (`health.manage`) confirms/rejects a finding with optimistic concurrency
+  (`expected_status`; races get 409). Confirmed/rejected rows accumulate as
+  the training corpus and carry reviewer + timestamp + note.
+- Healthy photos still cost exactly one call — the cost cascade from
+  Phase 1 is unchanged.
+
+## Disease screening Phase 3: multi-goat crops, stats, dataset export
+
+The pipeline's final shape: **detect → per-goat cascade → vet review →
+training corpus**.
+
+- **Multi-goat detection**: one VLM call per photo returns a bounding box
+  per goat (0-1000 normalized); each crop runs the full cascade
+  independently, so a healthy goat costs one gate call even in a photo
+  where its pen-mate is flagged. Zero detected goats — or a failed
+  detection call — falls back to screening the whole photo: a detection
+  miss can never leave a herd un-screened. Retries reuse the original
+  boxes and re-screen only errored crops, so already-flagged goats never
+  produce duplicate findings. Boxes and crop derivatives
+  (`screening/<farm>/<date>/<sha>-c<N>.jpg`) are persisted.
+  `GOATFARM_SCREENING_CROP_DETECTION_ENABLED=false` restores whole-photo
+  behavior; `GOATFARM_SCREENING_MAX_CROPS_PER_IMAGE` caps goats per photo.
+- **Provider scoreboard** (`GET /api/screening/stats?days=30`,
+  health.view): gate volume, flag rate, error rate, average latency,
+  cross-check agreement, and vet-confirmed/rejected/pending finding counts
+  per provider — the measured comparison that makes the round-robin a
+  quality tool, not just vendor insurance. Surfaced as the "Provider
+  scoreboard" card on the Photo screening page.
+- **Dataset export** (`GET /api/screening/export?vet_status=…`,
+  health.manage): every reviewed finding with its image/crop S3 keys,
+  detection box, label, severity and vet verdict — the fine-tuning corpus.
+  The page's "Export dataset" button downloads it as JSON. When the
+  labeled set grows large enough, a fine-tuned classifier can slot in
+  behind the same `VisionProvider` seam and the rotation adapts.
+
+## Disease check walkthrough (the upload flow)
+
+The "Disease check" button on the Photo screening page runs the whole
+on-farm capture loop with **no AWS credentials on any device**:
+
+1. **Start**: the dialog creates a batch (`POST /api/screening/batches`) —
+   one "walkthrough" of the farm.
+2. **Per pen**: the worker picks a herd bucket (the same pens as the
+  _buckets_ module), takes a photo (`capture="environment"` opens the
+   camera), and taps upload per photo. The app requests a presigned PUT
+   (`POST /api/screening/uploads`) — the server builds the key
+   `raw/<farm>/<date>/<bucket>/<batch>-<id>.jpg` and pre-creates the
+   PENDING image row — then PUTs the bytes **straight to S3** (signed
+   content-type, ≤ the presign expiry). The API never proxies photo bytes.
+3. **Finish & process**: `POST /api/screening/batches/{id}/submit` locks
+   the batch; the worker's next cycle claims the PENDING rows (an object
+   that has not landed yet is quietly re-checked next cycle, never an
+   error) and every photo runs the full cascade with its bucket recorded.
+4. **Review**: results appear in the review list (filterable by bucket),
+   per-goat crops included.
+
+Operational guidance (≥10 clear photos per bucket) is surfaced in the UI
+rather than hard-enforced — small pens legitimately have fewer goats.
+Direct S3 uploads still work: keys with a bucket segment
+(`raw/<farm>/<date>/<QUARANTINE>/x.jpg`) are parsed; legacy keys keep
+screening as whole-farm photos.

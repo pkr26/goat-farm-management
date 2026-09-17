@@ -12,6 +12,7 @@ import {
   CalendarClock,
   ChartColumn,
   ClipboardList,
+  Camera,
   FlaskConical,
   HeartPulse,
   IndianRupee,
@@ -93,6 +94,12 @@ const NAV_GROUPS: { labelKey: MessageKey; items: NavItem[] }[] = [
     labelKey: "nav.group.healthFeed",
     items: [
       { href: "/health", labelKey: "nav.health", perm: "health.view", icon: Stethoscope },
+      {
+        href: "/screening",
+        labelKey: "nav.screening",
+        perm: "health.view",
+        icon: Camera,
+      },
       { href: "/feeding", labelKey: "nav.feeding", perm: "feeding.view", icon: Wheat },
     ],
   },
@@ -150,6 +157,7 @@ const ROUTE_TITLES: [RegExp, MessageKey][] = [
   [/^\/health\/new/, "doc.title.addHealthEvent"],
   [/^\/health\/schedule/, "doc.title.vaccinationSchedule"],
   [/^\/health/, "doc.title.health"],
+  [/^\/screening/, "doc.title.screening"],
   [/^\/feeding\/inventory/, "doc.title.feedInventory"],
   [/^\/feeding\/recipes/, "doc.title.feedRecipes"],
   [/^\/feeding/, "doc.title.feeding"],

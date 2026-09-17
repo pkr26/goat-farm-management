@@ -20,6 +20,12 @@ dependencies = [
     "cryptography==50.0.0",
     "argon2-cffi==25.1.0",
     "prometheus-client==0.26.0",
+    # Disease-screening worker: S3 access (sync boto3, wrapped in threads),
+    # image normalization, and outbound vision-model calls (httpx moves from
+    # dev-only to runtime: production provider traffic now depends on it).
+    "boto3==1.40.11",
+    "Pillow==11.3.0",
+    "httpx==0.28.1",
 ]
 
 [project.optional-dependencies]
@@ -57,6 +63,13 @@ exclude = ["alembic/versions/", "\\.venv/"]
 
 [[tool.mypy.overrides]]
 module = ["alembic.*"]
+ignore_missing_imports = true
+
+# boto3/botocore ship no type stubs (boto3-stubs would pull per-service
+# packages for one client). The s3 wrapper confines every untyped call and
+# casts at the boundary.
+[[tool.mypy.overrides]]
+module = ["boto3.*", "botocore.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

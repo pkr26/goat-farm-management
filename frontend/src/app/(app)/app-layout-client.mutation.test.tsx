@@ -53,7 +53,7 @@ function navGroupItems(label: string) {
 
 async function renderShell() {
   const rendered = renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
-  await waitFor(() => expect(navLinks()).toHaveLength(15));
+  await waitFor(() => expect(navLinks()).toHaveLength(16));
   return rendered;
 }
 
@@ -70,6 +70,7 @@ describe("AppLayout — document titles", () => {
     ["/feeding/inventory", "Feed inventory"],
     ["/breeding/5/ultrasound", "Ultrasound"],
     ["/no-access", "No access"],
+    ["/screening", "Photo screening"],
   ])("titles %s as %s", async (pathname, title) => {
     navState.pathname = pathname;
     await renderShell();

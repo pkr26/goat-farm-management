@@ -33,6 +33,12 @@ const STATUS_TONES: Record<string, StatusTone> = {
   // needs attention
   QUARANTINE: "warning",
   PENDING: "warning",
+  PROCESSING: "info",
+  HEALTHY: "success",
+  FLAGGED: "destructive",
+  SKIPPED: "info",
+  PENDING_REVIEW: "warning",
+  REJECTED: "info",
   AWAITING_VERIFICATION: "warning",
   ASSISTED: "warning",
   UPCOMING: "warning",

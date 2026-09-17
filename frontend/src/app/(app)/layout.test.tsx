@@ -57,6 +57,7 @@ const ALL_NAV_LABELS = [
   "Breeding",
   "Kidding",
   "Health",
+  "Screening",
   "Purchases",
   "Feeding",
   "Tasks",
@@ -476,11 +477,11 @@ describe("AppLayout — permission-gated nav", () => {
     replaceMock.mockClear();
   });
 
-  it("shows all 15 goat-farm nav items to the farm owner", async () => {
+  it("shows all 16 goat-farm nav items to the farm owner", async () => {
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     await screen.findByText("Test Goat Farm");
-    await waitFor(() => expect(navLinks()).toHaveLength(15));
+    await waitFor(() => expect(navLinks()).toHaveLength(16));
     for (const label of ALL_NAV_LABELS) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
     }
@@ -578,7 +579,7 @@ describe("AppLayout — permission-gated nav", () => {
   it("nav links point at their module routes", async () => {
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
-    await waitFor(() => expect(navLinks()).toHaveLength(15));
+    await waitFor(() => expect(navLinks()).toHaveLength(16));
     const expected: Record<string, string> = {
       Dashboard: "/dashboard",
       Animals: "/animals",
@@ -586,6 +587,7 @@ describe("AppLayout — permission-gated nav", () => {
       Breeding: "/breeding",
       Kidding: "/kidding",
       Health: "/health",
+      Screening: "/screening",
       Purchases: "/purchases",
       Feeding: "/feeding",
       Tasks: "/tasks",
@@ -604,7 +606,7 @@ describe("AppLayout — permission-gated nav", () => {
   it("highlights the nav item matching the current path", async () => {
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
-    await waitFor(() => expect(navLinks()).toHaveLength(15));
+    await waitFor(() => expect(navLinks()).toHaveLength(16));
     // usePathname is mocked to /dashboard.
     expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute(
       "data-active",
@@ -635,7 +637,7 @@ describe("AppLayout — permission-gated nav", () => {
     navState.pathname = "/dashboard";
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
-    await waitFor(() => expect(navLinks()).toHaveLength(15));
+    await waitFor(() => expect(navLinks()).toHaveLength(16));
     // The group heading is the only thing that explains why Health and
     // Feeding sit together; without it the sidebar is one flat list.
     expect(navGroupItems("Overview")).toEqual(["Dashboard"]);
@@ -675,7 +677,7 @@ describe("AppLayout — permission-gated nav", () => {
   it("keeps the permissions-failure notice out of a healthy sidebar", async () => {
     const { unmount } = renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
-    await waitFor(() => expect(navLinks()).toHaveLength(15));
+    await waitFor(() => expect(navLinks()).toHaveLength(16));
     expect(
       screen.queryByText(/Could not load your permissions/),
     ).not.toBeInTheDocument();
@@ -777,7 +779,7 @@ describe("AppLayout — loading and no-farm states", () => {
   it("never sends a session that already has an active farm to /farm-select", async () => {
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
-    await waitFor(() => expect(navLinks()).toHaveLength(15));
+    await waitFor(() => expect(navLinks()).toHaveLength(16));
     // The farm gate is the only navigation this shell performs; bouncing a
     // fully selected session would make every page load lose its route.
     expect(replaceMock).not.toHaveBeenCalled();

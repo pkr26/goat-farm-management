@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
@@ -119,6 +119,43 @@ class MigrationSettings(BaseSettings):
                 "in production — use 'verify-full'"
             )
         return self
+
+
+class ScreeningRotationProvider(BaseModel):
+    """One entry of GOATFARM_SCREENING_PROVIDER_ROTATION.
+
+    JSON array of these, e.g.
+    [{"kind":"anthropic","name":"claude","model":"claude-sonnet-4-5","api_key":"…"},
+     {"kind":"openai_compatible","name":"glm","base_url":"https://open.bigmodel.cn/api/paas/v4",
+      "model":"glm-4.6v","api_key":"…"}]
+    """
+
+    kind: Literal["anthropic", "openai_compatible"]
+    name: str = Field(min_length=1, max_length=40)
+    base_url: str | None = None
+    api_key: SecretStr
+    model: str = Field(min_length=1, max_length=120)
+
+    @field_validator("name")
+    @classmethod
+    def _slug_name(cls, value: str) -> str:
+        """The name lands in screening_runs.provider (bounded text) and in
+        worker logs; keep it a stable ASCII slug so reports group correctly."""
+        normalized = value.strip().lower()
+        if not normalized or not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", normalized):
+            raise ValueError(f"provider name {value!r} must be a short slug (a-z, 0-9, -, _)")
+        return normalized
+
+    @field_validator("base_url")
+    @classmethod
+    def _https_base_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        host = urlsplit(value).hostname or ""
+        is_loopback = host in {"localhost", "127.0.0.1", "::1"}
+        if urlsplit(value).scheme != "https" and not is_loopback:
+            raise ValueError(f"{value!r} must use https:// (loopback allowed for local gateways)")
+        return value.rstrip("/")
 
 
 class Settings(BaseSettings):
@@ -325,8 +362,8 @@ class Settings(BaseSettings):
 
     # Tenant resource ceilings prevent a compromised team manager from
     # provisioning an unbounded number of global accounts or custom roles.
-    # Inactive memberships still count because they retain a User row and can
-    # be reactivated without another capacity check.
+    # Inactive memberships still count because they retain a User row and can be
+    # reactivated without another capacity check.
     max_team_members_per_farm: int = Field(default=200, ge=1, le=10_000)
     max_roles_per_farm: int = Field(default=50, ge=1, le=1_000)
     max_simulation_scenarios_per_farm: int = Field(default=25, ge=1, le=500)
@@ -335,6 +372,93 @@ class Settings(BaseSettings):
     # grow the actionable queue without bound. Completed/skipped history and
     # authoritative generated workflow duties do not consume this allowance.
     max_pending_manual_tasks_per_farm: int = Field(default=5_000, ge=1, le=100_000)
+
+    # --- Disease screening (daily S3 photo batches → gate model) -----------
+    # The whole feature is off until explicitly enabled, so a deployment
+    # without an S3 bucket or model credentials boots exactly as before.
+    # Images arrive as daily uploads under
+    #   <prefix>/<farm_id>/<YYYY-MM-DD>/<filename>
+    # and are screened by a single gate model; healthy verdicts stop there
+    # (the cascade), flagged images record findings for review.
+    screening_enabled: bool = False
+    # S3-compatible storage. endpoint_url unset means AWS S3 proper; an
+    # explicit endpoint (MinIO, R2, LocalStack) is how dev/test run.
+    s3_endpoint_url: str | None = None
+    s3_region: str = "us-east-1"
+    s3_bucket: str | None = None
+    s3_access_key_id: SecretStr | None = None
+    s3_secret_access_key: SecretStr | None = None
+    # Only keys under this prefix are ever listed or downloaded.
+    screening_s3_prefix: str = Field(default="raw", min_length=1, max_length=100)
+    # The poll loop's cadence and per-cycle intake bound. One cycle lists the
+    # prefix and screens at most this many new keys; a large backlog drains
+    # over successive cycles instead of one unbounded batch.
+    screening_poll_interval_seconds: int = Field(default=300, ge=30)
+    screening_max_images_per_cycle: int = Field(default=50, ge=1, le=1_000)
+    # VLM cost scales with pixels: normalize every image to this longest-edge
+    # before it is ever sent to a provider.
+    screening_image_max_edge_px: int = Field(default=1_568, ge=256, le=4_096)
+    # Phase 3 multi-goat detection: one detection call per photo, then the
+    # cascade runs per detected goat. Zero boxes (or a failed detection
+    # call) falls back to screening the whole photo, so nothing is ever
+    # left un-screened by a detection miss.
+    screening_crop_detection_enabled: bool = True
+    # Upper bound on goats screened from a single photo; extra boxes are
+    # ignored (a photo claiming 30 goats is a detection hallucination).
+    screening_max_crops_per_image: int = Field(default=8, ge=1, le=20)
+    # Presigned image URLs handed to the review UI live this long.
+    screening_presign_expiry_seconds: int = Field(default=900, ge=60, le=86_400)
+    # Phase 1 ships a single gate provider. "anthropic" calls the Messages
+    # API; "openai_compatible" covers every OpenAI-shaped endpoint (GLM, GPT,
+    # local gateways) and is the seam the Phase 2 round-robin rotates over.
+    screening_provider: Literal["anthropic", "openai_compatible"] = "anthropic"
+    screening_anthropic_base_url: str = "https://api.anthropic.com"
+    screening_anthropic_api_key: SecretStr | None = None
+    screening_anthropic_model: str = "claude-sonnet-4-5"
+    screening_openai_base_url: str = "https://api.openai.com/v1"
+    screening_openai_api_key: SecretStr | None = None
+    screening_openai_model: str = "gpt-5"
+    # Phase 2 round-robin: ordered provider list as a JSON array. The day's
+    # ordinal picks the primary (date.toordinal() % len) — Monday Claude,
+    # Tuesday GLM falls out of the list order with zero stored state. The
+    # next entry serves the flagged-image cross-check and the primary's
+    # failure fallback. An empty list keeps Phase 1's single-provider
+    # behavior (built from the screening_provider fields above).
+    screening_provider_rotation: list[ScreeningRotationProvider] = Field(
+        default_factory=list, max_length=8
+    )
+    # A gate call that exceeds this is abandoned and retried next cycle.
+    screening_provider_timeout_seconds: int = Field(default=120, ge=10, le=600)
+
+    @field_validator("screening_s3_prefix")
+    @classmethod
+    def _valid_screening_prefix(cls, value: str) -> str:
+        """A prefix with a leading slash or '..' escapes the intended key
+        space when concatenated into list/download calls; reject it here
+        rather than trusting every call site to sanitize."""
+        normalized = value.strip("/")
+        if not normalized or ".." in normalized.split("/"):
+            raise ValueError(
+                "GOATFARM_SCREENING_S3_PREFIX must be a simple path prefix "
+                "(no leading slash, no '..' segments)"
+            )
+        return normalized
+
+    @field_validator("screening_anthropic_base_url", "screening_openai_base_url")
+    @classmethod
+    def _https_provider_base_url(cls, value: str) -> str:
+        """Model credentials ride every one of these requests; an http://
+        base URL would broadcast them to the network path. Loopback
+        exceptions keep local gateways (ollama, LiteLLM) usable in dev."""
+        parsed = urlsplit(value)
+        host = parsed.hostname or ""
+        is_loopback = host in {"localhost", "127.0.0.1", "::1"}
+        if parsed.scheme != "https" and not is_loopback:
+            raise ValueError(
+                f"{value!r} must use https:// (or an explicit loopback host for "
+                "local model gateways)"
+            )
+        return value.rstrip("/")
 
     @field_validator("jwt_issuer", "jwt_audience")
     @classmethod
@@ -564,6 +688,48 @@ class Settings(BaseSettings):
                 f"{', '.join(sorted(unknown_env))} — check the spelling against "
                 "backend/.env.example"
             )
+        # Screening must be fully configured or fully off — in every
+        # environment, not just production. A worker that boots "enabled"
+        # with a missing bucket or provider key would log errors forever
+        # while the farm believes photos are being screened.
+        if self.screening_enabled:
+            missing: list[str] = []
+            if not self.s3_bucket:
+                missing.append("GOATFARM_S3_BUCKET")
+            if not self.s3_access_key_id or not self.s3_secret_access_key:
+                missing.append("GOATFARM_S3_ACCESS_KEY_ID / GOATFARM_S3_SECRET_ACCESS_KEY")
+            if self.screening_provider_rotation:
+                # Rotation entries carry their own credentials; a blank key
+                # inside the JSON blob is the same silent failure a missing
+                # env var would be.
+                names = [entry.name for entry in self.screening_provider_rotation]
+                if len(set(names)) != len(names):
+                    missing.append(
+                        "GOATFARM_SCREENING_PROVIDER_ROTATION with duplicate provider names"
+                    )
+                blank_keys = [
+                    entry.name
+                    for entry in self.screening_provider_rotation
+                    if not entry.api_key.get_secret_value().strip()
+                ]
+                if blank_keys:
+                    missing.append(
+                        f"GOATFARM_SCREENING_PROVIDER_ROTATION blank api_key for: "
+                        f"{', '.join(blank_keys)}"
+                    )
+            else:
+                if self.screening_provider == "anthropic" and not self.screening_anthropic_api_key:
+                    missing.append("GOATFARM_SCREENING_ANTHROPIC_API_KEY")
+                if (
+                    self.screening_provider == "openai_compatible"
+                    and not self.screening_openai_api_key
+                ):
+                    missing.append("GOATFARM_SCREENING_OPENAI_API_KEY")
+            if missing:
+                raise ValueError(
+                    "GOATFARM_SCREENING_ENABLED=true but incomplete screening config: "
+                    f"{', '.join(missing)} — supply the values or leave screening disabled"
+                )
         if self.environment != "production":
             return self
         problems: list[str] = []
