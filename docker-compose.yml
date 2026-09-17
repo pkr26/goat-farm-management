@@ -288,11 +288,13 @@ configs:
           proxy_set_header X-Forwarded-Proto ${GOATFARM_EDGE_PUBLIC_SCHEME:-http};
           proxy_http_version 1.1;
           # Reject oversized bodies at the edge rather than inside the
-          # application. Templated from the same operator knob the backend
-          # reads (GOATFARM_MAX_REQUEST_BODY_BYTES, default 1048576 = 1m) so
-          # the two limits can never silently drift apart (INFRA-4,
-          # 2026-09-16). Compose interpolates this value into the config
-          # blob at render time.
+          # application. This knob (nginx size units) and the backend's
+          # GOATFARM_MAX_REQUEST_BODY_BYTES (bytes) are independent — keep
+          # them at the same byte count when you change either. The defaults
+          # (1m = 1048576) are equal, and that default correspondence is
+          # pinned by test; raising only one still leaves the edge 413ing
+          # bodies the other would accept (INFRA-4, 2026-09-16). Compose
+          # interpolates this value into the config blob at render time.
           client_max_body_size ${GOATFARM_EDGE_MAX_BODY_SIZE:-1m};
           # INFRA-7 (2026-09-16): no nginx version disclosure on responses
           # or error pages.

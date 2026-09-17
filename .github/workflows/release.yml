@@ -224,6 +224,13 @@ jobs:
       # gate-scanned image, and only after that verification are the two
       # per-arch manifests (with their provenance/SBOM attestations)
       # assembled into the release tag with `buildx imagetools create`.
+      #
+      # Known, bounded exception to "nothing is pushed before verification"
+      # (2026-09-17 re-audit): registry-side verification requires the
+      # per-arch bits to exist in the registry, so the two-phase push is
+      # inherent. The per-arch "-publish-*" tags are short-lived scaffolding
+      # — never referenced by a deploy — and the cleanup step at the end of
+      # this job removes them when verification fails.
 
       - name: Publish backend image (linux/amd64, exact gate bits)
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
@@ -332,6 +339,46 @@ jobs:
           frontend_digest="$(docker buildx imagetools inspect --raw "${FRONTEND_IMAGE}:${TAG}" | sha256sum | cut -d' ' -f1)"
           echo "backend_digest=sha256:${backend_digest}" >> "$GITHUB_OUTPUT"
           echo "frontend_digest=sha256:${frontend_digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Remove unverified per-arch publish tags on failure
+        # 2026-09-17 re-audit: a verification divergence (or a mid-publish
+        # crash) correctly aborts the release, but the four "-publish-*"
+        # tags it already pushed would otherwise linger in GHCR holding
+        # never-verified bits until the next release overwrote them. Delete
+        # the package versions carrying those tags. Best-effort: if the
+        # GITHUB_TOKEN's packages:write cannot delete (org policy), say so
+        # loudly instead of failing the already-failed job — the release tag
+        # itself was never assembled, so nothing deployable exists.
+        if: failure() || cancelled()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BACKEND_IMAGE: ${{ env.BACKEND_IMAGE }}
+          FRONTEND_IMAGE: ${{ env.FRONTEND_IMAGE }}
+          TAG: ${{ env.TAG }}
+        run: |
+          set -euo pipefail
+          owner="$(printf '%s' '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          if gh api "orgs/${owner}" >/dev/null 2>&1; then
+            api_base="orgs/${owner}"
+          else
+            api_base="user"
+          fi
+          for image in "$BACKEND_IMAGE" "$FRONTEND_IMAGE"; do
+            package="${image##*/}"
+            for arch in amd64 arm64; do
+              tag="${TAG}-publish-${arch}"
+              ids="$(gh api --paginate "${api_base}/packages/container/${package}/versions" \
+                | jq -r --arg tag "$tag" \
+                  '.[] | select((.metadata.container.tags // []) | index($tag)) | .id' || true)"
+              for id in $ids; do
+                if gh api -X DELETE "${api_base}/packages/container/${package}/versions/${id}"; then
+                  echo "removed unverified ${image}:${tag} (package version ${id})"
+                else
+                  echo "::warning::could not remove ${image}:${tag} (package version ${id}); delete it manually in the package settings"
+                fi
+              done
+            done
+          done
 
   release:
     name: GitHub release with SBOMs

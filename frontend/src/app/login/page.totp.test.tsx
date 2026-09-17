@@ -51,16 +51,28 @@ function installMfaLogin() {
   return () => challengeBody;
 }
 
+/** Counts refresh attempts: a wrong code is a 401 *answer* on the challenge
+ * route and must not trigger the refresh machinery (2026-09-17 re-audit). */
+function countRefreshCalls() {
+  const calls = { count: 0 };
+  server.use(
+    http.post("/api/auth/refresh", () => {
+      calls.count += 1;
+      return new HttpResponse(null, { status: 401 });
+    }),
+  );
+  return calls;
+}
+
 describe("LoginPage TOTP challenge step", () => {
   beforeEach(() => {
     pushMock.mockClear();
-    server.use(
-      http.post("/api/auth/refresh", () => new HttpResponse(null, { status: 401 })),
-    );
+    countRefreshCalls();
   });
 
   it("demands the code, exchanges it, and only then signs in", async () => {
     const getChallengeBody = installMfaLogin();
+    const refresh = countRefreshCalls();
     const user = userEvent.setup();
     renderWithProviders(<LoginPage />);
 
@@ -68,22 +80,29 @@ describe("LoginPage TOTP challenge step", () => {
     await user.type(screen.getByLabelText(/password/i), "demo1234");
     await user.click(screen.getByRole("button", { name: /sign in/i }));
 
-    // Password accepted: the code step appears; no session was created.
+    // Password accepted: the code step appears; no session was created and
+    // the typed credentials are no longer on screen.
     const codeInput = await screen.findByLabelText(/authenticator code/i);
     expect(screen.getByText(/two-factor authentication/i)).toBeTruthy();
+    expect(screen.queryByLabelText(/password/i)).toBeNull();
+    expect(screen.queryByLabelText(/email/i)).toBeNull();
+    // Baseline after the mount bootstrap's own refresh attempt.
+    const refreshBeforeSubmit = refresh.count;
 
     await user.type(codeInput, "123456");
-    await user.click(screen.getByRole("button", { name: /^save$/i }));
+    await user.click(screen.getByRole("button", { name: /^verify code$/i }));
 
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"));
     expect(getChallengeBody()).toEqual({
       mfa_token: "challenge-token",
       code: "123456",
     });
+    expect(refresh.count).toBe(refreshBeforeSubmit);
   });
 
   it("keeps the challenge step and shows the server message on a wrong code", async () => {
     installMfaLogin();
+    const refresh = countRefreshCalls();
     server.use(
       http.post("/api/auth/totp/challenge", () =>
         HttpResponse.json({ detail: "Invalid or expired challenge." }, { status: 401 }),
@@ -97,13 +116,17 @@ describe("LoginPage TOTP challenge step", () => {
     await user.click(screen.getByRole("button", { name: /sign in/i }));
 
     const codeInput = await screen.findByLabelText(/authenticator code/i);
+    // Baseline after the mount bootstrap's own refresh attempt.
+    const refreshBeforeSubmit = refresh.count;
     await user.type(codeInput, "000000");
-    await user.click(screen.getByRole("button", { name: /^save$/i }));
+    await user.click(screen.getByRole("button", { name: /^verify code$/i }));
 
     expect(await screen.findByText(/That code is not valid right now/i)).toBeTruthy();
     // Still on the challenge step: the code input remains.
     expect(screen.getByLabelText(/authenticator code/i)).toBeTruthy();
     expect(pushMock).not.toHaveBeenCalledWith("/dashboard");
+    // The 401 is the answer; no refresh/rotation is spun up around it.
+    expect(refresh.count).toBe(refreshBeforeSubmit);
   });
 
   it("backs out of the challenge step to the plain password form", async () => {

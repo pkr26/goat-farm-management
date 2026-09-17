@@ -116,7 +116,25 @@ if os.environ.get("MOCK_PG_DUMP_FAIL") == "1":
 record("pg_restore")
 if "--list" in sys.argv and os.environ.get("MOCK_PG_RESTORE_LIST_FAIL") == "1":
     raise SystemExit(8)
-if "--list" not in sys.argv:
+if "--table=alembic_version" in sys.argv:
+    # Pre-flight revision extraction: emit the marker row the restore floor
+    # parses. Default is the CURRENT head — an allowed revision (the old
+    # default, f7d8c9b0a1e2, pre-dates the purge floor and only passed the
+    # old lexicographic comparison by accident).
+    output = next(
+        (
+            argument.split("=", 1)[1]
+            for argument in sys.argv
+            if argument.startswith("--file=")
+        ),
+        None,
+    )
+    if output is None:
+        print("mock pg_restore expected a marker output file", file=sys.stderr)
+        raise SystemExit(7)
+    marker = os.environ.get("MOCK_BACKUP_ALEMBIC_REVISION", "a19b2569d466")
+    Path(output).write_text(marker + "\\n")
+elif "--list" not in sys.argv:
     output = next(
         (
             argument.split("=", 1)[1]
@@ -158,7 +176,7 @@ if "atomic_restore_guard" in command:
 elif "user_namespaces" in command:
     print(os.environ.get("MOCK_USER_OBJECT_COUNT", "0"))
 elif "FROM alembic_version" in command:
-    print(os.environ.get("MOCK_ALEMBIC_REVISION", "f7d8c9b0a1e2"))
+    print(os.environ.get("MOCK_ALEMBIC_REVISION", "a19b2569d466"))
 else:
     print("unexpected psql command", file=sys.stderr)
     raise SystemExit(6)
@@ -1319,7 +1337,9 @@ def test_restore_uses_private_snapshot_paths(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     calls = [json.loads(line) for line in _log_text(env).splitlines()]
     restore_calls = [call for call in calls if call["tool"] == "pg_restore"]
-    assert len(restore_calls) == 2
+    # --list structure check, pre-flight alembic_version extraction, and the
+    # private SQL render for the single-transaction restore.
+    assert len(restore_calls) == 3
     assert all(str(archive) not in call["argv"] for call in restore_calls)
     assert all("/source/goatfarm.dump" in " ".join(call["argv"]) for call in restore_calls)
 
@@ -1367,7 +1387,9 @@ def test_restore_rejects_objects_in_any_user_schema_before_mutation(
     assert "contains user schema objects" in result.stderr
     log = _log_text(env)
     assert "user_namespaces" in log
-    assert log.count('"tool": "pg_restore"') == 1
+    # --list plus the pre-flight marker extraction (the SQL render never
+    # happens: the emptiness refusal fires first).
+    assert log.count('"tool": "pg_restore"') == 2
     assert '"--single-transaction"' not in log
 
 
@@ -1419,7 +1441,7 @@ def test_restore_is_single_transaction_sanitizes_credentials_and_checks_alembic(
     result = _run_restore(archive, env)
 
     assert result.returncode == 0, result.stderr
-    assert "Alembic revision f7d8c9b0a1e2" in result.stdout
+    assert "Alembic revision a19b2569d466" in result.stdout
     log = _log_text(env)
     assert '"--single-transaction"' in log
     assert '"--exit-on-error"' in log
@@ -1458,6 +1480,31 @@ def test_restore_failure_uses_atomic_pg_restore_and_skips_success_sanity(
 
 
 def test_restore_fails_closed_when_alembic_marker_is_invalid(tmp_path: Path) -> None:
+    """An archive with no valid revision marker is refused PRE-FLIGHT — the
+    pre-purge rows never reach the target database (2026-09-17 correction:
+    the marker is read from the staged archive before anything connects)."""
+    mock_bin = _install_mock_tools(tmp_path)
+    env = _base_env(tmp_path, mock_bin)
+    env["MOCK_BACKUP_ALEMBIC_REVISION"] = ""
+    archive = tmp_path / "goatfarm.dump"
+    archive.write_bytes(b"archive")
+    _write_checksum(archive)
+
+    result = _run_restore(archive, env)
+
+    assert result.returncode == 2
+    assert "0 Alembic revision markers" in result.stderr
+    log = _log_text(env)
+    assert '"--single-transaction"' not in log
+    assert '"tool": "psql"' not in log
+
+
+def test_restore_fails_closed_when_the_restored_database_reports_a_bad_marker(
+    tmp_path: Path,
+) -> None:
+    """Defense in depth: an archive whose staged marker is fine but whose
+    restored database reports garbage is still refused before success is
+    declared."""
     mock_bin = _install_mock_tools(tmp_path)
     env = _base_env(tmp_path, mock_bin)
     env["MOCK_ALEMBIC_REVISION"] = ""
@@ -1470,6 +1517,30 @@ def test_restore_fails_closed_when_alembic_marker_is_invalid(tmp_path: Path) -> 
     assert result.returncode == 1
     assert "valid Alembic revision" in result.stderr
     assert '"--single-transaction"' in _log_text(env)
+
+
+def test_restore_refuses_pre_purge_backup_before_touching_the_target(
+    tmp_path: Path,
+) -> None:
+    """INFRA-3, end to end (2026-09-17 re-audit's HIGH finding): a backup
+    stamped f7d8c9b0a1e2 PRE-DATES the purge floor yet sorts ABOVE it as a
+    raw string — the original lexicographic comparison let exactly this
+    restore through. The chain-membership floor must refuse it pre-flight."""
+    mock_bin = _install_mock_tools(tmp_path)
+    env = _base_env(tmp_path, mock_bin)
+    env["MOCK_BACKUP_ALEMBIC_REVISION"] = "f7d8c9b0a1e2"
+    archive = tmp_path / "goatfarm.dump"
+    archive.write_bytes(b"archive")
+    _write_checksum(archive)
+
+    result = _run_restore(archive, env)
+
+    assert result.returncode == 2
+    # The helper's message wraps across lines; match within one line.
+    assert "restore-allowed set" in result.stderr
+    log = _log_text(env)
+    assert '"--single-transaction"' not in log
+    assert '"tool": "psql"' not in log
 
 
 def test_production_restore_requires_signed_encrypted_artifact(tmp_path: Path) -> None:
@@ -2305,20 +2376,132 @@ def test_migrations_do_not_inherit_the_request_path_statement_timeout(tmp_path: 
 
 def test_edge_body_cap_and_version_disclosure_are_pinned() -> None:
     """INFRA-4/INFRA-7 (2026-09-16): the edge body cap is templated from the
-    operator knob (no silent drift with GOATFARM_MAX_REQUEST_BODY_BYTES) and
-    nginx version disclosure is off."""
+    operator knob and nginx version disclosure is off. The two knobs remain
+    independent (the edge cannot read the backend's bytes value), so pin the
+    DEFAULTS to the same byte count — the one correspondence that can be
+    tested without a live deployment."""
     compose = (REPO_ROOT / "docker-compose.yml").read_text()
     assert "client_max_body_size ${GOATFARM_EDGE_MAX_BODY_SIZE:-1m};" in compose
     assert "server_tokens off;" in compose
     assert "GOATFARM_EDGE_MAX_BODY_SIZE" in (REPO_ROOT / ".env.example").read_text()
 
+    nginx_default = re.search(
+        r"client_max_body_size \$\{GOATFARM_EDGE_MAX_BODY_SIZE:-(\d+[kKmMgG]?)\};",
+        compose,
+    )
+    assert nginx_default, "templated client_max_body_size default not found in compose"
+    nginx_bytes = _nginx_size_to_bytes(nginx_default.group(1))
+    config_text = (REPO_ROOT / "backend" / "app" / "core" / "config.py").read_text()
+    backend_default = re.search(
+        r"max_request_body_bytes[^=]*=\s*Field\(\s*default=(\d[\d_]*)", config_text
+    )
+    assert backend_default, "GOATFARM_MAX_REQUEST_BODY_BYTES default not found"
+    assert nginx_bytes == int(backend_default.group(1).replace("_", ""))
 
-def test_restore_refuses_backups_predating_the_idempotency_purge() -> None:
-    """INFRA-3 (2026-09-16): restoring a pre-f4e5f6a7b8c9 backup would
-    resurrect unkeyed idempotency fingerprints of password-bearing bodies —
-    the script must carry an explicit revision floor."""
+
+def _nginx_size_to_bytes(size: str) -> int:
+    """nginx size units (client_max_body_size accepts 1024/10k/1m/1g)."""
+    match = re.fullmatch(r"(\d+)([kKmMgG]?)", size)
+    assert match, f"unparsable nginx size: {size!r}"
+    value = int(match.group(1))
+    return value * {"": 1, "k": 1024, "m": 1024**2, "g": 1024**3}[match.group(2).lower()]
+
+
+RESTORE_FLOOR = REPO_ROOT / "backend" / "scripts" / "restore_floor.sh"
+RESTORE_FLOOR_REVISION = "f4e5f6a7b8c9"
+
+
+def _migration_chain() -> list[str]:
+    """Rebuild the linear revision chain from backend/alembic/versions."""
+    revisions: dict[str, str | None] = {}
+    versions_dir = REPO_ROOT / "backend" / "alembic" / "versions"
+    for path in sorted(versions_dir.glob("*.py")):
+        text = path.read_text()
+        match_rev = re.search(r'^revision(?::[^=]*)?\s*=\s*"([0-9a-f]+)"', text, re.M)
+        match_down = re.search(
+            r'^down_revision(?::[^=]*)?\s*=\s*(None|"([0-9a-f]+)")', text, re.M
+        )
+        if match_rev:
+            revisions[match_rev.group(1)] = (
+                match_down.group(2) if match_down and match_down.group(2) else None
+            )
+    children: dict[str, list[str]] = {}
+    for revision, parent in revisions.items():
+        if parent:
+            children.setdefault(parent, []).append(revision)
+    heads = [revision for revision in revisions if revision not in children]
+    assert len(heads) == 1, f"migration chain has {len(heads)} heads: {heads}"
+    chain: list[str] = []
+    current = next(revision for revision, parent in revisions.items() if parent is None)
+    while current:
+        chain.append(current)
+        successors = children.get(current)
+        assert successors is None or len(successors) == 1, "migration chain is not linear"
+        current = successors[0] if successors else None
+    assert len(chain) == len(revisions)
+    return chain
+
+
+def _floor_allows(revision: str) -> bool:
+    result = subprocess.run(
+        ["bash", str(RESTORE_FLOOR), revision],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    return result.returncode == 0
+
+
+def test_restore_floor_allows_the_chain_from_the_purge_onward() -> None:
+    """INFRA-3 (corrected 2026-09-17): every revision at-or-after the purge
+    floor — including the CURRENT head, whose random hex sorts below the
+    floor as a raw string — must pass the floor check."""
+    chain = _migration_chain()
+    floor_index = chain.index(RESTORE_FLOOR_REVISION)
+    assert floor_index > 0
+    for revision in chain[floor_index:]:
+        assert _floor_allows(revision), f"current backup revision refused: {revision}"
+
+
+def test_restore_floor_refuses_pre_purge_and_unknown_revisions() -> None:
+    """Every pre-floor revision must be refused — especially the three whose
+    random ids sort ABOVE the floor as raw strings, which the original
+    lexicographic comparison let through (the 2026-09-17 re-audit's HIGH
+    finding). Unknown-but-well-formed and malformed markers fail closed."""
+    chain = _migration_chain()
+    floor_index = chain.index(RESTORE_FLOOR_REVISION)
+    for revision in chain[:floor_index]:
+        assert not _floor_allows(revision), f"pre-purge revision accepted: {revision}"
+    assert not _floor_allows("000000000000")
+    assert not _floor_allows("not-a-revision")
+    assert not _floor_allows("")
+    assert not _floor_allows("A19B2569D466")  # case-sensitive hex, fail closed
+
+
+def test_restore_floor_allowlist_stays_in_sync_with_the_migration_chain() -> None:
+    """The helper's allowlist must be the chain from the floor to the head in
+    chain order — a new migration that forgets to append itself to
+    restore_floor.sh fails here, and so does any hand-edit that breaks the
+    order."""
+    text = RESTORE_FLOOR.read_text()
+    match = re.search(r"RESTORE_ALLOWED_REVISIONS=\(\s*(.*?)\)", text, re.S)
+    assert match, "RESTORE_ALLOWED_REVISIONS array not found in restore_floor.sh"
+    listed = re.findall(r'"([0-9a-f]+)"', match.group(1))
+    chain = _migration_chain()
+    floor_index = chain.index(RESTORE_FLOOR_REVISION)
+    assert listed == chain[floor_index:]
+
+
+def test_restore_runs_the_floor_check_before_touching_the_target_database() -> None:
+    """The floor must fire pre-flight (the pre-f4e5f6a7b8c9 rows must never
+    reach the target) and be re-checked against the restored database before
+    success is declared."""
     restore_text = RESTORE.read_text()
-    assert "MIN_RESTORED_REVISION=f4e5f6a7b8c9" in restore_text
-    assert restore_text.index("MIN_RESTORED_REVISION=f4e5f6a7b8c9") < restore_text.index(
-        "Restore complete:"
+    assert restore_text.count("restore_floor.sh") >= 2
+    assert restore_text.index("restore_floor.sh") < restore_text.index(
+        "--single-transaction"
+    )
+    assert restore_text.index("restore_floor.sh") < restore_text.index(
+        "contains user schema objects"
     )

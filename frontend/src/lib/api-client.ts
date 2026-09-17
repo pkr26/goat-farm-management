@@ -615,6 +615,10 @@ const REFRESH_COOKIE_POST_ROUTES = new Set([
   "/api/auth/refresh",
   "/api/auth/logout",
   "/api/auth/change-password",
+  // The TOTP challenge exchange mints a fresh refresh family (Set-Cookie) on
+  // success, so it belongs under the cross-tab auth-cookie lock like every
+  // other cookie-bearing auth response (2026-09-17 re-audit).
+  "/api/auth/totp/challenge",
 ]);
 // Stryker restore StringLiteral, ArrayDeclaration
 
@@ -740,6 +744,11 @@ const NO_REFRESH_PATHS = new Set([
   "/api/auth/register",
   "/api/auth/refresh",
   "/api/auth/logout",
+  // A 401 from the TOTP challenge IS the answer (wrong/expired code), same
+  // class as login's bad credentials — triggering the refresh machinery here
+  // would rotate a live session token just to re-fail the code entry
+  // (2026-09-17 re-audit).
+  "/api/auth/totp/challenge",
 ]);
 
 /** Shared core: fetch with at most one 401→refresh retry, then map any

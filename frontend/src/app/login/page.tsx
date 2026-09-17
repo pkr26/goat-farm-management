@@ -8,7 +8,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
-import type { LoginIn, TokenOut } from "@/api/generated/models";
+import type { LoginIn, LoginOut, TokenOut, UserOut } from "@/api/generated/models";
 import { AuthLayout } from "@/components/auth-layout";
 import { LanguageToggle } from "@/components/language-toggle";
 import { Button } from "@/components/ui/button";
@@ -88,8 +88,8 @@ function LoginPageContent() {
 
   /** Everything after a session exists (sign-in + navigation) — shared by
    * the password path and the TOTP challenge path. */
-  async function continueSignedIn(body: TokenOut) {
-    await signIn(body.access_token, body.user);
+  async function continueSignedIn(accessToken: string, user: UserOut) {
+    await signIn(accessToken, user);
     if (!mounted.current) return;
     // A farmless account has no permissions context yet: the call would
     // 422 (no X-Farm-Id to validate against). Farm selection is the
@@ -141,26 +141,35 @@ function LoginPageContent() {
           });
           if (!mounted.current) return;
           setMfaToken(null);
-          await continueSignedIn(body);
+          await continueSignedIn(body.access_token, body.user);
           return;
         }
         const payload: LoginIn = {
           email: values.email,
           password: values.password,
         };
-        const body = await apiFetch<TokenOut>(
+        // LoginOut is the generated contract: either an mfa_token (second
+        // factor demanded, no session material) or a full session. Typing the
+        // response through the generated model means a backend rename breaks
+        // tsc here instead of failing at runtime (2026-09-17 re-audit).
+        const body = await apiFetch<LoginOut>(
           "/api/auth/login",
           { method: "POST", body: JSON.stringify(payload) },
         );
         if (!mounted.current) return;
-        const mfa = (body as { mfa_token?: string | null }).mfa_token;
-        if (mfa) {
+        if (body.mfa_token) {
           // Password accepted; the account demands a TOTP code. No session
           // material exists yet.
-          setMfaToken(mfa);
+          setMfaToken(body.mfa_token);
           return;
         }
-        await continueSignedIn(body);
+        if (!body.access_token || !body.user) {
+          // Contract violation: LoginOut always carries either the challenge
+          // or the full session. Fail closed with the generic message.
+          setServerError(t("login.networkError"));
+          return;
+        }
+        await continueSignedIn(body.access_token, body.user);
       } catch (err) {
         // Stryker disable next-line ConditionalExpression: the only guarded statement is setServerError, a no-op on an unmounted component
         if (!mounted.current) return;
@@ -203,40 +212,48 @@ function LoginPageContent() {
           disabled={isSubmitting || submission.pending}
           className="min-w-0 space-y-4"
         >
-          <div className="space-y-1.5">
-            <Label htmlFor="email">{t("auth.email")}</Label>
-            <Input
-              id="email"
-              type="email"
-              autoComplete="email"
-              maxLength={254}
-              aria-invalid={!!errors.email}
-              aria-describedby={errors.email ? "email-error" : undefined}
-              {...register("email")}
-            />
-            {errors.email && (
-              <p id="email-error" role="alert" className="text-sm text-destructive">
-                {errors.email.message}
-              </p>
-            )}
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="password">{t("auth.password")}</Label>
-            <Input
-              id="password"
-              type="password"
-              autoComplete="current-password"
-              maxLength={128}
-              aria-invalid={!!errors.password}
-              aria-describedby={errors.password ? "password-error" : undefined}
-              {...register("password")}
-            />
-            {errors.password && (
-              <p id="password-error" role="alert" className="text-sm text-destructive">
-                {errors.password.message}
-              </p>
-            )}
-          </div>
+          {/* Credentials only for the password step: during the code step the
+           * typed password must not sit on screen while the user fetches
+           * their phone (react-hook-form keeps the values, so Back restores
+           * them without retyping). */}
+          {mfaToken === null && (
+            <>
+              <div className="space-y-1.5">
+                <Label htmlFor="email">{t("auth.email")}</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  autoComplete="email"
+                  maxLength={254}
+                  aria-invalid={!!errors.email}
+                  aria-describedby={errors.email ? "email-error" : undefined}
+                  {...register("email")}
+                />
+                {errors.email && (
+                  <p id="email-error" role="alert" className="text-sm text-destructive">
+                    {errors.email.message}
+                  </p>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="password">{t("auth.password")}</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  autoComplete="current-password"
+                  maxLength={128}
+                  aria-invalid={!!errors.password}
+                  aria-describedby={errors.password ? "password-error" : undefined}
+                  {...register("password")}
+                />
+                {errors.password && (
+                  <p id="password-error" role="alert" className="text-sm text-destructive">
+                    {errors.password.message}
+                  </p>
+                )}
+              </div>
+            </>
+          )}
           {mfaToken !== null && (
             <div className="space-y-1.5">
               <p className="text-sm text-muted-foreground">{t("login.totpPrompt")}</p>
@@ -271,7 +288,7 @@ function LoginPageContent() {
             {isSubmitting || submission.pending
               ? t("auth.signingIn")
               : mfaToken !== null
-                ? t("common.save")
+                ? t("login.verifyCode")
                 : t("auth.signIn")}
           </Button>
           {mfaToken !== null && (

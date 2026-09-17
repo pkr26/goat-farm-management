@@ -202,6 +202,31 @@ const en = {
   "login.totpCodeLabel": "Authenticator code",
   "login.totpCodeInvalid": "That code is not valid right now.",
   "login.totpBack": "Back",
+  "login.verifyCode": "Verify code",
+
+  // ---------- account dialog: two-factor (TOTP) ----------
+  "totp.title": "Two-factor authentication",
+  "totp.activeDescr":
+    "On: login also asks for a 6-digit code from your authenticator app. Recommended for farm owners.",
+  "totp.offDescr":
+    "Off. Add a second factor (a 6-digit code from an authenticator app) so a stolen password alone cannot sign in. Recommended for farm owners.",
+  "totp.enable": "Enable two-factor…",
+  "totp.enableIntro":
+    "A second factor protects your account even if someone learns your password. Confirm your current password to start.",
+  "totp.currentPassword": "Current password",
+  "totp.startEnrollment": "Start enrollment",
+  "totp.starting": "Starting…",
+  "totp.enrollLinkHint":
+    "Add this secret to your authenticator app (Google Authenticator, Authy, …). On a phone, tapping the link opens the app directly. Then enter the current code to activate.",
+  "totp.activate": "Activate",
+  "totp.activating": "Activating…",
+  "totp.disable": "Disable two-factor…",
+  "totp.disableConfirm": "Disable two-factor",
+  "totp.disabling": "Disabling…",
+  "totp.networkError": "Network error — try again.",
+  "totp.enabledToast": "Two-factor authentication is on",
+  "totp.disabledToast": "Two-factor authentication is off",
+
   "login.invalidCredentials": "Invalid email or password.",
   "login.networkError":
     "Network is weak — please check your connection and try again.",

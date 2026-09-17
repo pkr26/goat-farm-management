@@ -608,8 +608,10 @@ object key. A destination-wide lock prevents overlapping jobs, and failure
 traps remove plaintext, unpublished files, and the owned lock. `GOATFARM_BACKUP_KEEP`
 retains the newest 30 **local** dumps by default. Configure an S3 lifecycle
 rule (including noncurrent-version expiry if bucket versioning is enabled) for
-the same approved retention period; the backup job never deletes remote copies
-because a writer cannot safely infer ownership of objects from another host.
+the same approved retention period; the backup job's retention pruning never
+deletes remote copies because a writer cannot safely infer ownership of
+objects from another host (a failed run does remove its *own* partially
+published objects — see the credential scoping below).
 
 Production and S3 backups must be both signed and encrypted with GPG. Pin the
 signing key by its complete 40- or 64-hex fingerprint; do not use a mutable
@@ -618,18 +620,30 @@ Keep the encryption private key and signing public key available to the restore
 operators through a separately tested recovery path, and use least-privilege
 database and object-storage credentials.
 
-**Off-site credential scoping (2026-09-16 audit, INFRA-5).** The backup job
-never deletes remote objects, but the *credential* it runs with often can.
-Scope the backup host's AWS credential to `s3:PutObject` on the one bucket
-prefix, and enable bucket versioning (or S3 Object Lock) so a compromised
-backup host cannot destroy the off-site tier. Restore-side operators need
-broader reads — give them a separate credential, not a shared one.
+**Off-site credential scoping (2026-09-16 audit, INFRA-5; corrected
+2026-09-17).** The nightly job needs exactly three verbs, and only on the one
+backup prefix: `s3:PutObject` (the archive + sidecar upload),
+`s3:ListBucket` on the bucket — constrain it with an `s3:prefix` condition
+to the backup prefix (the never-overwrite collision check runs *before any
+upload*, so a PutObject-only credential fails every run closed), and
+`s3:DeleteObject` on the same prefix (best-effort removal of the run's *own*
+partially published objects when publication fails midway; without it a
+failed run only logs the orphaned keys). The job never touches objects it
+did not itself just write. Enable bucket versioning (or S3 Object Lock) so a
+compromised backup host cannot destroy the off-site tier, and give
+restore-side operators a separate, broader-read credential — never the
+backup host's.
 
-**Restore revision floor (INFRA-3).** `restore.sh` refuses backups whose
-schema predates Alembic revision `f4e5f6a7b8c9`: older dumps still contain
-unkeyed idempotency fingerprints of password-bearing worker-create bodies.
-To migrate such an archive, restore it into a scratch database, run
-`alembic upgrade head` (which re-purges), and dump/restore that database.
+**Restore revision floor (INFRA-3, corrected 2026-09-17).** `restore.sh`
+refuses — before anything touches the target database — backups whose schema
+predates Alembic revision `f4e5f6a7b8c9`: older dumps still contain unkeyed
+idempotency fingerprints of password-bearing worker-create bodies. The
+allowed set is the migration chain from that revision onward, decided by
+chain membership (Alembic ids are random hex — they must never be compared
+as strings), maintained in `backend/scripts/restore_floor.sh` and kept in
+sync with the migration chain by test. To migrate such an archive, restore
+it into a scratch database, run `alembic upgrade head` (which re-purges),
+and dump/restore that database.
 
 **Quarterly drill.** Rehearse the whole path (backup → tamper → checksum
 refusal → clean restore → non-empty refusal) against production-shaped
@@ -976,9 +990,13 @@ frontend/
   aggregates blocked attempts per scope every five minutes.
 - **Scaling multiplies per-process budgets** (GOV-2): the auth rate ledgers,
   simulation semaphore/CPU budget, and background-loop cadence are
-  per-process. One process is enforced at boot in production — do not
-  horizontally scale backend containers behind a load balancer without first
-  moving those budgets to Postgres; each replica multiplies the limits.
+  per-process. One process is pinned by the shipped Dockerfile
+  (`--workers 1`) and *warned* at boot in production (a
+  `UVICORN_WORKERS`/`WEB_CONCURRENCY` override only logs a loud warning;
+  any other launcher must enforce the single-process budget itself) — do
+  not horizontally scale backend containers behind a load balancer without
+  first moving those budgets to Postgres; each replica multiplies the
+  limits.
 - **Worker data retention position (DPDP)** (GOV-1): a departing worker's
   account identity is scrubbed (tombstone), but their *contributions* to farm
   records (task attribution, transaction authorship, free-text they wrote)

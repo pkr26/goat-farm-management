@@ -28,6 +28,7 @@ import {
 } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { farmToday } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 
 const passwordSchema = z
   .object({
@@ -45,6 +46,7 @@ type AccountAction = "export" | "password" | "delete";
 
 export function AccountDialog({ name, email }: { name: string | null; email: string }) {
   const { signOut, updateUser, user } = useAuth();
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -133,6 +135,11 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
   }
 
   async function enrollTotp() {
+    // Async actions may settle after the user closes the dialog (close()
+    // bumps the epoch and clears the enrollment); without the fence a late
+    // response resurrected a stale secret the server had already replaced
+    // (2026-09-17 re-audit).
+    const operationEpoch = dialogEpoch.current;
     setTotpBusy(true);
     setTotpError(null);
     try {
@@ -140,20 +147,21 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         "/api/auth/totp/enroll",
         { method: "POST", body: JSON.stringify({ current_password: totpPassword }) },
       );
-      if (!mounted.current) return;
+      if (operationEpoch !== dialogEpoch.current) return;
       setTotpEnrollment(enrollment);
       setTotpCode("");
     } catch (err) {
-      if (mounted.current) {
-        setTotpError(err instanceof ApiError ? err.detail : "Network error — try again.");
+      if (operationEpoch === dialogEpoch.current) {
+        setTotpError(err instanceof ApiError ? err.detail : t("totp.networkError"));
       }
     } finally {
-      if (mounted.current) setTotpBusy(false);
+      if (operationEpoch === dialogEpoch.current) setTotpBusy(false);
     }
   }
 
   async function confirmTotp() {
     if (totpEnrollment === null) return;
+    const operationEpoch = dialogEpoch.current;
     setTotpBusy(true);
     setTotpError(null);
     try {
@@ -161,23 +169,24 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         method: "POST",
         body: JSON.stringify({ code: totpCode }),
       });
-      if (!mounted.current) return;
+      if (operationEpoch !== dialogEpoch.current) return;
       setTotpEnrollment(null);
       setTotpMode("idle");
       setTotpCode("");
       setTotpPassword("");
       if (user) updateUser({ ...user, totp_state: "ACTIVE" });
-      toast.success("Two-factor authentication is on");
+      toast.success(t("totp.enabledToast"));
     } catch (err) {
-      if (mounted.current) {
-        setTotpError(err instanceof ApiError ? err.detail : "Network error — try again.");
+      if (operationEpoch === dialogEpoch.current) {
+        setTotpError(err instanceof ApiError ? err.detail : t("totp.networkError"));
       }
     } finally {
-      if (mounted.current) setTotpBusy(false);
+      if (operationEpoch === dialogEpoch.current) setTotpBusy(false);
     }
   }
 
   async function disableTotp() {
+    const operationEpoch = dialogEpoch.current;
     setTotpBusy(true);
     setTotpError(null);
     try {
@@ -185,18 +194,18 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         method: "POST",
         body: JSON.stringify({ current_password: totpPassword, code: totpCode }),
       });
-      if (!mounted.current) return;
+      if (operationEpoch !== dialogEpoch.current) return;
       setTotpMode("idle");
       setTotpCode("");
       setTotpPassword("");
       if (user) updateUser({ ...user, totp_state: null });
-      toast.success("Two-factor authentication is off");
+      toast.success(t("totp.disabledToast"));
     } catch (err) {
-      if (mounted.current) {
-        setTotpError(err instanceof ApiError ? err.detail : "Network error — try again.");
+      if (operationEpoch === dialogEpoch.current) {
+        setTotpError(err instanceof ApiError ? err.detail : t("totp.networkError"));
       }
     } finally {
-      if (mounted.current) setTotpBusy(false);
+      if (operationEpoch === dialogEpoch.current) setTotpBusy(false);
     }
   }
 
@@ -484,17 +493,14 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         </form>
         <section className="space-y-3" aria-labelledby="totp-heading">
           <h3 id="totp-heading" className="text-sm font-medium">
-            Two-factor authentication
+            {t("totp.title")}
           </h3>
           {user?.totp_state === "ACTIVE" ? (
             <>
-              <p className="text-xs text-muted-foreground">
-                On: login also asks for a 6-digit code from your authenticator
-                app. Recommended for farm owners.
-              </p>
+              <p className="text-xs text-muted-foreground">{t("totp.activeDescr")}</p>
               {totpMode === "disable" ? (
                 <div className="space-y-2">
-                  <Label htmlFor="totp-disable-password">Current password</Label>
+                  <Label htmlFor="totp-disable-password">{t("totp.currentPassword")}</Label>
                   <Input
                     id="totp-disable-password"
                     type="password"
@@ -503,7 +509,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
                     value={totpPassword}
                     onChange={(e) => setTotpPassword(e.target.value)}
                   />
-                  <Label htmlFor="totp-disable-code">Authenticator code</Label>
+                  <Label htmlFor="totp-disable-code">{t("login.totpCodeLabel")}</Label>
                   <Input
                     id="totp-disable-code"
                     inputMode="numeric"
@@ -523,7 +529,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
                       disabled={totpBusy || activeAction !== null}
                       onClick={() => void disableTotp()}
                     >
-                      {totpBusy ? "Disabling…" : "Disable two-factor"}
+                      {totpBusy ? t("totp.disabling") : t("totp.disableConfirm")}
                     </Button>
                     <Button
                       type="button"
@@ -534,7 +540,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
                         setTotpError(null);
                       }}
                     >
-                      Cancel
+                      {t("common.cancel")}
                     </Button>
                   </div>
                 </div>
@@ -550,17 +556,13 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
                     setTotpError(null);
                   }}
                 >
-                  Disable two-factor…
+                  {t("totp.disable")}
                 </Button>
               )}
             </>
           ) : totpEnrollment ? (
             <div className="space-y-2">
-              <p className="text-xs text-muted-foreground">
-                Add this secret to your authenticator app (Google Authenticator,
-                Authy, …). On a phone, tapping the link opens the app directly.
-                Then enter the current code to activate.
-              </p>
+              <p className="text-xs text-muted-foreground">{t("totp.enrollLinkHint")}</p>
               <a
                 className="block break-all rounded bg-muted/60 p-2 font-mono text-xs underline"
                 href={totpEnrollment.otpauth_uri}
@@ -570,7 +572,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
               <p className="break-all rounded bg-muted/60 p-2 font-mono text-sm">
                 {totpEnrollment.secret}
               </p>
-              <Label htmlFor="totp-confirm-code">Authenticator code</Label>
+              <Label htmlFor="totp-confirm-code">{t("login.totpCodeLabel")}</Label>
               <Input
                 id="totp-confirm-code"
                 inputMode="numeric"
@@ -589,7 +591,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
                   disabled={totpBusy || activeAction !== null}
                   onClick={() => void confirmTotp()}
                 >
-                  {totpBusy ? "Activating…" : "Activate"}
+                  {totpBusy ? t("totp.activating") : t("totp.activate")}
                 </Button>
                 <Button
                   type="button"
@@ -600,17 +602,14 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
                     setTotpError(null);
                   }}
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </Button>
               </div>
             </div>
           ) : totpMode === "enable" ? (
             <div className="space-y-2">
-              <p className="text-xs text-muted-foreground">
-                A second factor protects your account even if someone learns
-                your password. Confirm your current password to start.
-              </p>
-              <Label htmlFor="totp-enable-password">Current password</Label>
+              <p className="text-xs text-muted-foreground">{t("totp.enableIntro")}</p>
+              <Label htmlFor="totp-enable-password">{t("totp.currentPassword")}</Label>
               <Input
                 id="totp-enable-password"
                 type="password"
@@ -630,7 +629,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
                   disabled={totpBusy || activeAction !== null}
                   onClick={() => void enrollTotp()}
                 >
-                  {totpBusy ? "Starting…" : "Start enrollment"}
+                  {totpBusy ? t("totp.starting") : t("totp.startEnrollment")}
                 </Button>
                 <Button
                   type="button"
@@ -641,17 +640,13 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
                     setTotpError(null);
                   }}
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </Button>
               </div>
             </div>
           ) : (
             <>
-              <p className="text-xs text-muted-foreground">
-                Off. Add a second factor (a 6-digit code from an authenticator
-                app) so a stolen password alone cannot sign in. Recommended for
-                farm owners.
-              </p>
+              <p className="text-xs text-muted-foreground">{t("totp.offDescr")}</p>
               <Button
                 type="button"
                 variant="outline"
@@ -661,7 +656,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
                   setTotpError(null);
                 }}
               >
-                Enable two-factor…
+                {t("totp.enable")}
               </Button>
             </>
           )}

@@ -1700,6 +1700,7 @@ async def create_farm(
 
 TOTP_ENROLL_SCOPE = "totp-enroll"
 TOTP_CHALLENGE_USER_SCOPE = "totp-challenge"
+TOTP_CONFIRM_USER_SCOPE = "totp-confirm"
 # Challenge codes are 6 digits: 5 attempts / 5 minutes per account makes
 # exhaustive guessing ~700 years; per-IP composite mirrors login.
 TOTP_CHALLENGE_MAX_ATTEMPTS = 5
@@ -1809,6 +1810,7 @@ async def totp_enroll(
 @router.post("/totp/confirm", status_code=204)
 async def totp_confirm(
     payload: TotpCodeIn,
+    request: Request,
     db: DbSession,
     user: CurrentUser,
 ) -> Response:
@@ -1825,14 +1827,54 @@ async def totp_confirm(
     ).scalar_one()
     if locked.totp_state != "PENDING" or locked.totp_secret_enc is None:
         raise HTTPException(status_code=409, detail="Start enrollment first.")
-    secret = decrypt_totp_secret(locked.totp_secret_enc)
+    # Same guess budget as the login challenge: a stolen access token must
+    # not get an unthrottled 6-digit oracle here either (2026-09-17 re-audit).
+    s = get_settings()
+    composite_key = f"{_client_key(request)}|{user.id}"
+    if s.auth_rate_limit_enabled and (
+        auth_limiter.is_blocked(
+            TOTP_CONFIRM_USER_SCOPE,
+            str(user.id),
+            TOTP_CHALLENGE_MAX_ATTEMPTS,
+            s.auth_rate_limit_window_seconds,
+        )
+        or auth_limiter.is_blocked(
+            TOTP_CONFIRM_USER_SCOPE,
+            composite_key,
+            TOTP_CHALLENGE_MAX_ATTEMPTS,
+            s.auth_rate_limit_window_seconds,
+        )
+    ):
+        logger.info("totp confirm throttled (user_id=%s)", user.id)
+        metrics.record_auth_rate_limit_rejection(TOTP_CONFIRM_USER_SCOPE)
+        await db.rollback()
+        raise _too_many_attempts()
+    encrypted = locked.totp_secret_enc
+    if encrypted is None:  # unreachable: the PENDING check above plus the pairing CHECK
+        raise HTTPException(status_code=409, detail="Start enrollment first.")
+    secret = decrypt_totp_secret(encrypted)
     matched = verify_totp_code(secret, payload.code, at=utcnow(), last_used_step=None)
     if matched is None:
+        auth_limiter.record(
+            TOTP_CONFIRM_USER_SCOPE,
+            str(user.id),
+            s.auth_rate_limit_window_seconds,
+            max_attempts=TOTP_CHALLENGE_MAX_ATTEMPTS,
+        )
+        auth_limiter.record(
+            TOTP_CONFIRM_USER_SCOPE,
+            composite_key,
+            s.auth_rate_limit_window_seconds,
+            max_attempts=TOTP_CHALLENGE_MAX_ATTEMPTS,
+        )
         await db.rollback()
         raise HTTPException(status_code=400, detail="That code is not valid right now.")
     locked.totp_state = "ACTIVE"
     locked.totp_last_step = matched
     await db.commit()
+    if s.auth_rate_limit_enabled:
+        auth_limiter.reset(TOTP_CONFIRM_USER_SCOPE, str(user.id))
+        auth_limiter.reset(TOTP_CONFIRM_USER_SCOPE, composite_key)
     security_event(
         "auth.totp.enabled",
         "TOTP second factor activated",
@@ -1852,21 +1894,14 @@ async def totp_disable(
     currently-valid code (or, for an unconfirmed PENDING enrollment, the
     password alone — nothing is gating login yet)."""
     user_id = user.id  # _confirm_current_password rolls back and expires `user`
-    locked = (
-        await db.execute(
-            select(User)
-            .where(User.id == user_id, User.deleted_at.is_(None))
-            .execution_options(populate_existing=True)
-            .with_for_update()
-        )
-    ).scalar_one()
-    state = locked.totp_state
-    if state is None or locked.totp_secret_enc is None:
-        raise HTTPException(status_code=409, detail="Two-factor is not enrolled.")
-    if state == "ACTIVE":
-        await _confirm_current_password(
-            db, request, payload.current_password, locked, scope=TOTP_ENROLL_SCOPE
-        )
+    # The password confirmation cannot hold the row lock (it rolls back so
+    # Argon2 never runs inside a transaction), so the state decision must be
+    # re-taken under a freshly acquired lock afterwards. Loop until the state
+    # seen under the final lock matches the checks already paid for; the
+    # retry budget bounds pathological concurrent toggling with a 409 instead
+    # of the pre-2026-09-17 assert/500 (2026-09-17 re-audit).
+    password_confirmed = False
+    for _ in range(3):
         locked = (
             await db.execute(
                 select(User)
@@ -1875,44 +1910,50 @@ async def totp_disable(
                 .with_for_update()
             )
         ).scalar_one()
-        assert locked.totp_secret_enc is not None  # state==ACTIVE implies the pairing CHECK
+        state = locked.totp_state
+        if state is None or locked.totp_secret_enc is None:
+            raise HTTPException(status_code=409, detail="Two-factor is not enrolled.")
+        if not password_confirmed:
+            await _confirm_current_password(
+                db, request, payload.current_password, locked, scope=TOTP_ENROLL_SCOPE
+            )
+            password_confirmed = True
+            continue
+        # From here to the commit the row lock is held continuously: the
+        # state below is the state that gets cleared.
         locked_id = locked.id
-        secret = decrypt_totp_secret(locked.totp_secret_enc)
-        if (
-            verify_totp_code(
-                secret, payload.code, at=utcnow(), last_used_step=locked.totp_last_step
-            )
-            is None
-        ):
-            await db.rollback()
-            security_event(
-                "auth.totp.disable_failed",
-                "wrong TOTP code on disable attempt",
-                user_id=locked_id,
-            )
-            raise HTTPException(status_code=400, detail="That code is not valid right now.")
-    else:
-        await _confirm_current_password(
-            db, request, payload.current_password, locked, scope=TOTP_ENROLL_SCOPE
+        if state == "ACTIVE":
+            encrypted = locked.totp_secret_enc
+            if encrypted is None:  # unreachable: checked above + the pairing CHECK
+                raise HTTPException(status_code=409, detail="Two-factor is not enrolled.")
+            secret = decrypt_totp_secret(encrypted)
+            if (
+                verify_totp_code(
+                    secret, payload.code, at=utcnow(), last_used_step=locked.totp_last_step
+                )
+                is None
+            ):
+                await db.rollback()
+                security_event(
+                    "auth.totp.disable_failed",
+                    "wrong TOTP code on disable attempt",
+                    user_id=locked_id,
+                )
+                raise HTTPException(status_code=400, detail="That code is not valid right now.")
+        locked.totp_secret_enc = None
+        locked.totp_state = None
+        locked.totp_last_step = None
+        await db.commit()
+        security_event(
+            "auth.totp.disabled",
+            "TOTP second factor removed",
+            user_id=locked_id,
         )
-        locked = (
-            await db.execute(
-                select(User)
-                .where(User.id == user_id, User.deleted_at.is_(None))
-                .execution_options(populate_existing=True)
-                .with_for_update()
-            )
-        ).scalar_one()
-    locked.totp_secret_enc = None
-    locked.totp_state = None
-    locked.totp_last_step = None
-    await db.commit()
-    security_event(
-        "auth.totp.disabled",
-        "TOTP second factor removed",
-        user_id=locked.id,
-    )
-    return Response(status_code=204)
+        return Response(status_code=204)
+    # The state kept changing under the lock across the whole retry budget;
+    # nothing was modified.
+    await db.rollback()
+    raise HTTPException(status_code=409, detail="Two-factor state changed; try again.")
 
 
 @router.post("/totp/challenge")
@@ -1997,7 +2038,8 @@ async def totp_challenge(
             s.auth_rate_limit_window_seconds,
             max_attempts=TOTP_CHALLENGE_MAX_ATTEMPTS,
         )
-        metrics.record_auth_rate_limit_rejection(TOTP_CHALLENGE_USER_SCOPE)
+        # No 429 metric here: this answer is a 401, and the periodic summary
+        # counts only actual throttle decisions (2026-09-17 re-audit).
         await db.rollback()
         security_event(
             "auth.totp.challenge_failed",

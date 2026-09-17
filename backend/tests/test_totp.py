@@ -307,6 +307,77 @@ async def test_challenge_brute_force_is_throttled(
     assert locked.status_code == 429
 
 
+async def test_confirm_brute_force_is_throttled(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """2026-09-17 re-audit: /totp/confirm must carry the same guess budget as
+    the login challenge — a stolen access token gets no unthrottled 6-digit
+    oracle here either."""
+    monkeypatch.setattr(get_settings(), "auth_rate_limit_enabled", True)
+    headers = await register(client, "totp-confirmthrottle@farm.in")
+    enroll = await client.post(
+        "/api/auth/totp/enroll", json={"current_password": OWNER_PW}, headers=headers
+    )
+    assert enroll.status_code == 200
+    secret = enroll.json()["secret"]
+    statuses = []
+    for _ in range(6):
+        resp = await client.post(
+            "/api/auth/totp/confirm", json={"code": "000000"}, headers=headers
+        )
+        statuses.append(resp.status_code)
+        if resp.status_code == 429:
+            break
+    assert statuses[-1] == 429, statuses
+    # The correct code is locked out too until the window slides.
+    code, _step = _current_code(secret, drift=1)
+    locked = await client.post(
+        "/api/auth/totp/confirm", json={"code": code}, headers=headers
+    )
+    assert locked.status_code == 429
+
+
+async def test_wrong_totp_codes_do_not_inflate_the_429_summary(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """2026-09-17 re-audit: the periodic 'auth rate-limit 429 summary' counts
+    only actual throttle decisions. A wrong code is a 401 answer, not a 429,
+    and must stay out of the summary; the blocked answer must appear."""
+    monkeypatch.setattr(get_settings(), "auth_rate_limit_enabled", True)
+    headers = await register(client, "totp-summary@farm.in")
+    secret = await _enroll_and_activate(client, headers)
+    login = await client.post(
+        "/api/auth/login", json={"email": "totp-summary@farm.in", "password": OWNER_PW}
+    )
+    mfa_token = login.json()["mfa_token"]
+
+    from app import ratelimit
+
+    ratelimit.drain_throttle_rejections()  # clear residues from other tests
+    wrong = await client.post(
+        "/api/auth/totp/challenge", json={"mfa_token": mfa_token, "code": "000000"}
+    )
+    assert wrong.status_code == 401
+    assert "totp-challenge" not in ratelimit.drain_throttle_rejections()
+
+    for _ in range(6):
+        resp = await client.post(
+            "/api/auth/totp/challenge", json={"mfa_token": mfa_token, "code": "000000"}
+        )
+        if resp.status_code == 429:
+            break
+    else:
+        pytest.fail("challenge brute force was never throttled")
+    summary = ratelimit.drain_throttle_rejections()
+    assert summary.get("totp-challenge", 0) >= 1
+    # The still-usable code proves only the throttle (not the token) burned.
+    code, _step = _current_code(secret, drift=1)
+    exhausted = await client.post(
+        "/api/auth/totp/challenge", json={"mfa_token": mfa_token, "code": code}
+    )
+    assert exhausted.status_code == 429
+
+
 async def test_owner_with_totp_full_app_flow_still_works(
     client: httpx.AsyncClient,
 ) -> None:

@@ -229,6 +229,38 @@ fi
 # Validate archive structure before connecting to the target database.
 pg_restore --list "${RESTORE_ARCHIVE}" >/dev/null
 
+# INFRA-3 (2026-09-16, corrected 2026-09-17): refuse a backup whose schema
+# generation predates the idempotency-fingerprint purge BEFORE anything
+# touches the target database — the revision marker is read straight out of
+# the staged archive. Membership in the chain-ordered allowlist (never a
+# string comparison: Alembic ids are random hex) is decided by
+# restore_floor.sh.
+ALEMBIC_MARKER_DATA="${TMP_DIR}/alembic_version.data"
+restore_marker_status=0
+pg_restore --data-only --table=alembic_version \
+    --file="${ALEMBIC_MARKER_DATA}" "${RESTORE_ARCHIVE}" || restore_marker_status=$?
+if (( restore_marker_status != 0 )); then
+    echo "Refusing restore: archive does not carry a readable alembic_version table" >&2
+    exit 2
+fi
+chmod 0600 "${ALEMBIC_MARKER_DATA}"
+backup_revision=""
+marker_count=0
+while IFS= read -r line || [[ -n "${line}" ]]; do
+    line="${line//$'\r'/}"
+    if [[ "${line}" =~ ^[0-9a-f]{12}$ ]]; then
+        backup_revision="${line}"
+        marker_count=$((marker_count + 1))
+    fi
+done < "${ALEMBIC_MARKER_DATA}"
+if (( marker_count != 1 )); then
+    echo "Refusing restore: backup carries ${marker_count} Alembic revision markers (need exactly 1)" >&2
+    exit 2
+fi
+if ! "${SCRIPT_DIR}/restore_floor.sh" "${backup_revision}"; then
+    exit 2
+fi
+
 export PGPASSFILE PGSSLMODE="${DB_SSLMODE}"
 read -r -d '' EMPTY_DATABASE_SQL <<'SQL' || true
 WITH user_namespaces AS (
@@ -357,20 +389,16 @@ restored_revision="$(
         --command "${ALEMBIC_SANITY_SQL}"
 )"
 restored_revision="${restored_revision//[[:space:]]/}"
-MIN_RESTORED_REVISION=f4e5f6a7b8c9
 if [[ ! "${restored_revision}" =~ ^[0-9a-f]{12}$ ]]; then
     echo "Restore completed without a valid Alembic revision" >&2
     exit 1
 fi
-# INFRA-3 (2026-09-16): a backup older than f4e5f6a7b8c9 still carries the
-# pre-purge idempotency fingerprints of password-bearing worker-create
-# bodies (an offline guessing oracle once the HMAC secret is also known).
-# Compose deployments re-run `alembic upgrade head` (which re-purges) before
-# the API starts; this floor makes bare-docker restores refuse loudly too.
-if [[ "${restored_revision}" < "${MIN_RESTORED_REVISION}" ]]; then
-    echo "Refusing restore: backup predates revision ${MIN_RESTORED_REVISION}" \
-        " (unkeyed idempotency password fingerprints). Restore it to a scratch" \
-        " database, run alembic upgrade head to re-purge, then dump/restore that." >&2
+# Defense in depth: the pre-flight already floored the ARCHIVE's marker, but
+# re-check the revision the DATABASE actually reports before declaring
+# success. Membership only — see restore_floor.sh for why these random-hex
+# ids must never be compared as strings.
+if ! "${SCRIPT_DIR}/restore_floor.sh" "${restored_revision}"; then
+    echo "Restored database reports a revision outside the restore-allowed set" >&2
     exit 1
 fi
 
