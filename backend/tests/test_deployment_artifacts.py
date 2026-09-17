@@ -132,7 +132,7 @@ if "--table=alembic_version" in sys.argv:
     if output is None:
         print("mock pg_restore expected a marker output file", file=sys.stderr)
         raise SystemExit(7)
-    marker = os.environ.get("MOCK_BACKUP_ALEMBIC_REVISION", "a19b2569d466")
+    marker = os.environ.get("MOCK_BACKUP_ALEMBIC_REVISION", "d0f1a2b3c4d6")
     Path(output).write_text(marker + "\\n")
 elif "--list" not in sys.argv:
     output = next(
@@ -176,7 +176,7 @@ if "atomic_restore_guard" in command:
 elif "user_namespaces" in command:
     print(os.environ.get("MOCK_USER_OBJECT_COUNT", "0"))
 elif "FROM alembic_version" in command:
-    print(os.environ.get("MOCK_ALEMBIC_REVISION", "a19b2569d466"))
+    print(os.environ.get("MOCK_ALEMBIC_REVISION", "d0f1a2b3c4d6"))
 else:
     print("unexpected psql command", file=sys.stderr)
     raise SystemExit(6)
@@ -1441,7 +1441,7 @@ def test_restore_is_single_transaction_sanitizes_credentials_and_checks_alembic(
     result = _run_restore(archive, env)
 
     assert result.returncode == 0, result.stderr
-    assert "Alembic revision a19b2569d466" in result.stdout
+    assert "Alembic revision d0f1a2b3c4d6" in result.stdout
     log = _log_text(env)
     assert '"--single-transaction"' in log
     assert '"--exit-on-error"' in log

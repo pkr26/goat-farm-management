@@ -177,7 +177,7 @@ describe("AppLayout — species-aware nav labels", () => {
   it("speaks goat vocabulary throughout the nav", async () => {
     await renderShell();
     expect(navGroupItems("Herd")).toEqual(["Animals", "Buckets", "Breeding", "Kidding"]);
-    expect(navGroupItems("Health & Feed")).toEqual(["Health", "Feeding"]);
+    expect(navGroupItems("Health & Feed")).toEqual(["Health", "Photo screening", "Feeding"]);
     expect(screen.getByRole("link", { name: "Switch farm — current: Test Goat Farm" })).toHaveTextContent(
       "Goat farm",
     );

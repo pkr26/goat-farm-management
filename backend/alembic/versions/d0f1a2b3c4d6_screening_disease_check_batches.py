@@ -13,6 +13,7 @@ Revises: c9e0f1a3b4d5
 """
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "d0f1a2b3c4d6"
@@ -50,14 +51,13 @@ def upgrade() -> None:
             "submitted_at IS NULL OR submitted_at >= created_at",
             name="ck_screening_batches_submit_after_create",
         ),
-        sa.CheckConstraint(
-            "submitted_at IS NULL OR submitted_at <= timezone('UTC', now())",
-            name="ck_screening_batches_submit_not_future",
-        ),
         sa.UniqueConstraint("farm_id", "id", name="uq_screening_batches_farm_id_id"),
     )
     op.create_index(
         "ix_screening_batches_farm_id", "screening_batches", ["farm_id"]
+    )
+    op.create_index(
+        "ix_screening_batches_created_by_id", "screening_batches", ["created_by_id"]
     )
     op.create_index(
         "ix_screening_batches_farm_created",
@@ -93,5 +93,6 @@ def downgrade() -> None:
     op.drop_column("screening_images", "batch_id")
     op.drop_column("screening_images", "bucket")
     op.drop_index("ix_screening_batches_farm_created", table_name="screening_batches")
+    op.drop_index("ix_screening_batches_created_by_id", table_name="screening_batches")
     op.drop_index("ix_screening_batches_farm_id", table_name="screening_batches")
     op.drop_table("screening_batches")

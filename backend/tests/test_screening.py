@@ -874,8 +874,14 @@ async def test_provider_failure_records_error_run_and_recovers(
     # The ERROR row ages past ERROR_RETRY_AFTER and is re-claimed: the same
     # object screens successfully once the provider is healthy again.
     async with get_sessionmaker()() as db:
-        image.created_at = image.created_at - dt.timedelta(hours=2)
-        run.created_at = run.created_at - dt.timedelta(hours=2)
+        aged_image = (
+            await db.execute(select(ScreeningImage).where(ScreeningImage.id == image.id))
+        ).scalar_one()
+        aged_run = (
+            await db.execute(select(ScreeningRun).where(ScreeningRun.id == run.id))
+        ).scalar_one()
+        aged_image.created_at = aged_image.created_at - dt.timedelta(hours=2)
+        aged_run.created_at = aged_run.created_at - dt.timedelta(hours=2)
         await db.commit()
 
     healthy_provider = CountingProvider(name="fake")

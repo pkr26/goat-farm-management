@@ -33,6 +33,7 @@ from ...models.enums import (
     ScreeningRunStatus,
     ScreeningStage,
 )
+from ...utils import utcnow
 from .detect import (
     DETECT_PROMPT_VERSION,
     DETECT_SYSTEM_PROMPT,
@@ -220,7 +221,7 @@ async def run_screening_cycle(
     # Pre-registered rows first (PENDING uploads, stale claims, aged
     # errors) — claimed BEFORE this cycle mints new rows, so a fresh row
     # can never be selected twice in one pass.
-    claimed: list[ScreeningImage] = await _claim_retry_rows(db, budget, dt.datetime.now(dt.UTC))
+    claimed: list[ScreeningImage] = await _claim_retry_rows(db, budget, utcnow())
 
     already_claimed: set[str] = set()
     if claimable_keys:

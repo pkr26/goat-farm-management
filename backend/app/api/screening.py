@@ -12,7 +12,7 @@ from decimal import Decimal
 from typing import Annotated, Any, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import Integer, func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -113,9 +113,7 @@ async def list_images(
     _perms: VIEW,
     status: ScreeningImageStatusStr | None = None,
     bucket: ScreeningBucketStr | None = None,
-    limit: Annotated[
-        int, Query(ge=1, le=SCREENING_LIST_MAX_LIMIT)
-    ] = SCREENING_LIST_DEFAULT_LIMIT,
+    limit: Annotated[int, Query(ge=1, le=SCREENING_LIST_MAX_LIMIT)] = SCREENING_LIST_DEFAULT_LIMIT,
     offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
 ) -> ScreeningImageListOut:
     """A page of screening images, newest first, with each image's latest
@@ -292,8 +290,12 @@ async def provider_stats(
                 ScreeningRun.provider,
                 ScreeningRun.model,
                 func.count().label("gate_runs"),
-                func.sum(cast(Integer, ScreeningRun.verdict == "flagged")).label("gate_flagged"),
-                func.sum(cast(Integer, ScreeningRun.run_status == "ERROR")).label("gate_errors"),
+                func.sum(case((ScreeningRun.verdict == "flagged", 1), else_=0)).label(
+                    "gate_flagged"
+                ),
+                func.sum(case((ScreeningRun.run_status == "ERROR", 1), else_=0)).label(
+                    "gate_errors"
+                ),
                 func.avg(ScreeningRun.latency_ms).label("avg_latency"),
                 func.avg(ScreeningRun.confidence).label("avg_confidence"),
             )
@@ -307,7 +309,7 @@ async def provider_stats(
                 ScreeningRun.provider,
                 ScreeningRun.model,
                 func.count().label("checks"),
-                func.sum(cast(Integer, ScreeningRun.verdict == "flagged")).label("agreements"),
+                func.sum(case((ScreeningRun.verdict == "flagged", 1), else_=0)).label("agreements"),
             )
             .where(
                 run_window,
@@ -323,15 +325,21 @@ async def provider_stats(
                 ScreeningRun.provider,
                 ScreeningRun.model,
                 func.sum(
-                    cast(Integer, ScreeningFinding.status == ScreeningFindingStatus.CONFIRMED.value)
+                    case(
+                        (ScreeningFinding.status == ScreeningFindingStatus.CONFIRMED.value, 1),
+                        else_=0,
+                    )
                 ).label("confirmed"),
                 func.sum(
-                    cast(Integer, ScreeningFinding.status == ScreeningFindingStatus.REJECTED.value)
+                    case(
+                        (ScreeningFinding.status == ScreeningFindingStatus.REJECTED.value, 1),
+                        else_=0,
+                    )
                 ).label("rejected"),
                 func.sum(
-                    cast(
-                        Integer,
-                        ScreeningFinding.status == ScreeningFindingStatus.PENDING_REVIEW.value,
+                    case(
+                        (ScreeningFinding.status == ScreeningFindingStatus.PENDING_REVIEW.value, 1),
+                        else_=0,
                     )
                 ).label("pending"),
             )
@@ -526,7 +534,7 @@ async def _batch_progress(
     for batch_id, progress in aggregates.items():
         outs[batch_id] = ScreeningBatchOut(
             id=batch_id,
-            created_at=dt.datetime.now(dt.UTC),  # replaced by caller with the row
+            created_at=utcnow(),  # replaced by the caller with the row
             submitted_at=None,
             images_uploaded=progress["images_uploaded"],
             images_screened=progress["images_screened"],

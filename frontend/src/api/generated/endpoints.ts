@@ -51,6 +51,7 @@ import type {
   DashboardOut,
   DispenseIn,
   ErrorOut,
+  ExportDatasetApiScreeningExportGetParams,
   FarmCalibrationApiSimulationCalibrationGetParams,
   FarmCalibrationOut,
   FarmCreateIn,
@@ -89,7 +90,9 @@ import type {
   LifetimePnlOut,
   ListAnimalsApiAnimalsGetParams,
   ListBatchesApiPurchasesGetParams,
+  ListBatchesApiScreeningBatchesGetParams,
   ListEventsApiHealthEventsGetParams,
+  ListImagesApiScreeningImagesGetParams,
   ListInsurancePoliciesApiFinanceInsuranceGetParams,
   ListPlansApiPlannerPlansGetParams,
   ListScenariosApiSimulationScenariosGetParams,
@@ -110,6 +113,7 @@ import type {
   PlannerPlanOut,
   PlannerPlanUpdateIn,
   PregnancyLossIn,
+  ProviderStatsApiScreeningStatsGetParams,
   PurchaseBatchDetailOut,
   PurchaseBatchIn,
   PurchaseBatchListOut,
@@ -132,6 +136,16 @@ import type {
   ScenarioUpdateIn,
   ScheduleOut,
   ScheduleTemplateListOut,
+  ScreeningBatchListOut,
+  ScreeningBatchOut,
+  ScreeningDatasetExportOut,
+  ScreeningFindingReviewIn,
+  ScreeningFindingReviewOut,
+  ScreeningImageDetailOut,
+  ScreeningImageListOut,
+  ScreeningStatsOut,
+  ScreeningUploadIn,
+  ScreeningUploadOut,
   SimulationAssumptions,
   SimulationResult,
   StatusChangeIn,
@@ -13857,5 +13871,1294 @@ export const useRunDailyOpsSimulationApiOpsSimRunPost = <TError = ErrorType<Erro
         TContext
       > => {
       return useMutation(getRunDailyOpsSimulationApiOpsSimRunPostMutationOptions(options), queryClient);
+    }
+
+export type listImagesApiScreeningImagesGetResponse200 = {
+  data: ScreeningImageListOut
+  status: 200
+}
+
+export type listImagesApiScreeningImagesGetResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type listImagesApiScreeningImagesGetResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type listImagesApiScreeningImagesGetResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type listImagesApiScreeningImagesGetResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type listImagesApiScreeningImagesGetResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type listImagesApiScreeningImagesGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type listImagesApiScreeningImagesGetResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type listImagesApiScreeningImagesGetResponseSuccess = (listImagesApiScreeningImagesGetResponse200) & {
+  headers: Headers;
+};
+export type listImagesApiScreeningImagesGetResponseError = (listImagesApiScreeningImagesGetResponse400 | listImagesApiScreeningImagesGetResponse401 | listImagesApiScreeningImagesGetResponse403 | listImagesApiScreeningImagesGetResponse404 | listImagesApiScreeningImagesGetResponse409 | listImagesApiScreeningImagesGetResponse422 | listImagesApiScreeningImagesGetResponse429) & {
+  headers: Headers;
+};
+
+export type listImagesApiScreeningImagesGetResponse = (listImagesApiScreeningImagesGetResponseSuccess | listImagesApiScreeningImagesGetResponseError)
+
+export const getListImagesApiScreeningImagesGetUrl = (params?: ListImagesApiScreeningImagesGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/screening/images?${stringifiedParams}` : `/api/screening/images`
+}
+
+/**
+ * A page of screening images, newest first, with each image's latest
+ * gate verdict and pending-review finding count.
+ * @summary List Images
+ */
+export const listImagesApiScreeningImagesGet = async (params?: ListImagesApiScreeningImagesGetParams, options?: Parameters<typeof customInstance>[1]): Promise<listImagesApiScreeningImagesGetResponse> => {
+
+  return customInstance<listImagesApiScreeningImagesGetResponse>(getListImagesApiScreeningImagesGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListImagesApiScreeningImagesGetQueryKey = (params?: ListImagesApiScreeningImagesGetParams,) => {
+    return [
+    `/api/screening/images`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListImagesApiScreeningImagesGetQueryOptions = <TData = Awaited<ReturnType<typeof listImagesApiScreeningImagesGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(params?: ListImagesApiScreeningImagesGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listImagesApiScreeningImagesGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListImagesApiScreeningImagesGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listImagesApiScreeningImagesGet>>> = ({ signal }) => listImagesApiScreeningImagesGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listImagesApiScreeningImagesGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListImagesApiScreeningImagesGetQueryResult = NonNullable<Awaited<ReturnType<typeof listImagesApiScreeningImagesGet>>>
+export type ListImagesApiScreeningImagesGetQueryError = ErrorType<ErrorOut | HTTPValidationError>
+
+
+export function useListImagesApiScreeningImagesGet<TData = Awaited<ReturnType<typeof listImagesApiScreeningImagesGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ params: undefined |  ListImagesApiScreeningImagesGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listImagesApiScreeningImagesGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listImagesApiScreeningImagesGet>>,
+          TError,
+          Awaited<ReturnType<typeof listImagesApiScreeningImagesGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListImagesApiScreeningImagesGet<TData = Awaited<ReturnType<typeof listImagesApiScreeningImagesGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ params?: ListImagesApiScreeningImagesGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listImagesApiScreeningImagesGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listImagesApiScreeningImagesGet>>,
+          TError,
+          Awaited<ReturnType<typeof listImagesApiScreeningImagesGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListImagesApiScreeningImagesGet<TData = Awaited<ReturnType<typeof listImagesApiScreeningImagesGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ params?: ListImagesApiScreeningImagesGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listImagesApiScreeningImagesGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary List Images
+ */
+
+export function useListImagesApiScreeningImagesGet<TData = Awaited<ReturnType<typeof listImagesApiScreeningImagesGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ params?: ListImagesApiScreeningImagesGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listImagesApiScreeningImagesGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListImagesApiScreeningImagesGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type getImageApiScreeningImagesImageIdGetResponse200 = {
+  data: ScreeningImageDetailOut
+  status: 200
+}
+
+export type getImageApiScreeningImagesImageIdGetResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type getImageApiScreeningImagesImageIdGetResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type getImageApiScreeningImagesImageIdGetResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type getImageApiScreeningImagesImageIdGetResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type getImageApiScreeningImagesImageIdGetResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type getImageApiScreeningImagesImageIdGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type getImageApiScreeningImagesImageIdGetResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type getImageApiScreeningImagesImageIdGetResponseSuccess = (getImageApiScreeningImagesImageIdGetResponse200) & {
+  headers: Headers;
+};
+export type getImageApiScreeningImagesImageIdGetResponseError = (getImageApiScreeningImagesImageIdGetResponse400 | getImageApiScreeningImagesImageIdGetResponse401 | getImageApiScreeningImagesImageIdGetResponse403 | getImageApiScreeningImagesImageIdGetResponse404 | getImageApiScreeningImagesImageIdGetResponse409 | getImageApiScreeningImagesImageIdGetResponse422 | getImageApiScreeningImagesImageIdGetResponse429) & {
+  headers: Headers;
+};
+
+export type getImageApiScreeningImagesImageIdGetResponse = (getImageApiScreeningImagesImageIdGetResponseSuccess | getImageApiScreeningImagesImageIdGetResponseError)
+
+export const getGetImageApiScreeningImagesImageIdGetUrl = (imageId: number,) => {
+
+
+
+
+  return `/api/screening/images/${imageId}`
+}
+
+/**
+ * One image's full review payload: bounded image URL, every run, every
+ * finding. Missing and cross-farm ids deliberately share one 404.
+ * @summary Get Image
+ */
+export const getImageApiScreeningImagesImageIdGet = async (imageId: number, options?: Parameters<typeof customInstance>[1]): Promise<getImageApiScreeningImagesImageIdGetResponse> => {
+
+  return customInstance<getImageApiScreeningImagesImageIdGetResponse>(getGetImageApiScreeningImagesImageIdGetUrl(imageId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetImageApiScreeningImagesImageIdGetQueryKey = (imageId: number,) => {
+    return [
+    `/api/screening/images/${imageId}`
+    ] as const;
+    }
+
+
+export const getGetImageApiScreeningImagesImageIdGetQueryOptions = <TData = Awaited<ReturnType<typeof getImageApiScreeningImagesImageIdGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(imageId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getImageApiScreeningImagesImageIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetImageApiScreeningImagesImageIdGetQueryKey(imageId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getImageApiScreeningImagesImageIdGet>>> = ({ signal }) => getImageApiScreeningImagesImageIdGet(imageId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: imageId !== null && imageId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getImageApiScreeningImagesImageIdGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetImageApiScreeningImagesImageIdGetQueryResult = NonNullable<Awaited<ReturnType<typeof getImageApiScreeningImagesImageIdGet>>>
+export type GetImageApiScreeningImagesImageIdGetQueryError = ErrorType<ErrorOut | HTTPValidationError>
+
+
+export function useGetImageApiScreeningImagesImageIdGet<TData = Awaited<ReturnType<typeof getImageApiScreeningImagesImageIdGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ imageId: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getImageApiScreeningImagesImageIdGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getImageApiScreeningImagesImageIdGet>>,
+          TError,
+          Awaited<ReturnType<typeof getImageApiScreeningImagesImageIdGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetImageApiScreeningImagesImageIdGet<TData = Awaited<ReturnType<typeof getImageApiScreeningImagesImageIdGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ imageId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getImageApiScreeningImagesImageIdGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getImageApiScreeningImagesImageIdGet>>,
+          TError,
+          Awaited<ReturnType<typeof getImageApiScreeningImagesImageIdGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetImageApiScreeningImagesImageIdGet<TData = Awaited<ReturnType<typeof getImageApiScreeningImagesImageIdGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ imageId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getImageApiScreeningImagesImageIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Get Image
+ */
+
+export function useGetImageApiScreeningImagesImageIdGet<TData = Awaited<ReturnType<typeof getImageApiScreeningImagesImageIdGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ imageId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getImageApiScreeningImagesImageIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetImageApiScreeningImagesImageIdGetQueryOptions(imageId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type reviewFindingApiScreeningFindingsFindingIdReviewPostResponse200 = {
+  data: ScreeningFindingReviewOut
+  status: 200
+}
+
+export type reviewFindingApiScreeningFindingsFindingIdReviewPostResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type reviewFindingApiScreeningFindingsFindingIdReviewPostResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type reviewFindingApiScreeningFindingsFindingIdReviewPostResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type reviewFindingApiScreeningFindingsFindingIdReviewPostResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type reviewFindingApiScreeningFindingsFindingIdReviewPostResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type reviewFindingApiScreeningFindingsFindingIdReviewPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type reviewFindingApiScreeningFindingsFindingIdReviewPostResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type reviewFindingApiScreeningFindingsFindingIdReviewPostResponseSuccess = (reviewFindingApiScreeningFindingsFindingIdReviewPostResponse200) & {
+  headers: Headers;
+};
+export type reviewFindingApiScreeningFindingsFindingIdReviewPostResponseError = (reviewFindingApiScreeningFindingsFindingIdReviewPostResponse400 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse401 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse403 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse404 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse409 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse422 | reviewFindingApiScreeningFindingsFindingIdReviewPostResponse429) & {
+  headers: Headers;
+};
+
+export type reviewFindingApiScreeningFindingsFindingIdReviewPostResponse = (reviewFindingApiScreeningFindingsFindingIdReviewPostResponseSuccess | reviewFindingApiScreeningFindingsFindingIdReviewPostResponseError)
+
+export const getReviewFindingApiScreeningFindingsFindingIdReviewPostUrl = (findingId: number,) => {
+
+
+
+
+  return `/api/screening/findings/${findingId}/review`
+}
+
+/**
+ * Record a vet verdict on one finding (confirm / reject).
+ *
+ * ``expected_status`` is optimistic concurrency: a review that races
+ * another reviewer (or a re-screen) fails with 409 instead of silently
+ * overwriting the corpus. Re-reviewing a settled finding re-submits with
+ * its current status as ``expected_status``.
+ * @summary Review Finding
+ */
+export const reviewFindingApiScreeningFindingsFindingIdReviewPost = async (findingId: number,
+    screeningFindingReviewIn: ScreeningFindingReviewIn, options?: Parameters<typeof customInstance>[1]): Promise<reviewFindingApiScreeningFindingsFindingIdReviewPostResponse> => {
+
+  return customInstance<reviewFindingApiScreeningFindingsFindingIdReviewPostResponse>(getReviewFindingApiScreeningFindingsFindingIdReviewPostUrl(findingId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(screeningFindingReviewIn)
+  }
+);}
+
+
+
+
+
+export const getReviewFindingApiScreeningFindingsFindingIdReviewPostMutationOptions = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reviewFindingApiScreeningFindingsFindingIdReviewPost>>, TError,{findingId: number;data: ScreeningFindingReviewIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof reviewFindingApiScreeningFindingsFindingIdReviewPost>>, TError,{findingId: number;data: ScreeningFindingReviewIn}, TContext> => {
+
+const mutationKey = ['reviewFindingApiScreeningFindingsFindingIdReviewPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reviewFindingApiScreeningFindingsFindingIdReviewPost>>, {findingId: number;data: ScreeningFindingReviewIn}> = (props) => {
+          const {findingId,data} = props ?? {};
+
+          return  reviewFindingApiScreeningFindingsFindingIdReviewPost(findingId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReviewFindingApiScreeningFindingsFindingIdReviewPostMutationResult = NonNullable<Awaited<ReturnType<typeof reviewFindingApiScreeningFindingsFindingIdReviewPost>>>
+    export type ReviewFindingApiScreeningFindingsFindingIdReviewPostMutationBody = ScreeningFindingReviewIn
+    export type ReviewFindingApiScreeningFindingsFindingIdReviewPostMutationError = ErrorType<ErrorOut | HTTPValidationError>
+
+    /**
+ * @summary Review Finding
+ */
+export const useReviewFindingApiScreeningFindingsFindingIdReviewPost = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reviewFindingApiScreeningFindingsFindingIdReviewPost>>, TError,{findingId: number;data: ScreeningFindingReviewIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof reviewFindingApiScreeningFindingsFindingIdReviewPost>>,
+        TError,
+        {findingId: number;data: ScreeningFindingReviewIn},
+        TContext
+      > => {
+      return useMutation(getReviewFindingApiScreeningFindingsFindingIdReviewPostMutationOptions(options), queryClient);
+    }
+
+export type providerStatsApiScreeningStatsGetResponse200 = {
+  data: ScreeningStatsOut
+  status: 200
+}
+
+export type providerStatsApiScreeningStatsGetResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type providerStatsApiScreeningStatsGetResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type providerStatsApiScreeningStatsGetResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type providerStatsApiScreeningStatsGetResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type providerStatsApiScreeningStatsGetResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type providerStatsApiScreeningStatsGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type providerStatsApiScreeningStatsGetResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type providerStatsApiScreeningStatsGetResponseSuccess = (providerStatsApiScreeningStatsGetResponse200) & {
+  headers: Headers;
+};
+export type providerStatsApiScreeningStatsGetResponseError = (providerStatsApiScreeningStatsGetResponse400 | providerStatsApiScreeningStatsGetResponse401 | providerStatsApiScreeningStatsGetResponse403 | providerStatsApiScreeningStatsGetResponse404 | providerStatsApiScreeningStatsGetResponse409 | providerStatsApiScreeningStatsGetResponse422 | providerStatsApiScreeningStatsGetResponse429) & {
+  headers: Headers;
+};
+
+export type providerStatsApiScreeningStatsGetResponse = (providerStatsApiScreeningStatsGetResponseSuccess | providerStatsApiScreeningStatsGetResponseError)
+
+export const getProviderStatsApiScreeningStatsGetUrl = (params?: ProviderStatsApiScreeningStatsGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/screening/stats?${stringifiedParams}` : `/api/screening/stats`
+}
+
+/**
+ * The rotation scoreboard: call volume, verdict behavior, vet-labeled
+ * precision and cross-check agreement per provider over the window.
+ *
+ * This is the feedback loop that turns the round-robin from vendor
+ * insurance into a measured comparison on your own photos.
+ * @summary Provider Stats
+ */
+export const providerStatsApiScreeningStatsGet = async (params?: ProviderStatsApiScreeningStatsGetParams, options?: Parameters<typeof customInstance>[1]): Promise<providerStatsApiScreeningStatsGetResponse> => {
+
+  return customInstance<providerStatsApiScreeningStatsGetResponse>(getProviderStatsApiScreeningStatsGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getProviderStatsApiScreeningStatsGetQueryKey = (params?: ProviderStatsApiScreeningStatsGetParams,) => {
+    return [
+    `/api/screening/stats`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getProviderStatsApiScreeningStatsGetQueryOptions = <TData = Awaited<ReturnType<typeof providerStatsApiScreeningStatsGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(params?: ProviderStatsApiScreeningStatsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof providerStatsApiScreeningStatsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getProviderStatsApiScreeningStatsGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof providerStatsApiScreeningStatsGet>>> = ({ signal }) => providerStatsApiScreeningStatsGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof providerStatsApiScreeningStatsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ProviderStatsApiScreeningStatsGetQueryResult = NonNullable<Awaited<ReturnType<typeof providerStatsApiScreeningStatsGet>>>
+export type ProviderStatsApiScreeningStatsGetQueryError = ErrorType<ErrorOut | HTTPValidationError>
+
+
+export function useProviderStatsApiScreeningStatsGet<TData = Awaited<ReturnType<typeof providerStatsApiScreeningStatsGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ params: undefined |  ProviderStatsApiScreeningStatsGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof providerStatsApiScreeningStatsGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof providerStatsApiScreeningStatsGet>>,
+          TError,
+          Awaited<ReturnType<typeof providerStatsApiScreeningStatsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useProviderStatsApiScreeningStatsGet<TData = Awaited<ReturnType<typeof providerStatsApiScreeningStatsGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ params?: ProviderStatsApiScreeningStatsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof providerStatsApiScreeningStatsGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof providerStatsApiScreeningStatsGet>>,
+          TError,
+          Awaited<ReturnType<typeof providerStatsApiScreeningStatsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useProviderStatsApiScreeningStatsGet<TData = Awaited<ReturnType<typeof providerStatsApiScreeningStatsGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ params?: ProviderStatsApiScreeningStatsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof providerStatsApiScreeningStatsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Provider Stats
+ */
+
+export function useProviderStatsApiScreeningStatsGet<TData = Awaited<ReturnType<typeof providerStatsApiScreeningStatsGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ params?: ProviderStatsApiScreeningStatsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof providerStatsApiScreeningStatsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getProviderStatsApiScreeningStatsGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type exportDatasetApiScreeningExportGetResponse200 = {
+  data: ScreeningDatasetExportOut
+  status: 200
+}
+
+export type exportDatasetApiScreeningExportGetResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type exportDatasetApiScreeningExportGetResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type exportDatasetApiScreeningExportGetResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type exportDatasetApiScreeningExportGetResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type exportDatasetApiScreeningExportGetResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type exportDatasetApiScreeningExportGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type exportDatasetApiScreeningExportGetResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type exportDatasetApiScreeningExportGetResponseSuccess = (exportDatasetApiScreeningExportGetResponse200) & {
+  headers: Headers;
+};
+export type exportDatasetApiScreeningExportGetResponseError = (exportDatasetApiScreeningExportGetResponse400 | exportDatasetApiScreeningExportGetResponse401 | exportDatasetApiScreeningExportGetResponse403 | exportDatasetApiScreeningExportGetResponse404 | exportDatasetApiScreeningExportGetResponse409 | exportDatasetApiScreeningExportGetResponse422 | exportDatasetApiScreeningExportGetResponse429) & {
+  headers: Headers;
+};
+
+export type exportDatasetApiScreeningExportGetResponse = (exportDatasetApiScreeningExportGetResponseSuccess | exportDatasetApiScreeningExportGetResponseError)
+
+export const getExportDatasetApiScreeningExportGetUrl = (params?: ExportDatasetApiScreeningExportGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/screening/export?${stringifiedParams}` : `/api/screening/export`
+}
+
+/**
+ * The fine-tuning corpus: findings with image/crop references and the
+ * vet verdict that makes each label trustworthy. Defaults to every
+ * reviewed finding; pass vet_status=ALL to include the pending queue.
+ * @summary Export Dataset
+ */
+export const exportDatasetApiScreeningExportGet = async (params?: ExportDatasetApiScreeningExportGetParams, options?: Parameters<typeof customInstance>[1]): Promise<exportDatasetApiScreeningExportGetResponse> => {
+
+  return customInstance<exportDatasetApiScreeningExportGetResponse>(getExportDatasetApiScreeningExportGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getExportDatasetApiScreeningExportGetQueryKey = (params?: ExportDatasetApiScreeningExportGetParams,) => {
+    return [
+    `/api/screening/export`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getExportDatasetApiScreeningExportGetQueryOptions = <TData = Awaited<ReturnType<typeof exportDatasetApiScreeningExportGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(params?: ExportDatasetApiScreeningExportGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportDatasetApiScreeningExportGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getExportDatasetApiScreeningExportGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof exportDatasetApiScreeningExportGet>>> = ({ signal }) => exportDatasetApiScreeningExportGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof exportDatasetApiScreeningExportGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ExportDatasetApiScreeningExportGetQueryResult = NonNullable<Awaited<ReturnType<typeof exportDatasetApiScreeningExportGet>>>
+export type ExportDatasetApiScreeningExportGetQueryError = ErrorType<ErrorOut | HTTPValidationError>
+
+
+export function useExportDatasetApiScreeningExportGet<TData = Awaited<ReturnType<typeof exportDatasetApiScreeningExportGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ params: undefined |  ExportDatasetApiScreeningExportGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportDatasetApiScreeningExportGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof exportDatasetApiScreeningExportGet>>,
+          TError,
+          Awaited<ReturnType<typeof exportDatasetApiScreeningExportGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useExportDatasetApiScreeningExportGet<TData = Awaited<ReturnType<typeof exportDatasetApiScreeningExportGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ params?: ExportDatasetApiScreeningExportGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportDatasetApiScreeningExportGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof exportDatasetApiScreeningExportGet>>,
+          TError,
+          Awaited<ReturnType<typeof exportDatasetApiScreeningExportGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useExportDatasetApiScreeningExportGet<TData = Awaited<ReturnType<typeof exportDatasetApiScreeningExportGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ params?: ExportDatasetApiScreeningExportGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportDatasetApiScreeningExportGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Export Dataset
+ */
+
+export function useExportDatasetApiScreeningExportGet<TData = Awaited<ReturnType<typeof exportDatasetApiScreeningExportGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ params?: ExportDatasetApiScreeningExportGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportDatasetApiScreeningExportGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getExportDatasetApiScreeningExportGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type createBatchApiScreeningBatchesPostResponse201 = {
+  data: ScreeningBatchOut
+  status: 201
+}
+
+export type createBatchApiScreeningBatchesPostResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type createBatchApiScreeningBatchesPostResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type createBatchApiScreeningBatchesPostResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type createBatchApiScreeningBatchesPostResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type createBatchApiScreeningBatchesPostResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type createBatchApiScreeningBatchesPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type createBatchApiScreeningBatchesPostResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type createBatchApiScreeningBatchesPostResponseSuccess = (createBatchApiScreeningBatchesPostResponse201) & {
+  headers: Headers;
+};
+export type createBatchApiScreeningBatchesPostResponseError = (createBatchApiScreeningBatchesPostResponse400 | createBatchApiScreeningBatchesPostResponse401 | createBatchApiScreeningBatchesPostResponse403 | createBatchApiScreeningBatchesPostResponse404 | createBatchApiScreeningBatchesPostResponse409 | createBatchApiScreeningBatchesPostResponse422 | createBatchApiScreeningBatchesPostResponse429) & {
+  headers: Headers;
+};
+
+export type createBatchApiScreeningBatchesPostResponse = (createBatchApiScreeningBatchesPostResponseSuccess | createBatchApiScreeningBatchesPostResponseError)
+
+export const getCreateBatchApiScreeningBatchesPostUrl = () => {
+
+
+
+
+  return `/api/screening/batches`
+}
+
+/**
+ * Start a disease-check walkthrough: photograph every pen, then submit
+ * the batch for screening.
+ * @summary Create Batch
+ */
+export const createBatchApiScreeningBatchesPost = async ( options?: Parameters<typeof customInstance>[1]): Promise<createBatchApiScreeningBatchesPostResponse> => {
+
+  return customInstance<createBatchApiScreeningBatchesPostResponse>(getCreateBatchApiScreeningBatchesPostUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getCreateBatchApiScreeningBatchesPostMutationOptions = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBatchApiScreeningBatchesPost>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof createBatchApiScreeningBatchesPost>>, TError,void, TContext> => {
+
+const mutationKey = ['createBatchApiScreeningBatchesPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createBatchApiScreeningBatchesPost>>, void> = () => {
+
+
+          return  createBatchApiScreeningBatchesPost(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateBatchApiScreeningBatchesPostMutationResult = NonNullable<Awaited<ReturnType<typeof createBatchApiScreeningBatchesPost>>>
+
+    export type CreateBatchApiScreeningBatchesPostMutationError = ErrorType<ErrorOut | HTTPValidationError>
+
+    /**
+ * @summary Create Batch
+ */
+export const useCreateBatchApiScreeningBatchesPost = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBatchApiScreeningBatchesPost>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof createBatchApiScreeningBatchesPost>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getCreateBatchApiScreeningBatchesPostMutationOptions(options), queryClient);
+    }
+
+export type listBatchesApiScreeningBatchesGetResponse200 = {
+  data: ScreeningBatchListOut
+  status: 200
+}
+
+export type listBatchesApiScreeningBatchesGetResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type listBatchesApiScreeningBatchesGetResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type listBatchesApiScreeningBatchesGetResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type listBatchesApiScreeningBatchesGetResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type listBatchesApiScreeningBatchesGetResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type listBatchesApiScreeningBatchesGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type listBatchesApiScreeningBatchesGetResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type listBatchesApiScreeningBatchesGetResponseSuccess = (listBatchesApiScreeningBatchesGetResponse200) & {
+  headers: Headers;
+};
+export type listBatchesApiScreeningBatchesGetResponseError = (listBatchesApiScreeningBatchesGetResponse400 | listBatchesApiScreeningBatchesGetResponse401 | listBatchesApiScreeningBatchesGetResponse403 | listBatchesApiScreeningBatchesGetResponse404 | listBatchesApiScreeningBatchesGetResponse409 | listBatchesApiScreeningBatchesGetResponse422 | listBatchesApiScreeningBatchesGetResponse429) & {
+  headers: Headers;
+};
+
+export type listBatchesApiScreeningBatchesGetResponse = (listBatchesApiScreeningBatchesGetResponseSuccess | listBatchesApiScreeningBatchesGetResponseError)
+
+export const getListBatchesApiScreeningBatchesGetUrl = (params?: ListBatchesApiScreeningBatchesGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/screening/batches?${stringifiedParams}` : `/api/screening/batches`
+}
+
+/**
+ * Recent disease-check walkthroughs with per-pen progress.
+ * @summary List Batches
+ */
+export const listBatchesApiScreeningBatchesGet = async (params?: ListBatchesApiScreeningBatchesGetParams, options?: Parameters<typeof customInstance>[1]): Promise<listBatchesApiScreeningBatchesGetResponse> => {
+
+  return customInstance<listBatchesApiScreeningBatchesGetResponse>(getListBatchesApiScreeningBatchesGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListBatchesApiScreeningBatchesGetQueryKey = (params?: ListBatchesApiScreeningBatchesGetParams,) => {
+    return [
+    `/api/screening/batches`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListBatchesApiScreeningBatchesGetQueryOptions = <TData = Awaited<ReturnType<typeof listBatchesApiScreeningBatchesGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(params?: ListBatchesApiScreeningBatchesGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listBatchesApiScreeningBatchesGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListBatchesApiScreeningBatchesGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listBatchesApiScreeningBatchesGet>>> = ({ signal }) => listBatchesApiScreeningBatchesGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listBatchesApiScreeningBatchesGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListBatchesApiScreeningBatchesGetQueryResult = NonNullable<Awaited<ReturnType<typeof listBatchesApiScreeningBatchesGet>>>
+export type ListBatchesApiScreeningBatchesGetQueryError = ErrorType<ErrorOut | HTTPValidationError>
+
+
+export function useListBatchesApiScreeningBatchesGet<TData = Awaited<ReturnType<typeof listBatchesApiScreeningBatchesGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ params: undefined |  ListBatchesApiScreeningBatchesGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listBatchesApiScreeningBatchesGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listBatchesApiScreeningBatchesGet>>,
+          TError,
+          Awaited<ReturnType<typeof listBatchesApiScreeningBatchesGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListBatchesApiScreeningBatchesGet<TData = Awaited<ReturnType<typeof listBatchesApiScreeningBatchesGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ params?: ListBatchesApiScreeningBatchesGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listBatchesApiScreeningBatchesGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listBatchesApiScreeningBatchesGet>>,
+          TError,
+          Awaited<ReturnType<typeof listBatchesApiScreeningBatchesGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListBatchesApiScreeningBatchesGet<TData = Awaited<ReturnType<typeof listBatchesApiScreeningBatchesGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ params?: ListBatchesApiScreeningBatchesGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listBatchesApiScreeningBatchesGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary List Batches
+ */
+
+export function useListBatchesApiScreeningBatchesGet<TData = Awaited<ReturnType<typeof listBatchesApiScreeningBatchesGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ params?: ListBatchesApiScreeningBatchesGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listBatchesApiScreeningBatchesGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListBatchesApiScreeningBatchesGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type submitBatchApiScreeningBatchesBatchIdSubmitPostResponse200 = {
+  data: ScreeningBatchOut
+  status: 200
+}
+
+export type submitBatchApiScreeningBatchesBatchIdSubmitPostResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type submitBatchApiScreeningBatchesBatchIdSubmitPostResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type submitBatchApiScreeningBatchesBatchIdSubmitPostResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type submitBatchApiScreeningBatchesBatchIdSubmitPostResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type submitBatchApiScreeningBatchesBatchIdSubmitPostResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type submitBatchApiScreeningBatchesBatchIdSubmitPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type submitBatchApiScreeningBatchesBatchIdSubmitPostResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type submitBatchApiScreeningBatchesBatchIdSubmitPostResponseSuccess = (submitBatchApiScreeningBatchesBatchIdSubmitPostResponse200) & {
+  headers: Headers;
+};
+export type submitBatchApiScreeningBatchesBatchIdSubmitPostResponseError = (submitBatchApiScreeningBatchesBatchIdSubmitPostResponse400 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse401 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse403 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse404 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse409 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse422 | submitBatchApiScreeningBatchesBatchIdSubmitPostResponse429) & {
+  headers: Headers;
+};
+
+export type submitBatchApiScreeningBatchesBatchIdSubmitPostResponse = (submitBatchApiScreeningBatchesBatchIdSubmitPostResponseSuccess | submitBatchApiScreeningBatchesBatchIdSubmitPostResponseError)
+
+export const getSubmitBatchApiScreeningBatchesBatchIdSubmitPostUrl = (batchId: number,) => {
+
+
+
+
+  return `/api/screening/batches/${batchId}/submit`
+}
+
+/**
+ * Finish a walkthrough ("process them"): locks further uploads and the
+ * worker screens every photo in the batch as the bytes land.
+ * @summary Submit Batch
+ */
+export const submitBatchApiScreeningBatchesBatchIdSubmitPost = async (batchId: number, options?: Parameters<typeof customInstance>[1]): Promise<submitBatchApiScreeningBatchesBatchIdSubmitPostResponse> => {
+
+  return customInstance<submitBatchApiScreeningBatchesBatchIdSubmitPostResponse>(getSubmitBatchApiScreeningBatchesBatchIdSubmitPostUrl(batchId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getSubmitBatchApiScreeningBatchesBatchIdSubmitPostMutationOptions = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof submitBatchApiScreeningBatchesBatchIdSubmitPost>>, TError,{batchId: number}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof submitBatchApiScreeningBatchesBatchIdSubmitPost>>, TError,{batchId: number}, TContext> => {
+
+const mutationKey = ['submitBatchApiScreeningBatchesBatchIdSubmitPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof submitBatchApiScreeningBatchesBatchIdSubmitPost>>, {batchId: number}> = (props) => {
+          const {batchId} = props ?? {};
+
+          return  submitBatchApiScreeningBatchesBatchIdSubmitPost(batchId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SubmitBatchApiScreeningBatchesBatchIdSubmitPostMutationResult = NonNullable<Awaited<ReturnType<typeof submitBatchApiScreeningBatchesBatchIdSubmitPost>>>
+
+    export type SubmitBatchApiScreeningBatchesBatchIdSubmitPostMutationError = ErrorType<ErrorOut | HTTPValidationError>
+
+    /**
+ * @summary Submit Batch
+ */
+export const useSubmitBatchApiScreeningBatchesBatchIdSubmitPost = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof submitBatchApiScreeningBatchesBatchIdSubmitPost>>, TError,{batchId: number}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof submitBatchApiScreeningBatchesBatchIdSubmitPost>>,
+        TError,
+        {batchId: number},
+        TContext
+      > => {
+      return useMutation(getSubmitBatchApiScreeningBatchesBatchIdSubmitPostMutationOptions(options), queryClient);
+    }
+
+export type requestUploadApiScreeningUploadsPostResponse201 = {
+  data: ScreeningUploadOut
+  status: 201
+}
+
+export type requestUploadApiScreeningUploadsPostResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type requestUploadApiScreeningUploadsPostResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type requestUploadApiScreeningUploadsPostResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type requestUploadApiScreeningUploadsPostResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type requestUploadApiScreeningUploadsPostResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type requestUploadApiScreeningUploadsPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type requestUploadApiScreeningUploadsPostResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type requestUploadApiScreeningUploadsPostResponseSuccess = (requestUploadApiScreeningUploadsPostResponse201) & {
+  headers: Headers;
+};
+export type requestUploadApiScreeningUploadsPostResponseError = (requestUploadApiScreeningUploadsPostResponse400 | requestUploadApiScreeningUploadsPostResponse401 | requestUploadApiScreeningUploadsPostResponse403 | requestUploadApiScreeningUploadsPostResponse404 | requestUploadApiScreeningUploadsPostResponse409 | requestUploadApiScreeningUploadsPostResponse422 | requestUploadApiScreeningUploadsPostResponse429) & {
+  headers: Headers;
+};
+
+export type requestUploadApiScreeningUploadsPostResponse = (requestUploadApiScreeningUploadsPostResponseSuccess | requestUploadApiScreeningUploadsPostResponseError)
+
+export const getRequestUploadApiScreeningUploadsPostUrl = () => {
+
+
+
+
+  return `/api/screening/uploads`
+}
+
+/**
+ * Mint a presigned PUT for one pen photo.
+ *
+ * The server builds the key (``raw/<farm>/<date>/<bucket>/<batch>-<id>``)
+ * — the client never chooses where a photo lands — pre-creates the
+ * PENDING image row so the walkthrough shows live progress, and the
+ * phone uploads its bytes straight to S3. No AWS credential ever
+ * reaches the device.
+ * @summary Request Upload
+ */
+export const requestUploadApiScreeningUploadsPost = async (screeningUploadIn: ScreeningUploadIn, options?: Parameters<typeof customInstance>[1]): Promise<requestUploadApiScreeningUploadsPostResponse> => {
+
+  return customInstance<requestUploadApiScreeningUploadsPostResponse>(getRequestUploadApiScreeningUploadsPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(screeningUploadIn)
+  }
+);}
+
+
+
+
+
+export const getRequestUploadApiScreeningUploadsPostMutationOptions = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestUploadApiScreeningUploadsPost>>, TError,{data: ScreeningUploadIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof requestUploadApiScreeningUploadsPost>>, TError,{data: ScreeningUploadIn}, TContext> => {
+
+const mutationKey = ['requestUploadApiScreeningUploadsPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof requestUploadApiScreeningUploadsPost>>, {data: ScreeningUploadIn}> = (props) => {
+          const {data} = props ?? {};
+
+          return  requestUploadApiScreeningUploadsPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RequestUploadApiScreeningUploadsPostMutationResult = NonNullable<Awaited<ReturnType<typeof requestUploadApiScreeningUploadsPost>>>
+    export type RequestUploadApiScreeningUploadsPostMutationBody = ScreeningUploadIn
+    export type RequestUploadApiScreeningUploadsPostMutationError = ErrorType<ErrorOut | HTTPValidationError>
+
+    /**
+ * @summary Request Upload
+ */
+export const useRequestUploadApiScreeningUploadsPost = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestUploadApiScreeningUploadsPost>>, TError,{data: ScreeningUploadIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof requestUploadApiScreeningUploadsPost>>,
+        TError,
+        {data: ScreeningUploadIn},
+        TContext
+      > => {
+      return useMutation(getRequestUploadApiScreeningUploadsPostMutationOptions(options), queryClient);
     }
 

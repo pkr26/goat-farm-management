@@ -614,6 +614,7 @@ const en = {
   "screening.finding.CONFIRMED": "Confirmed",
   "screening.finding.REJECTED": "Rejected",
   "screening.note.modelScreenNotDiagnosis":
+    "Model screening flags photos for a vet check — it is not a diagnosis.",
   "screening.check.button": "Disease check",
   "screening.check.title": "Disease check",
   "screening.check.description":
@@ -663,7 +664,6 @@ const en = {
   "screening.severity.mild": "Mild",
   "screening.severity.moderate": "Moderate",
   "screening.severity.severe": "Severe",
-    "Model screening flags photos for a vet check — it is not a diagnosis.",
 } as const;
 
 export type MessageKey = keyof typeof en;

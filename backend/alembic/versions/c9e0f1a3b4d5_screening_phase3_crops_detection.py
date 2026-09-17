@@ -12,6 +12,7 @@ Revises: b8d9e0f2a3c4
 """
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "c9e0f1a3b4d5"
@@ -45,10 +46,6 @@ def upgrade() -> None:
             sa.DateTime(),
             server_default=sa.text("timezone('UTC', now())"),
             nullable=False,
-        ),
-        sa.ForeignKeyConstraint(
-            ["farm_id"],
-            ["farms.id"],
         ),
         sa.ForeignKeyConstraint(
             ["farm_id", "image_id"],

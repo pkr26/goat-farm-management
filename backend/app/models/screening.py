@@ -18,6 +18,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -66,10 +67,6 @@ class ScreeningBatch(Base):
             "submitted_at IS NULL OR submitted_at >= created_at",
             name="ck_screening_batches_submit_after_create",
         ),
-        CheckConstraint(
-            "submitted_at IS NULL OR submitted_at <= timezone('UTC', now())",
-            name="ck_screening_batches_submit_not_future",
-        ),
         Index("ix_screening_batches_farm_created", "farm_id", "created_at"),
     )
 
@@ -81,7 +78,9 @@ class ScreeningBatch(Base):
     # Null while the walkthrough is still collecting photos; set by the
     # submit endpoint ("process them") once every bucket has been covered.
     submitted_at: Mapped[dt.datetime | None] = mapped_column()
-    created_at: Mapped[dt.datetime] = mapped_column(default=utcnow)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
 
 
 class ScreeningImage(Base):
@@ -153,9 +152,16 @@ class ScreeningImage(Base):
     captured_date: Mapped[dt.date | None] = mapped_column(Date)
     status: Mapped[str] = mapped_column(String(20), default=ScreeningImageStatus.PENDING.value)
     error: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[dt.datetime] = mapped_column(default=utcnow)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
     updated_at: Mapped[dt.datetime] = mapped_column(
-        default=utcnow, onupdate=utcnow, server_default="timezone('UTC', now())"
+        default=utcnow,
+        onupdate=utcnow,
+        # text() so alembic autogenerate compares a SQL expression, not a
+        # quoted literal (the string form breaks `alembic check`).
+        server_default=text("timezone('UTC', now())"),
+        server_onupdate=text("timezone('UTC', now())"),
     )
 
     farm: Mapped[Farm] = relationship()
@@ -218,7 +224,9 @@ class ScreeningCrop(Base):
     normalized_key: Mapped[str | None] = mapped_column(String(MAX_S3_KEY_LENGTH))
     status: Mapped[str] = mapped_column(String(20), default=ScreeningImageStatus.PENDING.value)
     error: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[dt.datetime] = mapped_column(default=utcnow)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
 
     image: Mapped[ScreeningImage] = relationship(back_populates="crops")
 
@@ -293,7 +301,9 @@ class ScreeningRun(Base):
     # Bounded response summary (observations + usage), never the full payload.
     detail: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     error: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[dt.datetime] = mapped_column(default=utcnow)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
 
     image: Mapped[ScreeningImage] = relationship(back_populates="runs")
     findings: Mapped[list[ScreeningFinding]] = relationship(
@@ -380,6 +390,8 @@ class ScreeningFinding(Base):
     )
     reviewed_at: Mapped[dt.datetime | None] = mapped_column()
     review_note: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[dt.datetime] = mapped_column(default=utcnow)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
 
     run: Mapped[ScreeningRun] = relationship(back_populates="findings")

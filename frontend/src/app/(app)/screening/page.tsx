@@ -86,9 +86,14 @@ function findingStatusLabel(t: TFn, status: string): string {
   return key ? t(key) : status;
 }
 
-function confidenceLabel(t: TFn, value: number | null | undefined): string {
+function confidenceLabel(
+  t: TFn,
+  value: number | string | null | undefined,
+): string {
   if (value === null || value === undefined) return "—";
-  return `${t("screening.detail.confidence")} ${Math.round(value * 100)}%`;
+  const numeric = typeof value === "number" ? value : Number.parseFloat(value);
+  if (!Number.isFinite(numeric)) return "—";
+  return `${t("screening.detail.confidence")} ${Math.round(numeric * 100)}%`;
 }
 
 function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
@@ -151,20 +156,21 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
     }
   };
 
-  const detailQuery = useGetImageApiScreeningImagesImageIdGet(
-    { imageId: selectedImageId ?? 0 },
-    { query: { enabled: allowed && selectedImageId !== null } },
-  );
+  const detailQuery = useGetImageApiScreeningImagesImageIdGet(selectedImageId ?? 0, {
+    query: { enabled: allowed && selectedImageId !== null },
+  });
   const detail = detailQuery.data?.status === 200 ? detailQuery.data.data : undefined;
-  const cropIndexById = new Map(
-    (detail?.crops ?? []).map((crop) => [crop.id, crop.crop_index] as const),
+  const cropIndexById = new Map<number, number>(
+    (detail?.crops ?? [])
+      .filter((crop) => crop.id !== undefined && crop.crop_index !== undefined)
+      .map((crop) => [crop.id as number, crop.crop_index as number]),
   );
 
   const reviewMutation = useReviewFindingApiScreeningFindingsFindingIdReviewPost();
   const submitReview = async (
     findingId: number,
     status: "CONFIRMED" | "REJECTED",
-    expectedStatus: string,
+    expectedStatus: "PENDING_REVIEW" | "CONFIRMED" | "REJECTED",
   ) => {
     try {
       await reviewMutation.mutateAsync({
@@ -330,13 +336,13 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
               <div className="space-y-4">
                 <section className="space-y-2">
                   <h3 className="font-medium">{t("screening.crops.title")}</h3>
-                  {detail.crops.length === 0 ? (
+                  {(detail.crops ?? []).length === 0 ? (
                     <p className="text-sm text-muted-foreground">
                       {t("screening.crops.none")}
                     </p>
                   ) : (
                     <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                      {detail.crops.map((crop) => (
+                      {(detail.crops ?? []).map((crop) => (
                         <li key={crop.id} className="space-y-1 rounded-lg border p-2 text-sm">
                           {crop.image_url ? (
                             // eslint-disable-next-line @next/next/no-img-element
@@ -361,15 +367,17 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                 </section>
                 <section className="space-y-2">
                   <h3 className="font-medium">{t("screening.detail.findings")}</h3>
-                  {detail.findings.length === 0 ? (
+                  {(detail.findings ?? []).length === 0 ? (
                     <p className="text-sm text-muted-foreground">
                       {t("screening.detail.noFindings")}
                     </p>
                   ) : (
                     <ul className="space-y-2">
-                      {detail.findings.map((finding) => {
+                      {(detail.findings ?? []).map((finding) => {
                         const severity = severityLabel(t, finding.severity);
-                        const goatIndex = finding.crop_id === null ? null : cropIndexById.get(finding.crop_id);
+                        const cropId = finding.crop_id ?? null;
+                        const goatIndex =
+                          cropId === null ? undefined : cropIndexById.get(cropId);
                         return (
                           <li key={finding.id} className="rounded-lg border p-3 text-sm">
                             <div className="flex flex-wrap items-center gap-2">
@@ -431,7 +439,7 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                 <section className="space-y-2">
                   <h3 className="font-medium">{t("screening.detail.runs")}</h3>
                   <ul className="space-y-2 text-sm">
-                    {detail.runs.map((run) => {
+                    {(detail.runs ?? []).map((run) => {
                       const isCrossCheck = run.stage === "CROSS_CHECK";
                       const agrees = isCrossCheck ? run.detail?.agrees === true : null;
                       return (
@@ -535,8 +543,8 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                           {row.s3_key}
                         </td>
                         <td>
-                          {row.pending_findings > 0 ? (
-                            <Badge variant="destructive">{row.pending_findings}</Badge>
+                          {(row.pending_findings ?? 0) > 0 ? (
+                            <Badge variant="destructive">{row.pending_findings ?? 0}</Badge>
                           ) : (
                             "—"
                           )}

@@ -12,17 +12,17 @@ Phase 1 of the photo-screening pipeline. Three tables:
   rejected rows accumulate as the training-label corpus.
 
 Revision ID: a7c8d9e0f1b2
-Revises: f9b3c7d1e5a2
+Revises: a19b2569d466
 """
 
-from sqlalchemy import text
-
 import sqlalchemy as sa
-from alembic import op
+from sqlalchemy import text
 from sqlalchemy.dialects import postgresql
 
+from alembic import op
+
 revision = "a7c8d9e0f1b2"
-down_revision = "f9b3c7d1e5a2"
+down_revision = "a19b2569d466"
 branch_labels = None
 depends_on = None
 
@@ -108,10 +108,6 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.ForeignKeyConstraint(
-            ["farm_id"],
-            ["farms.id"],
-        ),
-        sa.ForeignKeyConstraint(
             ["farm_id", "image_id"],
             ["screening_images.farm_id", "screening_images.id"],
             name="fk_screening_runs_image",
@@ -158,10 +154,6 @@ def upgrade() -> None:
             sa.DateTime(),
             server_default=text("timezone('UTC', now())"),
             nullable=False,
-        ),
-        sa.ForeignKeyConstraint(
-            ["farm_id"],
-            ["farms.id"],
         ),
         sa.ForeignKeyConstraint(
             ["farm_id", "run_id"],

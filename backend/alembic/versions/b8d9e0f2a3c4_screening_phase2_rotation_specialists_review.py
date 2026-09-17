@@ -12,6 +12,7 @@ Revises: a7c8d9e0f1b2
 """
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "b8d9e0f2a3c4"

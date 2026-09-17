@@ -80,6 +80,7 @@ const te: Partial<Record<MessageKey, string>> = {
   "screening.finding.CONFIRMED": "నిర్ధారించబడింది",
   "screening.finding.REJECTED": "తిరస్కరించబడింది",
   "screening.note.modelScreenNotDiagnosis":
+    "మోడల్ స్క్రీనింగ్ ఫోటోలను వెటర్నరీ తనిఖీ కోసం గుర్తిస్తుంది — ఇది రోగనిర్ధారణ కాదు.",
   "screening.check.button": "వ్యాధి తనిఖీ",
   "screening.check.title": "వ్యాధి తనిఖీ",
   "screening.check.description":
@@ -129,7 +130,6 @@ const te: Partial<Record<MessageKey, string>> = {
   "screening.severity.mild": "తేలికపాటిది",
   "screening.severity.moderate": "మధ్యస్థం",
   "screening.severity.severe": "తీవ్రం",
-    "మోడల్ స్క్రీనింగ్ ఫోటోలను వెటర్నరీ తనిఖీ కోసం గుర్తిస్తుంది — ఇది రోగనిర్ధారణ కాదు.",
   "nav.feeding": "మేత",
   "nav.purchases": "కొనుగోళ్లు",
   "nav.tasks": "పనులు",

@@ -65,10 +65,16 @@ export function DiseaseCheckDialog({
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // A fresh walkthrough starts a fresh batch on open.
+  // A fresh walkthrough starts a fresh batch on open. Resetting local
+  // dialog state when `open` flips is the same derived-reset pattern the
+  // health page uses for its URL-driven offsets.
   useEffect(() => {
     if (!open) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setBatchId(null);
+    setSelectedBucket(null);
+    setUploadedByBucket({});
+    setPendingFile(null);
     setSelectedBucket(null);
     setUploadedByBucket({});
     setPendingFile(null);
@@ -110,12 +116,10 @@ export function DiseaseCheckDialog({
     try {
       const extension = pendingFile.type === "image/png" ? ".png" : ".jpg";
       const result = await requestUploadApiScreeningUploadsPost({
-        data: {
-          batch_id: batchId,
-          bucket: selectedBucket as never,
-          file_name: `photo${extension}`,
-          content_type: pendingFile.type as "image/jpeg" | "image/png",
-        },
+        batch_id: batchId,
+        bucket: selectedBucket as "BREEDING",
+        file_name: `photo${extension}`,
+        content_type: pendingFile.type as "image/jpeg" | "image/png",
       });
       if (result.status !== 201) return;
       // Direct PUT to S3 — the signed content type must be sent verbatim.

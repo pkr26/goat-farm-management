@@ -57,7 +57,7 @@ const ALL_NAV_LABELS = [
   "Breeding",
   "Kidding",
   "Health",
-  "Screening",
+  "Photo screening",
   "Purchases",
   "Feeding",
   "Tasks",
@@ -531,7 +531,7 @@ describe("AppLayout — permission-gated nav", () => {
 
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
-    await waitFor(() => expect(navLinks()).toHaveLength(11));
+    await waitFor(() => expect(navLinks()).toHaveLength(12));
     expect(screen.queryByRole("link", { name: "Team" })).not.toBeInTheDocument();
   });
 
@@ -587,7 +587,7 @@ describe("AppLayout — permission-gated nav", () => {
       Breeding: "/breeding",
       Kidding: "/kidding",
       Health: "/health",
-      Screening: "/screening",
+      "Photo screening": "/screening",
       Purchases: "/purchases",
       Feeding: "/feeding",
       Tasks: "/tasks",
@@ -647,7 +647,7 @@ describe("AppLayout — permission-gated nav", () => {
       "Breeding",
       "Kidding",
     ]);
-    expect(navGroupItems("Health & Feed")).toEqual(["Health", "Feeding"]);
+    expect(navGroupItems("Health & Feed")).toEqual(["Health", "Photo screening", "Feeding"]);
     expect(navGroupItems("Operations")).toEqual(["Purchases", "Tasks"]);
     expect(navGroupItems("Business")).toEqual([
       "Finance",
