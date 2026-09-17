@@ -96,6 +96,7 @@ import type {
   ListTasksApiTasksGetParams,
   ListTransactionsApiFinanceGetParams,
   LoginIn,
+  LoginOut,
   MembershipOut,
   MixIn,
   MoveIn,
@@ -142,6 +143,11 @@ import type {
   TaskTabsOut,
   TeamOut,
   TokenOut,
+  TotpChallengeIn,
+  TotpCodeIn,
+  TotpDisableIn,
+  TotpEnrollIn,
+  TotpEnrollOut,
   TransactionCorrectionIn,
   TransactionIn,
   TransactionOut,
@@ -532,7 +538,7 @@ export const useRegisterApiAuthRegisterPost = <TError = ErrorType<ErrorOut | HTT
     }
 
 export type loginApiAuthLoginPostResponse200 = {
-  data: TokenOut
+  data: LoginOut
   status: 200
 }
 
@@ -1838,6 +1844,497 @@ export const useCreateFarmApiAuthFarmsPost = <TError = ErrorType<ErrorOut | HTTP
         TContext
       > => {
       return useMutation(getCreateFarmApiAuthFarmsPostMutationOptions(options), queryClient);
+    }
+
+export type totpEnrollApiAuthTotpEnrollPostResponse200 = {
+  data: TotpEnrollOut
+  status: 200
+}
+
+export type totpEnrollApiAuthTotpEnrollPostResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type totpEnrollApiAuthTotpEnrollPostResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type totpEnrollApiAuthTotpEnrollPostResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type totpEnrollApiAuthTotpEnrollPostResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type totpEnrollApiAuthTotpEnrollPostResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type totpEnrollApiAuthTotpEnrollPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type totpEnrollApiAuthTotpEnrollPostResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type totpEnrollApiAuthTotpEnrollPostResponseSuccess = (totpEnrollApiAuthTotpEnrollPostResponse200) & {
+  headers: Headers;
+};
+export type totpEnrollApiAuthTotpEnrollPostResponseError = (totpEnrollApiAuthTotpEnrollPostResponse400 | totpEnrollApiAuthTotpEnrollPostResponse401 | totpEnrollApiAuthTotpEnrollPostResponse403 | totpEnrollApiAuthTotpEnrollPostResponse404 | totpEnrollApiAuthTotpEnrollPostResponse409 | totpEnrollApiAuthTotpEnrollPostResponse422 | totpEnrollApiAuthTotpEnrollPostResponse429) & {
+  headers: Headers;
+};
+
+export type totpEnrollApiAuthTotpEnrollPostResponse = (totpEnrollApiAuthTotpEnrollPostResponseSuccess | totpEnrollApiAuthTotpEnrollPostResponseError)
+
+export const getTotpEnrollApiAuthTotpEnrollPostUrl = () => {
+
+
+
+
+  return `/api/auth/totp/enroll`
+}
+
+/**
+ * Begin enrollment: confirm the current password, generate a fresh
+ * secret (stored PENDING — not yet demanded at login) and return it with an
+ * otpauth:// URI. On phones the URI link opens the authenticator app
+ * directly; the secret text remains for manual entry.
+ * @summary Totp Enroll
+ */
+export const totpEnrollApiAuthTotpEnrollPost = async (totpEnrollIn: TotpEnrollIn, options?: Parameters<typeof customInstance>[1]): Promise<totpEnrollApiAuthTotpEnrollPostResponse> => {
+
+  return customInstance<totpEnrollApiAuthTotpEnrollPostResponse>(getTotpEnrollApiAuthTotpEnrollPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(totpEnrollIn)
+  }
+);}
+
+
+
+
+
+export const getTotpEnrollApiAuthTotpEnrollPostMutationOptions = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof totpEnrollApiAuthTotpEnrollPost>>, TError,{data: TotpEnrollIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof totpEnrollApiAuthTotpEnrollPost>>, TError,{data: TotpEnrollIn}, TContext> => {
+
+const mutationKey = ['totpEnrollApiAuthTotpEnrollPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof totpEnrollApiAuthTotpEnrollPost>>, {data: TotpEnrollIn}> = (props) => {
+          const {data} = props ?? {};
+
+          return  totpEnrollApiAuthTotpEnrollPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TotpEnrollApiAuthTotpEnrollPostMutationResult = NonNullable<Awaited<ReturnType<typeof totpEnrollApiAuthTotpEnrollPost>>>
+    export type TotpEnrollApiAuthTotpEnrollPostMutationBody = TotpEnrollIn
+    export type TotpEnrollApiAuthTotpEnrollPostMutationError = ErrorType<ErrorOut | HTTPValidationError>
+
+    /**
+ * @summary Totp Enroll
+ */
+export const useTotpEnrollApiAuthTotpEnrollPost = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof totpEnrollApiAuthTotpEnrollPost>>, TError,{data: TotpEnrollIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof totpEnrollApiAuthTotpEnrollPost>>,
+        TError,
+        {data: TotpEnrollIn},
+        TContext
+      > => {
+      return useMutation(getTotpEnrollApiAuthTotpEnrollPostMutationOptions(options), queryClient);
+    }
+
+export type totpConfirmApiAuthTotpConfirmPostResponse204 = {
+  data: void
+  status: 204
+}
+
+export type totpConfirmApiAuthTotpConfirmPostResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type totpConfirmApiAuthTotpConfirmPostResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type totpConfirmApiAuthTotpConfirmPostResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type totpConfirmApiAuthTotpConfirmPostResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type totpConfirmApiAuthTotpConfirmPostResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type totpConfirmApiAuthTotpConfirmPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type totpConfirmApiAuthTotpConfirmPostResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type totpConfirmApiAuthTotpConfirmPostResponseSuccess = (totpConfirmApiAuthTotpConfirmPostResponse204) & {
+  headers: Headers;
+};
+export type totpConfirmApiAuthTotpConfirmPostResponseError = (totpConfirmApiAuthTotpConfirmPostResponse400 | totpConfirmApiAuthTotpConfirmPostResponse401 | totpConfirmApiAuthTotpConfirmPostResponse403 | totpConfirmApiAuthTotpConfirmPostResponse404 | totpConfirmApiAuthTotpConfirmPostResponse409 | totpConfirmApiAuthTotpConfirmPostResponse422 | totpConfirmApiAuthTotpConfirmPostResponse429) & {
+  headers: Headers;
+};
+
+export type totpConfirmApiAuthTotpConfirmPostResponse = (totpConfirmApiAuthTotpConfirmPostResponseSuccess | totpConfirmApiAuthTotpConfirmPostResponseError)
+
+export const getTotpConfirmApiAuthTotpConfirmPostUrl = () => {
+
+
+
+
+  return `/api/auth/totp/confirm`
+}
+
+/**
+ * Finish enrollment: a code generated from the PENDING secret activates
+ * the second factor. Proof-of-possession before it gates login.
+ * @summary Totp Confirm
+ */
+export const totpConfirmApiAuthTotpConfirmPost = async (totpCodeIn: TotpCodeIn, options?: Parameters<typeof customInstance>[1]): Promise<totpConfirmApiAuthTotpConfirmPostResponse> => {
+
+  return customInstance<totpConfirmApiAuthTotpConfirmPostResponse>(getTotpConfirmApiAuthTotpConfirmPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(totpCodeIn)
+  }
+);}
+
+
+
+
+
+export const getTotpConfirmApiAuthTotpConfirmPostMutationOptions = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof totpConfirmApiAuthTotpConfirmPost>>, TError,{data: TotpCodeIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof totpConfirmApiAuthTotpConfirmPost>>, TError,{data: TotpCodeIn}, TContext> => {
+
+const mutationKey = ['totpConfirmApiAuthTotpConfirmPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof totpConfirmApiAuthTotpConfirmPost>>, {data: TotpCodeIn}> = (props) => {
+          const {data} = props ?? {};
+
+          return  totpConfirmApiAuthTotpConfirmPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TotpConfirmApiAuthTotpConfirmPostMutationResult = NonNullable<Awaited<ReturnType<typeof totpConfirmApiAuthTotpConfirmPost>>>
+    export type TotpConfirmApiAuthTotpConfirmPostMutationBody = TotpCodeIn
+    export type TotpConfirmApiAuthTotpConfirmPostMutationError = ErrorType<ErrorOut | HTTPValidationError>
+
+    /**
+ * @summary Totp Confirm
+ */
+export const useTotpConfirmApiAuthTotpConfirmPost = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof totpConfirmApiAuthTotpConfirmPost>>, TError,{data: TotpCodeIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof totpConfirmApiAuthTotpConfirmPost>>,
+        TError,
+        {data: TotpCodeIn},
+        TContext
+      > => {
+      return useMutation(getTotpConfirmApiAuthTotpConfirmPostMutationOptions(options), queryClient);
+    }
+
+export type totpDisableApiAuthTotpDisablePostResponse204 = {
+  data: void
+  status: 204
+}
+
+export type totpDisableApiAuthTotpDisablePostResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type totpDisableApiAuthTotpDisablePostResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type totpDisableApiAuthTotpDisablePostResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type totpDisableApiAuthTotpDisablePostResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type totpDisableApiAuthTotpDisablePostResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type totpDisableApiAuthTotpDisablePostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type totpDisableApiAuthTotpDisablePostResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type totpDisableApiAuthTotpDisablePostResponseSuccess = (totpDisableApiAuthTotpDisablePostResponse204) & {
+  headers: Headers;
+};
+export type totpDisableApiAuthTotpDisablePostResponseError = (totpDisableApiAuthTotpDisablePostResponse400 | totpDisableApiAuthTotpDisablePostResponse401 | totpDisableApiAuthTotpDisablePostResponse403 | totpDisableApiAuthTotpDisablePostResponse404 | totpDisableApiAuthTotpDisablePostResponse409 | totpDisableApiAuthTotpDisablePostResponse422 | totpDisableApiAuthTotpDisablePostResponse429) & {
+  headers: Headers;
+};
+
+export type totpDisableApiAuthTotpDisablePostResponse = (totpDisableApiAuthTotpDisablePostResponseSuccess | totpDisableApiAuthTotpDisablePostResponseError)
+
+export const getTotpDisableApiAuthTotpDisablePostUrl = () => {
+
+
+
+
+  return `/api/auth/totp/disable`
+}
+
+/**
+ * Remove the second factor: requires BOTH the current password and a
+ * currently-valid code (or, for an unconfirmed PENDING enrollment, the
+ * password alone — nothing is gating login yet).
+ * @summary Totp Disable
+ */
+export const totpDisableApiAuthTotpDisablePost = async (totpDisableIn: TotpDisableIn, options?: Parameters<typeof customInstance>[1]): Promise<totpDisableApiAuthTotpDisablePostResponse> => {
+
+  return customInstance<totpDisableApiAuthTotpDisablePostResponse>(getTotpDisableApiAuthTotpDisablePostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(totpDisableIn)
+  }
+);}
+
+
+
+
+
+export const getTotpDisableApiAuthTotpDisablePostMutationOptions = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof totpDisableApiAuthTotpDisablePost>>, TError,{data: TotpDisableIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof totpDisableApiAuthTotpDisablePost>>, TError,{data: TotpDisableIn}, TContext> => {
+
+const mutationKey = ['totpDisableApiAuthTotpDisablePost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof totpDisableApiAuthTotpDisablePost>>, {data: TotpDisableIn}> = (props) => {
+          const {data} = props ?? {};
+
+          return  totpDisableApiAuthTotpDisablePost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TotpDisableApiAuthTotpDisablePostMutationResult = NonNullable<Awaited<ReturnType<typeof totpDisableApiAuthTotpDisablePost>>>
+    export type TotpDisableApiAuthTotpDisablePostMutationBody = TotpDisableIn
+    export type TotpDisableApiAuthTotpDisablePostMutationError = ErrorType<ErrorOut | HTTPValidationError>
+
+    /**
+ * @summary Totp Disable
+ */
+export const useTotpDisableApiAuthTotpDisablePost = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof totpDisableApiAuthTotpDisablePost>>, TError,{data: TotpDisableIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof totpDisableApiAuthTotpDisablePost>>,
+        TError,
+        {data: TotpDisableIn},
+        TContext
+      > => {
+      return useMutation(getTotpDisableApiAuthTotpDisablePostMutationOptions(options), queryClient);
+    }
+
+export type totpChallengeApiAuthTotpChallengePostResponse200 = {
+  data: TokenOut
+  status: 200
+}
+
+export type totpChallengeApiAuthTotpChallengePostResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type totpChallengeApiAuthTotpChallengePostResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type totpChallengeApiAuthTotpChallengePostResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type totpChallengeApiAuthTotpChallengePostResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type totpChallengeApiAuthTotpChallengePostResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type totpChallengeApiAuthTotpChallengePostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type totpChallengeApiAuthTotpChallengePostResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type totpChallengeApiAuthTotpChallengePostResponseSuccess = (totpChallengeApiAuthTotpChallengePostResponse200) & {
+  headers: Headers;
+};
+export type totpChallengeApiAuthTotpChallengePostResponseError = (totpChallengeApiAuthTotpChallengePostResponse400 | totpChallengeApiAuthTotpChallengePostResponse401 | totpChallengeApiAuthTotpChallengePostResponse403 | totpChallengeApiAuthTotpChallengePostResponse404 | totpChallengeApiAuthTotpChallengePostResponse409 | totpChallengeApiAuthTotpChallengePostResponse422 | totpChallengeApiAuthTotpChallengePostResponse429) & {
+  headers: Headers;
+};
+
+export type totpChallengeApiAuthTotpChallengePostResponse = (totpChallengeApiAuthTotpChallengePostResponseSuccess | totpChallengeApiAuthTotpChallengePostResponseError)
+
+export const getTotpChallengeApiAuthTotpChallengePostUrl = () => {
+
+
+
+
+  return `/api/auth/totp/challenge`
+}
+
+/**
+ * Exchange a login-issued challenge token + current code for the full
+ * session. Single-use, version-bound, strictly throttled per account.
+ * @summary Totp Challenge
+ */
+export const totpChallengeApiAuthTotpChallengePost = async (totpChallengeIn: TotpChallengeIn, options?: Parameters<typeof customInstance>[1]): Promise<totpChallengeApiAuthTotpChallengePostResponse> => {
+
+  return customInstance<totpChallengeApiAuthTotpChallengePostResponse>(getTotpChallengeApiAuthTotpChallengePostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(totpChallengeIn)
+  }
+);}
+
+
+
+
+
+export const getTotpChallengeApiAuthTotpChallengePostMutationOptions = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof totpChallengeApiAuthTotpChallengePost>>, TError,{data: TotpChallengeIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof totpChallengeApiAuthTotpChallengePost>>, TError,{data: TotpChallengeIn}, TContext> => {
+
+const mutationKey = ['totpChallengeApiAuthTotpChallengePost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof totpChallengeApiAuthTotpChallengePost>>, {data: TotpChallengeIn}> = (props) => {
+          const {data} = props ?? {};
+
+          return  totpChallengeApiAuthTotpChallengePost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TotpChallengeApiAuthTotpChallengePostMutationResult = NonNullable<Awaited<ReturnType<typeof totpChallengeApiAuthTotpChallengePost>>>
+    export type TotpChallengeApiAuthTotpChallengePostMutationBody = TotpChallengeIn
+    export type TotpChallengeApiAuthTotpChallengePostMutationError = ErrorType<ErrorOut | HTTPValidationError>
+
+    /**
+ * @summary Totp Challenge
+ */
+export const useTotpChallengeApiAuthTotpChallengePost = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof totpChallengeApiAuthTotpChallengePost>>, TError,{data: TotpChallengeIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof totpChallengeApiAuthTotpChallengePost>>,
+        TError,
+        {data: TotpChallengeIn},
+        TContext
+      > => {
+      return useMutation(getTotpChallengeApiAuthTotpChallengePostMutationOptions(options), queryClient);
     }
 
 export type listAnimalsApiAnimalsGetResponse200 = {

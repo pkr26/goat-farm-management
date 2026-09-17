@@ -5,19 +5,22 @@ presented session), change-password, and farm listing/creation."""
 import asyncio
 import hashlib
 import logging
+import urllib.parse
 import uuid
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, NoReturn
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from .. import metrics
+from ..audit import security_event
 from ..core.config import get_settings
 from ..deps import (
     INVALID_ACCESS_TOKEN_SCOPE,
@@ -51,28 +54,40 @@ from ..schemas.auth import (
     FarmCreateIn,
     FarmOut,
     LoginIn,
+    LoginOut,
     MembershipExport,
     OwnedFarmExport,
     PermissionsOut,
     RegisterIn,
     TokenOut,
+    TotpChallengeIn,
+    TotpCodeIn,
+    TotpDisableIn,
+    TotpEnrollIn,
+    TotpEnrollOut,
     UserOut,
 )
 from ..schemas.common import COMMON_ERROR_RESPONSES
 from ..security import (
     LEGACY_PBKDF2_PREFIX,
+    TOTP_CHALLENGE_TTL_SECONDS,
     PasswordWorkCapacityError,
     _decode_payload_result,
     complete_rejected_login_timing_async,
     decode_access_claims_result,
     decode_refresh_claims,
+    decrypt_totp_secret,
+    encrypt_totp_secret,
+    generate_totp_secret_b32,
     hash_password_async,
     issue_access_token,
     issue_refresh_token,
+    issue_token,
     password_policy_error,
     prime_dummy_password_hash,
     verify_password_async,
     verify_password_with_work_async,
+    verify_totp_code,
 )
 from ..seed import seed_new_farm
 from ..services.idempotency import RequiredIdempotencyKey, execute_idempotent
@@ -363,6 +378,21 @@ def _reset_account_password_attempts(
 ) -> None:
     auth_limiter.reset(scope, rate_key)
     auth_limiter.reset(account_scope, str(user_id))
+
+
+async def _require_json_content_type(request: Request) -> None:
+    """AUTH-2 (2026-09-16): the unauthenticated credential endpoints relied
+    on FastAPI's strict JSON parsing (which rejects form/text bodies) as an
+    incidental login-CSRF defense. Make the requirement explicit at the
+    application level so a future framework-config change cannot silently
+    re-open classic JSON-smuggling login CSRF."""
+    content_type = request.headers.get("content-type", "application/json")
+    media_type = content_type.split(";", 1)[0].strip().lower()
+    if media_type != "application/json":
+        raise HTTPException(
+            status_code=415,
+            detail="Content-Type must be application/json for this endpoint.",
+        )
 
 
 def _too_many_attempts() -> HTTPException:
@@ -726,7 +756,7 @@ def _raise_invalid_refresh(request: Request, token: str | None = None) -> NoRetu
     raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
 
-@router.post("/register", status_code=201)
+@router.post("/register", status_code=201, dependencies=[Depends(_require_json_content_type)])
 async def register(
     payload: RegisterIn, request: Request, response: Response, db: DbSession
 ) -> TokenOut:
@@ -798,8 +828,8 @@ async def register(
     return out
 
 
-@router.post("/login")
-async def login(payload: LoginIn, request: Request, response: Response, db: DbSession) -> TokenOut:
+@router.post("/login", dependencies=[Depends(_require_json_content_type)])
+async def login(payload: LoginIn, request: Request, response: Response, db: DbSession) -> LoginOut:
     if _login_hard_blocked(request, payload.email):
         raise _too_many_attempts()
     reservation_scope = "login-password-work"
@@ -920,10 +950,32 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
         if replacement_hash is not None:  # legacy pbkdf2 → Argon2id
             user.password_hash = replacement_hash
             logger.info("upgraded legacy pbkdf2 hash to Argon2id (user_id=%s)", user.id)
+        if user.totp_state == "ACTIVE":
+            # HUM-1 (2026-09-16): the password is proven, but an active TOTP
+            # enrollment demands the second factor before ANY session
+            # material exists — no refresh cookie, no access token. The
+            # single-use challenge token is short-lived and version-bound, so
+            # a password-only thief still cannot reach the account.
+            challenge = issue_token(
+                user.id,
+                "mfa",
+                TOTP_CHALLENGE_TTL_SECONDS,
+                extra_claims={"ver": user.token_version},
+            )
+            await db.commit()  # persist any legacy-hash upgrade above
+            _reset_login_failures(request, payload.email)
+            security_event(
+                "auth.totp.challenge_issued",
+                "password accepted; TOTP challenge demanded",
+                user_id=user.id,
+            )
+            return LoginOut(mfa_token=challenge)
         out = await _issue_tokens(db, user, response)
         await db.commit()
         _reset_login_failures(request, payload.email)
-        return out
+        return LoginOut(
+            access_token=out.access_token, token_type=out.token_type, user=out.user
+        )
     except asyncio.CancelledError:
         if password_work_started and not credential_accepted:
             _record_login_failure(request, payload.email)
@@ -993,6 +1045,14 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
                 user_id=claims.user_id,
             )
             await db.commit()
+            # DET-1: this is the platform's strongest theft signal — a
+            # signed, once-valid credential whose row is already gone.
+            security_event(
+                "auth.refresh.family_revoked",
+                "compacted refresh replay revoked the family",
+                user_id=claims.user_id,
+                family_id=claims.family_id,
+            )
         _raise_invalid_refresh(
             request,
             token,
@@ -1056,6 +1116,14 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
             "refresh-token reuse detected — revoked family %s (user_id=%s)",
             session.family_id,
             session.user_id,
+        )
+        # DET-1: cookie replay outside the rotation grace — a stolen
+        # refresh token was presented a second time. Alertable.
+        security_event(
+            "auth.refresh.family_revoked",
+            "refresh-token reuse outside the rotation grace revoked the family",
+            user_id=session.user_id,
+            family_id=session.family_id,
         )
         _raise_invalid_refresh(request, token)
     session.consumed_at = now
@@ -1621,3 +1689,347 @@ async def create_farm(
         response_type=FarmOut,
         mutate=mutate,
     )
+
+
+# --- TOTP second factor (HUM-1 follow-up, 2026-09-16) ----------------------
+#
+# Opt-in two-factor authentication for any account (recommended for owners:
+# an owner is god-mode and password-only phishing was the audit's top
+# real-world risk). The secret never touches the database in plaintext and
+# the challenge path is single-use, version-bound and strictly throttled.
+
+TOTP_ENROLL_SCOPE = "totp-enroll"
+TOTP_CHALLENGE_USER_SCOPE = "totp-challenge"
+# Challenge codes are 6 digits: 5 attempts / 5 minutes per account makes
+# exhaustive guessing ~700 years; per-IP composite mirrors login.
+TOTP_CHALLENGE_MAX_ATTEMPTS = 5
+
+# Single-use challenge tokens: consumed jtis with their signed expiry, so the
+# cache is bounded by the token TTL, not by attacker volume. Per-process by
+# design (the deployment invariant is one API worker).
+_mfa_jti_replay_cache: OrderedDict[str, datetime] = OrderedDict()
+_MFA_REPLAY_CACHE_MAX = 4096
+
+
+def _consume_mfa_jti(jti: str, expires_at: datetime) -> bool:
+    """Mark a challenge token consumed; False when it was already used."""
+    now = utcnow()
+    while _mfa_jti_replay_cache:
+        _oldest_jti, oldest_expiry = next(iter(_mfa_jti_replay_cache.items()))
+        if oldest_expiry > now:
+            break
+        _mfa_jti_replay_cache.popitem(last=False)
+    if jti in _mfa_jti_replay_cache:
+        return False
+    _mfa_jti_replay_cache[jti] = expires_at
+    if len(_mfa_jti_replay_cache) > _MFA_REPLAY_CACHE_MAX:
+        _mfa_jti_replay_cache.popitem(last=False)
+    return True
+
+
+async def _confirm_current_password(
+    db: AsyncSession,
+    request: Request,
+    payload_password: str,
+    user: User,
+    *,
+    scope: str,
+) -> None:
+    """Shared password confirmation for TOTP enrollment/disable.
+
+    Mirrors change-password's budgeting (shared per-account ceiling, so
+    endpoint-switching cannot double the guessing rate) and its
+    lock-free-verify-then-reload shape."""
+    user_id = user.id
+    password_hash = user.password_hash
+    rate_key = f"{_client_key(request)}|{user_id}"
+    scopes = (scope, ACCOUNT_PASSWORD_CONFIRM_ACCOUNT_SCOPE, rate_key, user_id)
+    if _account_password_blocked(*scopes):
+        raise _too_many_attempts()
+    reservation = _reserve_password_work(ACCOUNT_PASSWORD_RESERVATION_SCOPE, str(user_id))
+    try:
+        if _account_password_blocked(*scopes):
+            raise _too_many_attempts()
+        await db.rollback()  # never hold a transaction over Argon2
+        ok, _needs_rehash = await reservation.run(
+            lambda: verify_password_async(payload_password, password_hash)
+        )
+        _record_account_password_attempt(*scopes)
+        if not ok:
+            raise HTTPException(status_code=400, detail="Current password is incorrect.")
+    finally:
+        reservation.release_when_idle()
+
+
+def _otpauth_uri(secret_b32: str, email: str) -> str:
+    label = urllib.parse.quote(f"Herdly:{email}", safe=":")
+    return (
+        f"otpauth://totp/{label}"
+        f"?secret={secret_b32}&issuer=Herdly&algorithm=SHA1&digits=6&period=30"
+    )
+
+
+@router.post("/totp/enroll", status_code=200)
+async def totp_enroll(
+    payload: TotpEnrollIn,
+    request: Request,
+    db: DbSession,
+    user: CurrentUser,
+) -> TotpEnrollOut:
+    """Begin enrollment: confirm the current password, generate a fresh
+    secret (stored PENDING — not yet demanded at login) and return it with an
+    otpauth:// URI. On phones the URI link opens the authenticator app
+    directly; the secret text remains for manual entry."""
+    # The password confirmation rolls the session back; snapshot first.
+    user_id = user.id
+    await _confirm_current_password(
+        db, request, payload.current_password, user, scope=TOTP_ENROLL_SCOPE
+    )
+    locked = (
+        await db.execute(
+            select(User)
+            .where(User.id == user_id, User.deleted_at.is_(None))
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )
+    ).scalar_one()
+    secret = generate_totp_secret_b32()
+    locked.totp_secret_enc = encrypt_totp_secret(secret)
+    locked.totp_state = "PENDING"
+    locked.totp_last_step = None
+    await db.commit()
+    security_event(
+        "auth.totp.enroll_started",
+        "TOTP enrollment started (pending confirmation)",
+        user_id=locked.id,
+    )
+    return TotpEnrollOut(secret=secret, otpauth_uri=_otpauth_uri(secret, locked.email))
+
+
+@router.post("/totp/confirm", status_code=204)
+async def totp_confirm(
+    payload: TotpCodeIn,
+    db: DbSession,
+    user: CurrentUser,
+) -> Response:
+    """Finish enrollment: a code generated from the PENDING secret activates
+    the second factor. Proof-of-possession before it gates login."""
+    user_id = user.id
+    locked = (
+        await db.execute(
+            select(User)
+            .where(User.id == user_id, User.deleted_at.is_(None))
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )
+    ).scalar_one()
+    if locked.totp_state != "PENDING" or locked.totp_secret_enc is None:
+        raise HTTPException(status_code=409, detail="Start enrollment first.")
+    secret = decrypt_totp_secret(locked.totp_secret_enc)
+    matched = verify_totp_code(secret, payload.code, at=utcnow(), last_used_step=None)
+    if matched is None:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="That code is not valid right now.")
+    locked.totp_state = "ACTIVE"
+    locked.totp_last_step = matched
+    await db.commit()
+    security_event(
+        "auth.totp.enabled",
+        "TOTP second factor activated",
+        user_id=locked.id,
+    )
+    return Response(status_code=204)
+
+
+@router.post("/totp/disable", status_code=204)
+async def totp_disable(
+    payload: TotpDisableIn,
+    request: Request,
+    db: DbSession,
+    user: CurrentUser,
+) -> Response:
+    """Remove the second factor: requires BOTH the current password and a
+    currently-valid code (or, for an unconfirmed PENDING enrollment, the
+    password alone — nothing is gating login yet)."""
+    user_id = user.id  # _confirm_current_password rolls back and expires `user`
+    locked = (
+        await db.execute(
+            select(User)
+            .where(User.id == user_id, User.deleted_at.is_(None))
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )
+    ).scalar_one()
+    state = locked.totp_state
+    if state is None or locked.totp_secret_enc is None:
+        raise HTTPException(status_code=409, detail="Two-factor is not enrolled.")
+    if state == "ACTIVE":
+        await _confirm_current_password(
+            db, request, payload.current_password, locked, scope=TOTP_ENROLL_SCOPE
+        )
+        locked = (
+            await db.execute(
+                select(User)
+                .where(User.id == user_id, User.deleted_at.is_(None))
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            )
+        ).scalar_one()
+        assert locked.totp_secret_enc is not None  # state==ACTIVE implies the pairing CHECK
+        locked_id = locked.id
+        secret = decrypt_totp_secret(locked.totp_secret_enc)
+        if (
+            verify_totp_code(
+                secret, payload.code, at=utcnow(), last_used_step=locked.totp_last_step
+            )
+            is None
+        ):
+            await db.rollback()
+            security_event(
+                "auth.totp.disable_failed",
+                "wrong TOTP code on disable attempt",
+                user_id=locked_id,
+            )
+            raise HTTPException(status_code=400, detail="That code is not valid right now.")
+    else:
+        await _confirm_current_password(
+            db, request, payload.current_password, locked, scope=TOTP_ENROLL_SCOPE
+        )
+        locked = (
+            await db.execute(
+                select(User)
+                .where(User.id == user_id, User.deleted_at.is_(None))
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            )
+        ).scalar_one()
+    locked.totp_secret_enc = None
+    locked.totp_state = None
+    locked.totp_last_step = None
+    await db.commit()
+    security_event(
+        "auth.totp.disabled",
+        "TOTP second factor removed",
+        user_id=locked.id,
+    )
+    return Response(status_code=204)
+
+
+@router.post("/totp/challenge")
+async def totp_challenge(
+    payload: TotpChallengeIn,
+    request: Request,
+    response: Response,
+    db: DbSession,
+) -> TokenOut:
+    """Exchange a login-issued challenge token + current code for the full
+    session. Single-use, version-bound, strictly throttled per account."""
+    body, expired = _decode_payload_result(payload.mfa_token, "mfa")
+    generic = HTTPException(status_code=401, detail="Invalid or expired challenge.")
+    if body is None:
+        raise generic
+    try:
+        challenge_user_id = int(body["sub"])
+        challenge_ver = body["ver"]
+        jti = body["jti"]
+    except (KeyError, TypeError, ValueError):
+        raise generic from None
+    if expired or isinstance(challenge_ver, bool) or not isinstance(challenge_ver, int):
+        raise generic
+
+    user = (
+        await db.execute(
+            select(User)
+            .where(User.id == challenge_user_id, User.deleted_at.is_(None))
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    user_id = user.id if user is not None else challenge_user_id
+    if user is None or user.token_version != challenge_ver:
+        security_event(
+            "auth.totp.challenge_failed",
+            "challenge token predates a credential change",
+            user_id=challenge_user_id,
+        )
+        raise generic
+    if user.totp_state != "ACTIVE" or user.totp_secret_enc is None:
+        # Second factor disabled after the challenge was issued: the password
+        # proof is stale. Fail closed; the user simply logs in again.
+        await db.rollback()
+        raise generic
+
+    s = get_settings()
+    composite_key = f"{_client_key(request)}|{user.id}"
+    if s.auth_rate_limit_enabled and (
+        auth_limiter.is_blocked(
+            TOTP_CHALLENGE_USER_SCOPE,
+            str(user.id),
+            TOTP_CHALLENGE_MAX_ATTEMPTS,
+            s.auth_rate_limit_window_seconds,
+        )
+        or auth_limiter.is_blocked(
+            TOTP_CHALLENGE_USER_SCOPE,
+            composite_key,
+            TOTP_CHALLENGE_MAX_ATTEMPTS,
+            s.auth_rate_limit_window_seconds,
+        )
+    ):
+        logger.info("totp challenge throttled (user_id=%s)", user.id)
+        metrics.record_auth_rate_limit_rejection(TOTP_CHALLENGE_USER_SCOPE)
+        await db.rollback()
+        raise _too_many_attempts()
+
+    secret = decrypt_totp_secret(user.totp_secret_enc)
+    matched = verify_totp_code(
+        secret, payload.code, at=utcnow(), last_used_step=user.totp_last_step
+    )
+    if matched is None:
+        auth_limiter.record(
+            TOTP_CHALLENGE_USER_SCOPE,
+            str(user.id),
+            s.auth_rate_limit_window_seconds,
+            max_attempts=TOTP_CHALLENGE_MAX_ATTEMPTS,
+        )
+        auth_limiter.record(
+            TOTP_CHALLENGE_USER_SCOPE,
+            composite_key,
+            s.auth_rate_limit_window_seconds,
+            max_attempts=TOTP_CHALLENGE_MAX_ATTEMPTS,
+        )
+        metrics.record_auth_rate_limit_rejection(TOTP_CHALLENGE_USER_SCOPE)
+        await db.rollback()
+        security_event(
+            "auth.totp.challenge_failed",
+            "wrong TOTP code at challenge",
+            user_id=user_id,
+        )
+        raise generic
+    user.totp_last_step = matched
+    # Single-use means single SUCCESS: a wrong code leaves the challenge
+    # retryable inside the throttle budget above; the successful exchange
+    # burns it for any later replay (including a thief with a copy).
+    if not _consume_mfa_jti(str(jti), _mfa_token_expiry(payload.mfa_token, generic)):
+        await db.rollback()
+        security_event(
+            "auth.totp.challenge_failed",
+            "challenge token already consumed",
+            user_id=user_id,
+        )
+        raise generic
+    out = await _issue_tokens(db, user, response)
+    await db.commit()
+    auth_limiter.reset(TOTP_CHALLENGE_USER_SCOPE, str(user_id))
+    auth_limiter.reset(TOTP_CHALLENGE_USER_SCOPE, composite_key)
+    return out
+
+
+def _mfa_token_expiry(token: str, generic: HTTPException) -> datetime:
+    """Expiry of a decoded mfa token (already structurally verified)."""
+    body, _expired = _decode_payload_result(token, "mfa")
+    if body is None:
+        raise generic
+    exp = body.get("exp")
+    if not isinstance(exp, (int, float)):
+        raise generic
+    return datetime.fromtimestamp(float(exp), tz=UTC).replace(tzinfo=None)

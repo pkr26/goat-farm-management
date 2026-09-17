@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 
 from . import metrics
+from .audit import security_event
 from .core.config import get_settings
 from .db import get_db
 from .models import Farm, FarmMembership, RefreshSession, Role, User
@@ -155,6 +156,14 @@ async def current_user(
     claims = decoded.claims
     if claims is None:
         if not decoded.expired:
+            # DET-2: tampered/malformed signature attempts are a distinct,
+            # alertable signal from ordinary expiry (which is not logged —
+            # every expiring session would drown the stream).
+            security_event(
+                "auth.token.invalid",
+                "access token failed verification (not merely expired)",
+                expired=False,
+            )
             if record_invalid_token_verification(
                 request,
                 INVALID_ACCESS_TOKEN_SCOPE,
@@ -167,6 +176,15 @@ async def current_user(
     if user is None or user.deleted_at is not None:
         raise _unauthenticated("Account no longer exists")
     if user.token_version != claims.token_version:
+        # DET-2: a signature-valid token from a revoked generation — password
+        # change/reset, account deletion, or bearer logout. Reuse after those
+        # events is exactly the thief/forgotten-tab pattern worth alerting on.
+        security_event(
+            "auth.token.version_mismatch",
+            "revoked-generation access token presented",
+            user_id=user.id,
+            token_version=claims.token_version,
+        )
         raise _unauthenticated("Session has been revoked")
     # The first lookup is deliberately lock-free. Unsafe tenant routes pin
     # their complete authorization bundle later, once CurrentFarm identifies
@@ -644,13 +662,22 @@ async def current_perms(
 CurrentPerms = Annotated[set[str], Depends(current_perms)]
 
 
-def require_perm(code: str) -> Callable[[set[str]], Awaitable[set[str]]]:
+def require_perm(code: str) -> Callable[[set[str], User, Farm], Awaitable[set[str]]]:
     """Dependency factory: 403 unless the user holds `code` on this farm."""
 
-    async def dependency(perms: CurrentPerms) -> set[str]:
+    async def dependency(perms: CurrentPerms, user: CurrentUser, farm: CurrentFarm) -> set[str]:
         if code not in perms:
-            # Security audit trail: denials must be observable.
-            logger.info("RBAC denial: missing permission %s", code)
+            # Security audit trail: denials must be observable (DET-2). The
+            # structured event names the principal and tenant so a probing
+            # worker or stolen low-priv token surfaces as a pattern, while
+            # ids keep PII out of the stream.
+            security_event(
+                "rbac.denied",
+                "authenticated request missing a required permission",
+                user_id=user.id,
+                farm_id=farm.id,
+                permission=code,
+            )
             raise HTTPException(status_code=403, detail=f"Missing permission: {code}")
         return perms
 

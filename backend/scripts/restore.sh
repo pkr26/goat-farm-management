@@ -357,8 +357,20 @@ restored_revision="$(
         --command "${ALEMBIC_SANITY_SQL}"
 )"
 restored_revision="${restored_revision//[[:space:]]/}"
+MIN_RESTORED_REVISION=f4e5f6a7b8c9
 if [[ ! "${restored_revision}" =~ ^[0-9a-f]{12}$ ]]; then
     echo "Restore completed without a valid Alembic revision" >&2
+    exit 1
+fi
+# INFRA-3 (2026-09-16): a backup older than f4e5f6a7b8c9 still carries the
+# pre-purge idempotency fingerprints of password-bearing worker-create
+# bodies (an offline guessing oracle once the HMAC secret is also known).
+# Compose deployments re-run `alembic upgrade head` (which re-purges) before
+# the API starts; this floor makes bare-docker restores refuse loudly too.
+if [[ "${restored_revision}" < "${MIN_RESTORED_REVISION}" ]]; then
+    echo "Refusing restore: backup predates revision ${MIN_RESTORED_REVISION}" \
+        " (unkeyed idempotency password fingerprints). Restore it to a scratch" \
+        " database, run alembic upgrade head to re-purge, then dump/restore that." >&2
     exit 1
 fi
 

@@ -194,6 +194,11 @@ const te: Partial<Record<MessageKey, string>> = {
   "feeding.savedToast": "{bucket} కోసం ఒక్కో మేకకు {kg} కిలో సేవ్ చేయబడింది.",
 
   // ---------- login ----------
+  "login.totpPrompt":
+    "ఈ ఖాతాకు రెండు-దశల భద్రత ఉంది. మీ ఆథెంటికేటర్ యాప్‌లో కనిపించే ప్రస్తుత 6 అంకెల కోడ్‌ను నమోదు చేయండి.",
+  "login.totpCodeLabel": "ఆథెంటికేటర్ కోడ్",
+  "login.totpCodeInvalid": "ఆ కోడ్ ప్రస్తుతం చెల్లదు.",
+  "login.totpBack": "వెనుకకు",
   "login.invalidCredentials": "ఇమెయిల్ లేదా పాస్‌వర్డ్ తప్పు.",
   "login.networkError": "నెట్‌వర్క్ బలహీనంగా ఉంది — దయచేసి కనెక్షన్ సరిచూసి మళ్లీ ప్రయత్నించండి.",
   "login.forgotPassword": "పాస్‌వర్డ్ మర్చిపోయారా?",

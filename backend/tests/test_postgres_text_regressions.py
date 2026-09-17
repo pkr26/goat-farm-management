@@ -186,3 +186,66 @@ async def test_nul_search_terms_never_reach_postgres(
     owner = await owner_with_farm(client)
     response = await client.get(path, params=extra_params | {"q": "\x00"}, headers=owner)
     assert response.status_code == 422, response.text
+
+
+# --- 2026-09-16 audit INJ-3: invisible/line-separator/bidi characters -------
+
+INJ3_CASES: list[tuple[str, str]] = [
+    ("DEL", "bad\x7fnotes"),
+    ("NEL", "bad\u0085notes"),
+    ("CSI", "bad\u009bnotes"),
+    ("LINE SEPARATOR", "bad\u2028notes"),
+    ("PARAGRAPH SEPARATOR", "bad\u2029notes"),
+    ("RLO", "bad\u202enotes"),
+    ("LRE", "bad\u202anotes"),
+    ("LRI ISOLATE", "bad\u2066notes"),
+    ("LRM", "bad\u200enotes"),
+    ("BOM", "bad\ufeffnotes"),
+]
+
+
+@pytest.mark.parametrize(("label", "bad"), INJ3_CASES, ids=[c[0] for c in INJ3_CASES])
+def test_postgres_text_rejects_invisible_and_directional_characters(
+    label: str, bad: str
+) -> None:
+    schema, builder, _field = SCHEMA_CASES[0]  # AnimalCreateIn via its builder
+    with pytest.raises(ValidationError, match="directional"):
+        schema.model_validate(builder(bad))
+    # The identifier validator (tags/names) rejects the same set on top of Cc.
+    from app.models.helpers import no_control_characters
+
+    with pytest.raises(ValueError, match="directional"):
+        no_control_characters("123\u202e456")
+
+
+@pytest.mark.parametrize("zw", ["\u200c", "\u200d"], ids=["ZWJ", "ZWNJ"])
+def test_postgres_text_allows_telugu_joiners(zw: str) -> None:
+    model = AnimalCreateIn.model_validate(
+        {
+            "tag_number": "INJ3-TELUGU",
+            "sex": "F",
+            "source": "PURCHASED",
+            "current_bucket": "FOUNDATION",
+            "notes": f"అండ{zw}ర ఆడ మేక",
+        }
+    )
+    assert zw in (model.notes or "")
+
+
+async def test_animal_notes_reject_bidi_override_over_http(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    animal = await client.post(
+        "/api/animals",
+        json={
+            "tag_number": "INJ3-ANIMAL",
+            "sex": "F",
+            "source": "PURCHASED",
+            "current_bucket": "FOUNDATION",
+            "notes": "audit\u202enotes",
+        },
+        headers=owner,
+    )
+    assert animal.status_code == 422, animal.text
+    assert "directional" in animal.text

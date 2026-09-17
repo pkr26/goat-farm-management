@@ -1,0 +1,508 @@
+{
+ "repair": {
+  "move_doe": 409,
+  "move_buck": 409,
+  "breeding": {
+   "status": 400,
+   "body": "{'detail': 'Doe or buck is not eligible for breeding'}"
+  },
+  "health_event": {
+   "status": 201
+  },
+  "plan": {
+   "status": 201,
+   "body": "{'id': 1, 'farm_id': 1, 'name': '=HYPERLINK(\"http://evil.example/c\",\"c\")|RT\\r\\nSet-Cookie: pwn=1', 'notes': '', 'start_year_month': '2026-10', 'targets': [{'year_month': '2027-03', 'animal_class': 'doe', 'count': 40.0}], 'assumptions': {'meta': {'horizon_months': 120, 'start_year_month': '2026-10'},"
+  }
+ },
+ "cross_tenant": [
+  {
+   "attack": "read animal",
+   "method": "GET",
+   "path": "/api/animals/1",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "patch animal",
+   "method": "PATCH",
+   "path": "/api/animals/1",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "move animal",
+   "method": "POST",
+   "path": "/api/animals/1/move",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "sell animal",
+   "method": "POST",
+   "path": "/api/animals/1/status",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "weight animal",
+   "method": "POST",
+   "path": "/api/animals/1/weight",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "list animals",
+   "method": "GET",
+   "path": "/api/animals",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "breeding get",
+   "method": "GET",
+   "path": "/api/breeding/1",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "breeding abort",
+   "method": "POST",
+   "path": "/api/breeding/None/abort",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "ultrasound",
+   "method": "POST",
+   "path": "/api/breeding/None/ultrasound",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "pregnancy get",
+   "method": "GET",
+   "path": "/api/kidding/pregnancies/1",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "kidding create w/ foreign breeding",
+   "method": "POST",
+   "path": "/api/kidding",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "health restrictions",
+   "method": "GET",
+   "path": "/api/health/restrictions/1",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "health schedule",
+   "method": "GET",
+   "path": "/api/health/schedule/1",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "health clear restriction",
+   "method": "POST",
+   "path": "/api/health/restrictions/1/clear",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "health event create foreign animal",
+   "method": "POST",
+   "path": "/api/health/events",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "lifetime pnl",
+   "method": "GET",
+   "path": "/api/finance/animals/1/lifetime-pnl",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "insurance claim",
+   "method": "POST",
+   "path": "/api/finance/insurance/1/claim",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "insurance renew",
+   "method": "POST",
+   "path": "/api/finance/insurance/1/renew",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "insurance list w/ foreign animal filter",
+   "method": "GET",
+   "path": "/api/finance/insurance?animal_id=1",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "finance txn correct",
+   "method": "POST",
+   "path": "/api/finance/transactions/3/correct",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "finance list",
+   "method": "GET",
+   "path": "/api/finance",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "purchase get",
+   "method": "GET",
+   "path": "/api/purchases/3",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "task get",
+   "method": "GET",
+   "path": "/api/tasks/23",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "task complete",
+   "method": "POST",
+   "path": "/api/tasks/23/complete",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "task skip",
+   "method": "POST",
+   "path": "/api/tasks/23/skip",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "task reject",
+   "method": "POST",
+   "path": "/api/tasks/23/reject",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "task verify",
+   "method": "POST",
+   "path": "/api/tasks/23/verify",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "scenario get",
+   "method": "GET",
+   "path": "/api/simulation/scenarios/1",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "scenario patch",
+   "method": "PATCH",
+   "path": "/api/simulation/scenarios/1",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "scenario delete",
+   "method": "DELETE",
+   "path": "/api/simulation/scenarios/1",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "scenario run",
+   "method": "POST",
+   "path": "/api/simulation/scenarios/1/run",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "scenario compare",
+   "method": "GET",
+   "path": "/api/simulation/scenarios/compare?ids=1",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "plan get",
+   "method": "GET",
+   "path": "/api/planner/plans/1",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "plan patch",
+   "method": "PATCH",
+   "path": "/api/planner/plans/1",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "plan delete",
+   "method": "DELETE",
+   "path": "/api/planner/plans/1",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "plan dpr",
+   "method": "GET",
+   "path": "/api/planner/plans/1/dpr",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "team page",
+   "method": "GET",
+   "path": "/api/team",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "worker reset (owner-only)",
+   "method": "POST",
+   "path": "/api/team/workers/1/reset-password",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "worker role change",
+   "method": "POST",
+   "path": "/api/team/workers/1/role",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "worker deactivate",
+   "method": "PUT",
+   "path": "/api/team/workers/1/status",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "role create",
+   "method": "POST",
+   "path": "/api/team/roles",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "dashboard",
+   "method": "GET",
+   "path": "/api/dashboard",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "dashboard reports",
+   "method": "GET",
+   "path": "/api/dashboard/reports",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "buckets",
+   "method": "GET",
+   "path": "/api/buckets",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "feeding plan",
+   "method": "GET",
+   "path": "/api/feeding/plan",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "feeding inventory",
+   "method": "GET",
+   "path": "/api/feeding/inventory",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  },
+  {
+   "attack": "feeding dispense",
+   "method": "POST",
+   "path": "/api/feeding/dispense",
+   "status": 404,
+   "leaked_farmA_data": false,
+   "body": "{\"detail\":\"Farm not found\"}"
+  }
+ ],
+ "farm_header_abuse": [
+  {
+   "value": "leading zeros 01",
+   "status": 200,
+   "body": "{\"animals\":[{\"id\":3,\"tag_number\":\"B3-71611cc4402c-0001\",\"name\":null,\"breed\":\"Osmanabadi\",\"sex\":\"F\",\"date_of_birth\":null,\"estimated_dob\":null,\"birth_type\":null,\"source\":\"PURCHASED\",\"dam_id\":null,\"sire_"
+  },
+  {
+   "value": "plus",
+   "status": 400,
+   "body": "{\"detail\":\"X-Farm-Id must be an integer\"}"
+  },
+  {
+   "value": "whitespace",
+   "status": 200,
+   "body": "{\"animals\":[{\"id\":3,\"tag_number\":\"B3-71611cc4402c-0001\",\"name\":null,\"breed\":\"Osmanabadi\",\"sex\":\"F\",\"date_of_birth\":null,\"estimated_dob\":null,\"birth_type\":null,\"source\":\"PURCHASED\",\"dam_id\":null,\"sire_"
+  },
+  {
+   "value": "negative",
+   "status": 400,
+   "body": "{\"detail\":\"X-Farm-Id must be an integer\"}"
+  },
+  {
+   "value": "huge",
+   "status": 400,
+   "body": "{\"detail\":\"X-Farm-Id out of range\"}"
+  },
+  {
+   "value": "float",
+   "status": 400,
+   "body": "{\"detail\":\"X-Farm-Id must be an integer\"}"
+  },
+  {
+   "value": "hex",
+   "status": 400,
+   "body": "{\"detail\":\"X-Farm-Id must be an integer\"}"
+  },
+  {
+   "value": "non-ascii",
+   "error": "'latin-1' codec can't encode character '\\uff11' in position 0: ordinal not in range(256)"
+  },
+  {
+   "value": "empty",
+   "status": 400,
+   "body": "{\"detail\":\"X-Farm-Id must be an integer\"}"
+  },
+  {
+   "value": "zero",
+   "status": 400,
+   "body": "{\"detail\":\"X-Farm-Id out of range\"}"
+  },
+  {
+   "value": "duplicate-header",
+   "status_line": "HTTP/1.1 400 Bad Request",
+   "body_head": "{\"detail\":\"X-Farm-Id must be supplied exactly once\"}"
+  },
+  {
+   "value": "duplicate-header-cross",
+   "status_line": "HTTP/1.1 400 Bad Request",
+   "body_head": "{\"detail\":\"X-Farm-Id must be supplied exactly once\"}"
+  },
+  {
+   "value": "dup-auth",
+   "status_line": "HTTP/1.1 401 Unauthorized",
+   "body_head": "{\"detail\":\"Missing bearer token\"}"
+  }
+ ],
+ "own_farm_foreign_ids": [
+  {
+   "attack": "animal get",
+   "status": 404,
+   "body": "{\"detail\":\"Animal not found\"}"
+  },
+  {
+   "attack": "animal patch",
+   "status": 422,
+   "body": "{\"detail\":[{\"type\":\"literal_error\",\"loc\":[\"body\",\"coat_color\"],\"msg\":\"Input should be 'black', 'black_patched', 'brown', 'white' or 'spotted'\"}]}"
+  },
+  {
+   "attack": "breeding get",
+   "status": 404,
+   "body": "{\"detail\":\"Breeding record not found\"}"
+  },
+  {
+   "attack": "task complete",
+   "status": 404,
+   "body": "{\"detail\":\"Task not found\"}"
+  },
+  {
+   "attack": "scenario run",
+   "status": 404,
+   "body": "{\"detail\":\"Scenario not found\"}"
+  },
+  {
+   "attack": "plan dpr",
+   "status": 404,
+   "body": "{\"detail\":\"Plan not found\"}"
+  },
+  {
+   "attack": "purchase get",
+   "status": 404,
+   "body": "{\"detail\":\"Purchase batch not found\"}"
+  },
+  {
+   "attack": "insurance claim",
+   "status": 404,
+   "body": "{\"detail\":\"Insurance policy not found\"}"
+  },
+  {
+   "attack": "finance correct",
+   "status": 422,
+   "body": "{\"detail\":[{\"type\":\"string_too_short\",\"loc\":[\"body\",\"reason\"],\"msg\":\"String should have at least 3 characters\"}]}"
+  }
+ ]
+}

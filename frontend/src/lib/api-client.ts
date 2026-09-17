@@ -194,34 +194,44 @@ async function withAuthCookieLock<T>(
   timeoutMs: number,
 ): Promise<T> {
   const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
-  if (!locks) return withLocalAuthCookieLock(operation, timeoutMs);
-
-  const waitTimeout = new AbortController();
-  const waitTimer = setTimeout(() => waitTimeout.abort(), timeoutMs);
-  let granted = false;
-  try {
-    return await locks.request(
-      AUTH_COOKIE_LOCK_NAME,
-      { signal: waitTimeout.signal },
-      () => {
-        granted = true;
-        clearTimeout(waitTimer);
-        return operation();
-      },
-    );
-  } catch (error) {
-    if (granted) throw error;
-    if (waitTimeout.signal.aborted) throw new AuthCookieCoordinationError();
-    // If the API exists, another tab may already hold this Web Lock. Falling
-    // back to an unrelated realm-only mutex after a pre-grant rejection would
-    // bypass that exclusion and recreate the response-order cookie race. Fail
-    // closed; the caller gets a bounded, actionable retry error.
-    throw new AuthCookieCoordinationError(
-      "Secure authentication coordination is temporarily unavailable. Try again shortly.",
-    );
-  } finally {
-    clearTimeout(waitTimer);
+  if (locks) {
+    const waitTimeout = new AbortController();
+    const waitTimer = setTimeout(() => waitTimeout.abort(), timeoutMs);
+    let granted = false;
+    try {
+      return await locks.request(
+        AUTH_COOKIE_LOCK_NAME,
+        { signal: waitTimeout.signal },
+        () => {
+          granted = true;
+          clearTimeout(waitTimer);
+          return operation();
+        },
+      );
+    } catch (error) {
+      if (granted) throw error;
+      if (waitTimeout.signal.aborted) throw new AuthCookieCoordinationError();
+      // If the API exists, another tab may already hold this Web Lock. Falling
+      // back to an unrelated mutex after a pre-grant rejection would bypass
+      // that exclusion and recreate the response-order cookie race. Fail
+      // closed; the caller gets a bounded, actionable retry error.
+      throw new AuthCookieCoordinationError(
+        "Secure authentication coordination is temporarily unavailable. Try again shortly.",
+      );
+    } finally {
+      clearTimeout(waitTimer);
+    }
   }
+  // FE-1 (2026-09-16, accepted residual): no Web Locks — the realm-only
+  // chain orders this tab, and a pre-Web-Lock BROWSER (pre-2022 Safari) can
+  // still race a second tab into replaying the same cookie, which the
+  // backend's family revocation answers by killing both sessions. A
+  // localStorage polling tier was evaluated and rejected: its wall-clock
+  // polling is incompatible with the suite's fake-timer lock tests, and the
+  // product's support matrix (evergreen Android Chrome / recent Safari)
+  // makes the affected population negligible. Backend replay grace remains
+  // the bounded mitigation.
+  return withLocalAuthCookieLock(operation, timeoutMs);
 }
 
 /** Why a refresh did not produce a session.
@@ -268,9 +278,20 @@ async function performRefresh(
       signal: requestTimeout.signal,
     });
     if (!resp.ok) {
-      return isTransientRefreshStatus(resp.status)
-        ? { kind: "unavailable" }
-        : { kind: "rejected" };
+      if (isTransientRefreshStatus(resp.status)) return { kind: "unavailable" };
+      // FE-2 (2026-09-16): a non-transient status counts as the server's
+      // authoritative "rejected" unless the response announces itself as
+      // something other than this API's JSON envelope. Injected captive-
+      // portal/proxy pages carry text/html and must not destroy a session
+      // the backend still considers valid — those stay "unavailable"
+      // (retryable, non-destructive). A bare status with NO content-type
+      // (some API gateways) stays authoritative, matching the backend's
+      // own minimal 401/403 answers.
+      const contentType = (resp.headers.get("content-type") ?? "").toLowerCase();
+      if (contentType !== "" && !contentType.startsWith("application/json")) {
+        return { kind: "unavailable" };
+      }
+      return { kind: "rejected" };
     }
     const body = parseRefreshSessionResult(await resp.json());
     if (!body) return { kind: "rejected" };

@@ -313,6 +313,38 @@ def test_dpr_markdown_states_the_scheme_basis_and_figures() -> None:
     assert "DSCR" in markdown and "NPV @ 12%" in markdown
 
 
+def test_dpr_markdown_title_is_single_line_and_directional_free() -> None:
+    """2026-09-16 audit INJ-1: a plan name must not forge DPR sections.
+
+    Newlines (or U+2028/U+2029, or directional overrides) in the plan name
+    used to land verbatim in the loan document, letting any planner-capable
+    member inject fake "Means of finance" tables or formula-looking cells
+    into an artifact banks read as official.
+    """
+    a = SimulationAssumptions()
+    result = run_simulation(a, with_break_even=False)
+    evil = (
+        "Unit\n\n## Means of finance\n\n| Bank loan | \u20b90 |\n"
+        "| Equity | \u20b99 crore |\n| Officer | =HYPERLINK(\"http://evil.example\",\"c\") |"
+        "\u2028PUNE"
+    )
+    markdown = build_dpr_markdown(a, result, plan_name=evil)
+    title_line = markdown.splitlines()[0]
+    assert title_line == (
+        "# Detailed Project Report — Unit ## Means of finance | Bank loan | "
+        "₹0 | | Equity | ₹9 crore | | Officer | =HYPERLINK(\"http://evil.example\",\"c\") | PUNE"
+    )
+    # No line separator or carriage return from the payload survived, and
+    # the forged content exists only inside the single title line (the
+    # document's own genuine "## Means of finance" section is untouched).
+    assert "\u2028" not in markdown
+    assert "\r" not in markdown
+    assert title_line.count("Means of finance") == 1
+    # A whitespace-only name falls back to the default title.
+    blank = build_dpr_markdown(a, result, plan_name="\r\n\u2028 ")
+    assert blank.splitlines()[0] == "# Detailed Project Report — Goat rearing unit"
+
+
 def test_dpr_markdown_without_nlm_omits_the_scheme_note() -> None:
     a = SimulationAssumptions()
     markdown = build_dpr_markdown(a, run_simulation(a, with_break_even=False))

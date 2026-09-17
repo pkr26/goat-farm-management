@@ -16,7 +16,7 @@ from datetime import timedelta
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -267,7 +267,26 @@ async def replay_idempotent_if_committed[ResponseT: BaseModel](
         )
     http_response.status_code = existing.response_status
     http_response.headers["Idempotency-Replayed"] = "true"
-    return response_type.model_validate(existing.response_body)
+    return _revalidate_cached_response(response_type, existing.response_body)
+
+
+def _revalidate_cached_response[ResponseT: BaseModel](
+    response_type: type[ResponseT], body: object
+) -> ResponseT:
+    """BIZ-1 (2026-09-16): a response recorded before a schema tightening no
+    longer parses against the current model. That is a stale cache, not a
+    server fault — answer 409 so the client retries with a new key instead
+    of surfacing an opaque 500."""
+    try:
+        return response_type.model_validate(body)
+    except ValidationError:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This Idempotency-Key recorded a response from an older API "
+                "version; retry with a new key"
+            ),
+        ) from None
 
 
 async def execute_idempotent[ResponseT: BaseModel](
@@ -400,7 +419,7 @@ async def execute_idempotent[ResponseT: BaseModel](
             await db.rollback()  # read-only replay; release transaction/connection
             http_response.status_code = replay_status
             http_response.headers["Idempotency-Replayed"] = "true"
-            return response_type.model_validate(body)
+            return _revalidate_cached_response(response_type, body)
 
         # Per-actor capacity guard, checked only on the FRESH-claim path: a
         # replay of an already-committed result is read-only and cannot grow

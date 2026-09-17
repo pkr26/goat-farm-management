@@ -1,0 +1,209 @@
+{
+ "state_machine": [
+  {
+   "attack": "sell animal",
+   "status": 409,
+   "body": "{\"detail\":\"B3-71611cc4402c-0003 is still in the 45-day quarantine protocol \u2014 complete or skip the protocol before selling\"}"
+  },
+  {
+   "attack": "re-sell sold animal",
+   "status": 409,
+   "body": "{\"detail\":\"B3-71611cc4402c-0003 is still in the 45-day quarantine protocol \u2014 complete or skip the protocol before selling\"}"
+  },
+  {
+   "attack": "revive sold\u2192dead",
+   "status": 200,
+   "body": "{\"id\":5,\"tag_number\":\"B3-71611cc4402c-0003\",\"name\":null,\"breed\":\"Osmanabadi\",\"sex\":\"F\",\"date_of_birth\":null,\"estimated_dob\":null,\"birth_type\":null,\"source\":\"PURCHASED\",\"dam_id\":nul"
+  },
+  {
+   "attack": "weight on sold animal",
+   "status": 400,
+   "body": "{\"detail\":\"B3-71611cc4402c-0003 is dead \u2014 cannot record a weight.\"}"
+  },
+  {
+   "attack": "move sold animal",
+   "status": 409,
+   "body": "{\"detail\":\"Purchased quarantine animals must leave quarantine through the guarded batch task\"}"
+  },
+  {
+   "attack": "patch sold animal",
+   "status": 409,
+   "body": "{\"detail\":\"B3-71611cc4402c-0003 is dead\"}"
+  },
+  {
+   "attack": "breed sold animal",
+   "status": 422,
+   "body": "{\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\"],\"msg\":\"Value error, buck_id is required for a NATURAL service\"}]}"
+  },
+  {
+   "attack": "breed in future 2030",
+   "status": 422,
+   "body": "{\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"breeding_date\"],\"msg\":\"Value error, date cannot be in the future\"}]}"
+  },
+  {
+   "attack": "negative weight",
+   "status": 422,
+   "body": "{\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"weight_kg\"],\"msg\":\"Value error, must be positive\"}]}"
+  },
+  {
+   "attack": "1e308 weight",
+   "status": 422,
+   "body": "{\"detail\":[{\"type\":\"less_than_equal\",\"loc\":[\"body\",\"weight_kg\"],\"msg\":\"Input should be less than or equal to 1000\"}]}"
+  },
+  {
+   "attack": "insurance claim on dead animal",
+   "status": 409,
+   "body": "{\"detail\":\"This policy has already been claimed\"}"
+  }
+ ],
+ "idempotency": [
+  {
+   "attack": "first use of key",
+   "status": 201,
+   "body": "{\"id\":9,\"date\":\"2026-09-10\",\"type\":\"EXPENSE\",\"category\":\"MEDICINE\",\"amount\":100.0,\"notes\":\"one\",\"related_animal_id\":null,\"animal_tag\":null,\"created_at\":\"2026-09-16T21:57:11.978516\""
+  },
+  {
+   "attack": "replay same key same body",
+   "status": 201,
+   "body": "{\"id\":9,\"date\":\"2026-09-10\",\"type\":\"EXPENSE\",\"category\":\"MEDICINE\",\"amount\":100.0,\"notes\":\"one\",\"related_animal_id\":null,\"animal_tag\":null,\"created_at\":\"2026-09-16T21:57:11.978516\""
+  },
+  {
+   "attack": "replay same key DIFFERENT body",
+   "status": 409,
+   "body": "{\"detail\":\"Idempotency-Key was already used with a different request\"}"
+  },
+  {
+   "attack": "missing key entirely",
+   "status": 422,
+   "body": "{\"detail\":\"Idempotency-Key header is required for this mutation \u2014 resend the same key to retry safely\"}"
+  },
+  {
+   "attack": "5000-char key",
+   "status": 422,
+   "body": "{\"detail\":[{\"type\":\"string_too_long\",\"loc\":[\"header\",\"Idempotency-Key\"],\"msg\":\"String should have at most 128 characters\"}]}"
+  }
+ ],
+ "money": [
+  {
+   "attack": "amount negative",
+   "status": 422,
+   "body": "{\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"amount\"],\"msg\":\"Value error, must be positive\"}]}"
+  },
+  {
+   "attack": "amount zero",
+   "status": 422,
+   "body": "{\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"amount\"],\"msg\":\"Value error, must be positive\"}]}"
+  },
+  {
+   "attack": "amount quadrillion",
+   "status": 422,
+   "body": "{\"detail\":[{\"type\":\"less_than_equal\",\"loc\":[\"body\",\"amount\"],\"msg\":\"Input should be less than or equal to 1000000000\"}]}"
+  },
+  {
+   "attack": "amount infinity",
+   "error": "Out of range float values are not JSON compliant: inf"
+  },
+  {
+   "attack": "amount NaN raw",
+   "status": 422,
+   "body": "{\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"amount\"],\"msg\":\"Value error, must be a finite number\"}]}"
+  },
+  {
+   "attack": "correction #1",
+   "status": 409,
+   "body": "{\"detail\":\"Transaction has already been corrected\"}"
+  }
+ ],
+ "feeding": [
+  {
+   "attack": "inventory add negative qty",
+   "status": 422,
+   "body": "{\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"qty_kg\"],\"msg\":\"Value error, must be positive\"}]}"
+  },
+  {
+   "attack": "inventory add 1e12 qty",
+   "status": 422,
+   "body": "{\"detail\":[{\"type\":\"less_than_equal\",\"loc\":[\"body\",\"qty_kg\"],\"msg\":\"Input should be less than or equal to 1000000\"}]}"
+  },
+  {
+   "attack": "dispense negative qty",
+   "status": 422,
+   "body": "{\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"qty_kg\"],\"msg\":\"Value error, must be positive\"}]}"
+  },
+  {
+   "attack": "dispense huge qty (drain)",
+   "status": 422,
+   "body": "{\"detail\":[{\"type\":\"less_than_equal\",\"loc\":[\"body\",\"qty_kg\"],\"msg\":\"Input should be less than or equal to 1000000\"}]}"
+  },
+  {
+   "attack": "mix unknown recipe",
+   "status": 400,
+   "body": "{\"detail\":\"Unknown recipe NOT_A_RECIPE\"}"
+  }
+ ],
+ "pagination": [
+  {
+   "attack": "offset 9999",
+   "status": 200,
+   "body": ""
+  },
+  {
+   "attack": "offset 10000",
+   "status": 200,
+   "body": ""
+  },
+  {
+   "attack": "offset 10001",
+   "status": 422,
+   "body": ""
+  },
+  {
+   "attack": "offset 20000",
+   "status": 422,
+   "body": ""
+  },
+  {
+   "attack": "limit 201",
+   "status": 422,
+   "body": ""
+  },
+  {
+   "attack": "limit -1",
+   "status": 422,
+   "body": ""
+  }
+ ],
+ "misc": [
+  {
+   "attack": "victim animal",
+   "status": 5
+  },
+  {
+   "attack": "extra field in body (mass assignment)",
+   "status": 422,
+   "body": "{\"detail\":[{\"type\":\"extra_forbidden\",\"loc\":[\"body\",\"farm_id\"],\"msg\":\"Extra inputs are not permitted\"},{\"type\":\"extra_forbidden\",\"loc\":[\"body\",\"is_owner\"],\"msg\":\"Extra inputs are no"
+  },
+  {
+   "attack": "bool-as-int sex bypass",
+   "status": 422,
+   "body": "{\"detail\":[{\"type\":\"literal_error\",\"loc\":[\"body\",\"sex\"],\"msg\":\"Input should be 'M' or 'F'\"}]}"
+  },
+  {
+   "attack": "string amount",
+   "status": 422,
+   "body": "{\"detail\":[{\"type\":\"float_type\",\"loc\":[\"body\",\"amount\"],\"msg\":\"Input should be a valid number\"}]}"
+  },
+  {
+   "attack": "4000+ char note",
+   "status": 422,
+   "body": "{\"detail\":[{\"type\":\"too_long\",\"loc\":[\"body\",\"notes\"],\"msg\":\"Value should have at most 4000 items after validation, not 5000\"}]}"
+  },
+  {
+   "attack": "CRLF + control chars in note",
+   "status": 422,
+   "body": "{\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"notes\"],\"msg\":\"Value error, cannot contain control characters\"}]}"
+  }
+ ],
+ "idempotency_txn_count_same_notes": 3,
+ "feeding_inventory_sample": "{}"
+}

@@ -2,13 +2,14 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .auth import MAX_EMAIL_LENGTH, EmailMixin
+from .auth import MAX_EMAIL_LENGTH, EmailMixin, PasswordString
 from .common import BoundedId, PostgresText, StrictBool, StrictInputModel, StrictInt
 
 
 class WorkerCreateIn(EmailMixin):
     email: str = Field(max_length=MAX_EMAIL_LENGTH)
-    password: str | None = Field(default=None, max_length=128)  # required for a new account
+    # Required when creating a new account (owner-provisioned workers).
+    password: PasswordString | None = Field(default=None, max_length=128)
     name: PostgresText | None = Field(default=None, max_length=120)
     role_id: BoundedId
 
@@ -25,7 +26,7 @@ class WorkerStatusIn(StrictInputModel):
 
 
 class PasswordResetIn(StrictInputModel):
-    password: str = Field(min_length=1, max_length=128)
+    password: PasswordString = Field(min_length=1, max_length=128)
 
 
 class MembershipOut(BaseModel):

@@ -2301,3 +2301,24 @@ def test_migrations_do_not_inherit_the_request_path_statement_timeout(tmp_path: 
         assert "statement timeout" in capped.stderr
     finally:
         _admin_sql(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+
+
+def test_edge_body_cap_and_version_disclosure_are_pinned() -> None:
+    """INFRA-4/INFRA-7 (2026-09-16): the edge body cap is templated from the
+    operator knob (no silent drift with GOATFARM_MAX_REQUEST_BODY_BYTES) and
+    nginx version disclosure is off."""
+    compose = (REPO_ROOT / "docker-compose.yml").read_text()
+    assert "client_max_body_size ${GOATFARM_EDGE_MAX_BODY_SIZE:-1m};" in compose
+    assert "server_tokens off;" in compose
+    assert "GOATFARM_EDGE_MAX_BODY_SIZE" in (REPO_ROOT / ".env.example").read_text()
+
+
+def test_restore_refuses_backups_predating_the_idempotency_purge() -> None:
+    """INFRA-3 (2026-09-16): restoring a pre-f4e5f6a7b8c9 backup would
+    resurrect unkeyed idempotency fingerprints of password-bearing bodies —
+    the script must carry an explicit revision floor."""
+    restore_text = RESTORE.read_text()
+    assert "MIN_RESTORED_REVISION=f4e5f6a7b8c9" in restore_text
+    assert restore_text.index("MIN_RESTORED_REVISION=f4e5f6a7b8c9") < restore_text.index(
+        "Restore complete:"
+    )

@@ -41,6 +41,14 @@ class User(Base):
             "id",
             postgresql_where=text("deleted_at IS NOT NULL"),
         ),
+        CheckConstraint(
+            "totp_state IS NULL OR totp_state IN ('PENDING', 'ACTIVE')",
+            name="ck_users_totp_state",
+        ),
+        CheckConstraint(
+            "(totp_secret_enc IS NULL) = (totp_state IS NULL)",
+            name="ck_users_totp_secret_pairs_with_state",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -60,6 +68,14 @@ class User(Base):
     # tenant-local and is enforced by the membership lookup instead; it must
     # not log the same global account out of unrelated farms.
     token_version: Mapped[int] = mapped_column(default=0, server_default="0")
+    # TOTP second factor (HUM-1 follow-up, 2026-09-16). The secret is stored
+    # AES-GCM encrypted under a key derived from the JWT signing key — never
+    # plaintext. state: NULL = never enrolled, PENDING = enroll started but
+    # unconfirmed (not yet demanded at login), ACTIVE = demanded at login.
+    # last_step is the replay high-water mark (a used code never re-validates).
+    totp_secret_enc: Mapped[bytes | None]
+    totp_state: Mapped[str | None] = mapped_column(String(7))
+    totp_last_step: Mapped[int | None]
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     # Account deletion keeps a pseudonymous row so immutable farm/audit
     # attribution survives. Authentication dependencies reject tombstones;

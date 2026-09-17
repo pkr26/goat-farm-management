@@ -4,10 +4,12 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { UserOutTotpState } from './userOutTotpState';
 
 export interface UserOut {
   id: number;
   email: string;
   name: string | null;
   must_change_password?: boolean;
+  totp_state?: UserOutTotpState;
 }

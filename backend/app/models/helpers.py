@@ -7,6 +7,7 @@ from collections.abc import Iterable
 from datetime import date, timedelta
 from typing import TYPE_CHECKING, TypedDict
 
+from ..characters import FORBIDDEN_TEXT_CHARS
 from .enums import BreedingOutcome, TaskCategory
 from .species import GOAT_PROFILE
 
@@ -154,10 +155,21 @@ def no_control_characters(value: str) -> str:
     DEL (0x7F) and the C1 range (U+0080–U+009F) are not ``< " "`` so
     ``PostgresText`` lets them through; in identifiers they serve only
     terminal-escape/confusable-value attacks, so reject the whole Cc class
-    here on top of the tab/LF/CR case.
+    here on top of the tab/LF/CR case. Bidirectional overrides/isolates and
+    the Unicode line separators pass the Cc test yet visually reorder or
+    split identifiers (2026-09-16 audit INJ-4) — ``FORBIDDEN_TEXT_CHARS``
+    rejects those too.
     """
-    if any(char in "\t\n\r" or unicodedata.category(char) == "Cc" for char in value):
-        raise ValueError("cannot contain tabs, line breaks, or control characters")
+    if any(
+        char in "\t\n\r"
+        or char in FORBIDDEN_TEXT_CHARS
+        or unicodedata.category(char) == "Cc"
+        for char in value
+    ):
+        raise ValueError(
+            "cannot contain tabs, line breaks, control, or directional "
+            "formatting characters"
+        )
     return value
 
 

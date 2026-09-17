@@ -97,7 +97,14 @@ def observe_http_request(method: str, route: str, status: int, duration_seconds:
 
 
 def record_auth_rate_limit_rejection(scope: str) -> None:
-    """Count one decision to answer 429 from the auth limiter (not probes)."""
+    """Count one decision to answer 429 from the auth limiter (not probes).
+
+    Also feeds the always-on log-summary counter (DET-3/DET-4): the
+    Prometheus counter is development-only, but every 429 must stay visible
+    in the log stream regardless of environment."""
+    from .ratelimit import note_throttle_rejection
+
+    note_throttle_rejection(scope)
     if enabled():
         AUTH_RATE_LIMIT_REJECTIONS.labels(scope=scope).inc()
 

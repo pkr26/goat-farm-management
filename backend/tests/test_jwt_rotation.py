@@ -15,7 +15,15 @@ from pydantic import ValidationError
 
 from app import security
 from app.core.config import MAX_PREVIOUS_JWT_PUBLIC_KEYS, Settings, get_settings
-from app.security import decode_token, issue_access_token, validate_jwt_keypair
+from app.security import decode_access_claims_result, issue_access_token, validate_jwt_keypair
+
+
+def _uid(claims: object) -> int:
+    from app.security import AccessClaims
+
+    assert isinstance(claims, AccessClaims)
+    return claims.user_id
+
 
 
 @pytest.fixture(autouse=True)
@@ -122,9 +130,9 @@ def test_rotation_accepts_active_previous_and_legacy_no_kid_tokens(
     _configure(monkeypatch, new_private, new_public, [old_public])
     new_keyed = issue_access_token(43)
     assert jwt.get_unverified_header(new_keyed)["kid"] == _expected_kid(new_public)
-    assert decode_token(new_keyed, "access") == 43
-    assert decode_token(old_keyed, "access") == 41
-    assert decode_token(old_legacy, "access") == 42
+    assert _uid(decode_access_claims_result(new_keyed).claims) == 43
+    assert _uid(decode_access_claims_result(old_keyed).claims) == 41
+    assert _uid(decode_access_claims_result(old_legacy).claims) == 42
 
 
 def test_known_kid_uses_only_that_key_and_retirement_rejects_old_tokens(
@@ -137,7 +145,7 @@ def test_known_kid_uses_only_that_key_and_retirement_rejects_old_tokens(
     # A supplied but unknown kid must not fall back across the legacy keyring,
     # even when a listed previous key signed the token.
     unknown_kid = _legacy_token(old_private, 44, kid="not-a-configured-key")
-    assert decode_token(unknown_kid, "access") is None
+    assert decode_access_claims_result(unknown_kid).claims is None
 
     old_keyed = jwt.encode(
         jwt.decode(_legacy_token(old_private, 45), options={"verify_signature": False}),
@@ -146,14 +154,14 @@ def test_known_kid_uses_only_that_key_and_retirement_rejects_old_tokens(
         headers={"kid": _expected_kid(old_public)},
     )
     old_legacy = _legacy_token(old_private, 46)
-    assert decode_token(old_keyed, "access") == 45
-    assert decode_token(old_legacy, "access") == 46
+    assert _uid(decode_access_claims_result(old_keyed).claims) == 45
+    assert _uid(decode_access_claims_result(old_legacy).claims) == 46
 
     # Removing the old public key after the overlap retires both keyed and
     # pre-kid tokens signed by it without changing the active pair.
     _configure(monkeypatch, new_private, new_public)
-    assert decode_token(old_keyed, "access") is None
-    assert decode_token(old_legacy, "access") is None
+    assert decode_access_claims_result(old_keyed).claims is None
+    assert decode_access_claims_result(old_legacy).claims is None
 
 
 def test_rotation_list_is_bounded() -> None:

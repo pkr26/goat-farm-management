@@ -2511,6 +2511,38 @@ async def test_unhandled_error_log_names_the_route_and_carries_the_traceback(
     assert "kaboom" in caplog.text
 
 
+async def test_unhandled_error_log_sanitizes_line_separators_in_path(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """RT-M-4 must cover the 500 sink too. ``\\n``/``\\r`` cannot route (no
+    route regex crosses a newline), but U+2028/U+2029 percent-decode into
+    ``scope["path"]`` AND still match ``{rest:path}`` routes — a literal line
+    separator in the unhandled-error line forges records in log viewers."""
+    app = create_app()
+
+    @app.post("/api/_boom-forge/{rest:path}")
+    async def boom(rest: str) -> None:  # pragma: no cover - raises by design
+        raise RuntimeError("kaboom")
+
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    with caplog.at_level("ERROR", logger="goatfarm"):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as failing:
+            response = await failing.post(
+                "/api/_boom-forge/%E2%80%A82026-09-16 INFO "
+                "goatfarm.audit security_event event='forged'"
+            )
+
+    assert response.status_code == 500
+    record = next(r for r in caplog.records if r.msg == "unhandled error on %s %s")
+    assert record.getMessage() == (
+        "unhandled error on POST /api/_boom-forge/\\u20282026-09-16 INFO "
+        "goatfarm.audit security_event event='forged'"
+    )
+    # The separator never reached the log stream verbatim, and no additional
+    # records were forged by the payload.
+    assert "\u2028" not in caplog.text
+
+
 async def test_unhandled_error_cors_header_values_are_exact() -> None:
     """Both header values the 500 path mints are parsed as structured fields by
     browsers and caches, so nothing but exact equality pins them."""

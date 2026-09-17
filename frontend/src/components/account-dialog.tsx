@@ -44,11 +44,22 @@ type PasswordValues = z.infer<typeof passwordSchema>;
 type AccountAction = "export" | "password" | "delete";
 
 export function AccountDialog({ name, email }: { name: string | null; email: string }) {
-  const { signOut, updateUser } = useAuth();
+  const { signOut, updateUser, user } = useAuth();
   const [open, setOpen] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [deleteMode, setDeleteMode] = useState(false);
+  // Two-factor (TOTP) section state. enrollment holds the secret returned by
+  // the enroll endpoint until a code confirms it.
+  const [totpMode, setTotpMode] = useState<"idle" | "enable" | "disable">("idle");
+  const [totpEnrollment, setTotpEnrollment] = useState<{
+    secret: string;
+    otpauth_uri: string;
+  } | null>(null);
+  const [totpPassword, setTotpPassword] = useState("");
+  const [totpCode, setTotpCode] = useState("");
+  const [totpBusy, setTotpBusy] = useState(false);
+  const [totpError, setTotpError] = useState<string | null>(null);
   const [deletePassword, setDeletePassword] = useState("");
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [activeAction, setActiveAction] = useState<AccountAction | null>(null);
@@ -113,7 +124,80 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
     setDeleteMode(false);
     setDeletePassword("");
     setDeleteError(null);
+    setTotpMode("idle");
+    setTotpEnrollment(null);
+    setTotpPassword("");
+    setTotpCode("");
+    setTotpError(null);
     reset();
+  }
+
+  async function enrollTotp() {
+    setTotpBusy(true);
+    setTotpError(null);
+    try {
+      const enrollment = await apiFetch<{ secret: string; otpauth_uri: string }>(
+        "/api/auth/totp/enroll",
+        { method: "POST", body: JSON.stringify({ current_password: totpPassword }) },
+      );
+      if (!mounted.current) return;
+      setTotpEnrollment(enrollment);
+      setTotpCode("");
+    } catch (err) {
+      if (mounted.current) {
+        setTotpError(err instanceof ApiError ? err.detail : "Network error — try again.");
+      }
+    } finally {
+      if (mounted.current) setTotpBusy(false);
+    }
+  }
+
+  async function confirmTotp() {
+    if (totpEnrollment === null) return;
+    setTotpBusy(true);
+    setTotpError(null);
+    try {
+      await apiFetch<void>("/api/auth/totp/confirm", {
+        method: "POST",
+        body: JSON.stringify({ code: totpCode }),
+      });
+      if (!mounted.current) return;
+      setTotpEnrollment(null);
+      setTotpMode("idle");
+      setTotpCode("");
+      setTotpPassword("");
+      if (user) updateUser({ ...user, totp_state: "ACTIVE" });
+      toast.success("Two-factor authentication is on");
+    } catch (err) {
+      if (mounted.current) {
+        setTotpError(err instanceof ApiError ? err.detail : "Network error — try again.");
+      }
+    } finally {
+      if (mounted.current) setTotpBusy(false);
+    }
+  }
+
+  async function disableTotp() {
+    setTotpBusy(true);
+    setTotpError(null);
+    try {
+      await apiFetch<void>("/api/auth/totp/disable", {
+        method: "POST",
+        body: JSON.stringify({ current_password: totpPassword, code: totpCode }),
+      });
+      if (!mounted.current) return;
+      setTotpMode("idle");
+      setTotpCode("");
+      setTotpPassword("");
+      if (user) updateUser({ ...user, totp_state: null });
+      toast.success("Two-factor authentication is off");
+    } catch (err) {
+      if (mounted.current) {
+        setTotpError(err instanceof ApiError ? err.detail : "Network error — try again.");
+      }
+    } finally {
+      if (mounted.current) setTotpBusy(false);
+    }
   }
 
   async function downloadExport() {
@@ -398,6 +482,190 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
           </DialogFooter>
           </fieldset>
         </form>
+        <section className="space-y-3" aria-labelledby="totp-heading">
+          <h3 id="totp-heading" className="text-sm font-medium">
+            Two-factor authentication
+          </h3>
+          {user?.totp_state === "ACTIVE" ? (
+            <>
+              <p className="text-xs text-muted-foreground">
+                On: login also asks for a 6-digit code from your authenticator
+                app. Recommended for farm owners.
+              </p>
+              {totpMode === "disable" ? (
+                <div className="space-y-2">
+                  <Label htmlFor="totp-disable-password">Current password</Label>
+                  <Input
+                    id="totp-disable-password"
+                    type="password"
+                    autoComplete="current-password"
+                    maxLength={128}
+                    value={totpPassword}
+                    onChange={(e) => setTotpPassword(e.target.value)}
+                  />
+                  <Label htmlFor="totp-disable-code">Authenticator code</Label>
+                  <Input
+                    id="totp-disable-code"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={totpCode}
+                    onChange={(e) => setTotpCode(e.target.value)}
+                  />
+                  {totpError && (
+                    <p role="alert" className="text-sm text-destructive">
+                      {totpError}
+                    </p>
+                  )}
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      disabled={totpBusy || activeAction !== null}
+                      onClick={() => void disableTotp()}
+                    >
+                      {totpBusy ? "Disabling…" : "Disable two-factor"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={totpBusy}
+                      onClick={() => {
+                        setTotpMode("idle");
+                        setTotpError(null);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={activeAction !== null}
+                  onClick={() => {
+                    setTotpMode("disable");
+                    setTotpPassword("");
+                    setTotpCode("");
+                    setTotpError(null);
+                  }}
+                >
+                  Disable two-factor…
+                </Button>
+              )}
+            </>
+          ) : totpEnrollment ? (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">
+                Add this secret to your authenticator app (Google Authenticator,
+                Authy, …). On a phone, tapping the link opens the app directly.
+                Then enter the current code to activate.
+              </p>
+              <a
+                className="block break-all rounded bg-muted/60 p-2 font-mono text-xs underline"
+                href={totpEnrollment.otpauth_uri}
+              >
+                {totpEnrollment.otpauth_uri}
+              </a>
+              <p className="break-all rounded bg-muted/60 p-2 font-mono text-sm">
+                {totpEnrollment.secret}
+              </p>
+              <Label htmlFor="totp-confirm-code">Authenticator code</Label>
+              <Input
+                id="totp-confirm-code"
+                inputMode="numeric"
+                maxLength={6}
+                value={totpCode}
+                onChange={(e) => setTotpCode(e.target.value)}
+              />
+              {totpError && (
+                <p role="alert" className="text-sm text-destructive">
+                  {totpError}
+                </p>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  disabled={totpBusy || activeAction !== null}
+                  onClick={() => void confirmTotp()}
+                >
+                  {totpBusy ? "Activating…" : "Activate"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={totpBusy}
+                  onClick={() => {
+                    setTotpEnrollment(null);
+                    setTotpError(null);
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : totpMode === "enable" ? (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">
+                A second factor protects your account even if someone learns
+                your password. Confirm your current password to start.
+              </p>
+              <Label htmlFor="totp-enable-password">Current password</Label>
+              <Input
+                id="totp-enable-password"
+                type="password"
+                autoComplete="current-password"
+                maxLength={128}
+                value={totpPassword}
+                onChange={(e) => setTotpPassword(e.target.value)}
+              />
+              {totpError && (
+                <p role="alert" className="text-sm text-destructive">
+                  {totpError}
+                </p>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  disabled={totpBusy || activeAction !== null}
+                  onClick={() => void enrollTotp()}
+                >
+                  {totpBusy ? "Starting…" : "Start enrollment"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={totpBusy}
+                  onClick={() => {
+                    setTotpMode("idle");
+                    setTotpError(null);
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <p className="text-xs text-muted-foreground">
+                Off. Add a second factor (a 6-digit code from an authenticator
+                app) so a stolen password alone cannot sign in. Recommended for
+                farm owners.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={activeAction !== null}
+                onClick={() => {
+                  setTotpMode("enable");
+                  setTotpError(null);
+                }}
+              >
+                Enable two-factor…
+              </Button>
+            </>
+          )}
+        </section>
         <section
           className="space-y-3 rounded-lg border border-destructive/40 p-3"
           aria-labelledby="delete-account-heading"

@@ -46,8 +46,10 @@ from argon2.exceptions import (
     VerificationError,
     VerifyMismatchError,
 )
-from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from .core.config import BACKEND_DIR, get_settings
 
@@ -172,16 +174,29 @@ def _legacy_pbkdf2_parts(stored: str) -> tuple[int, bytes, str] | None:
         return None
     if algo != LEGACY_PBKDF2_PREFIX or not salt or not digest_hex:
         return None
-    if not 1 <= iterations <= LEGACY_PBKDF2_MAX_ITERATIONS:
+    # The rejection-time padding budget is also the verification ceiling:
+    # AUTH-1 (2026-09-16 audit) — verifying a hash above the budget makes
+    # every rejected login's cost grow linearly with the stored count, a
+    # remote account-classification oracle. Enforcing the documented
+    # invariant ("the budget must cover the highest iteration count actually
+    # imported") turns over-budget hashes into the same fast, full-budget
+    # rejection as any malformed hash. Deployments importing costlier hashes
+    # raise rejected_login_pbkdf2_work_budget with their import audit.
+    ceiling = min(
+        LEGACY_PBKDF2_MAX_ITERATIONS,
+        get_settings().rejected_login_pbkdf2_work_budget,
+    )
+    if not 1 <= iterations <= ceiling:
         # Without this signal an over-ceiling import is indistinguishable
         # from a wrong password: the account is permanently locked out and
         # nobody learns why. Log the anomaly (never the hash or identity).
         _logger.warning(
             "Rejecting legacy pbkdf2 hash outside the supported iteration "
-            "range (iterations=%d, ceiling=%d); the account cannot log in "
-            "until its credential is reset or re-imported within the ceiling",
+            "range (iterations=%d, ceiling=%d, budget ceiling applies); the "
+            "account cannot log in until its credential is reset or "
+            "re-imported within the ceiling",
             iterations,
-            LEGACY_PBKDF2_MAX_ITERATIONS,
+            ceiling,
         )
         return None
     return iterations, salt, digest_hex
@@ -798,17 +813,6 @@ def _decode_payload(token: str, expected_kind: str) -> dict[str, Any] | None:
     return None if expired else payload
 
 
-def decode_token(token: str, expected_kind: str) -> int | None:
-    """Return the user id, or None when invalid/expired/wrong kind."""
-    payload = _decode_payload(token, expected_kind)
-    if payload is None:
-        return None
-    try:
-        return int(payload["sub"])
-    except (KeyError, TypeError, ValueError):
-        return None
-
-
 def decode_access_claims_result(token: str) -> AccessDecodeResult:
     """Verified access identity plus its server-checked revocation version.
 
@@ -864,3 +868,107 @@ def decode_refresh_claims(token: str) -> RefreshClaims | None:
         family_id=family_id,
         expires_at=expires_at,
     )
+
+
+# --- TOTP second factor (RFC 6238, HUM-1 follow-up 2026-09-16) ------------
+#
+# No new dependency: RFC 6238 is HMAC-SHA1 over a 30-second step with a
+# 6-digit truncation, expressible in a few lines of stdlib. The shared secret
+# is a 160-bit random value (base32). At rest it is AES-GCM encrypted under a
+# key derived (HKDF-SHA256) from the JWT signing private key — production
+# already mounts that key, so TOTP needs no new operator secret, and a DB
+# dump alone cannot recover second-factor material. If the JWT keypair is
+# ever rotated, stored secrets become undecryptable and affected users must
+# re-enroll (fail closed; the key-rotation runbook gains one line).
+
+TOTP_STEP_SECONDS = 30
+TOTP_DIGITS = 6
+TOTP_DRIFT_STEPS = 1  # accept the neighbouring steps (±30 s clock skew)
+TOTP_SECRET_BYTES = 20
+TOTP_CHALLENGE_TTL_SECONDS = 300
+
+
+def generate_totp_secret_b32() -> str:
+    return base64.b32encode(os.urandom(TOTP_SECRET_BYTES)).decode("ascii")
+
+
+def _totp_code_for_step(secret_b32: str, step: int) -> str:
+    key = base64.b32decode(secret_b32, casefold=True)
+    counter = step.to_bytes(8, "big")
+    digest = hmac.new(key, counter, "sha1").digest()
+    offset = digest[-1] & 0x0F
+    binary = int.from_bytes(digest[offset : offset + 4], "big") & 0x7FFFFFFF
+    return f"{binary % (10 ** TOTP_DIGITS):0{TOTP_DIGITS}d}"
+
+
+def verify_totp_code(
+    secret_b32: str,
+    code: str,
+    *,
+    at: datetime,
+    last_used_step: int | None,
+) -> int | None:
+    """Return the matched time step, or None.
+
+    Accepts the current step plus ±TOTP_DRIFT_STEPS (clock skew), rejects any
+    step at or before `last_used_step` (a code an attacker replayed from a
+    captured form is single-use), and compares digits in constant time. The
+    return value is the step the caller should persist as the new high-water
+    mark (the highest matched step, so drift backwards cannot re-open an
+    older code)."""
+    normalized = code.strip().replace(" ", "")
+    if len(normalized) != TOTP_DIGITS or not normalized.isdigit():
+        return None
+    # The app convention is naive-UTC datetimes; .timestamp() would read a
+    # naive value as LOCAL time and shift the step by the server's offset.
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=UTC)
+    current = int(at.timestamp() // TOTP_STEP_SECONDS)
+    floor_step = 0 if last_used_step is None else last_used_step + 1
+    matched: int | None = None
+    for step in range(current - TOTP_DRIFT_STEPS, current + TOTP_DRIFT_STEPS + 1):
+        if step < floor_step:
+            continue
+        expected = _totp_code_for_step(secret_b32, step)
+        if hmac.compare_digest(expected, normalized):
+            matched = step if matched is None else max(matched, step)
+    return matched
+
+
+_totp_aes_key_cache: bytes | None = None
+
+
+def _totp_encryption_key() -> bytes:
+    """AES-256 key = HKDF(active JWT private key). Derived, never stored."""
+    global _totp_aes_key_cache
+    if _totp_aes_key_cache is None:
+        pem = _get_jwt_keyring().signing_private_key.encode()
+        _totp_aes_key_cache = HKDF(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=b"goatfarm-totp-v1",
+            info=b"goatfarm totp secret at rest",
+        ).derive(pem)
+    return _totp_aes_key_cache
+
+
+def encrypt_totp_secret(secret_b32: str) -> bytes:
+    nonce = os.urandom(12)
+    ciphertext = AESGCM(_totp_encryption_key()).encrypt(
+        nonce, secret_b32.encode("ascii"), b"totp"
+    )
+    return nonce + ciphertext
+
+
+def decrypt_totp_secret(encrypted: bytes) -> str:
+    nonce, ciphertext = encrypted[:12], encrypted[12:]
+    return AESGCM(_totp_encryption_key()).decrypt(nonce, ciphertext, b"totp").decode(
+        "ascii"
+    )
+
+
+def _reset_totp_key_cache_for_tests() -> None:
+    """The HKDF input is the ACTIVE signing key; key-rotation tests re-point
+    it and must not keep deriving from the pre-rotation bytes."""
+    global _totp_aes_key_cache
+    _totp_aes_key_cache = None

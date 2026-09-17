@@ -1531,7 +1531,7 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
                 className="block rounded-xl border bg-card p-3 transition-colors hover:bg-muted/50"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium">{a.tag_number}</span>
+                  <span className="font-medium" dir="auto">{a.tag_number}</span>
                   <StatusBadge status={a.status} />
                 </div>
                 {a.name && <p className="text-sm text-muted-foreground">{a.name}</p>}
@@ -1585,10 +1585,10 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
                         href={`/animals/${a.id}`}
                         className="font-medium text-foreground hover:text-primary"
                       >
-                        {a.tag_number}
+                        <span dir="auto">{a.tag_number}</span>
                       </Link>
                     </TableCell>
-                    <TableCell>{a.name ?? "—"}</TableCell>
+                    <TableCell dir="auto">{a.name ?? "—"}</TableCell>
                     <TableCell>{enumLabel("sex", a.sex, language)}</TableCell>
                     <TableCell>{a.breed}</TableCell>
                     <TableCell>{enumLabel("bucket", a.current_bucket, language)}</TableCell>

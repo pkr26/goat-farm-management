@@ -2274,3 +2274,25 @@ def test_openapi_declares_bounded_idempotency_header_on_all_routes() -> None:
             )
         assert string_variant["minLength"] == 1
         assert string_variant["maxLength"] == 128
+
+
+def test_replayed_response_from_older_schema_answers_409_not_500() -> None:
+    """BIZ-1 (2026-09-16): post-deploy schema tightening must turn a cached
+    replay into a typed 409 (retry with a new key), never an opaque 500."""
+    from fastapi import HTTPException
+    from pydantic import BaseModel
+
+    from app.services.idempotency import _revalidate_cached_response
+
+    class CurrentOut(BaseModel):
+        id: int
+        new_required_field: str
+
+    with pytest.raises(HTTPException) as exc:
+        _revalidate_cached_response(CurrentOut, {"id": 7})  # pre-tightening body
+    assert exc.value.status_code == 409
+    assert "new key" in exc.value.detail
+
+    # A body that still fits the current schema replays untouched.
+    out = _revalidate_cached_response(CurrentOut, {"id": 7, "new_required_field": "x"})
+    assert out.id == 7

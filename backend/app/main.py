@@ -176,6 +176,29 @@ def _configure_logging() -> None:
             handler.addFilter(_RequestIdFilter())
 
 
+async def _throttle_summary_loop(interval_seconds: int = 300) -> None:
+    """DET-3/DET-4 (2026-09-16): periodically log per-scope 429 totals.
+
+    The limiter's per-request "throttled" lines exist, but a slow distributed
+    campaign below per-request alert thresholds is only visible once
+    aggregated; in-memory state also dies with the process. One summary line
+    per interval keeps the signal durable and greppable."""
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            summary = ratelimit.drain_throttle_rejections()
+            if summary:
+                logger.info(
+                    "auth rate-limit 429 summary (last %ss): %s",
+                    interval_seconds,
+                    ", ".join(f"{scope}={count}" for scope, count in sorted(summary.items())),
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("throttle summary loop iteration failed")
+
+
 async def _refresh_session_cleanup_loop(
     interval_seconds: int,
     batch_size: int,
@@ -445,6 +468,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # pair does not match. Development may generate its active pair here.
     validate_jwt_keypair()
     _enforce_production_private_key_mode()
+    # INFRA-1 (2026-09-16): with no trusted proxy configured, every client
+    # shares the socket peer's identity in the per-IP auth ledgers. Behind a
+    # direct edge/terminator that is the edge itself — one attacker can then
+    # 429 all registrations deployment-wide. The shipped compose wires the
+    # edge IP; a bare deployment (or one that adds an OUTER TLS terminator
+    # without extending GOATFARM_TRUSTED_PROXY_HOSTS) must hear about it.
+    settings = get_settings()
+    if (
+        settings.environment == "production"
+        and not settings.trusted_proxy_hosts
+    ):
+        logger.warning(
+            "GOATFARM_TRUSTED_PROXY_HOSTS is empty in production: X-Forwarded-For "
+            "is ignored and every client shares one rate-limit identity. If any "
+            "proxy, load balancer, or TLS terminator fronts this process, add "
+            "its IP to GOATFARM_TRUSTED_PROXY_HOSTS or the per-IP auth ledgers "
+            "become deployment-wide (one attacker locks out all signups)."
+        )
     # Warm the timing-equalization dummy hash so the first unknown-email
     # login pays no cold-start cost.
     prime_dummy_password_hash()
@@ -512,11 +553,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         ),
         name="cadence-materialization",
     )
+    throttle_summary_task = asyncio.create_task(
+        _throttle_summary_loop(), name="throttle-summary"
+    )
     try:
         yield
     finally:
         refresh_cleanup_task.cancel()
         idempotency_cleanup_task.cancel()
+        throttle_summary_task.cancel()
         legacy_repair_task.cancel()
         inactive_animal_task_cleanup_task.cancel()
         deleted_membership_cleanup_task.cancel()
@@ -605,7 +650,15 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     request_id = getattr(request.state, "request_id", None) or _request_id_var.get()
     token = _request_id_var.set(request_id)
     try:
-        logger.error("unhandled error on %s %s", request.method, request.url.path, exc_info=exc)
+        # The percent-decoded path carries the same %0A/%0D log-forgery
+        # surface as the access log (RT-M-4) — sanitize here too, or a 500 on
+        # a crafted path can forge subsequent log records from this sink.
+        logger.error(
+            "unhandled error on %s %s",
+            request.method,
+            _log_safe_path(request.url.path),
+            exc_info=exc,
+        )
     finally:
         _request_id_var.reset(token)
     response = JSONResponse(status_code=500, content={"detail": "Internal server error"})

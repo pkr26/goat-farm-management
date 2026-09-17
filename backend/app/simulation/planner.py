@@ -30,6 +30,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..characters import sanitize_single_line
 from .assumptions import (
     MAX_HEAD,
     MAX_PLAN_EVENTS,
@@ -676,7 +677,13 @@ def build_dpr_markdown(
     def _opt_dscr(value: float | None) -> str:
         return "n/a" if value is None else f"{value:.2f}"
 
-    title = plan_name or "Goat rearing unit"
+    # The plan name is farm-entered free text interpolated into a loan
+    # document: newlines/U+2028 could forge additional DPR sections and
+    # directional overrides could visually alter the title (2026-09-16
+    # audit, INJ-1). The title renders on exactly one line, period.
+    title = sanitize_single_line(plan_name) if plan_name else ""
+    if not title:
+        title = "Goat rearing unit"
     lines = [
         f"# Detailed Project Report — {title}",
         "",

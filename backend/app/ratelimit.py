@@ -17,7 +17,7 @@ signatures, so routers and tests are unchanged.
 """
 
 import time
-from collections import OrderedDict, deque
+from collections import Counter, OrderedDict, deque
 from collections.abc import Callable
 from typing import Protocol
 
@@ -469,3 +469,22 @@ class SlidingWindowRateLimiter:
 
 
 auth_limiter = SlidingWindowRateLimiter()
+
+
+# DET-3/DET-4 (2026-09-16): the in-memory ledgers are invisible to central
+# observability — /metrics is production-disabled by policy and restarts wipe
+# history. This always-on per-scope counter feeds a periodic summary log so a
+# slow, distributed stuffing campaign is visible without scraping anything.
+_throttle_rejections: Counter[str] = Counter()
+
+
+def note_throttle_rejection(scope: str) -> None:
+    """Count one decision to answer 429 (same call sites as the metric)."""
+    _throttle_rejections[scope] += 1
+
+
+def drain_throttle_rejections() -> dict[str, int]:
+    """Snapshot and clear the per-scope 429 counts for the summary line."""
+    snapshot = dict(_throttle_rejections)
+    _throttle_rejections.clear()
+    return snapshot

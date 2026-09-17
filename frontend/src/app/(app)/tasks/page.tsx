@@ -749,6 +749,7 @@ function TaskTable({
                 {/* Optimistic completion marks the row DONE before the
                  * refetch lands — strike it through immediately. */}
                 <p
+                  dir="auto"
                   className={
                     task.status === "PENDING"
                       ? "font-medium"
@@ -853,6 +854,7 @@ function TaskTable({
                     {/* Optimistic completion strikes the duty through before
                      * the board refetch lands. */}
                     <span
+                      dir="auto"
                       className={t2.status === "PENDING" ? undefined : "text-muted-foreground line-through"}
                     >
                       {resolveTaskTitle(t2, language)}

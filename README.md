@@ -618,6 +618,23 @@ Keep the encryption private key and signing public key available to the restore
 operators through a separately tested recovery path, and use least-privilege
 database and object-storage credentials.
 
+**Off-site credential scoping (2026-09-16 audit, INFRA-5).** The backup job
+never deletes remote objects, but the *credential* it runs with often can.
+Scope the backup host's AWS credential to `s3:PutObject` on the one bucket
+prefix, and enable bucket versioning (or S3 Object Lock) so a compromised
+backup host cannot destroy the off-site tier. Restore-side operators need
+broader reads — give them a separate credential, not a shared one.
+
+**Restore revision floor (INFRA-3).** `restore.sh` refuses backups whose
+schema predates Alembic revision `f4e5f6a7b8c9`: older dumps still contain
+unkeyed idempotency fingerprints of password-bearing worker-create bodies.
+To migrate such an archive, restore it into a scratch database, run
+`alembic upgrade head` (which re-purges), and dump/restore that database.
+
+**Quarterly drill.** Rehearse the whole path (backup → tamper → checksum
+refusal → clean restore → non-empty refusal) against production-shaped
+infrastructure and record the wall-clock time — it is your real RTO.
+
 ```bash
 GOATFARM_DATABASE_URL='postgresql+asyncpg://user:pass@host/goatfarm' \
 GOATFARM_DB_SSLMODE=verify-full \
@@ -929,6 +946,46 @@ frontend/
   genuinely future dates are still rejected.
 - Passkeys are a **future amendment**: neither `webauthn` nor
   `@simplewebauthn/browser` is installed in this release.
+- **TOTP two-factor authentication is available** (2026-09-16 audit, HUM-1):
+  any account can enroll from Account → Two-factor authentication (RFC 6238,
+  any authenticator app; on phones the otpauth:// link opens the app
+  directly). Enrollment is opt-in but **strongly recommended for farm
+  owners** — the owner is a god-mode account and a phished password alone
+  must not be total compromise. Design notes: the shared secret is AES-GCM
+  encrypted at rest under a key derived from the JWT signing key (a DB dump
+  alone recovers nothing; rotating the JWT keypair requires re-enrollment);
+  codes are single-use per time step; the login challenge token is
+  single-use, 5-minute, version-bound and throttled to 5 attempts/5 minutes
+  per account. Because there is no recovery channel (see below), losing the
+  authenticator means an owner-provisioned reset is impossible for the
+  OWNER account itself — keep a second enrolled admin device or accept
+  database-side intervention.
+- **There is no account recovery channel — by design** (HUM-4): no
+  forgot-password, no email/SMS, no support tooling can restore access. The
+  only reset path is the farm owner resetting accounts that farm provisioned.
+  Treat any future "email reset" feature as a security regression requiring
+  MFA first — an impostor cannot talk anyone into restoring access today
+  precisely because no such mechanism exists.
+- **Structured security events** (2026-09-16 audit, DET-1/2) are emitted on
+  the `goatfarm.audit` logger with the prefix `security_event`:
+  `auth.refresh.family_revoked` (refresh-cookie replay/theft detection —
+  alert on this), `auth.token.invalid` (tampered/malformed access token),
+  `auth.token.version_mismatch` (reuse of a revoked token generation),
+  `rbac.denied` (authenticated request missing a permission), and
+  `planner.dpr.download`. A periodic `auth rate-limit 429 summary` line
+  aggregates blocked attempts per scope every five minutes.
+- **Scaling multiplies per-process budgets** (GOV-2): the auth rate ledgers,
+  simulation semaphore/CPU budget, and background-loop cadence are
+  per-process. One process is enforced at boot in production — do not
+  horizontally scale backend containers behind a load balancer without first
+  moving those budgets to Postgres; each replica multiplies the limits.
+- **Worker data retention position (DPDP)** (GOV-1): a departing worker's
+  account identity is scrubbed (tombstone), but their *contributions* to farm
+  records (task attribution, transaction authorship, free-text they wrote)
+  are retained for farm integrity by design. `account/export` deliberately
+  covers only account identity + memberships, not farm-domain data. This is a
+  deliberate legitimate-interest retention decision; revisit if the user base
+  or the regulatory reading changes.
 - The production refresh cookie is host-bound (`__Host-` prefix), `Secure`,
   `HttpOnly`, `SameSite=Lax`, and `Path=/`, with no `Domain` attribute. CORS is
   credentialed and pinned to the frontend origin.

@@ -36,8 +36,8 @@ jobs:
     outputs:
       backend_image: ${{ steps.images.outputs.backend_image }}
       frontend_image: ${{ steps.images.outputs.frontend_image }}
-      backend_digest: ${{ steps.push-backend.outputs.digest }}
-      frontend_digest: ${{ steps.push-frontend.outputs.digest }}
+      backend_digest: ${{ steps.assemble.outputs.backend_digest }}
+      frontend_digest: ${{ steps.assemble.outputs.frontend_digest }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -215,36 +215,123 @@ jobs:
           retention-days: 30
 
       # ── Publish phase ──────────────────────────────────────────────────
-      # Only reached after every per-arch scan passed. provenance/sbom via
-      # buildx attach the SLSA provenance and SPDX SBOM attestations to the
-      # pushed multi-manifest image in the registry; cache-from reuses the
-      # gate builds' layers so this mostly just uploads.
+      # Only reached after every per-arch scan passed. RT-R-6 follow-up
+      # (2026-09-16 audit): the previous flow REBUILT multi-arch images for
+      # publish, so a cache miss or base-image republish between gate and
+      # publish could ship bits that were never scanned. Now each
+      # architecture is published exactly once to a per-arch tag, the pushed
+      # image's config digest is verified against the locally loaded,
+      # gate-scanned image, and only after that verification are the two
+      # per-arch manifests (with their provenance/SBOM attestations)
+      # assembled into the release tag with `buildx imagetools create`.
 
-      - name: Publish backend image (linux/amd64 + linux/arm64)
-        id: push-backend
+      - name: Publish backend image (linux/amd64, exact gate bits)
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: Dockerfile
           push: true
-          platforms: linux/amd64,linux/arm64
-          tags: ${{ env.BACKEND_IMAGE }}:${{ env.TAG }}
+          platforms: linux/amd64
+          tags: ${{ env.BACKEND_IMAGE }}:${{ env.TAG }}-publish-amd64
           provenance: mode=max
           sbom: true
           cache-from: type=gha
 
-      - name: Publish frontend image (linux/amd64 + linux/arm64)
-        id: push-frontend
+      - name: Publish backend image (linux/arm64, exact gate bits)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          platforms: linux/arm64
+          tags: ${{ env.BACKEND_IMAGE }}:${{ env.TAG }}-publish-arm64
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha
+
+      - name: Publish frontend image (linux/amd64, exact gate bits)
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: frontend
           file: frontend/Dockerfile
           push: true
-          platforms: linux/amd64,linux/arm64
-          tags: ${{ env.FRONTEND_IMAGE }}:${{ env.TAG }}
+          platforms: linux/amd64
+          tags: ${{ env.FRONTEND_IMAGE }}:${{ env.TAG }}-publish-amd64
           provenance: mode=max
           sbom: true
           cache-from: type=gha
+
+      - name: Publish frontend image (linux/arm64, exact gate bits)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: frontend
+          file: frontend/Dockerfile
+          push: true
+          platforms: linux/arm64
+          tags: ${{ env.FRONTEND_IMAGE }}:${{ env.TAG }}-publish-arm64
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha
+
+      - name: Verify published bits are the scanned bits (RT-R-6)
+        # The pushed per-arch tag is an OCI index (image manifest + attestation
+        # manifests). Walk to the platform's image manifest and compare its
+        # config digest with the locally loaded gate image's Id — equal config
+        # digest + equal build inputs means the exact scanned filesystem
+        # shipped. Any divergence (cache miss, base-image republish) fails the
+        # release instead of shipping unscanned layers.
+        env:
+          BACKEND_IMAGE: ${{ env.BACKEND_IMAGE }}
+          FRONTEND_IMAGE: ${{ env.FRONTEND_IMAGE }}
+          TAG: ${{ env.TAG }}
+        run: |
+          set -euo pipefail
+          verify() {
+            local image="$1" arch="$2"
+            local gate_id index image_manifest config_digest
+            gate_id="$(docker inspect --format '{{.Id}}' "${image}:${TAG}-gate-${arch}")"
+            index="$(docker buildx imagetools inspect --raw "${image}:${TAG}-publish-${arch}")"
+            image_manifest="$(printf '%s' "$index" | jq -r --arg arch "$arch" \
+              '.manifests[] | select(.platform.architecture == $arch and .platform.os == "linux" and (has("vnd.docker.reference.type") | not)) | .digest')"
+            if [ -z "$image_manifest" ] || [ "$image_manifest" = "null" ]; then
+              echo "::error::no ${arch} image manifest found under ${image}:${TAG}-publish-${arch}"
+              exit 1
+            fi
+            config_digest="$(docker buildx imagetools inspect --raw "${image}@${image_manifest}" | jq -r '.config.digest')"
+            if [ "$gate_id" != "$config_digest" ]; then
+              echo "::error::published ${arch} bits for ${image} diverge from the scanned gate image (gate ${gate_id} vs published ${config_digest}); refusing to assemble the release tag"
+              exit 1
+            fi
+            echo "verified ${image} ${arch}: ${config_digest}"
+          }
+          for arch in amd64 arm64; do
+            verify "$BACKEND_IMAGE" "$arch"
+            verify "$FRONTEND_IMAGE" "$arch"
+          done
+
+      - name: Assemble release tags from the verified per-arch images
+        id: assemble
+        # imagetools create copies the per-arch indexes (including their
+        # provenance/SBOM attestations) under the release tag — no rebuild,
+        # no second chance for the bits to change.
+        env:
+          BACKEND_IMAGE: ${{ env.BACKEND_IMAGE }}
+          FRONTEND_IMAGE: ${{ env.FRONTEND_IMAGE }}
+          TAG: ${{ env.TAG }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            -t "${BACKEND_IMAGE}:${TAG}" \
+            "${BACKEND_IMAGE}:${TAG}-publish-amd64" \
+            "${BACKEND_IMAGE}:${TAG}-publish-arm64"
+          docker buildx imagetools create \
+            -t "${FRONTEND_IMAGE}:${TAG}" \
+            "${FRONTEND_IMAGE}:${TAG}-publish-amd64" \
+            "${FRONTEND_IMAGE}:${TAG}-publish-arm64"
+          backend_digest="$(docker buildx imagetools inspect --raw "${BACKEND_IMAGE}:${TAG}" | sha256sum | cut -d' ' -f1)"
+          frontend_digest="$(docker buildx imagetools inspect --raw "${FRONTEND_IMAGE}:${TAG}" | sha256sum | cut -d' ' -f1)"
+          echo "backend_digest=sha256:${backend_digest}" >> "$GITHUB_OUTPUT"
+          echo "frontend_digest=sha256:${frontend_digest}" >> "$GITHUB_OUTPUT"
 
   release:
     name: GitHub release with SBOMs

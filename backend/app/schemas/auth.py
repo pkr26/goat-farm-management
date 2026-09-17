@@ -2,13 +2,27 @@
 
 import re
 from datetime import datetime
+from typing import Annotated, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator
 
 from .common import PostgresText, StrictInputModel
 
 MAX_EMAIL_LENGTH = 254
+MAX_PASSWORD_BYTES = 128
+
+
+def _password_bounded_bytes(value: str) -> str:
+    """AUTH-4 (2026-09-16): ``max_length=128`` counts code points, but Argon2
+    hashes UTF-8 bytes — 128 astral-plane code points would be 512 bytes.
+    Keep the bounded-input promise in the unit Argon2 actually sees."""
+    if len(value.encode("utf-8")) > MAX_PASSWORD_BYTES:
+        raise ValueError("Password must be at most 128 bytes when UTF-8 encoded")
+    return value
+
+
+PasswordString = Annotated[str, AfterValidator(_password_bounded_bytes)]
 
 # tzdata entries that resolve under zoneinfo but that ECMA-402 excludes from the
 # named time zones every browser must support, so Intl.DateTimeFormat raises a
@@ -46,13 +60,13 @@ class EmailMixin(StrictInputModel):
 class RegisterIn(EmailMixin):
     email: str = Field(max_length=MAX_EMAIL_LENGTH)
     # max_length: no unbounded input into the (deliberately expensive) Argon2 hasher.
-    password: str = Field(min_length=1, max_length=128)
+    password: PasswordString = Field(min_length=1, max_length=128)
     name: PostgresText | None = Field(default=None, max_length=120)  # users.name String(120)
 
 
 class LoginIn(EmailMixin):
     email: str = Field(max_length=MAX_EMAIL_LENGTH)
-    password: str = Field(max_length=128)
+    password: PasswordString = Field(max_length=128)
 
 
 class UserOut(BaseModel):
@@ -63,6 +77,9 @@ class UserOut(BaseModel):
     name: str | None
     # True while an owner-provisioned password awaits its holder's rotation.
     must_change_password: bool = False
+    # TOTP second factor (2026-09-16): None = not enrolled, PENDING =
+    # enrollment started but never confirmed, ACTIVE = demanded at login.
+    totp_state: Literal["PENDING", "ACTIVE"] | None = None
 
 
 class TokenOut(BaseModel):
@@ -71,15 +88,49 @@ class TokenOut(BaseModel):
     user: UserOut
 
 
+class LoginOut(BaseModel):
+    """Login answers either a full session or, when TOTP is active, a
+    short-lived single-use challenge token the client exchanges at
+    /totp/challenge after prompting for the 6-digit code."""
+
+    mfa_token: str | None = None
+    access_token: str | None = None
+    token_type: str = "bearer"
+    user: UserOut | None = None
+
+
+class TotpEnrollIn(StrictInputModel):
+    current_password: PasswordString = Field(min_length=1, max_length=128)
+
+
+class TotpCodeIn(StrictInputModel):
+    code: str = Field(min_length=6, max_length=6, pattern=r"^[0-9]{6}$")
+
+
+class TotpDisableIn(StrictInputModel):
+    current_password: PasswordString = Field(min_length=1, max_length=128)
+    code: str = Field(min_length=6, max_length=6, pattern=r"^[0-9]{6}$")
+
+
+class TotpChallengeIn(StrictInputModel):
+    mfa_token: str = Field(min_length=1, max_length=4096)
+    code: str = Field(min_length=6, max_length=6, pattern=r"^[0-9]{6}$")
+
+
+class TotpEnrollOut(BaseModel):
+    secret: str
+    otpauth_uri: str
+
+
 class AccountDeleteIn(StrictInputModel):
-    current_password: str = Field(min_length=1, max_length=128)
+    current_password: PasswordString = Field(min_length=1, max_length=128)
 
 
 class ChangePasswordIn(StrictInputModel):
     # Bound both values before they reach the deliberately expensive Argon2
     # verifier/hasher.
-    current_password: str = Field(max_length=128)
-    new_password: str = Field(min_length=1, max_length=128)
+    current_password: PasswordString = Field(max_length=128)
+    new_password: PasswordString = Field(min_length=1, max_length=128)
 
 
 class AccountIdentityExport(BaseModel):

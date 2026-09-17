@@ -177,7 +177,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TokenOut"
+                  "$ref": "#/components/schemas/LoginOut"
                 }
               }
             }
@@ -1027,6 +1027,415 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/FarmOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected (invalid state or values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (state, replay, or race)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/totp/enroll": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Totp Enroll",
+        "description": "Begin enrollment: confirm the current password, generate a fresh\nsecret (stored PENDING \u2014 not yet demanded at login) and return it with an\notpauth:// URI. On phones the URI link opens the authenticator app\ndirectly; the secret text remains for manual entry.",
+        "operationId": "totp_enroll_api_auth_totp_enroll_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TotpEnrollIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TotpEnrollOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected (invalid state or values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (state, replay, or race)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/auth/totp/confirm": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Totp Confirm",
+        "description": "Finish enrollment: a code generated from the PENDING secret activates\nthe second factor. Proof-of-possession before it gates login.",
+        "operationId": "totp_confirm_api_auth_totp_confirm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TotpCodeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Rejected (invalid state or values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (state, replay, or race)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/auth/totp/disable": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Totp Disable",
+        "description": "Remove the second factor: requires BOTH the current password and a\ncurrently-valid code (or, for an unconfirmed PENDING enrollment, the\npassword alone \u2014 nothing is gating login yet).",
+        "operationId": "totp_disable_api_auth_totp_disable_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TotpDisableIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Rejected (invalid state or values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (state, replay, or race)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/auth/totp/challenge": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Totp Challenge",
+        "description": "Exchange a login-issued challenge token + current code for the full\nsession. Single-use, version-bound, strictly throttled per account.",
+        "operationId": "totp_challenge_api_auth_totp_challenge_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TotpChallengeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenOut"
                 }
               }
             }
@@ -18810,6 +19219,50 @@
         ],
         "title": "LoginIn"
       },
+      "LoginOut": {
+        "properties": {
+          "mfa_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mfa Token"
+          },
+          "access_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Token"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type",
+            "default": "bearer"
+          },
+          "user": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "title": "LoginOut",
+        "description": "Login answers either a full session or, when TOTP is active, a\nshort-lived single-use challenge token the client exchanges at\n/totp/challenge after prompting for the 6-digit code."
+      },
       "MembershipExport": {
         "properties": {
           "farm_id": {
@@ -24315,6 +24768,105 @@
         ],
         "title": "TokenOut"
       },
+      "TotpChallengeIn": {
+        "properties": {
+          "mfa_token": {
+            "type": "string",
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Mfa Token"
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 6,
+            "minLength": 6,
+            "pattern": "^[0-9]{6}$",
+            "title": "Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "mfa_token",
+          "code"
+        ],
+        "title": "TotpChallengeIn"
+      },
+      "TotpCodeIn": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "maxLength": 6,
+            "minLength": 6,
+            "pattern": "^[0-9]{6}$",
+            "title": "Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "title": "TotpCodeIn"
+      },
+      "TotpDisableIn": {
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Current Password"
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 6,
+            "minLength": 6,
+            "pattern": "^[0-9]{6}$",
+            "title": "Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "current_password",
+          "code"
+        ],
+        "title": "TotpDisableIn"
+      },
+      "TotpEnrollIn": {
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Current Password"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "current_password"
+        ],
+        "title": "TotpEnrollIn"
+      },
+      "TotpEnrollOut": {
+        "properties": {
+          "secret": {
+            "type": "string",
+            "title": "Secret"
+          },
+          "otpauth_uri": {
+            "type": "string",
+            "title": "Otpauth Uri"
+          }
+        },
+        "type": "object",
+        "required": [
+          "secret",
+          "otpauth_uri"
+        ],
+        "title": "TotpEnrollOut"
+      },
       "TransactionCorrectionIn": {
         "properties": {
           "date": {
@@ -24733,6 +25285,21 @@
             "type": "boolean",
             "title": "Must Change Password",
             "default": false
+          },
+          "totp_state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "PENDING",
+                  "ACTIVE"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Totp State"
           }
         },
         "type": "object",

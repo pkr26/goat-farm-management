@@ -889,3 +889,36 @@ async def test_mortality_memo_stays_unvalued_without_a_weighed_sale(
     assert memo["head_count"] == 1
     assert memo["estimated_loss"] is None
     assert "unvalued" in memo["basis"]
+
+
+async def test_renewal_span_is_capped_at_five_years(client: httpx.AsyncClient) -> None:
+    """BIZ-3 (2026-09-16): one renewal books one non-prorated premium row —
+    a decades-distant horizon must 422 instead of booking 30 years of cover
+    for a single premium."""
+    owner = await owner_with_farm(client, email="ins-span@farm.in")
+    animal = await make_animal(client, owner, tag="INS-SPAN")
+    old_renewal = today() + timedelta(days=90)
+    created = await add_policy(
+        client,
+        owner,
+        policy_number="POL-SPAN",
+        animal_id=animal["id"],
+        renewal_date=iso(old_renewal),
+    )
+    policy_id = created.json()["id"]
+
+    far = await client.post(
+        f"/api/finance/insurance/{policy_id}/renew",
+        json={"renewal_date": iso(old_renewal + timedelta(days=10 * 366))},
+        headers=owner,
+    )
+    assert far.status_code == 422, far.text
+    assert "five years" in far.json()["detail"]
+
+    # Just inside the cap still renews.
+    inside = await client.post(
+        f"/api/finance/insurance/{policy_id}/renew",
+        json={"renewal_date": iso(old_renewal + timedelta(days=4 * 366))},
+        headers=owner,
+    )
+    assert inside.status_code == 200, inside.text

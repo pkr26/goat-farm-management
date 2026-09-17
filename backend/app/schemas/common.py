@@ -6,6 +6,7 @@ from typing import Annotated, Any
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
+from ..characters import FORBIDDEN_TEXT_CHARS
 from ..utils import today
 
 # SQLite-era overflow guard kept: PG bigint is also 64-bit.
@@ -97,10 +98,21 @@ def _postgres_text(value: str) -> str:
     controls have no useful representation in these JSON forms and PostgreSQL
     rejects NUL outright, so accepting them only turns a validation mistake
     into an opaque database 500.
+
+    Beyond C0, DEL/C1 controls, Unicode line separators (U+2028/U+2029) and
+    bidirectional embedding/override/isolate marks are rejected: they are
+    invisible or line-break-like in exports/log viewers and can visually
+    reverse surrounding text (2026-09-16 audit, INJ-3). ZWJ/ZWNJ stay allowed
+    — Telugu conjuncts require them.
     """
     allowed = "\t\n\r"
     if any(char < " " and char not in allowed for char in value):
         raise ValueError("cannot contain control characters")
+    if any(char in FORBIDDEN_TEXT_CHARS for char in value):
+        raise ValueError(
+            "cannot contain control, line-separator, or directional "
+            "formatting characters"
+        )
     # A lone UTF-16 surrogate survives json.loads ('"\\ud800"' decodes to a
     # real str) and clears the control-character rule, but str.encode("utf-8")
     # — exactly what asyncpg's text codec calls on a bind parameter — raises

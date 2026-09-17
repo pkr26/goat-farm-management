@@ -90,21 +90,20 @@ describe("Donut geometry", () => {
     ]);
   });
 
-  it("prefers a slice's own colour in both ring and legend swatch", () => {
+  it("ignores any legacy per-slice colour: palette assignment only (FE-6)", () => {
+    // The `color` field was removed from DonutSlice (2026-09-16) — it flowed
+    // a raw caller string into inline style/stroke under 'unsafe-inline' CSP.
     const { container } = render(
       <Donut
         slices={[
-          { label: "Custom", value: 2, color: "var(--accent)" },
-          { label: "Default", value: 3 },
+          { label: "First", value: 2 },
+          { label: "Second", value: 3 },
         ]}
       />,
     );
     const segments = donutSegments(container);
-    expect(segments[0].getAttribute("stroke")).toBe("var(--accent)");
+    expect(segments[0].getAttribute("stroke")).toBe("var(--chart-1)");
     expect(segments[1].getAttribute("stroke")).toBe("var(--chart-2)");
-    const swatches = container.querySelectorAll('span[aria-hidden="true"]');
-    expect(swatches[0].getAttribute("style")).toContain("var(--accent)");
-    expect(swatches[1].getAttribute("style")).toContain("var(--chart-2)");
   });
 
   it("excludes zero-value slices from the accessible distribution label", () => {

@@ -287,9 +287,16 @@ configs:
           # operator-controlled value to `https` in the root .env file.
           proxy_set_header X-Forwarded-Proto ${GOATFARM_EDGE_PUBLIC_SCHEME:-http};
           proxy_http_version 1.1;
-          # Mirrors GOATFARM_MAX_REQUEST_BODY_BYTES: reject oversized bodies at
-          # the edge rather than inside the application.
-          client_max_body_size 1m;
+          # Reject oversized bodies at the edge rather than inside the
+          # application. Templated from the same operator knob the backend
+          # reads (GOATFARM_MAX_REQUEST_BODY_BYTES, default 1048576 = 1m) so
+          # the two limits can never silently drift apart (INFRA-4,
+          # 2026-09-16). Compose interpolates this value into the config
+          # blob at render time.
+          client_max_body_size ${GOATFARM_EDGE_MAX_BODY_SIZE:-1m};
+          # INFRA-7 (2026-09-16): no nginx version disclosure on responses
+          # or error pages.
+          server_tokens off;
 
           # nginx resolves a literal upstream name once, at configuration load,
           # and caches that address for the worker's lifetime. Recreating

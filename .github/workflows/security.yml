@@ -17,6 +17,37 @@ permissions:
   contents: read
 
 jobs:
+  # 2026-09-16 audit (remediation log P3): pip-audit/pnpm-audit previously ran
+  # only on push/PR in ci.yml, so NEW advisories against pinned versions were
+  # invisible until the next code change (Dependabot aside). This job closes
+  # the weekly gap on the existing Security schedule.
+  dependency-audit:
+    name: Dependency advisories (pip + pnpm)
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+      - name: Install uv (same pinned version as ci.yml)
+        run: python -m pip install --no-cache-dir uv==0.12.1
+      - name: pip-audit (backend, frozen lock export)
+        working-directory: backend
+        run: |
+          uv export --frozen --extra dev --no-emit-project --format requirements.txt \
+            --output-file /tmp/goatfarm-requirements.txt
+          uvx --from pip-audit==2.10.1 pip-audit --requirement /tmp/goatfarm-requirements.txt
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: frontend/.nvmrc
+      - name: pnpm audit (frontend, lockfile)
+        working-directory: frontend
+        run: |
+          corepack enable
+          pnpm audit --audit-level=low
+
   codeql:
     name: CodeQL (${{ matrix.language }})
     runs-on: ubuntu-latest

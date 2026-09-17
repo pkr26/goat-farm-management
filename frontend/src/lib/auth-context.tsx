@@ -317,7 +317,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // and permanently skip the teardown below.
       const ownedEpoch = authSessionEpochValue();
       try {
-        const list = await apiFetch<FarmEntry[]>("/api/auth/farms");
+        // FE-3 (2026-09-16): one transient failure of the post-login farms
+        // read must not destroy the just-created session. Retry once before
+        // any teardown path runs.
+        let list: FarmEntry[];
+        try {
+          list = await apiFetch<FarmEntry[]>("/api/auth/farms");
+        } catch (retryable) {
+          if (
+            !mounted.current ||
+            establishmentGeneration !== sessionEstablishmentGeneration.current ||
+            isAuthSessionChangedError(retryable) ||
+            authSessionEpochValue() !== ownedEpoch
+          ) {
+            throw retryable;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 750));
+          list = await apiFetch<FarmEntry[]>("/api/auth/farms");
+        }
         if (!mounted.current) throw providerUnmountedError();
         // A newer establishment owns both identity and membership. An
         // explicit refresh owns only the membership snapshot: it must not

@@ -201,17 +201,22 @@ describe("isIdempotencyProtectedMutation — campaign kills", () => {
 });
 
 describe("assertSafeBackendUrl — campaign kills", () => {
-  it("accepts loopback, single-label compose hosts, and https targets", () => {
+  it("accepts loopback and single-label compose hosts over either scheme", () => {
     expect(() => assertSafeBackendUrl("http://localhost:8000")).not.toThrow();
     expect(() => assertSafeBackendUrl("http://127.0.0.1:8000")).not.toThrow();
     expect(() => assertSafeBackendUrl("http://[::1]:8000")).not.toThrow();
     expect(() => assertSafeBackendUrl("http://backend:8000")).not.toThrow();
-    expect(() => assertSafeBackendUrl("https://api.goatfarm.example")).not.toThrow();
+    // Internal names over TLS stay fine.
+    expect(() => assertSafeBackendUrl("https://backend:8443")).not.toThrow();
   });
 
-  it("refuses plaintext for anything reachable from other hosts", () => {
+  it("refuses anything reachable from other hosts — https no longer bypasses (INFRA-2)", () => {
     expect(() => assertSafeBackendUrl("http://10.0.0.5:8000")).toThrow();
     expect(() => assertSafeBackendUrl("http://api.goatfarm.example")).toThrow();
+    // The proxy forwards the bearer token and refresh cookie; a public
+    // hostname is an exfil path over TLS exactly as over plaintext.
+    expect(() => assertSafeBackendUrl("https://api.goatfarm.example")).toThrow();
+    expect(() => assertSafeBackendUrl("https://10.0.0.5:8443")).toThrow();
     expect(() => assertSafeBackendUrl("not a url")).toThrow();
   });
 

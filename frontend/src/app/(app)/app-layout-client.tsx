@@ -282,7 +282,7 @@ function FarmSwitcher({
         "hover:border-primary/40 hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none",
       )}
     >
-      <span className="truncate">{farmName}</span>
+      <span className="truncate" dir="auto">{farmName}</span>
       <span className="hidden shrink-0 rounded-md bg-primary/10 px-1.5 py-0.5 text-[0.65rem] font-semibold text-primary sm:inline">
         {typeLabel}
       </span>

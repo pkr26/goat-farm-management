@@ -35,8 +35,8 @@ from app.models import FarmMembership, RefreshSession, User
 from app.permissions import ALL_PERMISSIONS, ROLE_PRESETS, preset_codes
 from app.ratelimit import auth_limiter
 from app.security import (
+    decode_access_claims_result,
     decode_refresh_claims,
-    decode_token,
     hash_password,
     issue_access_token,
     issue_refresh_token,
@@ -212,7 +212,7 @@ async def test_register_user_object_never_exposes_password(client: httpx.AsyncCl
     )
     assert resp.status_code == 201, resp.text
     user = resp.json()["user"]
-    assert set(user) == {"id", "email", "name", "must_change_password"}
+    assert set(user) == {"id", "email", "name", "must_change_password", "totp_state"}
     assert "password" not in user and "password_hash" not in user
 
 
@@ -473,13 +473,24 @@ async def test_register_validation_garbage_payloads(client: httpx.AsyncClient) -
         assert resp.status_code == 422, payload
 
 
-async def test_register_non_json_body_is_422(client: httpx.AsyncClient) -> None:
-    resp = await client.post(
-        "/api/auth/register",
-        content=b"email=x@farm.in&password=ownerpass123",
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
-    assert resp.status_code == 422
+async def test_register_non_json_body_is_rejected(client: httpx.AsyncClient) -> None:
+    # AUTH-2 (2026-09-16): the credential endpoints enforce their JSON-only
+    # contract at the application level (415), not just via FastAPI's strict
+    # parsing (422) — classic text/plain login-CSRF smuggling stays closed
+    # even if framework defaults change.
+    for path in ("/api/auth/register", "/api/auth/login"):
+        resp = await client.post(
+            path,
+            content=b"email=x@farm.in&password=ownerpass123",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        assert resp.status_code == 415, (path, resp.status_code)
+        resp = await client.post(
+            path,
+            content=b'{"email":"x@farm.in","password":"ownerpass123"}',
+            headers={"Content-Type": "text/plain"},
+        )
+        assert resp.status_code == 415, (path, resp.status_code)
 
 
 async def test_register_name_at_db_limit(client: httpx.AsyncClient) -> None:
@@ -662,12 +673,25 @@ async def test_garbage_argon2_hash_login_is_401_not_500(client: httpx.AsyncClien
     assert resp.status_code == 401
 
 
-async def test_legacy_pbkdf2_high_iteration_count_still_verifies(
-    client: httpx.AsyncClient,
+async def test_legacy_pbkdf2_over_budget_hash_is_rejected_and_budget_raised_restores_it(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Regression: the rejection-timing work budget must not accidentally
-    # become a 100,000-iteration compatibility ceiling for imported hashes.
+    # AUTH-1 (2026-09-16): the rejection-timing budget is now an ENFORCED
+    # compatibility ceiling — verifying an over-budget hash would make every
+    # rejected login cost linear in the stored iteration count (an
+    # account-classification timing oracle). Default budget: rejected
+    # uniformly; a deployment that audited such imports raises the budget
+    # and the same hash verifies and upgrades to Argon2 again.
+    from app.core.config import get_settings
+
     user_id = await insert_user("legacy3@farm.in", make_pbkdf2_hash(OWNER_PW, iterations=100_001))
+    resp = await client.post(
+        "/api/auth/login", json={"email": "legacy3@farm.in", "password": OWNER_PW}
+    )
+    assert resp.status_code == 401, resp.text
+    assert (await user_password_hash(user_id)).startswith("pbkdf2_sha256$")
+
+    monkeypatch.setattr(get_settings(), "rejected_login_pbkdf2_work_budget", 200_000)
     resp = await client.post(
         "/api/auth/login", json={"email": "legacy3@farm.in", "password": OWNER_PW}
     )
@@ -2588,7 +2612,7 @@ async def test_me_happy_path(client: httpx.AsyncClient) -> None:
     body = resp.json()
     assert body["email"] == "me@farm.in"
     assert body["name"] == "Meena"
-    assert set(body) == {"id", "email", "name", "must_change_password"}
+    assert set(body) == {"id", "email", "name", "must_change_password", "totp_state"}
 
 
 async def test_account_export_is_machine_readable_and_tenant_minimal(
@@ -3336,13 +3360,15 @@ def test_verify_password_malformed_argon2_never_raises() -> None:
 # app.security — JWT issue/decode (unit level)
 # ---------------------------------------------------------------------------
 def test_decode_token_access_roundtrip() -> None:
-    token = issue_access_token(42)
-    assert decode_token(token, "access") == 42
+    # AUTH-5 (2026-09-16): dead `decode_token` wrapper deleted; the live
+    # decoders cover the same ground.
+    claims = decode_access_claims_result(issue_access_token(42)).claims
+    assert claims is not None and claims.user_id == 42
 
 
 def test_decode_token_refresh_roundtrip() -> None:
-    token = issue_refresh_token(7)
-    assert decode_token(token, "refresh") == 7
+    claims = decode_refresh_claims(issue_refresh_token(7))
+    assert claims is not None and claims.user_id == 7
 
 
 def test_decode_refresh_claims_roundtrip() -> None:
@@ -3361,26 +3387,26 @@ def test_decode_refresh_claims_rejects_bad_tokens() -> None:
 
 
 def test_decode_token_rejects_wrong_kind() -> None:
-    assert decode_token(issue_access_token(1), "refresh") is None
-    assert decode_token(issue_refresh_token(1), "access") is None
+    assert decode_refresh_claims(issue_access_token(1)) is None
+    assert decode_access_claims_result(issue_refresh_token(1)).claims is None
 
 
 def test_decode_token_rejects_expired() -> None:
     # jwt.decode is called with leeway=60 s,
     # so a token more than 60 s past exp is needed to hit the reject path.
     token = issue_token(1, "access", ttl_seconds=-120)
-    assert decode_token(token, "access") is None
+    assert decode_access_claims_result(token).claims is None
 
 
 def test_decode_token_rejects_garbage() -> None:
     for bad in ("", "abc", "a.b.c", "🐐.🐐.🐐", "null"):
-        assert decode_token(bad, "access") is None, bad
+        assert decode_access_claims_result(bad).claims is None, bad
 
 
 def test_decode_token_rejects_foreign_key_signature() -> None:
     attacker_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     forged = forge_token(1, key=attacker_key)
-    assert decode_token(forged, "access") is None
+    assert decode_access_claims_result(forged).claims is None
 
 
 def test_decode_token_rejects_hs256_alg_confusion() -> None:
@@ -3390,7 +3416,7 @@ def test_decode_token_rejects_hs256_alg_confusion() -> None:
         serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo
     )
     confused = forge_token(1, key=pub_der, algorithm="HS256")
-    assert decode_token(confused, "access") is None
+    assert decode_access_claims_result(confused).claims is None
 
 
 def test_decode_token_rejects_alg_none() -> None:
@@ -3400,11 +3426,11 @@ def test_decode_token_rejects_alg_none() -> None:
         None,
         algorithm="none",
     )
-    assert decode_token(unsigned, "access") is None
+    assert decode_access_claims_result(unsigned).claims is None
 
 
 def test_decode_token_rejects_non_integer_and_missing_sub() -> None:
-    assert decode_token(forge_token("abc"), "access") is None
+    assert decode_access_claims_result(forge_token("abc")).claims is None
     token = forge_token(1)
     # re-issue without sub at all
     now = datetime.now(UTC)
@@ -3413,7 +3439,7 @@ def test_decode_token_rejects_non_integer_and_missing_sub() -> None:
         get_settings().jwt_private_key_path.read_text(),
         algorithm="RS256",
     )
-    assert decode_token(no_sub, "access") is None
+    assert decode_access_claims_result(no_sub).claims is None
     assert token  # sanity: the helper produced something
 
 
@@ -3421,7 +3447,7 @@ def test_decode_token_rejects_tampered_payload() -> None:
     token = issue_access_token(1)
     head, payload, sig = token.split(".")
     forged = f"{head}.{payload[:-2]}xx.{sig}"
-    assert decode_token(forged, "access") is None
+    assert decode_access_claims_result(forged).claims is None
 
 
 def test_access_token_claims_shape() -> None:
@@ -3585,6 +3611,28 @@ async def test_farm_header_whitespace_is_rejected(client: httpx.AsyncClient) -> 
     assert resp.json()["detail"] == "X-Farm-Id must be an integer"
 
 
+async def test_farm_header_leading_zeros_canonicalize_to_same_tenant(
+    client: httpx.AsyncClient,
+) -> None:
+    """TEN-3 (2026-09-16 audit): "007" parses to tenant 7 — both spellings
+    authorize identically AFTER membership re-check, so leading zeros can
+    never name a different farm. Pin the canonicalization."""
+    headers = await owner_with_farm(client, email="lzint@farm.in")
+    farm_id = headers["X-Farm-Id"]
+    padded = headers | {"X-Farm-Id": f"0{farm_id}"}
+    resp = await client.get("/api/auth/permissions", headers=padded)
+    assert resp.status_code == 200, resp.text
+    # The canonical spelling answers identically for the same principal.
+    canonical = await client.get("/api/auth/permissions", headers=headers)
+    assert canonical.status_code == 200
+    # And a leading-zero spelling of a farm the caller does NOT belong to
+    # stays a 404, exactly like the canonical spelling.
+    other = await owner_with_farm(client, email="lzint2@farm.in", farm_name="Other")
+    foreign = headers | {"X-Farm-Id": f"0{other['X-Farm-Id']}"}
+    resp = await client.get("/api/auth/permissions", headers=foreign)
+    assert resp.status_code == 404, resp.text
+
+
 async def test_farms_list_isolated_between_two_owners(client: httpx.AsyncClient) -> None:
     owner_a = await owner_with_farm(client, email="fa@farm.in", farm_name="Farm A")
     owner_b = await owner_with_farm(client, email="fb@farm.in", farm_name="Farm B")
@@ -3606,14 +3654,14 @@ async def test_create_farm_non_json_body_is_422(client: httpx.AsyncClient) -> No
 
 
 def test_decode_token_rejects_wrong_case_kind_and_missing_kind() -> None:
-    assert decode_token(forge_token(1, kind="Access"), "access") is None
+    assert decode_access_claims_result(forge_token(1, kind="Access")).claims is None
     now = datetime.now(UTC)
     no_kind = jwt.encode(
         {"sub": "1", "jti": "x", "iat": now, "exp": now + timedelta(seconds=60)},
         get_settings().jwt_private_key_path.read_text(),
         algorithm="RS256",
     )
-    assert decode_token(no_kind, "access") is None
+    assert decode_access_claims_result(no_kind).claims is None
 
 
 @pytest.mark.parametrize("missing", ["sub", "kind", "jti", "iat", "exp", "iss", "aud"])
@@ -3635,7 +3683,7 @@ def test_decode_token_rejects_every_missing_required_claim(missing: str) -> None
         get_settings().jwt_private_key_path.read_text(),
         algorithm="RS256",
     )
-    assert decode_token(token, "access") is None
+    assert decode_access_claims_result(token).claims is None
 
 
 def test_access_claims_require_strict_revocation_version() -> None:
@@ -3646,8 +3694,8 @@ def test_access_claims_require_strict_revocation_version() -> None:
 
 
 def test_decode_token_rejects_wrong_issuer_or_audience() -> None:
-    assert decode_token(forge_token(1, iss="another-api"), "access") is None
-    assert decode_token(forge_token(1, aud="another-client"), "access") is None
+    assert decode_access_claims_result(forge_token(1, iss="another-api")).claims is None
+    assert decode_access_claims_result(forge_token(1, aud="another-client")).claims is None
 
 
 def test_issue_token_refuses_reserved_claim_override() -> None:

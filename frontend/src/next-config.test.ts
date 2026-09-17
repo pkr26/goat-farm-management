@@ -21,8 +21,8 @@ describe("BACKEND_URL transport guard", () => {
     "http://[::1]:9000",
     "http://backend:8000",
     "http://api:80",
-    "https://api.example.com",
-    "https://10.0.0.5:8443",
+    "https://backend:8443",
+    "https://localhost:8443",
   ])("accepts %s", (url) => {
     expect(() => assertSafeBackendUrl(url)).not.toThrow();
   });
@@ -31,6 +31,12 @@ describe("BACKEND_URL transport guard", () => {
     ["http://api.example.com", "plaintext to a dotted public hostname"],
     ["http://10.0.0.5:8000", "plaintext to a reachable IP"],
     ["http://[::2]:9000", "plaintext to a non-loopback IPv6 literal"],
+    // INFRA-2 (2026-09-16): https must not bypass the host rules — the proxy
+    // forwards the bearer token and refresh cookie, so a public target is an
+    // exfil path over TLS exactly as over plaintext (RT-R-7 follow-up).
+    ["https://api.example.com", "https to a dotted public hostname"],
+    ["https://10.0.0.5:8443", "https to a reachable IP"],
+    ["https://evil.example", "https attacker hostname"],
     ["ftp://backend:8000", "non-http(s) scheme"],
     ["not a url", "not absolute"],
   ])("rejects %s (%s)", (url) => {

@@ -59,6 +59,18 @@ UNGUARDED_BY_DESIGN: dict[tuple[str, str], str] = {
     ("POST", "/api/auth/change-password"): "self-service, gated on the current password",
     ("DELETE", "/api/auth/account"): "self-service account deletion",
     ("GET", "/api/auth/account/export"): "the caller's own data export",
+    ("POST", "/api/auth/totp/enroll"): (
+        "self-service second-factor enrollment, gated on the current password"
+    ),
+    ("POST", "/api/auth/totp/confirm"): (
+        "activates the caller's own pending enrollment, gated on the new secret"
+    ),
+    ("POST", "/api/auth/totp/disable"): (
+        "removes the caller's own second factor, gated on password + code"
+    ),
+    ("POST", "/api/auth/totp/challenge"): (
+        "exchanges the login-issued single-use mfa token, gated on the code"
+    ),
     ("GET", "/api/simulation/defaults"): "global breed/system reference data, no farm scope",
     ("GET", "/api/simulation/defaults/breeds"): "global breed list, no farm scope",
 }

@@ -42,7 +42,7 @@ from app.core.config import Settings, get_settings
 from app.db import get_sessionmaker
 from app.models import FarmMembership, Role, User
 from app.ratelimit import SlidingWindowRateLimiter, auth_limiter
-from app.security import decode_access_claims, decode_token, issue_access_token
+from app.security import decode_access_claims, decode_access_claims_result, issue_access_token
 
 from .conftest import login, owner_with_farm, register
 from .test_auth_extended import forge_token, insert_user, make_pbkdf2_hash, set_refresh_cookie
@@ -358,19 +358,26 @@ def test_rejected_login_pbkdf2_work_is_account_independent(
     security._pad_rejected_login_pbkdf2("wrongpass1", "$argon2id$stored")
     assert calls == [budget]
 
-    # A legacy hash costlier than the padding budget clamps to zero extra
-    # work instead of passing a negative iteration count into OpenSSL.
+    # A legacy hash costlier than the padding budget is unsupported (AUTH-1,
+    # 2026-09-16): verifying it would make rejection cost grow linearly with
+    # the stored count — a remote account-classification oracle. It now
+    # verifies nothing and pads the full budget, exactly like a malformed
+    # hash; deployments that really imported such hashes raise the budget.
     calls.clear()
     over_budget = f"pbkdf2_sha256${budget + 1}$00${'00' * 32}"
     security._verify_legacy_pbkdf2("wrongpass1", over_budget)
     security._pad_rejected_login_pbkdf2("wrongpass1", over_budget)
-    assert calls == [budget + 1]
+    assert calls == [budget]
 
 
 def test_legacy_pbkdf2_ceiling_rejects_unbounded_or_malformed_work(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The compatibility ceiling is separate from, and covered by, timing work."""
+    """The compatibility ceiling is the timing budget: AUTH-1 (2026-09-16)
+    clamps verification to ``rejected_login_pbkdf2_work_budget`` so rejected
+    logins cost the same regardless of the stored iteration count — an
+    over-budget hash is unsupported (like over-ceiling), never a linear-cost
+    timing oracle. Raising the budget restores higher hashes."""
     from app import security
 
     calls: list[int] = []
@@ -385,7 +392,25 @@ def test_legacy_pbkdf2_ceiling_rejects_unbounded_or_malformed_work(
     def encoded(iterations: str) -> str:
         return f"pbkdf2_sha256${iterations}$00${'00' * 32}"
 
-    # The published maximum remains a supported hash, not just a padding cap.
+    # A hash at exactly the budget verifies; one above it is rejected with
+    # no verify work (fast) and full-budget padding — indistinguishable in
+    # cost from any other rejected login.
+    assert security._verify_legacy_pbkdf2("password", encoded(str(budget)))
+    assert calls == [budget]
+    calls.clear()
+    over_budget = encoded(str(budget + 1))
+    assert security._verify_legacy_pbkdf2("password", over_budget) is False
+    assert calls == []  # never pass the stored count into OpenSSL
+    security._pad_rejected_login_pbkdf2("password", over_budget)
+    assert calls == [budget]
+    calls.clear()
+
+    # Raising the deployment budget (the documented import-audit contract)
+    # restores higher iteration counts to "supported" — up to the published
+    # hard ceiling, which nothing can raise.
+    monkeypatch.setattr(
+        security.get_settings(), "rejected_login_pbkdf2_work_budget", 1_000_000
+    )
     assert security._verify_legacy_pbkdf2(
         "password", encoded(str(security.LEGACY_PBKDF2_MAX_ITERATIONS))
     )
@@ -410,7 +435,9 @@ def test_legacy_pbkdf2_ceiling_rejects_unbounded_or_malformed_work(
         assert security._verify_legacy_pbkdf2("password", stored) is False
         assert calls == []  # never pass the stored count into OpenSSL
         security._pad_rejected_login_pbkdf2("password", stored)
-        assert calls == [budget]
+        # Budget was raised to 1M for this branch's spellings ("+50000" and
+        # friends verify above), so the padding here is the raised budget.
+        assert calls == [1_000_000]
         calls.clear()
 
 
@@ -447,6 +474,34 @@ async def test_each_rejected_login_uses_exactly_two_password_work_submissions(
         )
         assert response.status_code == 401, response.text
         assert submissions - before == 2
+
+
+def _uid(claims: object) -> int:
+    from app.security import AccessClaims
+
+    assert isinstance(claims, AccessClaims)
+    return claims.user_id
+
+
+async def test_password_max_bytes_128_utf8(client: httpx.AsyncClient) -> None:
+    """AUTH-4 (2026-09-16): max_length counts code points; Argon2 hashes
+    UTF-8 bytes. 33 astral-plane code points = 132 bytes must 422 even
+    though len() says 33."""
+    await owner_with_farm(client, email="bytecap@farm.in")
+    over_bytes = "\U0001D11E" * 33  # 33 code points, 132 UTF-8 bytes
+    assert len(over_bytes) == 33 and len(over_bytes.encode()) == 132
+    resp = await client.post(
+        "/api/auth/register",
+        json={"email": "bytecap2@farm.in", "password": over_bytes},
+    )
+    assert resp.status_code == 422, resp.text
+    assert "128 bytes" in resp.text
+    # 31 code points (124 bytes) stays acceptable.
+    resp = await client.post(
+        "/api/auth/register",
+        json={"email": "bytecap3@farm.in", "password": "\U0001D11E" * 31},
+    )
+    assert resp.status_code == 201, resp.text
 
 
 async def test_password_max_length_128(client: httpx.AsyncClient) -> None:
@@ -1428,7 +1483,7 @@ def test_keys_are_read_from_disk_at_most_once(
     monkeypatch.setattr(security, "_read_pinned_key_text", spy)
     for _ in range(20):
         token = issue_access_token(7)
-        assert decode_token(token, "access") == 7
+        assert _uid(decode_access_claims_result(token).claims) == 7
     assert reads.count(priv) == 1  # generated once, read once
     assert reads.count(pub) == 1
 
@@ -1450,7 +1505,7 @@ def test_jwt_key_reader_follows_regular_secret_mount_symlinks(
     pub.symlink_to(real_pub)
 
     token = issue_access_token(17)
-    assert decode_token(token, "access") == 17
+    assert _uid(decode_access_claims_result(token).claims) == 17
 
 
 def test_jwt_key_reader_rejects_fifo_without_blocking(
@@ -1517,7 +1572,8 @@ def test_concurrent_first_boot_yields_one_consistent_keypair(
     assert not errors
     assert len(tokens) == 8
     for token in tokens:
-        assert decode_token(token, "access") == 1  # mismatched pair would fail here
+        # A mismatched key pair would fail right here.
+        assert _uid(decode_access_claims_result(token).claims) == 1
     assert priv.stat().st_mode & 0o777 == 0o600  # private key never world-readable
     assert priv.parent.stat().st_mode & 0o777 == 0o700
 
@@ -1636,7 +1692,7 @@ def test_healthy_app_managed_development_pair_is_reused_not_regenerated(
 
         assert priv.read_bytes() == private_before
         assert pub.read_bytes() == public_before
-        assert decode_token(first, "access") == 1
+        assert _uid(decode_access_claims_result(first).claims) == 1
     finally:
         security._jwt_keyring = None
 

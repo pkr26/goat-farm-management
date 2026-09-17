@@ -23,6 +23,7 @@ from pydantic import ValidationError
 from sqlalchemy import func, literal, select
 from sqlalchemy.exc import IntegrityError
 
+from ..audit import security_event
 from ..core.config import get_settings
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
 from ..models import PlannerPlan
@@ -471,6 +472,15 @@ async def plan_dpr(
         return await _offload(build)
 
     markdown = await _with_run_limits(farm_id, user_id, run)
+    # DET-2: loan documents leaving the system are worth a durable trail —
+    # the DPR is the artifact banks consume and the file INJ-1 targeted.
+    security_event(
+        "planner.dpr.download",
+        "DPR loan document downloaded",
+        user_id=user_id,
+        farm_id=farm_id,
+        plan_id=plan_id,
+    )
     return Response(
         content=markdown,
         media_type="text/markdown",

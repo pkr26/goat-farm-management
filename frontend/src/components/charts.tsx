@@ -12,7 +12,9 @@ import { cn } from "@/lib/utils";
 export interface DonutSlice {
   label: string;
   value: number;
-  color?: string;
+  // FE-6 (2026-09-16): no caller-supplied `color` — a raw string here flowed
+  // straight into `style={{background}}`/`stroke` under a CSP that allows
+  // inline styles. Palette assignment only.
 }
 
 /** Donut with a centered total. Slices under 0.4% are invisible-safe. */
@@ -92,7 +94,7 @@ export function Donut({
                 fill="none"
                 strokeWidth="16"
                 strokeLinecap="butt"
-                stroke={slice.color ?? palette[i % palette.length]}
+                stroke={palette[i % palette.length]}
                 strokeDasharray={`${Math.max(dash - gap, 0.75)} ${circumference - dash + gap}`}
                 strokeDashoffset={-offset}
               />
@@ -118,7 +120,7 @@ export function Donut({
                 <span
                   aria-hidden="true"
                   className="size-2 shrink-0 rounded-full"
-                  style={{ background: slice.color ?? palette[i % palette.length] }}
+                  style={{ background: palette[i % palette.length] }}
                 />
                 <span className="truncate text-muted-foreground">{slice.label}</span>
                 <span className="table-numeric ml-auto font-medium">{slice.value}</span>

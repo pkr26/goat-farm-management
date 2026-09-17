@@ -1,0 +1,62 @@
+[
+ {
+  "attack": "CL.CL conflicting",
+  "status_line": "HTTP/1.1 400 Bad Request",
+  "resp_head": "HTTP/1.1 400 Bad Request\r\ndate: Wed, 16 Sep 2026 21:57:50 GMT\r\nserver: uvicorn\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 30\r\nconnection: close",
+  "closed": true
+ },
+ {
+  "attack": "CL.TE chunked",
+  "status_line": "HTTP/1.1 400 Bad Request",
+  "resp_head": "HTTP/1.1 400 Bad Request\r\ndate: Wed, 16 Sep 2026 21:57:50 GMT\r\nserver: uvicorn\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 30\r\nconnection: close",
+  "closed": true
+ },
+ {
+  "attack": "TE.TE obfuscated",
+  "status_line": "HTTP/1.1 400 Bad Request",
+  "resp_head": "HTTP/1.1 400 Bad Request\r\ndate: Wed, 16 Sep 2026 21:57:50 GMT\r\nserver: uvicorn\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 30\r\nconnection: close",
+  "closed": true
+ },
+ {
+  "attack": "TE header-space obfuscation",
+  "status_line": "HTTP/1.1 400 Bad Request",
+  "resp_head": "HTTP/1.1 400 Bad Request\r\ndate: Wed, 16 Sep 2026 21:57:50 GMT\r\nserver: uvicorn\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 30\r\nconnection: close",
+  "closed": true
+ },
+ {
+  "attack": "negative CL",
+  "status_line": "HTTP/1.1 400 Bad Request",
+  "resp_head": "HTTP/1.1 400 Bad Request\r\ndate: Wed, 16 Sep 2026 21:57:50 GMT\r\nserver: uvicorn\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 30\r\nconnection: close",
+  "closed": true
+ },
+ {
+  "attack": "CL space-digits",
+  "status_line": "HTTP/1.1 400 Bad Request",
+  "resp_head": "HTTP/1.1 400 Bad Request\r\ndate: Wed, 16 Sep 2026 21:57:50 GMT\r\nserver: uvicorn\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 30\r\nconnection: close",
+  "closed": true
+ },
+ {
+  "attack": "chunk-ext trailer smuggle",
+  "status_line": "HTTP/1.1 401 Unauthorized",
+  "resp_head": "HTTP/1.1 401 Unauthorized\r\ndate: Wed, 16 Sep 2026 21:57:50 GMT\r\nserver: uvicorn\r\ncontent-length: 39\r\ncontent-type: application/json\r\nx-request-id: 246fd1d6521c4e5a898e3970bc19c723\r\nx-content-type-opti",
+  "closed": true
+ },
+ {
+  "attack": "HTTP/1.0 + TE",
+  "status_line": "HTTP/1.1 422 Unprocessable Content",
+  "resp_head": "HTTP/1.1 422 Unprocessable Content\r\ndate: Wed, 16 Sep 2026 21:57:55 GMT\r\nserver: uvicorn\r\ncontent-length: 79\r\ncontent-type: application/json\r\nx-request-id: d707b2ced9e34fc0a9b3cc53be0bd589\r\nx-content-",
+  "closed": true
+ },
+ {
+  "attack": "space in request line",
+  "status_line": "HTTP/1.1 400 Bad Request",
+  "resp_head": "HTTP/1.1 400 Bad Request\r\ndate: Wed, 16 Sep 2026 21:57:55 GMT\r\nserver: uvicorn\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 30\r\nconnection: close",
+  "closed": true
+ },
+ {
+  "attack": "absolute-form target",
+  "status_line": "HTTP/1.1 200 OK",
+  "resp_head": "HTTP/1.1 200 OK\r\ndate: Wed, 16 Sep 2026 21:57:55 GMT\r\nserver: uvicorn\r\ncontent-length: 2170\r\ncontent-type: application/json\r\nx-request-id: eccf2baf0961442086b55a4dc6bda372\r\nx-content-type-options: nos",
+  "closed": true
+ }
+]

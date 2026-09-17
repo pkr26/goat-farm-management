@@ -31,6 +31,10 @@ from ._common import _add_task
 # enough not to nag, early enough to arrange the insurer's paperwork.
 INSURANCE_RENEWAL_LEAD_DAYS = 30
 
+# BIZ-3 (2026-09-16): one renewal books one non-prorated premium row, so the
+# covered span needs a bound — five years, renewed successively for longer.
+MAX_RENEWAL_SPAN_DAYS = 5 * 366
+
 LIFETIME_PNL_FEED_NOTE = (
     "Feed costs are tracked at farm level only and are not part of this animal's figures."
 )
@@ -248,6 +252,15 @@ async def renew_insurance_policy(
         raise ValueError(
             "New renewal date cannot be before the current renewal date "
             f"{policy.renewal_date.isoformat()}"
+        )
+    # BIZ-3 (2026-09-16): the register books ONE non-prorated premium row per
+    # renewal — an arbitrarily distant horizon would book a decades-long span
+    # for a single premium. Bound the covered span at five years; longer
+    # cover is successive renewals, matching how insurers actually issue.
+    if (renewal_date - policy.renewal_date).days > MAX_RENEWAL_SPAN_DAYS:
+        raise ValueError(
+            "A renewal can extend coverage by at most five years — renew "
+            "successively for longer cover"
         )
     effective_premium = money(premium) if premium is not None else policy.premium
     previous_horizon = policy.renewal_date

@@ -803,3 +803,46 @@ async def test_generated_duties_carry_title_keys_and_english_fallbacks(
     assert by_category["WATER"] == "daily_water_check"
     assert by_category["WEIGHING"] == "monthly_weighing_round"
     assert by_category["HOOF_TRIMMING"] == "hoof_trimming_round"
+
+
+async def test_farm_batch_isolates_per_farm_failures(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """BIZ-2 (2026-09-16): one failing farm must not abort the whole keyset
+    page — the next farm still materializes and the cursor advances past
+    the failure so subsequent intervals make progress."""
+    from app.services import cadence as cadence_module
+
+    headers_a = await owner_with_farm(client, email="cad-fail-a@farm.in", farm_name="A")
+    headers_b = await owner_with_farm(client, email="cad-fail-b@farm.in", farm_name="B")
+    farm_a = int(headers_a["X-Farm-Id"])
+    farm_b = int(headers_b["X-Farm-Id"])
+    assert farm_b > farm_a
+
+    calls: list[int] = []
+    real = cadence_module.ensure_cadence_tasks
+
+    from sqlalchemy import inspect
+
+    def farm_id_of(farm) -> int:
+        # farm.id attribute access lazy-loads once the session rolls a
+        # poisoned farm back; the identity key survives expiration.
+        return inspect(farm).identity[0]
+
+    async def flaky(db, farm):
+        fid = farm_id_of(farm)
+        calls.append(fid)
+        if fid == farm_a:
+            raise RuntimeError("persistent per-farm poison")
+        return await real(db, farm)
+
+    monkeypatch.setattr(cadence_module, "ensure_cadence_tasks", flaky)
+    async with get_sessionmaker()() as db:
+        fetched, cursor = await cadence_module.ensure_cadence_farm_batch(
+            db, batch_size=10, after_farm_id=0
+        )
+        await db.rollback()  # nothing should have been mutated by this probe
+
+    assert farm_a in calls and farm_b in calls
+    assert cursor >= farm_b  # the cursor advanced PAST the failing farm
+    assert fetched >= 2

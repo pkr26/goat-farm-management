@@ -197,6 +197,11 @@ const en = {
   "feeding.savedToast": "Saved {kg} kg/head for {bucket}.",
 
   // ---------- login ----------
+  "login.totpPrompt":
+    "This account uses two-factor authentication. Enter the current 6-digit code from your authenticator app.",
+  "login.totpCodeLabel": "Authenticator code",
+  "login.totpCodeInvalid": "That code is not valid right now.",
+  "login.totpBack": "Back",
   "login.invalidCredentials": "Invalid email or password.",
   "login.networkError":
     "Network is weak — please check your connection and try again.",

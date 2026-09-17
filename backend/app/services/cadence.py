@@ -11,6 +11,7 @@ never from a request path: GET /api/tasks is read-only.
 """
 
 import calendar
+import logging
 from datetime import date, timedelta
 
 from sqlalchemy import func, or_, select
@@ -31,6 +32,8 @@ from ..models import (
 from ..utils import today
 from ._common import _add_task
 from .tasks import lock_manual_task_queue
+
+_logger = logging.getLogger("goatfarm.cadence")
 
 # Sweep safety bounds: every query this module runs is either an indexed
 # LIMIT-1 existence probe or one bounded scan, because the background sweep
@@ -535,6 +538,25 @@ async def ensure_cadence_farm_batch(
         .scalars()
         .all()
     )
-    for farm in farms:
-        await ensure_cadence_tasks(db, farm)
-    return len(farms), (farms[-1].id if farms else after_farm_id)
+    # Snapshot ids before any per-farm rollback: rollback() expires the
+    # ORM instances, and touching an expired attribute afterwards would
+    # lazy-load outside the greenlet (MissingGreenlet).
+    farm_ids = [farm.id for farm in farms]
+    for farm, farm_id in zip(farms, farm_ids, strict=True):
+        try:
+            await ensure_cadence_tasks(db, farm)
+        except Exception:
+            # BIZ-2 (2026-09-16): one persistently failing farm must not
+            # starve every higher-id farm's cadence materialization forever
+            # (the whole keyset page aborted and the cursor reset each
+            # interval). Isolate the failure: roll this farm's partial work
+            # back, log loudly, and keep paging. The returned count stays
+            # the FETCHED count so the caller's short-page detection still
+            # sees the true end of the tenant list.
+            await db.rollback()
+            _logger.exception(
+                "cadence materialization failed for farm_id=%s; skipping to "
+                "the next farm (cursor still advances)",
+                farm_id,
+            )
+    return len(farm_ids), (farm_ids[-1] if farm_ids else after_farm_id)
