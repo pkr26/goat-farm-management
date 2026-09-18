@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { addDays, todayInTimeZone, utcToday } from "./format";
+import { addDays, daysBetween, todayInTimeZone, utcToday } from "./format";
 
 describe("utcToday", () => {
   it("returns today's UTC date as YYYY-MM-DD", () => {
@@ -42,5 +42,27 @@ describe("addDays", () => {
   it("handles leap years", () => {
     expect(addDays("2028-02-28", 1)).toBe("2028-02-29");
     expect(addDays("2026-02-28", 1)).toBe("2026-03-01");
+  });
+
+  it("does not normalize an impossible source date", () => {
+    expect(addDays("2026-02-30", 1)).toBe("2026-02-30");
+    expect(addDays("2026-13-01", 1)).toBe("2026-13-01");
+  });
+
+  it("handles years before 0100 without Date.UTC's 1900 offset", () => {
+    expect(addDays("0001-01-01", 1)).toBe("0001-01-02");
+    expect(addDays("0099-12-31", 1)).toBe("0100-01-01");
+  });
+});
+
+describe("daysBetween", () => {
+  it("does not apply Date.UTC's 1900 offset to years before 0100", () => {
+    expect(daysBetween("0001-01-01", "0001-01-02")).toBe(1);
+    expect(daysBetween("0099-12-31", "0100-01-01")).toBe(1);
+  });
+
+  it("does not normalize corrupt calendar dates into unrelated task deadlines", () => {
+    expect(daysBetween("2026-02-30", "2026-03-01")).toBe(0);
+    expect(daysBetween("2026-02-28", "not-a-date")).toBe(0);
   });
 });

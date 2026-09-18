@@ -48,6 +48,7 @@ from .conftest import login, owner_with_farm, register
 from .test_auth_extended import forge_token, insert_user, make_pbkdf2_hash, set_refresh_cookie
 
 PRODUCTION_IDEMPOTENCY_HMAC_SECRET = "production-idempotency-hmac-secret-0000000001"
+PRODUCTION_TOTP_ENCRYPTION_KEY = "VFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFQ"
 
 
 async def _role_id(client: httpx.AsyncClient, owner: dict, code: str) -> int:
@@ -408,9 +409,7 @@ def test_legacy_pbkdf2_ceiling_rejects_unbounded_or_malformed_work(
     # Raising the deployment budget (the documented import-audit contract)
     # restores higher iteration counts to "supported" — up to the published
     # hard ceiling, which nothing can raise.
-    monkeypatch.setattr(
-        security.get_settings(), "rejected_login_pbkdf2_work_budget", 1_000_000
-    )
+    monkeypatch.setattr(security.get_settings(), "rejected_login_pbkdf2_work_budget", 1_000_000)
     assert security._verify_legacy_pbkdf2(
         "password", encoded(str(security.LEGACY_PBKDF2_MAX_ITERATIONS))
     )
@@ -488,7 +487,7 @@ async def test_password_max_bytes_128_utf8(client: httpx.AsyncClient) -> None:
     UTF-8 bytes. 33 astral-plane code points = 132 bytes must 422 even
     though len() says 33."""
     await owner_with_farm(client, email="bytecap@farm.in")
-    over_bytes = "\U0001D11E" * 33  # 33 code points, 132 UTF-8 bytes
+    over_bytes = "\U0001d11e" * 33  # 33 code points, 132 UTF-8 bytes
     assert len(over_bytes) == 33 and len(over_bytes.encode()) == 132
     resp = await client.post(
         "/api/auth/register",
@@ -499,7 +498,7 @@ async def test_password_max_bytes_128_utf8(client: httpx.AsyncClient) -> None:
     # 31 code points (124 bytes) stays acceptable.
     resp = await client.post(
         "/api/auth/register",
-        json={"email": "bytecap3@farm.in", "password": "\U0001D11E" * 31},
+        json={"email": "bytecap3@farm.in", "password": "\U0001d11e" * 31},
     )
     assert resp.status_code == 201, resp.text
 
@@ -1940,6 +1939,7 @@ def test_allowed_hosts_are_stored_the_way_trustedhost_compares_them(
         db_sslmode="verify-full",
         min_password_length=12,
         idempotency_request_hmac_secret=PRODUCTION_IDEMPOTENCY_HMAC_SECRET,
+        totp_encryption_key=PRODUCTION_TOTP_ENCRYPTION_KEY,
     )
     assert settings.allowed_hosts == [expected]
 

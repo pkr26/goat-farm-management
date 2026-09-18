@@ -87,7 +87,11 @@ class ProviderRotation:
             return GateOutcome(
                 result=result, served_by=provider.name, failed_providers=tuple(failures)
             )
-        assert last_error is not None  # chain is never empty
+        if last_error is None:
+            # ``chain`` always has primary. This is defensive for a custom
+            # provider/adapter that violates the normal return-or-ProviderError
+            # contract; assertions disappear under ``python -O``.
+            last_error = ProviderError("gate provider chain ended without a result")
         raise GateExhaustedError(tuple(failures), last_error)
 
 

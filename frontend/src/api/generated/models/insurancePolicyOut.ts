@@ -19,4 +19,7 @@ export interface InsurancePolicyOut {
   status: InsurancePolicyOutStatus;
   notes: string | null;
   created_at: string;
+  claim_date: string | null;
+  claimed_at: string | null;
+  claimed_by_id: number | null;
 }

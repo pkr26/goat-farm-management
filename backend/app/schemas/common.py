@@ -110,8 +110,7 @@ def _postgres_text(value: str) -> str:
         raise ValueError("cannot contain control characters")
     if any(char in FORBIDDEN_TEXT_CHARS for char in value):
         raise ValueError(
-            "cannot contain control, line-separator, or directional "
-            "formatting characters"
+            "cannot contain control, line-separator, or directional formatting characters"
         )
     # A lone UTF-16 surrogate survives json.loads ('"\\ud800"' decodes to a
     # real str) and clears the control-character rule, but str.encode("utf-8")
@@ -174,10 +173,27 @@ class ErrorOut(BaseModel):
     detail: str
 
 
+class RequestValidationIssueOut(BaseModel):
+    """One safe, client-actionable issue from the custom 422 handler."""
+
+    type: str
+    loc: list[str | int]
+    msg: str
+
+
+class RequestValidationErrorOut(BaseModel):
+    """422 shape emitted for malformed request bodies, paths, and queries."""
+
+    detail: list[RequestValidationIssueOut]
+
+
 # Router-level OpenAPI response declarations: handlers systematically raise
-# HTTPException(400|401|403|404|409|422|429) that the generated contract used
-# to leave undeclared (53/86 routes), so consumers could not know a route can
-# 409/404. APIRouter(responses=...) merges these into every route's docs.
+# HTTPException(...) and global middleware emits bounded-request failures.
+# APIRouter(responses=...) merges these into every route's docs. Validation
+# failures have two real wire shapes: FastAPI request validation returns a
+# list in ``detail``, while domain rules deliberately return ErrorOut's string
+# detail. Document their disjoint union so generated clients do not discard
+# legitimate business-rule messages.
 # Annotated to match APIRouter's expected shape (dict[int | str, dict[str, Any]])
 # so the ~14 routers passing this to APIRouter(responses=...) stay strict-clean.
 COMMON_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
@@ -186,5 +202,23 @@ COMMON_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     403: {"model": ErrorOut, "description": "Authenticated but not permitted"},
     404: {"model": ErrorOut, "description": "Not found (or belongs to another farm)"},
     409: {"model": ErrorOut, "description": "Conflict (state, replay, or race)"},
+    413: {"model": ErrorOut, "description": "Request body is too large"},
+    414: {"model": ErrorOut, "description": "Request target is too long"},
+    415: {"model": ErrorOut, "description": "Unsupported media type"},
+    422: {
+        "description": "Input validation failed or a business rule was rejected",
+        "content": {
+            "application/json": {
+                "schema": {
+                    "oneOf": [
+                        {"$ref": "#/components/schemas/ErrorOut"},
+                        {"$ref": "#/components/schemas/RequestValidationErrorOut"},
+                    ]
+                }
+            }
+        },
+    },
     429: {"model": ErrorOut, "description": "Rate limited"},
+    500: {"model": ErrorOut, "description": "Internal server error"},
+    503: {"model": ErrorOut, "description": "Temporarily unavailable"},
 }

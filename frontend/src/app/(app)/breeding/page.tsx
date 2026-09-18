@@ -8,7 +8,7 @@ import { CircleCheckBig, Clock, HeartHandshake, Plus } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Controller, useForm, type FieldPath } from "react-hook-form";
+import { Controller, useForm, useWatch, type FieldPath } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -204,14 +204,13 @@ function NewBreedingDialog({
     reset,
     resetField,
     setError,
-    watch,
     formState: { errors, isSubmitting, dirtyFields },
   } = useForm<BreedingValues>({
     // Stryker disable next-line ArrayDeclaration: farmVocabulary is a module constant, so the dep list can never go stale
     resolver: zodResolver(useMemo(() => breedingSchema(vocabulary), [vocabulary])),
     defaultValues: breedingDefaults(),
   });
-  const method = watch("method");
+  const method = useWatch({ control, name: "method" });
 
   // Read during render so RHF's formState proxy subscribes to dirty tracking.
   const breedingDateTouched = Boolean(dirtyFields.breeding_date);

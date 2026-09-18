@@ -196,11 +196,41 @@ class InsurancePolicyOut(BaseModel):
     status: InsuranceStatusStr
     notes: str | None
     created_at: datetime
+    # Terminal-claim attribution.  Legacy claimed policies created before
+    # this audit trail may have all three fields null; new claims always
+    # expose the business date, exact timestamp and responsible account.
+    claim_date: date | None
+    claimed_at: datetime | None
+    claimed_by_id: int | None
 
 
 class InsuranceListOut(BaseModel):
     policies: list[InsurancePolicyOut]
     total: int
+
+
+class InsurancePremiumOut(BaseModel):
+    """One immutable insurance-payment fact in a policy's history."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    policy_id: int
+    premium: float
+    covered_from: date
+    covered_until: date
+    # Farm-local accounting date; it can precede a future coverage period
+    # when the farm renews early.
+    recorded_on: date
+    recorded_by_id: int | None
+    created_at: datetime
+
+
+class InsurancePolicyHistoryOut(BaseModel):
+    """A policy plus its append-only payment and claim audit facts."""
+
+    policy: InsurancePolicyOut
+    premiums: list[InsurancePremiumOut]
 
 
 class InsuranceRenewalIn(StrictInputModel):

@@ -23,9 +23,17 @@ import pytest
 from PIL import Image
 from sqlalchemy import select
 
-from app.core.config import ScreeningRotationProvider, Settings
+from app.core.config import ScreeningRotationProvider, ScreeningWorkerSettings, Settings
 from app.db import get_sessionmaker
-from app.models import ScreeningCrop, ScreeningFinding, ScreeningImage, ScreeningRun
+from app.models import (
+    Farm,
+    ScreeningBatch,
+    ScreeningContentClaim,
+    ScreeningCrop,
+    ScreeningFinding,
+    ScreeningImage,
+    ScreeningRun,
+)
 from app.services.screening.detect import (
     DetectionBox,
     DetectionParseError,
@@ -44,6 +52,8 @@ from app.services.screening.images import (
 from app.services.screening.pipeline import (
     ERROR_RETRY_AFTER,
     MAX_DOWNLOAD_BYTES,
+    cropped_derivative_key,
+    normalized_derivative_key,
     parse_raw_key,
     run_screening_cycle,
 )
@@ -58,7 +68,16 @@ from app.services.screening.providers import (
     gate as run_gate,
 )
 from app.services.screening.rotation import GateExhaustedError, ProviderRotation
-from app.services.screening.s3 import ScreeningObjectMissingError, ScreeningStorage
+from app.services.screening.s3 import (
+    _S3_CONNECT_TIMEOUT_SECONDS,
+    _S3_READ_TIMEOUT_SECONDS,
+    _S3_TOTAL_MAX_ATTEMPTS,
+    ScreeningObjectChangedError,
+    ScreeningObjectInfo,
+    ScreeningObjectMissingError,
+    ScreeningObjectTooLargeError,
+    ScreeningStorage,
+)
 from app.services.screening.specialists import (
     SpecialistKind,
     SpecialistParseError,
@@ -397,6 +416,19 @@ def test_normalize_rejects_non_image() -> None:
         normalize_image(b"definitely not a jpeg", max_edge=1568)
 
 
+def test_normalize_requires_magic_and_declared_format_to_agree() -> None:
+    jpeg = _jpeg_bytes(640, 480)
+    with pytest.raises(ImageNormalizationError, match="magic bytes"):
+        normalize_image(jpeg, max_edge=1568, expected_content_type="image/png")
+
+
+def test_normalize_rejects_supported_by_pillow_but_disallowed_source_format() -> None:
+    buffer = io.BytesIO()
+    Image.new("RGB", (64, 64)).save(buffer, format="GIF")
+    with pytest.raises(ImageNormalizationError, match="only JPEG and PNG"):
+        normalize_image(buffer.getvalue(), max_edge=1568)
+
+
 # --------------------------------------------------------------------------
 # Unit: provider adapters against a mocked transport
 # --------------------------------------------------------------------------
@@ -565,17 +597,101 @@ def test_rotation_provider_name_must_be_slug() -> None:
         ScreeningRotationProvider(kind="anthropic", name="Not A Slug!", model="m", api_key="k")
 
 
-def test_presign_put_mints_direct_upload_url() -> None:
+def test_presign_post_binds_direct_upload_metadata_and_size() -> None:
     storage = ScreeningStorage(_cycle_settings())
-    url = storage.presign_put("raw/1/2026-09-17/BREEDING/7-abc.jpg", "image/jpeg")
-    # SigV4 signing is local; the URL encodes the method, key and signed
-    # content type the phone must echo on its PUT.
-    assert url.startswith("https://")
-    assert "raw/1/2026-09-17/BREEDING/7-abc.jpg" in url
-    assert "X-Amz-Algorithm=AWS4-HMAC-SHA256" in url
-    # The signed headers include content-type: the phone's PUT must send
-    # exactly the declared type or S3 rejects the signature.
-    assert "content-type" in url
+    signed = storage.presign_post(
+        "raw/1/2026-09-17/BREEDING/7-abc.jpg",
+        content_type="image/jpeg",
+        upload_token="x" * 32,
+        max_bytes=25 * 1024 * 1024,
+    )
+    # SigV4 signing is local.  Unlike a PUT URL, a POST policy lets S3
+    # enforce MIME, opaque pre-registration token, and byte range itself.
+    assert signed.url.startswith("https://")
+    assert signed.fields["Content-Type"] == "image/jpeg"
+    assert signed.fields["x-amz-meta-screening-token"] == "x" * 32
+    policy = json.loads(base64.b64decode(signed.fields["policy"]))
+    # The browser's multipart framing counts toward S3's policy range.  A
+    # bounded allowance means a file exactly at our advertised 25 MiB object
+    # cap remains uploadable; the worker still rejects an object above it.
+    assert ["content-length-range", 1, 25 * 1024 * 1024 + 64 * 1024] in policy["conditions"]
+    assert {"Content-Type": "image/jpeg"} in policy["conditions"]
+    assert {"x-amz-meta-screening-token": "x" * 32} in policy["conditions"]
+
+
+@pytest.mark.parametrize("region", ["us-east-1", "ap-south-1"])
+def test_aws_presigned_post_uses_the_documented_regional_virtual_host(region: str) -> None:
+    """CSP/CORS can name one stable AWS origin, including us-east-1."""
+    settings = _cycle_settings()
+    settings.s3_region = region
+    storage = ScreeningStorage(settings)
+    signed = storage.presign_post(
+        "raw/1/2026-09-17/BREEDING/7-abc.jpg",
+        content_type="image/jpeg",
+        upload_token="x" * 32,
+        max_bytes=25 * 1024 * 1024,
+    )
+    assert signed.url == f"https://goat-photos.s3.{region}.amazonaws.com/"
+
+
+def test_s3_client_bounds_sync_network_waits_for_worker_shutdown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``to_thread`` work must not inherit botocore's minute-long defaults."""
+    captured: dict[str, object] = {}
+    sentinel = object()
+
+    def fake_client(*args: object, **kwargs: object) -> object:
+        captured["args"] = args
+        captured.update(kwargs)
+        return sentinel
+
+    monkeypatch.setattr("app.services.screening.s3.boto3.client", fake_client)
+    storage = ScreeningStorage(_cycle_settings())
+    assert storage._ensure_client() is sentinel
+    config: Any = captured["config"]
+    assert config.connect_timeout == _S3_CONNECT_TIMEOUT_SECONDS
+    assert config.read_timeout == _S3_READ_TIMEOUT_SECONDS
+    assert config.retries["total_max_attempts"] == _S3_TOTAL_MAX_ATTEMPTS
+    assert config.s3["addressing_style"] == "virtual"
+    assert config.s3["us_east_1_regional_endpoint"] == "regional"
+
+
+def test_download_uses_conditional_snapshot_and_hard_stream_cap() -> None:
+    class Body:
+        def __init__(self, chunks: list[bytes]) -> None:
+            self.chunks = chunks
+            self.read_sizes: list[int] = []
+            self.closed = False
+
+        def read(self, amount: int) -> bytes:
+            self.read_sizes.append(amount)
+            return self.chunks.pop(0) if self.chunks else b""
+
+        def close(self) -> None:
+            self.closed = True
+
+    class Client:
+        def __init__(self, body: Body) -> None:
+            self.body = body
+            self.params: dict[str, object] | None = None
+
+        def get_object(self, **params: object) -> dict[str, object]:
+            self.params = params
+            # A lying ContentLength is intentional: streaming must still
+            # refuse the fourth byte under a three-byte cap.
+            return {"ContentLength": 3, "Body": self.body}
+
+    storage = ScreeningStorage(_cycle_settings())
+    body = Body([b"abcd"])
+    client = Client(body)
+    storage._client = client  # type: ignore[assignment]  # isolated sync transport fake
+    with pytest.raises(ScreeningObjectTooLargeError, match="while streaming"):
+        storage.download("raw/1/p.jpg", max_bytes=3, etag='"stable-etag"')
+    assert client.params is not None
+    assert client.params["IfMatch"] == '"stable-etag"'
+    assert body.read_sizes == [4]
+    assert body.closed is True
 
 
 def test_screening_settings_require_full_config_when_enabled() -> None:
@@ -585,12 +701,54 @@ def test_screening_settings_require_full_config_when_enabled() -> None:
         Settings(environment="development", screening_enabled=True)
 
 
+@pytest.mark.parametrize("settings_type", [Settings, ScreeningWorkerSettings])
+@pytest.mark.parametrize(
+    "invalid_field",
+    ["s3_bucket", "s3_access_key_id", "s3_secret_access_key", "screening_anthropic_api_key"],
+)
+def test_screening_settings_reject_whitespace_only_standard_credentials(
+    settings_type: type[Settings] | type[ScreeningWorkerSettings], invalid_field: str
+) -> None:
+    """A truthy SecretStr containing only spaces is not a usable credential.
+
+    Exercise both the API and least-privilege worker projections: they share
+    one screening configuration contract and must fail closed identically.
+    """
+    values: dict[str, object] = {
+        "environment": "development",
+        "screening_enabled": True,
+        "s3_bucket": "goat-photos",
+        "s3_access_key_id": "access-key",
+        "s3_secret_access_key": "secret-key",
+        "screening_anthropic_api_key": "provider-key",
+    }
+    values[invalid_field] = " \t "
+    with pytest.raises(ValueError, match="incomplete screening config"):
+        settings_type(**values)
+
+
 def test_screening_settings_reject_plain_http_provider_url() -> None:
     with pytest.raises(ValueError, match="https"):
         Settings(
             environment="development",
             screening_anthropic_base_url="http://api.example.com",
         )
+
+
+def test_derivative_keys_use_the_full_content_digest() -> None:
+    """A shared 64-bit digest prefix must never select the same S3 object."""
+    captured = dt.date(2026, 9, 17)
+    first = "a" * 16 + "1" * 48
+    second = "a" * 16 + "2" * 48
+    first_image_key = normalized_derivative_key(7, captured, first)
+    second_image_key = normalized_derivative_key(7, captured, second)
+    first_crop_key = cropped_derivative_key(7, captured, first, 0)
+    second_crop_key = cropped_derivative_key(7, captured, second, 0)
+
+    assert first_image_key != second_image_key
+    assert first_crop_key != second_crop_key
+    assert first_image_key.endswith(f"/{first}.jpg")
+    assert first_crop_key.endswith(f"/{first}-c0.jpg")
 
 
 # --------------------------------------------------------------------------
@@ -680,6 +838,11 @@ class FakeStorage:
     # HEAD-probe overrides: lets a test report an oversized object without
     # materializing 25+ MB of fake bytes in memory.
     sizes: dict[str, int] = field(default_factory=dict)
+    content_types: dict[str, str] = field(default_factory=dict)
+    metadata: dict[str, dict[str, str]] = field(default_factory=dict)
+    etags: dict[str, str] = field(default_factory=dict)
+    # Simulates an overwrite between the worker's HEAD and conditional GET.
+    changed_before_download: set[str] = field(default_factory=set)
     download_attempts: list[str] = field(default_factory=list)
 
     @property
@@ -689,18 +852,44 @@ class FakeStorage:
     def list_object_keys(self, prefix: str, max_keys: int) -> list[str]:
         return sorted(k for k in self.objects if k.startswith(prefix + "/"))[:max_keys]
 
-    def object_size(self, key: str) -> int | None:
+    def object_info(self, key: str) -> ScreeningObjectInfo | None:
         if key in self.sizes:
-            return self.sizes[key]
-        blob = self.objects.get(key)
-        return None if blob is None else len(blob)
+            size = self.sizes[key]
+        else:
+            blob = self.objects.get(key)
+            if blob is None:
+                return None
+            size = len(blob)
+        return ScreeningObjectInfo(
+            size=size,
+            etag=self.etags.get(key, f'"fake-{key}"'),
+            version_id=None,
+            content_type=self.content_types.get(key),
+            metadata=self.metadata.get(key, {}),
+        )
 
-    def download(self, key: str) -> bytes:
+    def object_size(self, key: str) -> int | None:
+        info = self.object_info(key)
+        return None if info is None else info.size
+
+    def download(
+        self,
+        key: str,
+        *,
+        max_bytes: int,
+        etag: str | None = None,
+        version_id: str | None = None,
+    ) -> bytes:
         self.download_attempts.append(key)
+        if key in self.changed_before_download:
+            raise ScreeningObjectChangedError(f"object changed while being claimed: {key!r}")
         if key not in self.objects:
             # Mirrors the real client's NoSuchKey → ScreeningObjectMissingError.
             raise ScreeningObjectMissingError(f"object not in bucket yet: {key!r}")
-        return self.objects[key]
+        blob = self.objects[key]
+        if len(blob) > max_bytes:
+            raise ScreeningObjectTooLargeError(f"object exceeds {max_bytes} byte download cap")
+        return blob
 
     def upload(self, key: str, data: bytes, content_type: str) -> None:
         self.uploaded[key] = data
@@ -709,7 +898,11 @@ class FakeStorage:
         return f"https://fake-local/{self.bucket}/{key}"
 
 
-def _cycle_settings(**kwargs: bool) -> Settings:
+def _cycle_settings(
+    *,
+    crop_detection: bool = False,
+    max_images_per_cycle: int = 10,
+) -> Settings:
     return Settings(
         environment="development",
         screening_enabled=True,
@@ -718,9 +911,40 @@ def _cycle_settings(**kwargs: bool) -> Settings:
         s3_secret_access_key="test-secret",
         screening_provider="anthropic",
         screening_anthropic_api_key="test-key",
-        screening_max_images_per_cycle=10,
-        screening_crop_detection_enabled=kwargs.get("crop_detection", False),
+        screening_max_images_per_cycle=max_images_per_cycle,
+        screening_crop_detection_enabled=crop_detection,
     )
+
+
+async def _register_fake_objects(
+    db: Any,
+    farm_id: int,
+    storage: FakeStorage,
+    *,
+    keys: list[str] | None = None,
+) -> None:
+    """Create the DB-side pre-registrations an API upload would create.
+
+    The worker intentionally no longer converts arbitrary raw-prefix objects
+    into tenant rows.  Pipeline tests that use an in-memory object store must
+    therefore declare which objects were accepted through the trusted intake
+    path before asking the worker to process them.
+    """
+    for key in keys if keys is not None else sorted(storage.objects):
+        parsed = parse_raw_key(key, "raw")
+        if parsed is None or parsed.farm_id != farm_id:
+            continue
+        db.add(
+            ScreeningImage(
+                farm_id=farm_id,
+                bucket=parsed.bucket,
+                s3_bucket=storage.bucket,
+                s3_key=key,
+                captured_date=parsed.captured_date,
+                status="PENDING",
+            )
+        )
+    await db.commit()
 
 
 async def test_full_cycle_screens_flags_and_dedupes(client: httpx.AsyncClient) -> None:
@@ -737,15 +961,16 @@ async def test_full_cycle_screens_flags_and_dedupes(client: httpx.AsyncClient) -
     provider = CountingProvider(name="fake")
     rotation = ProviderRotation([provider])
     async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
         summary = await run_screening_cycle(db, _cycle_settings(), storage, rotation)
         images = list(
             (await db.execute(select(ScreeningImage).order_by(ScreeningImage.s3_key))).scalars()
         )
 
     assert (summary.healthy, summary.flagged) == (1, 1)
-    assert summary.unparseable_keys == 1
-    assert summary.unknown_farm_keys == 1
-    # Only well-formed keys under a known farm become rows.
+    # Only trusted pre-registrations become rows.  Raw malformed/unknown
+    # objects are intentionally invisible to the worker's intake path.
+    assert summary.listed == 0
     assert len(images) == 2
     by_key = {image.s3_key: image for image in images}
     wide = by_key[f"raw/{farm_id}/{today}/herd_wide.jpg"]
@@ -778,20 +1003,22 @@ async def test_rotation_cascade_runs_cross_check_and_specialists(
 ) -> None:
     headers = await owner_with_farm(client, email="rotation-owner@farm.in")
     farm_id = int(headers["X-Farm-Id"])
-    today = dt.date.today().isoformat()
+    business_day = today()
+    capture_day = business_day.isoformat()
 
     storage = FakeStorage()
-    storage.objects[f"raw/{farm_id}/{today}/wide.jpg"] = _jpeg_bytes(2000, 1000)
-    storage.objects[f"raw/{farm_id}/{today}/tall.jpg"] = _jpeg_bytes(1000, 2000)
+    storage.objects[f"raw/{farm_id}/{capture_day}/wide.jpg"] = _jpeg_bytes(2000, 1000)
+    storage.objects[f"raw/{farm_id}/{capture_day}/tall.jpg"] = _jpeg_bytes(1000, 2000)
 
     providers = [CountingProvider(name="alpha"), CountingProvider(name="beta")]
     rotation = ProviderRotation(providers)
     async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
         summary = await run_screening_cycle(db, _cycle_settings(), storage, rotation)
 
     assert (summary.healthy, summary.flagged) == (1, 1)
-    primary = rotation.primary_for(dt.date.today())
-    secondary = rotation.secondary_for(dt.date.today())
+    primary = rotation.primary_for(business_day)
+    secondary = rotation.secondary_for(business_day)
     assert secondary is not None
 
     async with get_sessionmaker()() as db:
@@ -817,10 +1044,11 @@ async def test_rotation_primary_failure_falls_back_mid_cycle(
 ) -> None:
     headers = await owner_with_farm(client, email="fallback-owner@farm.in")
     farm_id = int(headers["X-Farm-Id"])
-    today = dt.date.today().isoformat()
+    business_day = today()
+    capture_day = business_day.isoformat()
 
     storage = FakeStorage()
-    storage.objects[f"raw/{farm_id}/{today}/wide.jpg"] = _jpeg_bytes(2000, 1000)
+    storage.objects[f"raw/{farm_id}/{capture_day}/wide.jpg"] = _jpeg_bytes(2000, 1000)
 
     failing = CountingProvider(name="primary-down", fail=True)
     backup = CountingProvider(name="backup")
@@ -828,10 +1056,11 @@ async def test_rotation_primary_failure_falls_back_mid_cycle(
     # fallback path to be exercised deterministically.
     providers = [failing, backup]
     rotation = ProviderRotation(providers)
-    if rotation.primary_for(dt.date.today()) is not failing:
+    if rotation.primary_for(business_day) is not failing:
         rotation = ProviderRotation([backup, failing])
 
     async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
         summary = await run_screening_cycle(db, _cycle_settings(), storage, rotation)
 
     assert summary.flagged == 1
@@ -856,17 +1085,133 @@ async def test_second_cycle_is_idempotent_and_duplicates_skip(
     rotation = ProviderRotation([CountingProvider(name="fake")])
 
     async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
         first = await run_screening_cycle(db, _cycle_settings(), storage, rotation)
 
     # Same bytes under a NEW key: claimed, recognized as duplicate, skipped
     # instead of being billed to the model again.
     storage.objects[f"raw/{farm_id}/{today}/b_copy.jpg"] = photo
     async with get_sessionmaker()() as db:
+        await _register_fake_objects(
+            db,
+            farm_id,
+            storage,
+            keys=[f"raw/{farm_id}/{today}/b_copy.jpg"],
+        )
         second = await run_screening_cycle(db, _cycle_settings(), storage, rotation)
 
     assert (first.claimed, first.flagged) == (1, 1)
     assert (second.claimed, second.skipped) == (1, 1)
     assert second.flagged == 0
+
+
+async def test_concurrent_identical_uploads_bill_only_the_canonical_image(
+    client: httpx.AsyncClient,
+) -> None:
+    """A database content claim closes the two-worker de-duplication race.
+
+    Hold the first worker inside its one healthy gate call.  The second worker
+    has independently claimed and normalized a different intake row, but must
+    observe the durable content reservation and SKIP without reaching the
+    provider.  Prior status-only de-duplication let both calls through here.
+    """
+    headers = await owner_with_farm(client, email="concurrent-dedupe-owner@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    capture_day = today().isoformat()
+    photo = _jpeg_bytes(1000, 2000)  # healthy path = exactly one model call
+    key_a = f"raw/{farm_id}/{capture_day}/a.jpg"
+    key_b = f"raw/{farm_id}/{capture_day}/b_identical.jpg"
+    storage = FakeStorage(objects={key_a: photo, key_b: photo})
+
+    entered_provider = asyncio.Event()
+    release_provider = asyncio.Event()
+
+    @dataclass
+    class BlockingHealthyProvider:
+        name: str = "blocked-fake"
+        model: str = "fake-gate-1"
+        calls: int = 0
+
+        async def complete(self, image_jpeg: bytes, system_prompt: str) -> ProviderAnswer:
+            self.calls += 1
+            if self.calls == 1:
+                entered_provider.set()
+                await release_provider.wait()
+            return ProviderAnswer(
+                text=HEALTHY_ANSWER,
+                provider=self.name,
+                model=self.model,
+                latency_ms=1,
+            )
+
+    provider = BlockingHealthyProvider()
+    rotation = ProviderRotation([provider])
+    async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
+
+    async def worker() -> Any:
+        async with get_sessionmaker()() as db:
+            return await run_screening_cycle(
+                db, _cycle_settings(max_images_per_cycle=1), storage, rotation
+            )
+
+    async def second_worker_decision_before_release() -> str:
+        """Wait until B has decided while A remains in its blocked call.
+
+        This is stronger than an arbitrary sleep: the old status-only check
+        would make B HEALTHY here, whereas a delayed B that ran only after A
+        was released would also (incorrectly) look like a passing duplicate.
+        """
+        terminal = {"HEALTHY", "FLAGGED", "SKIPPED", "ERROR"}
+        while True:
+            async with get_sessionmaker()() as db:
+                rows = list(
+                    (
+                        await db.execute(
+                            select(ScreeningImage).where(ScreeningImage.s3_key.in_([key_a, key_b]))
+                        )
+                    ).scalars()
+                )
+            finished = [row for row in rows if row.status in terminal]
+            processing = [row for row in rows if row.status == "PROCESSING"]
+            if len(finished) == 1 and len(processing) == 1:
+                return finished[0].status
+            await asyncio.sleep(0.01)
+
+    first_task = asyncio.create_task(worker())
+    second_task: asyncio.Task[Any] | None = None
+    try:
+        await asyncio.wait_for(entered_provider.wait(), timeout=5)
+        second_task = asyncio.create_task(worker())
+        second_status = await asyncio.wait_for(second_worker_decision_before_release(), timeout=5)
+        assert second_status == "SKIPPED"
+        release_provider.set()
+        first, second = await asyncio.wait_for(asyncio.gather(first_task, second_task), timeout=10)
+    finally:
+        release_provider.set()
+        tasks = [first_task]
+        if second_task is not None:
+            tasks.append(second_task)
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    assert provider.calls == 1
+    assert first.claimed == second.claimed == 1
+    assert first.healthy + second.healthy == 1
+    assert first.skipped + second.skipped == 1
+
+    async with get_sessionmaker()() as db:
+        images = list(
+            (
+                await db.execute(
+                    select(ScreeningImage).where(ScreeningImage.s3_key.in_([key_a, key_b]))
+                )
+            ).scalars()
+        )
+        claims = list((await db.execute(select(ScreeningContentClaim))).scalars())
+
+    assert sorted(image.status for image in images) == ["HEALTHY", "SKIPPED"]
+    assert len(claims) == 1
+    assert claims[0].image_id == next(image.id for image in images if image.status == "HEALTHY")
 
 
 async def test_provider_failure_records_error_run_and_recovers(
@@ -882,6 +1227,7 @@ async def test_provider_failure_records_error_run_and_recovers(
     failing = CountingProvider(name="fake", fail=True)
     rotation = ProviderRotation([failing])
     async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
         first = await run_screening_cycle(db, _cycle_settings(), storage, rotation)
 
     assert first.errors == 1
@@ -932,6 +1278,7 @@ async def test_review_api_lists_scopes_and_reviews(client: httpx.AsyncClient) ->
     storage.objects[f"raw/{farm_id}/{today}/tall.jpg"] = _jpeg_bytes(1000, 2000)
 
     async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
         await run_screening_cycle(
             db, _cycle_settings(), storage, ProviderRotation([CountingProvider(name="fake")])
         )
@@ -1019,6 +1366,7 @@ async def test_multi_goat_photo_screens_each_crop(client: httpx.AsyncClient) -> 
     )
     rotation = ProviderRotation([provider])
     async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
         summary = await run_screening_cycle(
             db, _cycle_settings(crop_detection=True), storage, rotation
         )
@@ -1047,6 +1395,75 @@ async def test_multi_goat_photo_screens_each_crop(client: httpx.AsyncClient) -> 
     assert provider.calls == 4
 
 
+async def test_flagged_parent_retries_its_errored_crop(client: httpx.AsyncClient) -> None:
+    """A valid flag must not strand another goat whose cascade failed."""
+    headers = await owner_with_farm(client, email="partial-crop-retry@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    capture_day = today().isoformat()
+    key = f"raw/{farm_id}/{capture_day}/BREEDING/partial.jpg"
+    storage = FakeStorage(objects={key: _jpeg_bytes(2000, 1000)})
+    aged = utcnow() - ERROR_RETRY_AFTER - dt.timedelta(minutes=1)
+
+    async with get_sessionmaker()() as db:
+        image = ScreeningImage(
+            farm_id=farm_id,
+            bucket="BREEDING",
+            s3_bucket=storage.bucket,
+            s3_key=key,
+            captured_date=dt.date.fromisoformat(capture_day),
+            status="FLAGGED",
+            created_at=aged,
+            updated_at=aged,
+        )
+        db.add(image)
+        await db.flush()
+        db.add_all(
+            [
+                ScreeningCrop(
+                    farm_id=farm_id,
+                    image_id=image.id,
+                    crop_index=0,
+                    box_x=100,
+                    box_y=100,
+                    box_w=600,
+                    box_h=300,
+                    status="FLAGGED",
+                ),
+                ScreeningCrop(
+                    farm_id=farm_id,
+                    image_id=image.id,
+                    crop_index=1,
+                    box_x=700,
+                    box_y=100,
+                    box_w=250,
+                    box_h=600,
+                    status="ERROR",
+                    error="provider outage",
+                ),
+            ]
+        )
+        await db.commit()
+
+    provider = CountingProvider(name="fake")
+    async with get_sessionmaker()() as db:
+        summary = await run_screening_cycle(
+            db,
+            _cycle_settings(crop_detection=True),
+            storage,
+            ProviderRotation([provider]),
+        )
+        refreshed = (await db.execute(select(ScreeningImage))).scalar_one()
+        crops = list(
+            (await db.execute(select(ScreeningCrop).order_by(ScreeningCrop.crop_index))).scalars()
+        )
+
+    assert summary.claimed == 1
+    assert summary.retried_errors == 1
+    assert refreshed.status == "FLAGGED"
+    assert [crop.status for crop in crops] == ["FLAGGED", "HEALTHY"]
+    assert provider.calls == 1  # only the previously errored crop re-ran
+
+
 async def test_detection_with_no_goats_falls_back_to_whole_photo(
     client: httpx.AsyncClient,
 ) -> None:
@@ -1059,6 +1476,7 @@ async def test_detection_with_no_goats_falls_back_to_whole_photo(
 
     provider = CountingProvider(name="fake", detect_boxes=[])
     async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
         summary = await run_screening_cycle(
             db, _cycle_settings(crop_detection=True), storage, ProviderRotation([provider])
         )
@@ -1076,23 +1494,25 @@ async def test_detection_with_no_goats_falls_back_to_whole_photo(
 async def test_stats_endpoint_scores_providers(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client, email="stats-owner@farm.in")
     farm_id = int(headers["X-Farm-Id"])
-    today = dt.date.today().isoformat()
+    business_day = today()
+    capture_day = business_day.isoformat()
 
     storage = FakeStorage()
-    storage.objects[f"raw/{farm_id}/{today}/wide.jpg"] = _jpeg_bytes(2000, 1000)
-    storage.objects[f"raw/{farm_id}/{today}/tall.jpg"] = _jpeg_bytes(1000, 2000)
+    storage.objects[f"raw/{farm_id}/{capture_day}/wide.jpg"] = _jpeg_bytes(2000, 1000)
+    storage.objects[f"raw/{farm_id}/{capture_day}/tall.jpg"] = _jpeg_bytes(1000, 2000)
 
     providers = [CountingProvider(name="alpha"), CountingProvider(name="beta")]
     rotation = ProviderRotation(providers)
     async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
         await run_screening_cycle(db, _cycle_settings(crop_detection=False), storage, rotation)
 
     response = await client.get("/api/screening/stats", headers=headers)
     assert response.status_code == 200, response.text
     payload = response.json()
     by_name = {row["provider"]: row for row in payload["providers"]}
-    primary = rotation.primary_for(dt.date.today()).name
-    secondary = rotation.secondary_for(dt.date.today()).name
+    primary = rotation.primary_for(business_day).name
+    secondary = rotation.secondary_for(business_day).name
     assert secondary is not None
     # The primary ran both gates; the secondary cross-checked the flag.
     assert by_name[primary]["gate_runs"] == 2
@@ -1111,6 +1531,7 @@ async def test_export_endpoint_returns_training_corpus(client: httpx.AsyncClient
     storage.objects[f"raw/{farm_id}/{today}/wide.jpg"] = _jpeg_bytes(2000, 1000)
 
     async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
         await run_screening_cycle(
             db,
             _cycle_settings(crop_detection=False),
@@ -1134,7 +1555,11 @@ async def test_export_endpoint_returns_training_corpus(client: httpx.AsyncClient
     record = records[0]
     assert record["label"] == "ORF"
     assert record["vet_status"] == "PENDING_REVIEW"
-    assert record["image_s3_key"].endswith("wide.jpg")
+    # Export the immutable normalized model input, not the browser's raw POST
+    # target (which can legally be replayed while its short-lived policy is
+    # valid). Its key and stored hash therefore describe the same bytes.
+    assert record["image_s3_key"].startswith(f"screening/{farm_id}/")
+    assert record["image_sha256"]
     assert record["detected_by"] == "fake/fake-gate-1"
     assert record["crop_box_1000"] is None
 
@@ -1179,6 +1604,7 @@ async def test_disease_check_walkthrough_end_to_end(
             "bucket": "BREEDING",
             "file_name": "pen photo 1.jpg",
             "content_type": "image/jpeg",
+            "file_size": 1024,
         },
         headers=headers,
     )
@@ -1190,11 +1616,20 @@ async def test_disease_check_walkthrough_end_to_end(
     assert key.startswith(f"raw/{farm_id}/{today().isoformat()}/BREEDING/")
     assert payload["upload_url"].startswith("https://")
 
-    # The phone's PUT lands the bytes (here: straight into fake storage).
+    assert payload["upload_method"] == "POST"
+    assert payload["upload_fields"]["Content-Type"] == "image/jpeg"
+    assert payload["max_upload_bytes"] == MAX_DOWNLOAD_BYTES
+
+    # The phone's constrained POST lands the bytes (here: straight into fake
+    # storage), including the policy-bound metadata the worker verifies.
     storage = FakeStorage()
     storage.objects[key] = _jpeg_bytes(2000, 1000)
 
     async with get_sessionmaker()() as db:
+        registered = (await db.execute(select(ScreeningImage))).scalar_one()
+        assert registered.upload_token is not None
+        storage.content_types[key] = "image/jpeg"
+        storage.metadata[key] = {"screening-token": registered.upload_token}
         summary = await run_screening_cycle(
             db,
             enabled_settings,
@@ -1238,6 +1673,7 @@ async def test_upload_without_bytes_stays_pending(
             "bucket": "MALE_KIDS",
             "file_name": "kids.jpg",
             "content_type": "image/jpeg",
+            "file_size": 1024,
         },
         headers=headers,
     )
@@ -1256,8 +1692,21 @@ async def test_upload_without_bytes_stays_pending(
     assert summary.claimed == 1
     assert summary.errors == 0
     assert image.status == "PENDING"
+    assert image.next_attempt_at is not None
+    assert image.next_attempt_at > utcnow()
     assert any("not uploaded yet" in note for note in summary.notes)
     assert key not in storage.uploaded
+
+    # A phone that has not started its POST must not consume the next worker
+    # cycle too; the row waits until its persisted backoff becomes eligible.
+    async with get_sessionmaker()() as db:
+        immediate = await run_screening_cycle(
+            db,
+            enabled_settings,
+            storage,
+            ProviderRotation([CountingProvider(name="fake")]),
+        )
+    assert immediate.claimed == 0
 
 
 async def test_batch_rules_and_scoping(
@@ -1300,6 +1749,7 @@ async def test_batch_rules_and_scoping(
                 "bucket": "BREEDING",
                 "file_name": "x.jpg",
                 "content_type": "image/jpeg",
+                "file_size": 1024,
             },
         ),
     ):
@@ -1307,9 +1757,231 @@ async def test_batch_rules_and_scoping(
         assert refused.status_code == 503, refused.text
 
 
-async def test_direct_bucket_key_carries_bucket(client: httpx.AsyncClient) -> None:
-    """Direct S3 uploads (no presigned flow) with a bucket segment in the
-    key get the bucket recorded too."""
+async def test_direct_upload_intake_limits_reclaim_stale_batches_and_preflight_size(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The direct path cannot mint unbounded rows or permanently lose capacity.
+
+    This covers both enforcement layers: a chosen file that cannot fit the
+    object cap is rejected before it reserves a row, while S3's signed policy
+    remains the authoritative check on the bytes a malicious browser sends.
+    """
+    import app.api.screening as screening_api
+
+    headers = await owner_with_farm(client, email="intake-limits@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    monkeypatch.setattr(screening_api, "get_settings", lambda: _cycle_settings())
+
+    batch_ids: list[int] = []
+    for _ in range(screening_api.MAX_OPEN_SCREENING_BATCHES_PER_FARM):
+        response = await client.post("/api/screening/batches", headers=headers)
+        assert response.status_code == 201, response.text
+        batch_ids.append(response.json()["id"])
+    full = await client.post("/api/screening/batches", headers=headers)
+    assert full.status_code == 429
+
+    # Empty abandoned batches must not block this farm forever.  Their old
+    # ids cannot be reused to bypass the same cap after they age out.
+    async with get_sessionmaker()() as db:
+        stale = await db.get(ScreeningBatch, batch_ids[0])
+        assert stale is not None
+        stale.created_at = (
+            utcnow() - screening_api.MAX_OPEN_SCREENING_BATCH_AGE - dt.timedelta(seconds=1)
+        )
+        await db.commit()
+
+    reclaimed = await client.post("/api/screening/batches", headers=headers)
+    assert reclaimed.status_code == 201, reclaimed.text
+    reclaimed_id = reclaimed.json()["id"]
+    upload_payload = {
+        "batch_id": reclaimed_id,
+        "bucket": "BREEDING",
+        "file_name": "pen.jpg",
+        "content_type": "image/jpeg",
+        "file_size": 1024,
+    }
+    stale_upload = await client.post(
+        "/api/screening/uploads",
+        json={**upload_payload, "batch_id": batch_ids[0]},
+        headers=headers,
+    )
+    assert stale_upload.status_code == 409
+    too_large = await client.post(
+        "/api/screening/uploads",
+        json={
+            **upload_payload,
+            "file_size": screening_api.MAX_SCREENING_UPLOAD_BYTES + 1,
+        },
+        headers=headers,
+    )
+    assert too_large.status_code == 422
+    async with get_sessionmaker()() as db:
+        assert list((await db.execute(select(ScreeningImage))).scalars()) == []
+
+    # Fill the per-walkthrough cap directly so the assertion does not spend
+    # 100 S3 signatures.  The endpoint still serializes/counts the same
+    # durable rows it creates normally.
+    async with get_sessionmaker()() as db:
+        for index in range(screening_api.MAX_SCREENING_IMAGES_PER_BATCH):
+            db.add(
+                ScreeningImage(
+                    farm_id=farm_id,
+                    batch_id=reclaimed_id,
+                    bucket="BREEDING",
+                    s3_bucket="goat-photos",
+                    s3_key=f"raw/{farm_id}/2026-09-17/BREEDING/batch-limit-{index}.jpg",
+                    captured_date=dt.date(2026, 9, 17),
+                    status="PENDING",
+                )
+            )
+        await db.commit()
+    batch_limited = await client.post(
+        "/api/screening/uploads", json=upload_payload, headers=headers
+    )
+    assert batch_limited.status_code == 429
+
+    # The farm-wide in-flight quota counts rows across all walkthroughs,
+    # including legacy/unbatched intake, so a client cannot avoid it by
+    # continually starting fresh batches.
+    async with get_sessionmaker()() as db:
+        additional = (
+            screening_api.MAX_IN_FLIGHT_SCREENING_IMAGES_PER_FARM
+            - screening_api.MAX_SCREENING_IMAGES_PER_BATCH
+        )
+        for index in range(additional):
+            db.add(
+                ScreeningImage(
+                    farm_id=farm_id,
+                    bucket="BREEDING",
+                    s3_bucket="goat-photos",
+                    s3_key=f"raw/{farm_id}/2026-09-17/BREEDING/farm-limit-{index}.jpg",
+                    captured_date=dt.date(2026, 9, 17),
+                    status="PENDING",
+                )
+            )
+        await db.commit()
+    farm_limited = await client.post(
+        "/api/screening/uploads",
+        json={**upload_payload, "batch_id": batch_ids[1]},
+        headers=headers,
+    )
+    assert farm_limited.status_code == 429
+
+
+async def test_upload_and_submit_race_has_no_post_submission_registration(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Farm → batch row locks give concurrent upload/submit one serial outcome."""
+    import app.api.screening as screening_api
+
+    headers = await owner_with_farm(client, email="upload-submit-race@farm.in")
+    monkeypatch.setattr(screening_api, "get_settings", lambda: _cycle_settings())
+    batch = await client.post("/api/screening/batches", headers=headers)
+    assert batch.status_code == 201, batch.text
+    batch_id = batch.json()["id"]
+    first = {
+        "batch_id": batch_id,
+        "bucket": "BREEDING",
+        "file_name": "first.jpg",
+        "content_type": "image/jpeg",
+        "file_size": 1024,
+    }
+    initial = await client.post("/api/screening/uploads", json=first, headers=headers)
+    assert initial.status_code == 201, initial.text
+
+    concurrent_upload, submit = await asyncio.gather(
+        client.post(
+            "/api/screening/uploads",
+            json={**first, "file_name": "second.jpg"},
+            headers=headers,
+        ),
+        client.post(f"/api/screening/batches/{batch_id}/submit", headers=headers),
+    )
+    assert submit.status_code == 200, submit.text
+    assert concurrent_upload.status_code in {201, 409}
+    async with get_sessionmaker()() as db:
+        persisted_batch = await db.get(ScreeningBatch, batch_id)
+        assert persisted_batch is not None and persisted_batch.submitted_at is not None
+        image_query = select(ScreeningImage).where(ScreeningImage.batch_id == batch_id)
+        registered = list((await db.execute(image_query)).scalars())
+    assert len(registered) == (2 if concurrent_upload.status_code == 201 else 1)
+
+
+async def test_direct_upload_and_worker_use_the_farm_business_timezone(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The API key date and worker rotation date follow the farm, not the host."""
+    import app.api.screening as screening_api
+    import app.services.screening.pipeline as screening_pipeline
+
+    headers = await owner_with_farm(client, email="farm-timezone@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    farm_timezone = "Pacific/Auckland"
+    async with get_sessionmaker()() as db:
+        farm = await db.get(Farm, farm_id)
+        assert farm is not None
+        farm.timezone = farm_timezone
+        await db.commit()
+
+    api_timezones: list[str] = []
+
+    def api_today(timezone_name: str) -> dt.date:
+        api_timezones.append(timezone_name)
+        return dt.date(2031, 1, 2)
+
+    monkeypatch.setattr(screening_api, "get_settings", lambda: _cycle_settings())
+    monkeypatch.setattr(screening_api, "today", api_today)
+    batch = await client.post("/api/screening/batches", headers=headers)
+    assert batch.status_code == 201, batch.text
+    uploaded = await client.post(
+        "/api/screening/uploads",
+        json={
+            "batch_id": batch.json()["id"],
+            "bucket": "BREEDING",
+            "file_name": "timezone.jpg",
+            "content_type": "image/jpeg",
+            "file_size": 1024,
+        },
+        headers=headers,
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    assert api_timezones == [farm_timezone]
+    key = uploaded.json()["s3_key"]
+    assert f"raw/{farm_id}/2031-01-02/" in key
+
+    # Use a separately registered legacy row so worker verification does not
+    # need the direct upload's opaque form token in this in-memory storage.
+    worker_key = f"raw/{farm_id}/2031-01-02/BREEDING/worker-timezone.jpg"
+    storage = FakeStorage(objects={worker_key: _jpeg_bytes(1000, 2000)})
+    worker_timezones: list[str] = []
+
+    def worker_today(timezone_name: str) -> dt.date:
+        worker_timezones.append(timezone_name)
+        return dt.date(2031, 1, 2)
+
+    monkeypatch.setattr(screening_pipeline, "today", worker_today)
+    async with get_sessionmaker()() as db:
+        direct_row = await db.get(ScreeningImage, uploaded.json()["image_id"])
+        assert direct_row is not None
+        # This test only needs the API row to establish its key date; its
+        # fake browser never POSTed bytes, so take it out of the worker's
+        # claim set before exercising the separate registered worker image.
+        direct_row.status = "SKIPPED"
+        direct_row.error = "test fixture did not upload bytes"
+        await db.commit()
+        await _register_fake_objects(db, farm_id, storage, keys=[worker_key])
+        summary = await run_screening_cycle(
+            db,
+            _cycle_settings(),
+            storage,
+            ProviderRotation([CountingProvider(name="fake")]),
+        )
+    assert summary.claimed == 1
+    assert worker_timezones == [farm_timezone]
+
+
+async def test_registered_bucket_key_carries_bucket(client: httpx.AsyncClient) -> None:
+    """A trusted pre-registration retains its herd bucket through screening."""
     headers = await owner_with_farm(client, email="direct-bucket@farm.in")
     farm_id = int(headers["X-Farm-Id"])
     today = dt.date.today().isoformat()
@@ -1317,12 +1989,103 @@ async def test_direct_bucket_key_carries_bucket(client: httpx.AsyncClient) -> No
     storage = FakeStorage()
     storage.objects[f"raw/{farm_id}/{today}/QUARANTINE/arrivals.jpg"] = _jpeg_bytes(1000, 2000)
     async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
         await run_screening_cycle(
             db, _cycle_settings(), storage, ProviderRotation([CountingProvider(name="fake")])
         )
         image = (await db.execute(select(ScreeningImage))).scalar_one()
     assert image.bucket == "QUARANTINE"
     assert image.status == "HEALTHY"
+
+
+async def test_worker_ignores_unregistered_raw_prefix_objects(client: httpx.AsyncClient) -> None:
+    """A raw key that merely names a real farm is not trusted intake."""
+    headers = await owner_with_farm(client, email="unregistered-raw@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    storage = FakeStorage()
+    key = f"raw/{farm_id}/{today().isoformat()}/BREEDING/forged.jpg"
+    storage.objects[key] = _jpeg_bytes(1000, 2000)
+    provider = CountingProvider(name="fake")
+
+    async with get_sessionmaker()() as db:
+        summary = await run_screening_cycle(
+            db,
+            _cycle_settings(),
+            storage,
+            ProviderRotation([provider]),
+        )
+        images = list((await db.execute(select(ScreeningImage))).scalars())
+
+    assert summary.claimed == 0
+    assert images == []
+    assert provider.calls == 0
+
+
+async def test_registered_upload_rejects_mismatched_object_metadata(
+    client: httpx.AsyncClient,
+) -> None:
+    """The key is insufficient: token and MIME must match the row's POST policy."""
+    headers = await owner_with_farm(client, email="metadata-bind@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    key = f"raw/{farm_id}/{today().isoformat()}/BREEDING/bound.jpg"
+    storage = FakeStorage(objects={key: _jpeg_bytes(1000, 2000)})
+    # Deliberately give the object a valid image but the wrong policy facts.
+    storage.content_types[key] = "image/png"
+    storage.metadata[key] = {"screening-token": "wrong" * 8}
+    provider = CountingProvider(name="fake")
+
+    async with get_sessionmaker()() as db:
+        db.add(
+            ScreeningImage(
+                farm_id=farm_id,
+                bucket="BREEDING",
+                s3_bucket=storage.bucket,
+                s3_key=key,
+                upload_content_type="image/jpeg",
+                upload_token="x" * 32,
+                captured_date=today(),
+                status="PENDING",
+            )
+        )
+        await db.commit()
+        summary = await run_screening_cycle(
+            db,
+            _cycle_settings(),
+            storage,
+            ProviderRotation([provider]),
+        )
+        image = (await db.execute(select(ScreeningImage))).scalar_one()
+
+    assert summary.skipped == 1
+    assert image.status == "SKIPPED"
+    assert "token" in (image.error or "")
+    assert storage.download_attempts == []
+    assert provider.calls == 0
+
+
+async def test_changed_object_is_requeued_without_decoding(client: httpx.AsyncClient) -> None:
+    """A conditional GET mismatch never reaches Pillow or a model call."""
+    headers = await owner_with_farm(client, email="snapshot-race@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    key = f"raw/{farm_id}/{today().isoformat()}/BREEDING/swap.jpg"
+    storage = FakeStorage(objects={key: _jpeg_bytes(1000, 2000)})
+    storage.changed_before_download.add(key)
+    provider = CountingProvider(name="fake")
+
+    async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
+        summary = await run_screening_cycle(
+            db,
+            _cycle_settings(),
+            storage,
+            ProviderRotation([provider]),
+        )
+        image = (await db.execute(select(ScreeningImage))).scalar_one()
+
+    assert summary.errors == 0
+    assert image.status == "PENDING"
+    assert image.next_attempt_at is not None
+    assert provider.calls == 0
 
 
 # --------------------------------------------------------------------------
@@ -1352,6 +2115,8 @@ async def test_abandoned_pending_uploads_expire_and_free_the_budget(
                     s3_key=f"raw/{farm_id}/2026-01-01/abandoned{i}.jpg",
                     captured_date=dt.date(2026, 1, 1),
                     status="PENDING",
+                    upload_content_type="image/jpeg",
+                    upload_token=f"{i:032x}",
                     created_at=aged,
                     updated_at=aged,
                 )
@@ -1362,6 +2127,7 @@ async def test_abandoned_pending_uploads_expire_and_free_the_budget(
     storage.objects[f"raw/{farm_id}/{today}/fresh.jpg"] = _jpeg_bytes(1000, 2000)
     provider = CountingProvider(name="fake")
     async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
         summary = await run_screening_cycle(
             db, _cycle_settings(), storage, ProviderRotation([provider])
         )
@@ -1384,6 +2150,159 @@ async def test_abandoned_pending_uploads_expire_and_free_the_budget(
         assert "never arrived" in (abandoned.error or "")
 
 
+async def test_old_tokenless_pending_upload_can_drain_after_direct_post_migration(
+    client: httpx.AsyncClient,
+) -> None:
+    """Pre-direct-POST records have no expiring form and must still drain."""
+    headers = await owner_with_farm(client, email="legacy-pending@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    capture_day = today().isoformat()
+    key = f"raw/{farm_id}/{capture_day}/BREEDING/legacy.jpg"
+    storage = FakeStorage(objects={key: _jpeg_bytes(1000, 2000)})
+    aged = utcnow() - dt.timedelta(hours=3)
+
+    async with get_sessionmaker()() as db:
+        db.add(
+            ScreeningImage(
+                farm_id=farm_id,
+                bucket="BREEDING",
+                s3_bucket=storage.bucket,
+                s3_key=key,
+                captured_date=dt.date.fromisoformat(capture_day),
+                status="PENDING",
+                created_at=aged,
+                updated_at=aged,
+            )
+        )
+        await db.commit()
+        summary = await run_screening_cycle(
+            db,
+            _cycle_settings(),
+            storage,
+            ProviderRotation([CountingProvider(name="fake")]),
+        )
+        image = (await db.execute(select(ScreeningImage))).scalar_one()
+
+    assert summary.expired_uploads == 0
+    assert summary.claimed == 1
+    assert summary.healthy == 1
+    assert image.status == "HEALTHY"
+
+
+async def test_claiming_is_fair_across_farms(client: httpx.AsyncClient) -> None:
+    """One noisy farm cannot consume every slot in a small worker cycle."""
+    first_headers = await owner_with_farm(client, email="fair-first@farm.in", farm_name="First")
+    second_headers = await owner_with_farm(client, email="fair-second@farm.in", farm_name="Second")
+    first_farm = int(first_headers["X-Farm-Id"])
+    second_farm = int(second_headers["X-Farm-Id"])
+    capture_day = today().isoformat()
+    storage = FakeStorage()
+    old = utcnow() - dt.timedelta(minutes=10)
+    later = utcnow() - dt.timedelta(minutes=5)
+    first_keys = [
+        f"raw/{first_farm}/{capture_day}/BREEDING/noisy-{index}.jpg" for index in range(3)
+    ]
+    second_key = f"raw/{second_farm}/{capture_day}/BREEDING/fair.jpg"
+    for key in first_keys:
+        storage.objects[key] = _jpeg_bytes(1000, 2000)
+    storage.objects[second_key] = _jpeg_bytes(2000, 1000)
+
+    async with get_sessionmaker()() as db:
+        for key in first_keys:
+            db.add(
+                ScreeningImage(
+                    farm_id=first_farm,
+                    bucket="BREEDING",
+                    s3_bucket=storage.bucket,
+                    s3_key=key,
+                    captured_date=dt.date.fromisoformat(capture_day),
+                    status="PENDING",
+                    created_at=old,
+                    updated_at=old,
+                )
+            )
+        db.add(
+            ScreeningImage(
+                farm_id=second_farm,
+                bucket="BREEDING",
+                s3_bucket=storage.bucket,
+                s3_key=second_key,
+                captured_date=dt.date.fromisoformat(capture_day),
+                status="PENDING",
+                created_at=later,
+                updated_at=later,
+            )
+        )
+        await db.commit()
+        summary = await run_screening_cycle(
+            db,
+            _cycle_settings(max_images_per_cycle=2),
+            storage,
+            ProviderRotation([CountingProvider(name="fake")]),
+        )
+        rows = list((await db.execute(select(ScreeningImage))).scalars())
+
+    assert summary.claimed == 2
+    first_processed = [row for row in rows if row.farm_id == first_farm and row.status != "PENDING"]
+    second_processed = [
+        row for row in rows if row.farm_id == second_farm and row.status != "PENDING"
+    ]
+    assert len(first_processed) == 1
+    assert len(second_processed) == 1
+
+
+async def test_abandoned_upload_sweep_is_bounded_per_cycle(client: httpx.AsyncClient) -> None:
+    """Maintenance work cannot drain an arbitrary backlog before new photos."""
+    headers = await owner_with_farm(client, email="bounded-sweep@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    aged = utcnow() - dt.timedelta(hours=3)
+    capture_day = today().isoformat()
+    storage = FakeStorage()
+    fresh_key = f"raw/{farm_id}/{capture_day}/BREEDING/fresh.jpg"
+    storage.objects[fresh_key] = _jpeg_bytes(1000, 2000)
+
+    async with get_sessionmaker()() as db:
+        for index in range(501):
+            db.add(
+                ScreeningImage(
+                    farm_id=farm_id,
+                    s3_bucket=storage.bucket,
+                    s3_key=f"raw/{farm_id}/2026-01-01/abandoned-{index}.jpg",
+                    captured_date=dt.date(2026, 1, 1),
+                    status="PENDING",
+                    upload_content_type="image/jpeg",
+                    upload_token=f"{index:032x}",
+                    created_at=aged,
+                    updated_at=aged,
+                )
+            )
+        await _register_fake_objects(db, farm_id, storage)
+        summary = await run_screening_cycle(
+            db,
+            _cycle_settings(),
+            storage,
+            ProviderRotation([CountingProvider(name="fake")]),
+        )
+        remaining = (
+            (
+                await db.execute(
+                    select(ScreeningImage)
+                    .where(ScreeningImage.status == "PENDING")
+                    .order_by(ScreeningImage.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    assert summary.expired_uploads == 500
+    assert summary.claimed == 1
+    # Exactly one old row remains for the next bounded maintenance cycle;
+    # fresh intake still made progress in this one.
+    assert len(remaining) == 1
+    assert remaining[0].s3_key.endswith("abandoned-500.jpg")
+
+
 async def test_concurrent_reviews_resolve_to_exactly_one_verdict(
     client: httpx.AsyncClient,
 ) -> None:
@@ -1397,6 +2316,7 @@ async def test_concurrent_reviews_resolve_to_exactly_one_verdict(
     storage = FakeStorage()
     storage.objects[f"raw/{farm_id}/{today}/wide.jpg"] = _jpeg_bytes(2000, 1000)
     async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
         await run_screening_cycle(
             db, _cycle_settings(), storage, ProviderRotation([CountingProvider(name="fake")])
         )
@@ -1537,6 +2457,7 @@ async def test_write_endpoints_demand_health_manage_not_view(
         "bucket": "BREEDING",
         "file_name": "pen.jpg",
         "content_type": "image/jpeg",
+        "file_size": 1024,
     }
     # A batch id the auditor cannot create; submit must still 403 on the
     # permission layer before any 404/409 scoping could apply.
@@ -1589,6 +2510,7 @@ async def test_error_rows_without_runs_back_off_before_retry(
     storage = FakeStorage()
     storage.objects[f"raw/{farm_id}/{today}/fresh.jpg"] = _jpeg_bytes(1000, 2000)
     async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
         first = await run_screening_cycle(
             db, _cycle_settings(), storage, ProviderRotation([CountingProvider(name="fake")])
         )
@@ -1647,6 +2569,7 @@ async def test_oversized_object_is_skipped_without_download(
     provider = CountingProvider(name="fake")
 
     async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
         first = await run_screening_cycle(
             db, _cycle_settings(), storage, ProviderRotation([provider])
         )

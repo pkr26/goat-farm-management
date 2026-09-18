@@ -189,7 +189,7 @@ interface Options {
   onPlan?: (body: unknown) => void;
   onSave?: (body: Record<string, unknown>) => void;
   onUpdate?: (query: Record<string, string>, body: Record<string, unknown>) => void;
-  onDelete?: (id: string) => void;
+  onDelete?: (id: string, query: Record<string, string>) => void;
   snapshotStatus?: number;
   snapshotBody?: unknown;
   deferSnapshot?: boolean;
@@ -414,9 +414,12 @@ async function renderLoaded2(options: Options = {}): Promise<HarnessState> {
         { status: options.getPlanStatus ?? 200 },
       );
     }),
-    http.delete("/api/planner/plans/:id", ({ params }) => {
+    http.delete("/api/planner/plans/:id", ({ params, request }) => {
       state.deletedIds.push(String(params.id));
-      options.onDelete?.(String(params.id));
+      options.onDelete?.(
+        String(params.id),
+        Object.fromEntries(new URL(request.url).searchParams),
+      );
       if (options.deleteNetworkError) return HttpResponse.error();
       if ((options.deleteStatus ?? 204) !== 204) {
         return HttpResponse.json({ detail: "not allowed" }, { status: options.deleteStatus });
@@ -1278,6 +1281,22 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
     await waitFor(() =>
       expect(toastMocks.success).toHaveBeenCalledWith("Deleted “Festival plan”."),
     );
+  });
+
+  it("deletes only the revision the operator reviewed", async () => {
+    const user = userEvent.setup();
+    let deleteQuery: Record<string, string> | undefined;
+    await renderLoaded2({
+      savedPlans: [savedPlanRow({ revision: 9 })],
+      onDelete: (_id, query) => {
+        deleteQuery = query;
+      },
+    });
+
+    await user.click((await screen.findAllByRole("button", { name: "Delete plan Festival plan" }))[0]!);
+    await user.click(await screen.findByRole("button", { name: "Delete plan" }));
+
+    await waitFor(() => expect(deleteQuery).toEqual({ expected_revision: "9" }));
   });
 
   it("cancels the delete-confirm dialog without deleting", async () => {

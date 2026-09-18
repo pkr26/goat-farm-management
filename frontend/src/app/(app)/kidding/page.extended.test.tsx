@@ -56,6 +56,14 @@ function daysFromToday(delta: number): string {
   return addDays(TODAY, delta);
 }
 
+/** The dialog must default inside both the farm-day and species gestation
+ * ceilings. Keep this fixture assertion aligned with the production bound
+ * rather than assuming the calendar date is always selectable. */
+function defaultKiddingDate(): string {
+  const maxGestationDate = addDays(UPCOMING_REC.breeding_date, 200);
+  return maxGestationDate < localTodayISO() ? maxGestationDate : localTodayISO();
+}
+
 function makeBreeding(overrides: Partial<BreedingRecordOut>): BreedingRecordOut {
   return {
     id: 1,
@@ -587,10 +595,10 @@ describe("KiddingPage", () => {
       within(dialog).getByText(/Doe G-010 · due .+ \(2 detected\)/),
     ).toBeInTheDocument();
     expect(within(dialog).getAllByPlaceholderText("auto")).toHaveLength(2);
-    expect(within(dialog).getByLabelText(/kidding date/i)).toHaveValue(localTodayISO());
+    expect(within(dialog).getByLabelText(/kidding date/i)).toHaveValue(defaultKiddingDate());
     expect(within(dialog).getByLabelText(/kidding date/i)).toHaveAttribute(
       "max",
-      localTodayISO(),
+      defaultKiddingDate(),
     );
   });
 
@@ -735,7 +743,7 @@ describe("KiddingPage", () => {
     await waitFor(() => expect(postBody).not.toBeNull());
     expect(postBody).toMatchObject({
       breeding_record_id: 12,
-      date: localTodayISO(),
+      date: defaultKiddingDate(),
       ease: "NORMAL",
       placenta_passed: null,
       mastitis_suspected: false,
@@ -853,7 +861,7 @@ describe("KiddingPage", () => {
     const { user, dialog } = await openDialog();
     await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "Died");
     fireEvent.change(within(dialog).getByLabelText("Kid 1 mortality date *"), {
-      target: { value: daysFromToday(-1) },
+      target: { value: addDays(defaultKiddingDate(), -1) },
     });
     await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
 

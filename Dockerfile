@@ -30,14 +30,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# CVE sweep at build time: the digest-pinned base above anchors every layer,
-# but its build date can lag the latest Debian security point releases
-# (gzip/libpcre2/libsqlite3/openssl/perl). Upgrading here keeps the Trivy
-# fixable HIGH/CRITICAL gate at zero between base-image republishes; the
-# pinned digest still anchors everything the point releases do not touch.
-RUN apt-get update \
-    && apt-get -y --no-install-recommends upgrade \
-    && rm -rf /var/lib/apt/lists/*
+# Do not run a mutable distro upgrade here. The base image digest is the
+# reproducibility/security boundary; refresh it deliberately (and let Trivy
+# gate it) instead of producing different application images from the same
+# source and Dockerfile on different build dates.
 
 # Layer order: install deps from the manifest FIRST (cached across app-only
 # code changes), then copy the app source. Any change under backend/app/ no
@@ -56,6 +52,9 @@ COPY backend/app ./app
 COPY backend/alembic ./alembic
 COPY backend/alembic.ini ./
 COPY backend/scripts/healthcheck.py ./healthcheck.py
+COPY backend/scripts/screening_worker_healthcheck.py ./screening_worker_healthcheck.py
+COPY backend/scripts/compose_env_guard.py ./scripts/compose_env_guard.py
+COPY backend/scripts/rekey_totp_secrets.py ./scripts/rekey_totp_secrets.py
 
 # pip and uv are build-time tools: the runtime executes only /app/.venv.
 # pip vendors its own dependency copies (msgpack, setuptools, requests, …)

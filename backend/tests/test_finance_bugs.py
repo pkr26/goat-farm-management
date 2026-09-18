@@ -26,12 +26,16 @@
 
 from datetime import timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 
 import httpx
 import pytest
+from fastapi import HTTPException
 
+from app.api.finance import _reconcile_feed_purchase
 from app.db import get_sessionmaker
 from app.models import FeedInventory, Transaction
+from app.schemas.finance import TransactionCorrectionIn
 from app.utils import today
 
 from .conftest import owner_with_farm
@@ -79,6 +83,43 @@ def test_feed_purchase_model_metadata_matches_migration_contract() -> None:
     assert "uq_feed_inventory_farm_id_id" in {
         constraint.name for constraint in FeedInventory.__table__.constraints
     }
+
+
+async def test_partial_feed_purchase_provenance_is_a_clean_conflict_not_an_assertion() -> None:
+    """Hand-repaired/corrupt rows must not mutate stock or crash under -O."""
+
+    class DbThatMustNotBeUsed:
+        async def execute(self, *_args: object, **_kwargs: object) -> object:
+            raise AssertionError("partial provenance must fail before any database mutation")
+
+    txn = Transaction(
+        farm_id=1,
+        date=today(),
+        type="EXPENSE",
+        category="FEED",
+        amount=Decimal("20.00"),
+        source_type="FEED_PURCHASE",
+        source_id=1,
+        feed_inventory_id=1,
+        feed_quantity_kg=None,
+        feed_unit_price_per_kg=Decimal("2.00"),
+    )
+    payload = TransactionCorrectionIn(
+        date=today(),
+        type="EXPENSE",
+        category="FEED",
+        amount=20.0,
+        reason="Repair malformed historical provenance",
+    )
+
+    with pytest.raises(HTTPException, match="incomplete inventory provenance") as exc_info:
+        await _reconcile_feed_purchase(
+            DbThatMustNotBeUsed(),  # type: ignore[arg-type]
+            SimpleNamespace(id=1),  # type: ignore[arg-type]
+            txn,
+            payload,
+        )
+    assert exc_info.value.status_code == 409
 
 
 async def test_create_notes_over_255_chars_should_not_500(client: httpx.AsyncClient) -> None:

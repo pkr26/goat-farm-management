@@ -101,6 +101,35 @@ export function farmToday(now: Date = new Date()): string {
   return todayInTimeZone(activeFarmTimezone, now);
 }
 
+/** Construct a UTC calendar date without Date.UTC's surprising 1900 offset
+ * for years 0–99. Returning null on a failed round-trip also prevents the
+ * Date constructor from silently normalizing impossible values such as 30
+ * February into a different source date. */
+function exactUtcCalendarDate(year: number, month: number, day: number): Date | null {
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day) ||
+    year < 1
+  ) {
+    return null;
+  }
+  // Start from an unambiguous instant, then set the full year explicitly.
+  // `new Date(Date.UTC(1, …))` would mean 1901, whereas setUTCFullYear(1)
+  // correctly represents the year 0001.
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  if (
+    Number.isNaN(date.getTime()) ||
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return date;
+}
+
 /** Backend datetimes without an offset are UTC. Render the instant in the
  * active farm timezone so completion/audit times agree for every operator.
  * The year is always rendered: these are audit rows, and two episodes twelve
@@ -144,11 +173,13 @@ export function formatFarmDateTime(iso: string | null | undefined): string {
  * because `toISOString()` switches to an expanded `+10000-…` spelling whose
  * first ten characters are no longer a date. */
 export function addDays(iso: string, days: number): string {
-  const [y, m, d] = iso.split("-").map(Number);
-  const date = new Date(Date.UTC(y, m - 1, d + days));
-  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d) || Number.isNaN(date.getTime())) {
-    return iso;
-  }
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!match || !Number.isFinite(days)) return iso;
+  const [y, m, d] = match.slice(1).map(Number);
+  const date = exactUtcCalendarDate(y, m, d);
+  if (date === null) return iso;
+  date.setUTCDate(date.getUTCDate() + days);
+  if (Number.isNaN(date.getTime())) return iso;
   const year = String(date.getUTCFullYear()).padStart(4, "0");
   const month = String(date.getUTCMonth() + 1).padStart(2, "0");
   const day = String(date.getUTCDate()).padStart(2, "0");
@@ -157,9 +188,18 @@ export function addDays(iso: string, days: number): string {
 
 /** Whole days from `from` to `to` (both YYYY-MM-DD), timezone-safe. */
 export function daysBetween(from: string, to: string): number {
-  const [fy, fm, fd] = from.split("-").map(Number);
-  const [ty, tm, td] = to.split("-").map(Number);
-  return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86400000);
+  const parse = (iso: string): Date | null => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+    if (!match) return null;
+    const [year, month, day] = match.slice(1).map(Number);
+    return exactUtcCalendarDate(year, month, day);
+  };
+  const fromDate = parse(from);
+  const toDate = parse(to);
+  // The helper is called directly from render paths. A corrupt API date must
+  // not turn a badge into "NaN d late" (or be normalized to a different day).
+  if (fromDate === null || toDate === null) return 0;
+  return Math.round((toDate.getTime() - fromDate.getTime()) / 86400000);
 }
 
 const MONTHS = [
@@ -181,13 +221,8 @@ export function formatDate(iso: string | null | undefined, lang?: "en" | "te"): 
   );
   if (!match) return "—";
   const [y, m, d] = match.slice(1, 4).map(Number);
-  if (!y || !m || !d) return "—";
-  // Round-trip through Date: out-of-range values (month 13, 30 Feb, …) roll
-  // over into a different calendar day, which this check rejects.
-  const date = new Date(Date.UTC(y, m - 1, d));
-  if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) {
-    return "—";
-  }
+  const date = exactUtcCalendarDate(y, m, d);
+  if (date === null) return "—";
   const timestampSuffix = match[4];
   if (timestampSuffix) {
     const paddedDate = `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;

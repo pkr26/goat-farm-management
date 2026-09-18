@@ -12,7 +12,6 @@ from sqlalchemy.orm import selectinload
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
 from ..models import (
     Animal,
-    AnimalStatus,
     BreedingOutcome,
     BreedingRecord,
     Bucket,
@@ -20,6 +19,7 @@ from ..models import (
     FeedInventory,
     HealthEvent,
     InsurancePolicy,
+    InsurancePremium,
     PurchaseBatch,
     Transaction,
     TransactionType,
@@ -30,8 +30,10 @@ from ..schemas.finance import (
     FinanceOut,
     InsuranceClaimIn,
     InsuranceListOut,
+    InsurancePolicyHistoryOut,
     InsurancePolicyIn,
     InsurancePolicyOut,
+    InsurancePremiumOut,
     InsuranceRenewalIn,
     InsuranceStatusStr,
     LifetimePnlOut,
@@ -192,7 +194,29 @@ async def _reconcile_feed_purchase(
         return await _resolve_related_animal(db, farm, txn.related_animal_id)
     if txn.source_id is None:
         raise HTTPException(status_code=409, detail="This feed purchase has no stable source id")
+    # The legacy all-null form above is supported deliberately. Any *partial*
+    # provenance is corrupt data, though: with assertions disabled it used to
+    # reach Decimal arithmetic or inventory updates with None and turn a
+    # repairable record into a 500. Refuse the correction before touching
+    # stock, preserving both the ledger and the operator's audit trail.
+    if (
+        txn.feed_inventory_id is None
+        or txn.feed_quantity_kg is None
+        or txn.feed_unit_price_per_kg is None
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="This feed purchase has incomplete inventory provenance",
+        )
     corrected_qty_kg = _corrected_feed_quantity_kg(txn, payload)
+    if corrected_qty_kg is None:
+        # Defensive against a hand-edited ORM instance: the database
+        # constraint above prevents this on normal rows, but the correction
+        # path must stay deterministic even under corrupt historical data.
+        raise HTTPException(
+            status_code=409,
+            detail="This feed purchase has incomplete inventory provenance",
+        )
     quantity_changed = corrected_qty_kg != txn.feed_quantity_kg
     if amount == txn.amount and payload.date == txn.date and not quantity_changed:
         # A notes-only correction cannot move the displayed last-purchase
@@ -219,9 +243,8 @@ async def _reconcile_feed_purchase(
         # qty_on_hand is a running total across every purchase, not just the
         # latest one, so the delta applies unconditionally — unlike the unit
         # price below, it does not depend on this purchase being the newest.
-        # ck_transactions_feed_purchase_provenance (columns are all-or-none)
-        # plus the all-NULL early return above guarantee both are populated.
-        assert corrected_qty_kg is not None and txn.feed_quantity_kg is not None
+        # The complete-provenance guard above guarantees both quantities are
+        # present before stock is touched.
         delta = corrected_qty_kg - txn.feed_quantity_kg
         new_qty_on_hand = Decimal(str(inventory.qty_on_hand)) + delta
         if new_qty_on_hand < 0:
@@ -247,9 +270,11 @@ async def _reconcile_feed_purchase(
     ).scalar_one_or_none()
 
     corrected_unit_price = _corrected_feed_unit_price(txn, amount, corrected_qty_kg)
-    # The all-NULL early return plus ck_transactions_feed_purchase_provenance
-    # (columns are all-or-none) guarantee complete pricing on this path.
-    assert corrected_unit_price is not None
+    if corrected_unit_price is None:
+        raise HTTPException(
+            status_code=409,
+            detail="This feed purchase has incomplete inventory provenance",
+        )
 
     other_key = (
         (other_latest.date, other_latest.source_id)
@@ -582,6 +607,16 @@ async def list_transactions(
         else:
             total_expense += total
 
+    # Insurance premiums are append-only payment facts rather than mutable
+    # ledger transactions.  Farm-level totals must include them just as the
+    # per-animal lifetime P&L and monthly P&L do.
+    premiums_total = (
+        await db.execute(
+            select(func.sum(InsurancePremium.premium)).where(InsurancePremium.farm_id == farm.id)
+        )
+    ).scalar_one()
+    total_expense += premiums_total if premiums_total is not None else Decimal("0.00")
+
     pnl = await monthly_pnl(db, farm)
     # The memo's head_count/estimated_loss are clinical death figures: the
     # dashboard reports withhold DEAD/CULLED outcomes behind health.view, and
@@ -837,16 +872,6 @@ async def add_insurance_policy(
     The (farm, policy_number) natural key makes a double-submit a 409, so no
     Idempotency-Key is demanded here (unlike the manual ledger row)."""
     animal_id, animal_tag = await _resolve_related_animal(db, farm, payload.animal_id)
-    if animal_id is not None:
-        linked = await db.get(Animal, animal_id)
-        if linked is not None and linked.status != AnimalStatus.ACTIVE.value:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"{linked.tag_number} has left the herd — insurance cover can only be "
-                    "registered for active animals"
-                ),
-            )
     try:
         policy = await create_insurance_policy(
             db,
@@ -880,51 +905,73 @@ async def add_insurance_policy(
 async def renew_policy(
     policy_id: int,
     payload: InsuranceRenewalIn,
+    response: Response,
     db: DbSession,
     user: CurrentUser,
     farm: CurrentFarm,
     perms: FinanceManage,
+    idempotency_key: IdempotencyKey = None,
 ) -> InsurancePolicyOut:
     """Move a policy's renewal horizon forward; queues the next renewal duty.
 
     The register is append-style: renewal keeps the row's identity and audit
-    trail (compare the ledger's correct flow) instead of allowing edits."""
-    if not 1 <= policy_id <= MAX_INT32_ID:
-        policy = None
-    else:
-        # FOR UPDATE serializes a concurrent pair of renewals so the horizon
-        # cannot move backwards between two read-modify-writes.
-        policy = (
-            await db.execute(
-                select(InsurancePolicy)
-                .where(InsurancePolicy.id == policy_id, InsurancePolicy.farm_id == farm.id)
-                .with_for_update()
+    trail (compare the ledger's correct flow) instead of allowing edits. An
+    optional Idempotency-Key replays a lost response, while an equal-date
+    retry is a guarded no-op in the domain service and cannot double-book a
+    premium or renewal duty."""
+
+    async def mutate() -> InsurancePolicyOut:
+        if not 1 <= policy_id <= MAX_INT32_ID:
+            policy = None
+        else:
+            # FOR UPDATE serializes a concurrent pair of renewals so the
+            # horizon cannot move backwards between two read-modify-writes.
+            policy = (
+                await db.execute(
+                    select(InsurancePolicy)
+                    .where(InsurancePolicy.id == policy_id, InsurancePolicy.farm_id == farm.id)
+                    .with_for_update()
+                )
+            ).scalar_one_or_none()
+        if policy is None or policy.farm_id != farm.id:
+            raise HTTPException(status_code=404, detail="Insurance policy not found")
+        try:
+            await renew_insurance_policy(
+                db,
+                farm,
+                policy,
+                renewal_date=payload.renewal_date,
+                premium=Decimal(str(payload.premium)) if payload.premium is not None else None,
+                recorded_by_id=user.id,
             )
-        ).scalar_one_or_none()
-    if policy is None or policy.farm_id != farm.id:
-        raise HTTPException(status_code=404, detail="Insurance policy not found")
-    try:
-        await renew_insurance_policy(
-            db,
-            farm,
-            policy,
-            renewal_date=payload.renewal_date,
-            premium=Decimal(str(payload.premium)) if payload.premium is not None else None,
-            recorded_by_id=user.id,
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        # expire_on_commit=False keeps the row valid; the animal link is
+        # loaded explicitly (async sessions forbid implicit lazy loads).
+        linked = (
+            await db.get(Animal, policy.animal_id)
+            if policy.animal_id is not None and policy.animal_id > 0
+            else None
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from None
-    await db.commit()
-    # expire_on_commit=False keeps the row valid; the animal link is loaded
-    # explicitly (async sessions forbid implicit lazy loads).
-    linked = (
-        await db.get(Animal, policy.animal_id)
-        if policy.animal_id is not None and policy.animal_id > 0
-        else None
+        out = InsurancePolicyOut.model_validate(policy)
+        out.animal_tag = (
+            linked.tag_number if linked is not None and linked.farm_id == farm.id else None
+        )
+        return out
+
+    return await execute_idempotent(
+        db,
+        http_response=response,
+        key=idempotency_key,
+        farm_id=farm.id,
+        actor_id=user.id,
+        operation="finance.insurance.renew",
+        payload=payload,
+        path_identity={"policy_id": policy_id},
+        success_status=200,
+        response_type=InsurancePolicyOut,
+        mutate=mutate,
     )
-    out = InsurancePolicyOut.model_validate(policy)
-    out.animal_tag = linked.tag_number if linked is not None and linked.farm_id == farm.id else None
-    return out
 
 
 @router.post("/insurance/{policy_id}/claim")
@@ -932,6 +979,7 @@ async def claim_policy(
     policy_id: int,
     payload: InsuranceClaimIn,
     db: DbSession,
+    user: CurrentUser,
     farm: CurrentFarm,
     perms: FinanceManage,
 ) -> InsurancePolicyOut:
@@ -955,7 +1003,14 @@ async def claim_policy(
         raise HTTPException(status_code=404, detail="Insurance policy not found")
     claim_date = payload.claim_date or today(farm.timezone)
     try:
-        await claim_insurance_policy(db, farm, policy, claim_date=claim_date)
+        require_farm_not_future(claim_date, farm, "claim date")
+        await claim_insurance_policy(
+            db,
+            farm,
+            policy,
+            claim_date=claim_date,
+            claimed_by_id=user.id,
+        )
     except ValueError as exc:
         status_code = 409 if "already been claimed" in str(exc) else 422
         raise HTTPException(status_code=status_code, detail=str(exc)) from None
@@ -968,6 +1023,46 @@ async def claim_policy(
     out = InsurancePolicyOut.model_validate(policy)
     out.animal_tag = linked.tag_number if linked is not None and linked.farm_id == farm.id else None
     return out
+
+
+@router.get("/insurance/{policy_id}/history")
+async def insurance_policy_history(
+    policy_id: int,
+    db: DbSession,
+    farm: CurrentFarm,
+    perms: FinanceView,
+) -> InsurancePolicyHistoryOut:
+    """Expose the immutable premium and claim audit trail for one policy."""
+    if not 1 <= policy_id <= MAX_INT32_ID:
+        policy = None
+    else:
+        policy = (
+            await db.execute(
+                select(InsurancePolicy)
+                .options(selectinload(InsurancePolicy.animal))
+                .where(InsurancePolicy.id == policy_id, InsurancePolicy.farm_id == farm.id)
+            )
+        ).scalar_one_or_none()
+    if policy is None or policy.farm_id != farm.id:
+        raise HTTPException(status_code=404, detail="Insurance policy not found")
+    premiums = list(
+        (
+            await db.execute(
+                select(InsurancePremium)
+                .where(
+                    InsurancePremium.farm_id == farm.id,
+                    InsurancePremium.policy_id == policy.id,
+                )
+                .order_by(InsurancePremium.recorded_on, InsurancePremium.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return InsurancePolicyHistoryOut(
+        policy=_policy_out(policy),
+        premiums=[InsurancePremiumOut.model_validate(premium) for premium in premiums],
+    )
 
 
 @router.get("/animals/{animal_id}/lifetime-pnl")

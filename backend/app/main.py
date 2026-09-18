@@ -48,6 +48,7 @@ from .api import (
 from .core.config import get_settings
 from .db import get_engine, get_sessionmaker
 from .deps import deactivate_deleted_user_memberships, purge_expired_refresh_sessions
+from .schemas.common import RequestValidationErrorOut
 from .schemas.ops import HealthStatusOut, ReadinessStatusOut, ReadinessUnavailableOut
 from .security import PasswordWorkCapacityError, prime_dummy_password_hash, validate_jwt_keypair
 from .seed import repair_legacy_data_batch, seed_startup
@@ -719,9 +720,23 @@ _REQUIRED_IDEMPOTENCY_HEADER_ROUTES = (
 
 def _publish_required_idempotency_headers(app: FastAPI) -> None:
     default_openapi = app.openapi
+    request_validation_schema = RequestValidationErrorOut.model_json_schema(
+        ref_template="#/components/schemas/{model}"
+    )
+    request_validation_definitions = request_validation_schema.pop("$defs", {})
 
     def openapi_with_required_headers() -> dict[str, Any]:
         schema = default_openapi()
+        # Router-wide 422 docs intentionally use a oneOf for domain
+        # ErrorOuts and the sanitised request-validation list. FastAPI only
+        # registers components it discovers through response_model/model;
+        # adding a model there would merge a sibling $ref into the oneOf and
+        # incorrectly make domain-error strings invalid. Register this exact
+        # custom handler shape explicitly instead.
+        components = schema.setdefault("components", {}).setdefault("schemas", {})
+        for name, definition in request_validation_definitions.items():
+            components.setdefault(name, definition)
+        components.setdefault("RequestValidationErrorOut", request_validation_schema)
         for path, method in _REQUIRED_IDEMPOTENCY_HEADER_ROUTES:
             for parameter in schema["paths"][path][method]["parameters"]:
                 if parameter.get("name") == "Idempotency-Key" and parameter.get("in") == "header":

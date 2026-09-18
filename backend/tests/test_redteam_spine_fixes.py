@@ -509,6 +509,9 @@ def _production_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GOATFARM_DB_SSLMODE", "verify-full")
     monkeypatch.setenv("GOATFARM_DATABASE_URL", "postgresql+asyncpg://u:p@db/goatfarm")
     monkeypatch.setenv("GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET", "x" * 40)
+    monkeypatch.setenv(
+        "GOATFARM_TOTP_ENCRYPTION_KEY", "VFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFQ"
+    )
     monkeypatch.setenv("GOATFARM_JWT_PRIVATE_KEY_PATH", "/nonexistent/key.pem")
     monkeypatch.setenv("GOATFARM_JWT_PUBLIC_KEY_PATH", "/nonexistent/key.pub")
     monkeypatch.delenv("UVICORN_WORKERS", raising=False)

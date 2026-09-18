@@ -20,7 +20,7 @@ RAW_TARGET_URL="${GOATFARM_RESTORE_DATABASE_URL}"
 # environment input rather than a positional argument so it is absent from the
 # restore process argv too.
 unset GOATFARM_RESTORE_DATABASE_URL GOATFARM_DATABASE_URL
-unset GOATFARM_MIGRATION_DATABASE_URL PGPASSWORD PGSERVICE PGSERVICEFILE
+unset GOATFARM_MIGRATION_DATABASE_URL PGPASSWORD PGSERVICE PGSERVICEFILE PGSSLROOTCERT
 EXPECTED_SIGNER="${GOATFARM_RESTORE_GPG_SIGNER_FINGERPRINT:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 PYTHON_BIN="python3"
@@ -262,6 +262,9 @@ if ! "${SCRIPT_DIR}/restore_floor.sh" "${backup_revision}"; then
 fi
 
 export PGPASSFILE PGSSLMODE="${DB_SSLMODE}"
+if [[ -n "${DB_SSLROOTCERT_PATH:-}" ]]; then
+    export PGSSLROOTCERT="${DB_SSLROOTCERT_PATH}"
+fi
 read -r -d '' EMPTY_DATABASE_SQL <<'SQL' || true
 WITH user_namespaces AS (
     SELECT oid, nspname

@@ -63,6 +63,11 @@ per-owner worker-password throttling), `GOATFARM_ALLOWED_HOSTS` (the API virtual
 and the `GOATFARM_DB_POOL_*` /
 `GOATFARM_DB_STATEMENT_TIMEOUT_MS` pool guards (a request-path backstop only;
 migrations have their own `GOATFARM_MIGRATION_STATEMENT_TIMEOUT_MS`, below).
+Database URLs must use the exact `postgresql+asyncpg://` scheme. Keep TLS
+configuration in `GOATFARM_DB_SSLMODE` and (for a private CA)
+`GOATFARM_DB_SSLROOTCERT_PATH`; a matching legacy `?sslmode=` URL parameter is
+accepted and removed before asyncpg connects, while conflicting or other
+URL-level TLS settings are rejected at boot.
 Requests are capped at 1 MiB by
 default (`GOATFARM_MAX_REQUEST_BODY_BYTES`); configure the edge proxy to
 the same or a smaller limit. Request paths plus query strings are capped at
@@ -112,16 +117,16 @@ development fallback is rejected in production. Keep this secret distinct
 from JWT, database, and user-password secrets. The same known fallback is also
 rejected from the verification-only previous-key list.
 
-Production releases should set `GOATFARM_MIGRATION_DATABASE_URL` to a
+Production releases must set `GOATFARM_MIGRATION_DATABASE_URL` to a
 separately privileged database identity used only by Alembic. The long-running
 API should use a credential without schema/DDL privileges. Compose supplies
 only that URL—not the API credential—to the migration job. Alembic uses a
 migration-only settings projection, so `GOATFARM_ENVIRONMENT=production`
-refuses every `GOATFARM_DB_SSLMODE` except `verify-full` before creating its
-engine, without requiring unrelated cookie/JWT/HMAC settings. Libpq backup and
-restore jobs enforce the same production mode. Modes such as `require` encrypt
-the wire but can leave the server unauthenticated when no trusted root is
-configured. Migrations do **not** inherit the
+refuses a missing migration URL and every `GOATFARM_DB_SSLMODE` except
+`verify-full` before creating its engine, without requiring unrelated
+cookie/JWT/HMAC settings. Libpq backup and restore jobs enforce the same
+production mode. Modes such as `require` encrypt the wire but can leave the
+server unauthenticated when no trusted root is configured. Migrations do **not** inherit the
 request-path `GOATFARM_DB_STATEMENT_TIMEOUT_MS` budget: the Alembic connection
 applies `GOATFARM_MIGRATION_STATEMENT_TIMEOUT_MS` instead, `0` (unbounded) by
 default, because a table rewrite, a constraint validation, or a `CREATE INDEX
@@ -316,7 +321,7 @@ The API contract flows one way: backend routes/schemas →
 export **and** `pnpm orval`.
 
 CI (`.github/workflows/ci.yml`) runs the full gate on every push/PR: backend
-pytest against a Postgres service with a coverage floor (`--cov=app`, the
+pytest against a Postgres service with line-and-branch coverage floor (`--cov=app --cov-branch`, the
 `fail_under` floor in `backend/pyproject.toml` `[tool.coverage.report]` — a
 coverage regression fails the build; both coverage reports are uploaded as
 CI artifacts so the measured numbers stay auditable), `ruff format --check`,
@@ -366,14 +371,17 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
   docker build -t goatfarm-backend .
   docker run --expose 8000 \
     -v /secure/goatfarm-jwt:/app/keys:ro \
+    -v /secure/goatfarm-postgres-ca.pem:/run/secrets/goatfarm-postgres-ca.pem:ro \
     -e GOATFARM_DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/goatfarm \
     -e GOATFARM_ENVIRONMENT=production \
     -e GOATFARM_COOKIE_SECURE=true \
     -e GOATFARM_CORS_ORIGINS='["https://app.example.com"]' \
     -e GOATFARM_ALLOWED_HOSTS='["api.example.com","backend"]' \
     -e GOATFARM_DB_SSLMODE=verify-full \
+    -e GOATFARM_DB_SSLROOTCERT_PATH=/run/secrets/goatfarm-postgres-ca.pem \
     -e GOATFARM_MIN_PASSWORD_LENGTH=12 \
     -e GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET="$GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET" \
+    -e GOATFARM_TOTP_ENCRYPTION_KEY="$GOATFARM_TOTP_ENCRYPTION_KEY" \
     -e GOATFARM_JWT_PRIVATE_KEY_PATH=/app/keys/jwt_private.pem \
     -e GOATFARM_JWT_PUBLIC_KEY_PATH=/app/keys/jwt_public.pem \
     goatfarm-backend
@@ -381,17 +389,83 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
 
   Run `alembic upgrade head` as a separate, one-shot release job before
   starting or rolling API containers. The default API command never performs
-  DDL and serves with uvicorn as a non-root user. `docker-compose.yml` models
-  this explicitly with `db` → `migrate` → `backend`; its `jwtkeys` volume
-  keeps the generated development identity stable across restarts. Copy the
-  repository-root `.env.example` to `.env` first. Compose passes complete,
-  separately configurable `GOATFARM_DATABASE_URL` and
-  `GOATFARM_MIGRATION_DATABASE_URL` values rather than concatenating raw
-  credentials. Percent-encode reserved characters in URL usernames/passwords;
-  production should use a DDL-free API role and a distinct DDL-capable
-  migration role. The edge is the only host-published service, and it binds
-  loopback by default; a production TLS terminator proxies to it rather than
+  DDL and serves with uvicorn as a non-root user. Production must use an
+  external PostgreSQL endpoint whose certificate matches the FQDN in the URL,
+  with a publicly trusted chain or a read-only private-CA bundle mounted at
+  `GOATFARM_DB_SSLROOTCERT_PATH` in **each** migration, API, and screening
+  worker container. The application builds an explicit standard-library TLS
+  context for `verify-full`; it does not depend on asyncpg finding a hidden
+  `~/.postgresql/root.crt` in the non-root image.
+
+  `docker-compose.yml` is deliberately a local-development stack: its bundled
+  PostgreSQL has no server certificate or CA topology and its migration job
+  refuses `GOATFARM_ENVIRONMENT=production` before any API starts. Copy the
+  repository-root `.env.example` to `.env` for that local stack. For a real
+  single-host deployment, use the separate
+  `docker-compose.production.yml` **by itself** (never merge it with the local
+  file). It has no `db` service, requires immutable backend/frontend image
+  digests, mounts the database CA into migration/API/worker only, and mounts
+  JWT PEMs into the API only. Point its complete separately privileged
+  `GOATFARM_DATABASE_URL` and `GOATFARM_MIGRATION_DATABASE_URL` values at the
+  external DB: the API role has no DDL privileges and the migration role is
+  distinct and DDL-capable. Percent-encode reserved characters in URL
+  usernames/passwords. The edge is the only host-published service, and it
+  binds loopback; a production TLS terminator proxies to it rather than
   exposing its HTTP listener.
+
+  From the repository root, create a mode-`0600` environment file outside the
+  checkout (shown values are placeholders) and ensure the non-root container
+  UID 10001 owns or can read the two host-mounted secret paths. A mode-`0600`
+  file is appropriate when it is owned by UID 10001; do not make secrets
+  world-readable:
+
+  ```dotenv
+  GOATFARM_BACKEND_IMAGE_REPOSITORY=ghcr.io/<owner>/goatfarm-backend
+  GOATFARM_BACKEND_IMAGE_DIGEST=sha256:<published-backend-manifest-digest>
+  GOATFARM_FRONTEND_IMAGE_REPOSITORY=ghcr.io/<owner>/goatfarm-frontend
+  GOATFARM_FRONTEND_IMAGE_DIGEST=sha256:<published-frontend-manifest-digest>
+  GOATFARM_DB_CA_FILE=/secure/goatfarm-postgres-ca.pem
+  GOATFARM_JWT_SECRET_DIR=/secure/goatfarm-jwt
+  GOATFARM_COMPOSE_ENV_FILE=/secure/goatfarm.production.env
+  GOATFARM_DATABASE_URL=postgresql+asyncpg://api:...@db.example.com:5432/goatfarm
+  GOATFARM_MIGRATION_DATABASE_URL=postgresql+asyncpg://migrator:...@db.example.com:5432/goatfarm
+  GOATFARM_CORS_ORIGINS=["https://app.example.com"]
+  GOATFARM_ALLOWED_HOSTS=["app.example.com"]
+  GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET=<independent-32-plus-character-secret>
+  GOATFARM_TOTP_ENCRYPTION_KEY=<independent-32-byte-base64url-secret>
+  GOATFARM_DOCKER_SUBNET=198.18.243.0/24
+  GOATFARM_EDGE_PROXY_IP=198.18.243.10
+  # The default trusts only the edge. With the required outer TLS terminator,
+  # append its exact source address as nginx sees it (often the app-network
+  # gateway, e.g. 198.18.243.1 for a host-local terminator); verify it from
+  # the edge access log and never substitute the whole Docker subnet.
+  GOATFARM_TRUSTED_PROXY_HOSTS=198.18.243.10,198.18.243.1
+  # Set both CSP lists and bucket CORS when screening is enabled.
+  GOATFARM_SCREENING_ENABLED=false
+  ```
+
+  Then render and execute the name preflight before every rollout. Rendering
+  proves required interpolation is present, while the explicit one-shot run
+  catches misspelt `GOATFARM_*` names in the exact env file. Do not rely on a
+  previously completed `config-guard` container from an older `up`: Compose
+  can reuse that successful one-shot service even after the bind-mounted env
+  file changes.
+
+  ```bash
+  docker compose --env-file /secure/goatfarm.production.env \
+    -f docker-compose.production.yml config --quiet
+  docker compose --env-file /secure/goatfarm.production.env \
+    -f docker-compose.production.yml run --rm --no-deps config-guard
+  docker compose --env-file /secure/goatfarm.production.env \
+    -f docker-compose.production.yml pull
+  docker compose --env-file /secure/goatfarm.production.env \
+    -f docker-compose.production.yml up -d
+  ```
+
+  Do not replace the digest variables with mutable tags. Read the two
+  multi-architecture manifest digests from the signed GitHub release; the
+  production manifest constructs `repository@sha256:...`, while local/staging
+  examples below may use a release tag for convenience.
   Supported Alembic and restore jobs share a database advisory lock, so two
   release/restore writers fail closed instead of racing. This protocol cannot
   stop manually issued DDL that ignores the application tooling: quiesce all
@@ -412,11 +486,20 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
 - Run **one** worker/replica (in-memory login and per-owner worker-password
   rate limits, see Configuration),
   behind a TLS-terminating proxy; set `GOATFARM_TRUSTED_PROXY_HOSTS` to the
-  proxy's own IPs/CIDRs so rate limiting keys on real client IPs. Startup
+  fixed edge IP plus every trusted forwarding hop's exact address as observed
+  by the next hop, so Uvicorn can walk past those hops and rate limiting keys
+  on the real client IP. In the standalone production Compose topology, the
+  default is the edge IP only; its required host-local TLS terminator commonly
+  reaches Docker through the app-network gateway (for the example subnet,
+  `198.18.243.1`), which must be appended explicitly after verifying it in the
+  edge access log. Startup
   rejects a hostname (it can never match a peer address, so it would silently
   trust nothing) and rejects `*` or any prefix-length-0 network (always-trust,
   which makes `X-Forwarded-For` and every per-IP ceiling spoofable). Name the
-  proxy's addresses, not the range it sits in.
+  proxy's addresses, not the range it sits in. Keep the raw edge listener
+  loopback-only and ensure the outer terminator appends the transport peer to
+  `X-Forwarded-For`; never expose a path that lets an untrusted network client
+  inject a trusted hop.
 - The frontend is a **Next.js Node server**, not a static export: dynamic
   routes, security headers and the same-origin `/api` rewrite require a
   runtime. Build `frontend/Dockerfile` with the internal API destination, for
@@ -465,6 +548,16 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
   `docker compose up -d`, or Compose refuses to start with an
   "incorrect ipam config" error. The
   `frontend` service is only `expose`d, never published.
+  The edge also emits the browser Content-Security-Policy at runtime. This is
+  intentionally outside the Next build so a generic signed registry frontend
+  can support direct S3 screening traffic: when
+  `GOATFARM_SCREENING_ENABLED=true`, set both
+  `GOATFARM_CSP_CONNECT_ORIGINS` and `GOATFARM_CSP_IMG_ORIGINS` to the public
+  S3/MinIO origin (space-separated exact HTTPS origins; loopback HTTP is
+  permitted only for local development). The edge validates the values before
+  rendering nginx and refuses startup if either list is blank, malformed, or
+  attempts header syntax injection. Do not publish the standalone frontend
+  directly; it is the edge response that carries this deployment-specific CSP.
   Next's server-side rewrite still uses changeOrigin and sends
   `Host: backend:8000` for anything it does proxy, so every Compose
   `GOATFARM_ALLOWED_HOSTS` override must retain the exact `backend` service
@@ -491,7 +584,7 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
   logs at 10 MB × 3 files. Preserve these settings when overriding
   `docker-compose.yml` for a deployment — especially the edge capability set
   and `read_only`, which are load-bearing, not decorative.
-- **Registry-based single-host deploys.** Pushing a `v*` tag runs
+- **Registry-based local/staging single-host deploys.** Pushing a `v*` tag runs
   `.github/workflows/release.yml`: it builds
   `ghcr.io/<owner>/goatfarm-backend:vX.Y.Z` and
   `ghcr.io/<owner>/goatfarm-frontend:vX.Y.Z` for `linux/amd64` and
@@ -509,6 +602,11 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
   ```yaml
   # docker-compose.override.yml (`!reset` needs Compose v2.24+)
   services:
+    # The name preflight runs from the same immutable backend artifact; do
+    # not accidentally leave this one service building local checkout code.
+    config-guard:
+      build: !reset null
+      image: ghcr.io/<owner>/goatfarm-backend:vX.Y.Z
     migrate:
       build: !reset null
       image: ghcr.io/<owner>/goatfarm-backend:vX.Y.Z
@@ -521,17 +619,24 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
   ```
 
   ```bash
-  docker compose pull && docker compose up -d   # migrate still runs first as its own job
+  docker compose pull
+  docker compose run --rm --no-deps config-guard
+  docker compose up -d   # migrate still runs first as its own job
   curl -fsS http://127.0.0.1:3000/healthz       # edge + frontend alive ("ok")
   curl -fsS http://127.0.0.1:3000/readyz        # backend ready (SELECT 1 through the edge)
   ```
+
+  This published-image override is for the local/development Compose topology;
+  it intentionally refuses `GOATFARM_ENVIRONMENT=production` because the
+  bundled PostgreSQL is TLS-off. Use the external-DB production topology above
+  (and pin the same image digests) for a real deployment.
 
   The smoke `curl`s traverse the full edge path: `/healthz` is the frontend's
   own no-auth route handler, `/readyz` still proxies through to the backend's
   DB-aware readiness probe. Pin the exact tag in the override file — floating
   tags make rollbacks and the one-migration-job protocol above impossible to
-  reason about. Roll back by repinning the previous tag and re-running
-  `docker compose pull && docker compose up -d` (after checking the migration
+  reason about. Roll back by repinning the previous tag and re-running the
+  pull, `config-guard`, and `up` sequence above (after checking the migration
   notes above for downgrades, which are not always reversible).
 - **Deployment notes.** Alembic downgrade walks below `f7d8c9b0a1e2` and
   `b6d8f0a2c4e6` drop the tenant-guard composite foreign keys, so a rollback
@@ -547,6 +652,63 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
   which is the trigger to re-pin deliberately across the Dockerfiles,
   compose, and workflow mirrors.
 
+**TOTP encryption migration (must finish before a JWT signing-key cutover):**
+TOTP secrets are encrypted with a separate, stable AES-256 key named
+`GOATFARM_TOTP_ENCRYPTION_KEY`, encoded as an unpadded 32-byte base64url
+value. It is required in production and must be identical on every API
+instance. Generate a new value with:
+
+```sh
+python -c 'import secrets; print(secrets.token_urlsafe(32))'
+```
+
+Deploy that value first while the old JWT signer is still active, then
+inventory and rewrap legacy ciphertext from the backend directory:
+
+```sh
+.venv/bin/python scripts/rekey_totp_secrets.py
+.venv/bin/python scripts/rekey_totp_secrets.py --apply
+.venv/bin/python scripts/rekey_totp_secrets.py  # verification after --apply
+```
+
+For the production Compose image, the script is included at `/app/scripts`;
+after running the normal `config-guard` preflight, use the same mounted
+configuration:
+
+```sh
+docker compose --env-file /secure/goatfarm.production.env \
+  -f docker-compose.production.yml run --rm --no-deps backend \
+  python scripts/rekey_totp_secrets.py --apply
+```
+
+Proceed with the JWT cutover only after a successful `--apply` and a fresh
+verification run both reports `rekeyed=0` **and** `unavailable=0`. A dry run
+that finds rows requiring rekeying exits nonzero, so it cannot be mistaken for
+that cutover gate. The job locks finite batches, is safe to rerun, and rewraps
+legacy JWT-derived ciphertext (plus a previous stable TOTP key, if configured)
+into the current v2 envelope. Do not retain an old JWT private key in the
+long-running API merely for MFA recovery: the rekey job is the bounded
+migration window. If it reports unavailable rows, stop the JWT rotation,
+repair the ciphertext/key configuration, and rerun it.
+If an accidental JWT cutover has already stranded raw legacy rows, run an
+isolated one-off rekey job with a temporary copy of the production environment:
+mount the matching **pre-cutover** private *and* public PEM as that job's
+active `GOATFARM_JWT_PRIVATE_KEY_PATH` / `GOATFARM_JWT_PUBLIC_KEY_PATH`, and
+set `GOATFARM_JWT_PREVIOUS_PUBLIC_KEY_PATHS=[]`. Do not carry the normal
+post-cutover verification ring into that job: the old active public key would
+otherwise be listed twice, and the deliberately duplicate-key-safe validator
+will refuse it. Keep the same database URL and stable TOTP key, run `--apply`,
+then the clean verification check, and remove the old private key again.
+Never add it to the API's JWT keyring or keep it in API memory.
+
+Changing the TOTP key itself is also a two-phase replica rollout. First deploy
+the existing current key `K1` with the new key `K2` listed in
+`GOATFARM_TOTP_ENCRYPTION_PREVIOUS_KEYS` on *every* API replica; that lets old
+replicas decrypt future `K2` rows without writing them yet. Then switch every
+replica to current `K2` with `K1` in the previous-key array, apply the rekey,
+then verify `rekeyed=0` and `unavailable=0` before removing `K1`. Never switch
+the current key without that overlap.
+
 **Zero-downtime JWT key rotation:** every newly issued token carries a
 deterministic `kid` (the base64url SHA-256 fingerprint of its RSA public key).
 The API signs only with the active private key and verifies by `kid` against
@@ -560,9 +722,10 @@ checks that the active pair matches.
 Use a two-phase rollout so mixed old/new API instances can verify one another's
 tokens throughout a rolling deployment:
 
-1. Generate a new RSA pair at new secret paths; do not overwrite the running
-   pair in place. Keep the old private key secured for emergency rollback, but
-   never put a private-key path in the previous-key list.
+1. Complete the TOTP encryption migration above, then generate a new RSA pair
+   at new secret paths; do not overwrite the running pair in place. Keep an
+   old private key, if needed for deployment rollback, outside the running API
+   and never put a private-key path in the previous-key list.
 2. Pre-stage the new **public** key: keep the old pair active, add the new
    public path to `GOATFARM_JWT_PREVIOUS_PUBLIC_KEY_PATHS`, and roll/restart
    every instance. No instance signs with the new key yet, but every instance
@@ -652,6 +815,8 @@ infrastructure and record the wall-clock time — it is your real RTO.
 ```bash
 GOATFARM_DATABASE_URL='postgresql+asyncpg://user:pass@host/goatfarm' \
 GOATFARM_DB_SSLMODE=verify-full \
+# Set this too when the database uses a private CA:
+# GOATFARM_DB_SSLROOTCERT_PATH=/run/secrets/goatfarm-postgres-ca.pem \
 GOATFARM_ENVIRONMENT=production \
 GOATFARM_BACKUP_GPG_RECIPIENT='RECIPIENT_KEY_FINGERPRINT' \
 GOATFARM_BACKUP_GPG_SIGNER_FINGERPRINT='SIGNING_KEY_FINGERPRINT' \
@@ -659,8 +824,8 @@ GOATFARM_BACKUP_S3_URI='s3://company-backups/goatfarm' \
 ./backend/scripts/backup.sh /var/backups/goatfarm
 ```
 
-Both scripts read `GOATFARM_ENVIRONMENT` and `GOATFARM_DB_SSLMODE` — the two
-application settings that gate TLS and the signed/encrypted-artifact
+Both scripts read `GOATFARM_ENVIRONMENT`, `GOATFARM_DB_SSLMODE`, and an optional
+`GOATFARM_DB_SSLROOTCERT_PATH` — the application settings that gate TLS and the signed/encrypted-artifact
 requirement — from `backend/.env` when the job did not export them, so a host
 whose `.env` says `production` cannot be degraded to an unsigned plaintext dump
 by an incomplete cron environment. An explicit export still wins, which is why
@@ -729,6 +894,8 @@ the archive path as a positional argument.
 ```bash
 GOATFARM_RESTORE_CONFIRM=goatfarm_restore_test \
 GOATFARM_DB_SSLMODE=verify-full \
+# Set this too when the database uses a private CA:
+# GOATFARM_DB_SSLROOTCERT_PATH=/run/secrets/goatfarm-postgres-ca.pem \
 GOATFARM_ENVIRONMENT=production \
 GOATFARM_RESTORE_GPG_SIGNER_FINGERPRINT='SIGNING_KEY_FINGERPRINT' \
 ./backend/scripts/restore.sh /secure/goatfarm-2026-08-08.dump.gpg
@@ -903,7 +1070,7 @@ backend/
                      request IDs, /healthz + /readyz, prod-safety validation)
     core/config.py   Pydantic settings (GOATFARM_* env vars)
     db.py            Async engine/session (autoflush=False, pre-ping), Base
-    models/          34 tables, domain enums, computed properties — split per
+    models/          35 tables, domain enums, computed properties — split per
                      domain (enums, constants, core, animals, breeding, …)
     services/        All domain flows + state guards — split per domain
                      (animals, breeding, kidding, health, tasks, feeding,
@@ -966,9 +1133,10 @@ frontend/
   directly). Enrollment is opt-in but **strongly recommended for farm
   owners** — the owner is a god-mode account and a phished password alone
   must not be total compromise. Design notes: the shared secret is AES-GCM
-  encrypted at rest under a key derived from the JWT signing key (a DB dump
-  alone recovers nothing; rotating the JWT keypair requires re-enrollment);
-  codes are single-use per time step; the login challenge token is
+  encrypted at rest under an independent stable TOTP key (a DB dump alone
+  recovers nothing; follow the ordered stable-key → rekey → JWT-cutover
+  runbook above rather than re-enrolling active users); codes are single-use
+  per time step; the login challenge token is
   single-use, 5-minute, version-bound and throttled to 5 attempts/5 minutes
   per account. Because there is no recovery channel (see below), losing the
   authenticator means an owner-provisioned reset is impossible for the
@@ -1017,20 +1185,25 @@ for visible disease signs (orf lesions, pox, pinkeye, hoof infection, …).
 Healthy verdicts stop there — the cascade spends money only on photos with
 something to see.
 
-- **Upload layout**: `raw/<farm_id>/<YYYY-MM-DD>/<filename>` under the
-  configured bucket. The farm id and capture date ride the key itself.
+- **Upload registration**: the API chooses each
+  `raw/<farm>/<date>/<bucket>/…` key and persists a PENDING row before it
+  returns a presigned **POST** form. The S3 policy binds that exact key, a
+  per-row token, the declared JPEG/PNG type, and a 1-byte–25-MiB size range.
+  The worker processes registered rows only; direct raw-prefix writes are
+  deliberately ignored.
 - **Worker**: `screening-worker` compose service (same image as the API,
   `python -m app.worker`). Polls every
-  `GOATFARM_SCREENING_POLL_INTERVAL_SECONDS`, claims new keys (plus stale
-  PROCESSING rows and ERROR rows older than an hour), normalizes each photo
-  to a bounded derivative (EXIF stripped, longest edge
+  `GOATFARM_SCREENING_POLL_INTERVAL_SECONDS`, claims registered rows fairly
+  across farms (plus retry-eligible PROCESSING/ERROR rows), normalizes each
+  photo to a bounded derivative (EXIF stripped, longest edge
   `GOATFARM_SCREENING_IMAGE_MAX_EDGE_PX`), skips byte-identical duplicates,
   and runs the gate model. Everything is farm-scoped and per-image
   committed, so one bad photo never blocks the batch. Claims commit
   durably under `FOR UPDATE SKIP LOCKED` (two workers can never double-
-  screen a photo), and PENDING upload rows whose presigned URL expired
-  (plus an hour of slack) are swept to SKIPPED so an abandoned walkthrough
-  cannot occupy the cycle budget forever.
+  screen a photo), and PENDING rows whose forms expire are swept in bounded
+  batches so an abandoned walkthrough cannot occupy the queue forever. Its
+  heartbeat health check turns a live-but-failing worker unhealthy after
+  `GOATFARM_SCREENING_WORKER_HEALTH_MAX_AGE_SECONDS`.
 - **Providers**: `GOATFARM_SCREENING_PROVIDER=anthropic` (Messages API) or
   `openai_compatible` (GLM / GPT / any OpenAI-shaped endpoint). Both answer
   the identical prompt + JSON contract (`app/services/screening/gate.py`).
@@ -1046,6 +1219,34 @@ something to see.
 The three audit tables (`screening_images`, `screening_runs`,
 `screening_findings`) record provider, model, prompt version and confidence
 per call — the corpus later fine-tuning builds on.
+
+**Bucket CORS is a separate deployment requirement.** CSP permits the browser
+to contact the configured object-store origin; it does not make S3 accept a
+cross-origin presigned POST. Configure the bucket (or equivalent MinIO CORS
+policy) to answer preflights for the exact public app origin; the
+`AllowedOrigins` value must never be `*`. For
+example, an AWS S3 bucket used by `https://app.example.com` can use:
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://app.example.com"],
+    "AllowedMethods": ["POST", "GET", "HEAD"],
+    "AllowedHeaders": ["*"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 300
+  }
+]
+```
+
+`AllowedHeaders: ["*"]` above is intentional: the S3 form uses provider
+signed fields whose names can change. It does not widen which websites may
+make the request—the exact `AllowedOrigins` list enforces that boundary.
+
+For AWS S3 with `GOATFARM_S3_ENDPOINT_URL` unset, presigned URLs use the
+regional virtual-host origin `https://<bucket>.s3.<region>.amazonaws.com`;
+set both runtime CSP origin lists to that same origin. Keep the CORS allowlist
+to the public SPA origin, even when the CSP list names the bucket origin.
 
 ## Disease screening Phase 2: rotation, specialists, vet review
 
@@ -1108,15 +1309,19 @@ training corpus**.
 The "Disease check" button on the Photo screening page runs the whole
 on-farm capture loop with **no AWS credentials on any device**:
 
-1. **Start**: the dialog creates a batch (`POST /api/screening/batches`) —
-   one "walkthrough" of the farm.
+1. **Start**: the dialog lets the worker choose a herd bucket. It creates a
+   batch lazily on the first upload, so opening and abandoning a walkthrough
+   leaves no empty batch behind.
 2. **Per pen**: the worker picks a herd bucket (the same pens as the
   _buckets_ module), takes a photo (`capture="environment"` opens the
-   camera), and taps upload per photo. The app requests a presigned PUT
-   (`POST /api/screening/uploads`) — the server builds the key
+   camera), and taps upload per photo. The app creates the batch and requests
+   a constrained presigned POST form (`POST /api/screening/uploads`) — the
+   server builds the key
    `raw/<farm>/<date>/<bucket>/<batch>-<id>.jpg` and pre-creates the
-   PENDING image row — then PUTs the bytes **straight to S3** (signed
-   content-type, ≤ the presign expiry). The API never proxies photo bytes.
+   PENDING image row. The browser appends every returned `upload_fields`
+   entry and then the `file` as multipart form data sent **straight to S3**.
+   The API never proxies photo bytes; S3 enforces the declared JPEG/PNG type,
+   row token, and 25-MiB maximum.
 3. **Finish & process**: `POST /api/screening/batches/{id}/submit` locks
    the batch; the worker's next cycle claims the PENDING rows (an object
    that has not landed yet is quietly re-checked next cycle, never an
@@ -1126,6 +1331,7 @@ on-farm capture loop with **no AWS credentials on any device**:
 
 Operational guidance (≥10 clear photos per bucket) is surfaced in the UI
 rather than hard-enforced — small pens legitimately have fewer goats.
-Direct S3 uploads still work: keys with a bucket segment
-(`raw/<farm>/<date>/<QUARANTINE>/x.jpg`) are parsed; legacy keys keep
-screening as whole-farm photos.
+The API rejects queue amplification above 5 open batches, 100 photos in one
+batch, or 250 in-flight PENDING/PROCESSING/ERROR images for a farm. Raw S3
+writes that did not originate from this registration flow remain stored but
+are never scheduled for screening.

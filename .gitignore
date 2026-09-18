@@ -15,6 +15,7 @@ node_modules/
 out/
 coverage/
 .coverage
+coverage.xml
 playwright-report/
 test-results/
 

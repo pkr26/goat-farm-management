@@ -15,18 +15,23 @@ Aggregation numbers are hand-computed from fixtures built through the API
 (with direct-DB rows only where no writer exists, e.g. a voided ledger row).
 """
 
+import asyncio
 from datetime import timedelta
 from decimal import Decimal
 
 import httpx
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy import update as sa_update
 
 from app.api.dashboard import INSURANCE_EXPIRING_WINDOW_DAYS
-from app.db import get_sessionmaker
-from app.models import InsurancePolicy, Task, Transaction
-from app.services.finance import MAX_RENEWAL_SPAN_DAYS
+from app.db import get_engine, get_sessionmaker
+from app.models import Animal, AnimalStatus, Farm, InsurancePolicy, Task, Transaction
+from app.services.finance import (
+    MAX_RENEWAL_SPAN_DAYS,
+    claim_insurance_policy,
+    lapse_policies_for_animal,
+)
 from app.utils import today, utcnow
 
 from .conftest import create_farm, owner_with_farm, register
@@ -300,7 +305,7 @@ async def test_renew_moves_horizon_forward_and_respawns_duty(
     renewed = await client.post(
         f"/api/finance/insurance/{policy_id}/renew",
         json={"renewal_date": iso(new_renewal), "premium": 500.0},
-        headers=owner,
+        headers=owner | {"Idempotency-Key": "insurance-renewal-retry-1"},
     )
     assert renewed.status_code == 200, renewed.text
     body = renewed.json()
@@ -319,16 +324,35 @@ async def test_renew_moves_horizon_forward_and_respawns_duty(
     assert all(d.animal_id == animal["id"] for d in duties)
     assert all(d.title == "Insurance renewal due: policy POL-X" for d in duties)
 
-    # Renewing to the same date is allowed (>= the current horizon); the
-    # horizon is still in the future, so the operator's re-confirmation
-    # queues its own duty.
+    # Replaying the committed request is a true idempotent response: no
+    # second premium or renewal duty is minted.
+    replay = await client.post(
+        f"/api/finance/insurance/{policy_id}/renew",
+        json={"renewal_date": iso(new_renewal), "premium": 500.0},
+        headers=owner | {"Idempotency-Key": "insurance-renewal-retry-1"},
+    )
+    assert replay.status_code == 200, replay.text
+    assert replay.headers["idempotency-replayed"] == "true"
+
+    # A keyless exact replay is also harmless: the equal horizon is a no-op
+    # only when it leaves price and lifecycle state intact.
     same_day = await client.post(
         f"/api/finance/insurance/{policy_id}/renew",
-        json={"renewal_date": iso(new_renewal)},
+        json={"renewal_date": iso(new_renewal), "premium": 500.0},
         headers=owner,
     )
     assert same_day.status_code == 200
-    assert len(await insurance_tasks(farm_id)) == 3
+    assert len(await insurance_tasks(farm_id)) == 2
+
+    # An equal-date request may never rewrite the current premium. It must
+    # extend a real new period to make a financial change.
+    rewritten_price = await client.post(
+        f"/api/finance/insurance/{policy_id}/renew",
+        json={"renewal_date": iso(new_renewal), "premium": 550.0},
+        headers=owner,
+    )
+    assert rewritten_price.status_code == 422, rewritten_price.text
+    assert len(await insurance_tasks(farm_id)) == 2
 
     unknown = await client.post(
         "/api/finance/insurance/999999999/renew",
@@ -725,6 +749,26 @@ async def test_renewal_books_premium_history_and_pnl_sums_payments(
     assert pnl.status_code == 200, pnl.text
     assert pnl.json()["insurance_premiums"] == 950.0
 
+    # Farm-level figures include the same immutable payments rather than
+    # silently understating expenses because premiums sit outside transactions.
+    summary = await get_finance(client, owner)
+    assert summary["total_expense"] == 950.0
+    current_month = iso(today())[:7]
+    month = next(row for row in summary["pnl"] if row["month"] == current_month)
+    assert month["expense"] == 950.0
+    assert month["categories"]["INSURANCE"] == {"income": 0.0, "expense": 950.0}
+
+    # The history endpoint exposes every payment's actor/date facts without
+    # forcing a financial viewer to inspect database rows directly.
+    history = await client.get(f"/api/finance/insurance/{policy_id}/history", headers=owner)
+    assert history.status_code == 200, history.text
+    history_body = history.json()
+    assert history_body["policy"]["id"] == policy_id
+    assert history_body["policy"]["claim_date"] is None
+    assert [entry["premium"] for entry in history_body["premiums"]] == [450.0, 500.0]
+    assert all(entry["recorded_on"] == iso(today()) for entry in history_body["premiums"])
+    assert all(entry["recorded_by_id"] is not None for entry in history_body["premiums"])
+
 
 async def test_claim_endpoint_is_terminal_and_single_shot(
     client: httpx.AsyncClient,
@@ -741,7 +785,16 @@ async def test_claim_endpoint_is_terminal_and_single_shot(
         headers=owner,
     )
     assert claimed.status_code == 200, claimed.text
-    assert claimed.json()["status"] == "claimed"
+    claimed_body = claimed.json()
+    assert claimed_body["status"] == "claimed"
+    assert claimed_body["claim_date"] == iso(today())
+    assert claimed_body["claimed_at"] is not None
+    assert claimed_body["claimed_by_id"] is not None
+
+    history = await client.get(f"/api/finance/insurance/{policy_id}/history", headers=owner)
+    assert history.status_code == 200, history.text
+    assert history.json()["policy"]["claim_date"] == iso(today())
+    assert history.json()["policy"]["claimed_by_id"] == claimed_body["claimed_by_id"]
 
     again = await client.post(
         f"/api/finance/insurance/{policy_id}/claim",
@@ -769,6 +822,34 @@ async def test_claim_endpoint_is_terminal_and_single_shot(
         headers=owner,
     )
     assert too_early.status_code == 422, too_early.text
+
+
+async def test_claim_date_uses_the_farm_business_calendar(
+    client: httpx.AsyncClient,
+) -> None:
+    """A global/IST input validator must not admit tomorrow for this farm."""
+    owner = await owner_with_farm(client, email="ins-claim-timezone@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+    created = await add_policy(client, owner, policy_number="POL-CLAIM-TZ")
+    assert created.status_code == 201, created.text
+
+    async with get_sessionmaker()() as db:
+        farm = await db.get(Farm, farm_id, with_for_update=True)
+        assert farm is not None
+        farm.timezone = "Pacific/Pago_Pago"
+        await db.commit()
+
+    # Pago Pago is never ahead of Asia/Kolkata by more than a calendar day,
+    # so this clears the global schema's one-day headroom but is tomorrow for
+    # this farm's actual business calendar.
+    future_for_farm = today("Pacific/Pago_Pago") + timedelta(days=1)
+    refused = await client.post(
+        f"/api/finance/insurance/{created.json()['id']}/claim",
+        json={"claim_date": iso(future_for_farm)},
+        headers=owner,
+    )
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["detail"] == "claim date cannot be in the future for this farm"
 
 
 async def test_claimed_policy_cannot_be_renewed_or_reclaimed(
@@ -867,6 +948,121 @@ async def test_animal_exit_lapses_active_cover_and_blocks_renewal(
     refused = await add_policy(client, owner, policy_number="POL-L-3", animal_id=animal["id"])
     assert refused.status_code == 422, refused.text
     assert "left the herd" in refused.json()["detail"]
+
+
+async def test_concurrent_claim_and_animal_exit_preserve_terminal_claim_metadata(
+    client: httpx.AsyncClient,
+) -> None:
+    """An exit must serialize with a claim rather than lapse a claimed row.
+
+    Hold the claim transaction after its flush (and therefore its policy lock),
+    then run the animal-exit lapse path in a separate session. PostgreSQL must
+    recheck the active-policy predicate after the lock wait: the exit commits
+    cleanly while the policy retains its complete terminal claim fact.
+    """
+    owner = await owner_with_farm(client, email="ins-exit-claim-race@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+    animal_data = await make_animal(
+        client,
+        owner,
+        tag="INS-RACE-1",
+        sex="M",
+        date_of_birth=iso(today() - timedelta(days=400)),
+    )
+    created = await add_policy(
+        client,
+        owner,
+        policy_number="POL-EXIT-CLAIM-RACE",
+        animal_id=animal_data["id"],
+    )
+    assert created.status_code == 201, created.text
+    policy_id = int(created.json()["id"])
+    claim_flushed = asyncio.Event()
+    release_claim = asyncio.Event()
+    exit_policy_query_started = asyncio.Event()
+
+    async def hold_claim_lock() -> None:
+        async with get_sessionmaker()() as db:
+            farm = await db.get(Farm, farm_id)
+            policy = (
+                await db.execute(
+                    select(InsurancePolicy)
+                    .where(InsurancePolicy.id == policy_id, InsurancePolicy.farm_id == farm_id)
+                    .with_for_update()
+                )
+            ).scalar_one()
+            assert farm is not None
+            assert policy.created_by_id is not None
+            await claim_insurance_policy(
+                db,
+                farm,
+                policy,
+                claim_date=today(farm.timezone),
+                claimed_by_id=policy.created_by_id,
+            )
+            claim_flushed.set()
+            await release_claim.wait()
+            await db.commit()
+
+    async def exit_animal() -> None:
+        async with get_sessionmaker()() as db:
+            farm = await db.get(Farm, farm_id)
+            animal = (
+                await db.execute(
+                    select(Animal)
+                    .where(Animal.id == animal_data["id"], Animal.farm_id == farm_id)
+                    .with_for_update()
+                )
+            ).scalar_one()
+            assert farm is not None
+            animal.status = AnimalStatus.CULLED.value
+            animal.status_date = today(farm.timezone)
+            await lapse_policies_for_animal(db, farm, animal)
+            await db.commit()
+
+    loop = asyncio.get_running_loop()
+
+    def observe_exit_policy_query(
+        _conn: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: object,
+    ) -> None:
+        if "FROM insurance_policies" in statement:
+            loop.call_soon_threadsafe(exit_policy_query_started.set)
+
+    claim_task = asyncio.create_task(hold_claim_lock())
+    await asyncio.wait_for(claim_flushed.wait(), timeout=5)
+    engine = get_engine().sync_engine
+    event.listen(engine, "before_cursor_execute", observe_exit_policy_query)
+    exit_task: asyncio.Task[None] | None = None
+    try:
+        exit_task = asyncio.create_task(exit_animal())
+        # The query has left the exit session while the claim still owns the
+        # policy. With the row lock in lapse_policies_for_animal it waits and
+        # rechecks status after the claim commits; without it this is the
+        # stale read that later violates the claim-metadata CHECK.
+        await asyncio.wait_for(exit_policy_query_started.wait(), timeout=5)
+        release_claim.set()
+        await asyncio.wait_for(claim_task, timeout=5)
+        await asyncio.wait_for(exit_task, timeout=5)
+    finally:
+        release_claim.set()
+        event.remove(engine, "before_cursor_execute", observe_exit_policy_query)
+        if not claim_task.done():
+            await asyncio.gather(claim_task, return_exceptions=True)
+        if exit_task is not None and not exit_task.done():
+            await asyncio.gather(exit_task, return_exceptions=True)
+
+    async with get_sessionmaker()() as db:
+        policy = await db.get(InsurancePolicy, policy_id)
+        assert policy is not None
+        assert policy.status == "claimed"
+        assert policy.claim_date is not None
+        assert policy.claimed_at is not None
+        assert policy.claimed_by_id is not None
 
 
 # ---------------------------------------------------------------------------

@@ -4,26 +4,78 @@ encryption of the shared secret."""
 
 import base64
 import hashlib
+import json
+import runpy
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import httpx
 import pytest
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from sqlalchemy import select
 
+from app import security
 from app.core.config import get_settings
 from app.db import get_sessionmaker
 from app.models import User
 from app.ratelimit import auth_limiter
 from app.security import (
+    TOTP_ENVELOPE_PREFIX,
+    TOTP_LEGACY_AAD,
     TOTP_STEP_SECONDS,
     _totp_code_for_step,
     decrypt_totp_secret,
+    decrypt_totp_secret_with_metadata,
+    encrypt_totp_secret,
     generate_totp_secret_b32,
     verify_totp_code,
 )
 
 from .conftest import OWNER_PW, owner_with_farm, register
+
+TEST_TOTP_KEY = "VFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFQ"
+TEST_TOTP_PREVIOUS_KEY = "UFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFA"
+
+
+def test_rekey_dry_run_with_outstanding_rows_is_not_a_cutover_success(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A counted raw row must never look like a successful JWT-cutover gate."""
+    script = Path(__file__).resolve().parents[1] / "scripts" / "rekey_totp_secrets.py"
+    namespace = runpy.run_path(str(script), run_name="rekey_totp_test")
+    totals = namespace["RekeyTotals"](scanned=3, rekeyed=2, unchanged=1)
+
+    def fake_run(coroutine: Any) -> object:
+        coroutine.close()
+        return totals
+
+    module_globals = namespace["main"].__globals__
+    monkeypatch.setitem(
+        module_globals, "_parse_args", lambda: SimpleNamespace(apply=False, batch_size=250)
+    )
+    monkeypatch.setitem(module_globals, "asyncio", SimpleNamespace(run=fake_run))
+
+    assert namespace["main"]() == 2
+    captured = capsys.readouterr()
+    assert "rekeyed=2" in captured.out
+    assert "Do not rotate or retire the active JWT signer" in captured.err
+
+
+def test_rekey_totals_keep_unavailable_diagnostics_bounded() -> None:
+    """A large broken population must not defeat the script's batch bound."""
+    script = Path(__file__).resolve().parents[1] / "scripts" / "rekey_totp_secrets.py"
+    namespace = runpy.run_path(str(script), run_name="rekey_totp_totals_test")
+    totals = namespace["RekeyTotals"]()
+    preview_limit = namespace["UNAVAILABLE_PREVIEW_LIMIT"]
+
+    for user_id in range(preview_limit + 7):
+        totals.record_unavailable(user_id)
+
+    assert totals.unavailable_count == preview_limit + 7
+    assert totals.unavailable_preview_ids == list(range(preview_limit))
 
 
 @pytest.fixture(autouse=True)
@@ -39,6 +91,25 @@ def _fresh_totp_rate_limits() -> Iterator[None]:
     auth_limiter.clear()
     yield
     auth_limiter.clear()
+
+
+@pytest.fixture
+def stable_totp_key(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Use a fresh stable-key Settings snapshot without leaking it to tests."""
+    monkeypatch.setenv("GOATFARM_TOTP_ENCRYPTION_KEY", TEST_TOTP_KEY)
+    monkeypatch.delenv("GOATFARM_TOTP_ENCRYPTION_PREVIOUS_KEYS", raising=False)
+    get_settings.cache_clear()
+    security._reset_totp_key_cache_for_tests()
+    yield
+    security._reset_totp_key_cache_for_tests()
+    get_settings.cache_clear()
+
+
+def _legacy_ciphertext(secret: str) -> bytes:
+    nonce = b"\x00" * 12
+    return nonce + AESGCM(security._legacy_totp_encryption_key()).encrypt(
+        nonce, secret.encode("ascii"), TOTP_LEGACY_AAD
+    )
 
 
 def _current_code(secret_b32: str, *, drift: int = 0) -> tuple[str, int]:
@@ -74,6 +145,59 @@ async def test_totp_unit_engine_roundtrip_and_replay_rejection() -> None:
         assert verify_totp_code(secret, bad, at=datetime.now(UTC), last_used_step=None) is None
 
 
+def test_stable_totp_ciphertext_is_versioned_and_round_trips(stable_totp_key: None) -> None:
+    secret = generate_totp_secret_b32()
+    encrypted = encrypt_totp_secret(secret)
+
+    assert encrypted.startswith(TOTP_ENVELOPE_PREFIX)
+    decoded = decrypt_totp_secret_with_metadata(encrypted)
+    assert decoded.secret == secret
+    assert decoded.needs_rewrap is False
+
+
+def test_legacy_totp_ciphertext_rewraps_after_stable_key_is_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pre-v2 row needs no old JWT private key beyond this migration window."""
+    monkeypatch.delenv("GOATFARM_TOTP_ENCRYPTION_KEY", raising=False)
+    monkeypatch.delenv("GOATFARM_TOTP_ENCRYPTION_PREVIOUS_KEYS", raising=False)
+    get_settings.cache_clear()
+    security._reset_totp_key_cache_for_tests()
+    secret = generate_totp_secret_b32()
+    legacy = _legacy_ciphertext(secret)
+
+    monkeypatch.setenv("GOATFARM_TOTP_ENCRYPTION_KEY", TEST_TOTP_KEY)
+    get_settings.cache_clear()
+    decoded = decrypt_totp_secret_with_metadata(legacy)
+    assert decoded.secret == secret
+    assert decoded.needs_rewrap is True
+
+    rewrapped = encrypt_totp_secret(decoded.secret)
+    assert rewrapped.startswith(TOTP_ENVELOPE_PREFIX)
+    assert decrypt_totp_secret_with_metadata(rewrapped).needs_rewrap is False
+    security._reset_totp_key_cache_for_tests()
+    get_settings.cache_clear()
+
+
+def test_previous_stable_totp_key_decrypts_then_marks_for_rewrap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GOATFARM_TOTP_ENCRYPTION_KEY", TEST_TOTP_KEY)
+    monkeypatch.delenv("GOATFARM_TOTP_ENCRYPTION_PREVIOUS_KEYS", raising=False)
+    get_settings.cache_clear()
+    secret = generate_totp_secret_b32()
+    old_ciphertext = encrypt_totp_secret(secret)
+
+    monkeypatch.setenv("GOATFARM_TOTP_ENCRYPTION_KEY", TEST_TOTP_PREVIOUS_KEY)
+    monkeypatch.setenv("GOATFARM_TOTP_ENCRYPTION_PREVIOUS_KEYS", json.dumps([TEST_TOTP_KEY]))
+    get_settings.cache_clear()
+    decoded = decrypt_totp_secret_with_metadata(old_ciphertext)
+    assert decoded.secret == secret
+    assert decoded.needs_rewrap is True
+    security._reset_totp_key_cache_for_tests()
+    get_settings.cache_clear()
+
+
 async def test_totp_secret_is_encrypted_at_rest(
     client: httpx.AsyncClient,
 ) -> None:
@@ -92,6 +216,68 @@ async def test_totp_secret_is_encrypted_at_rest(
         # (the property the previous line's tautological self-comparison
         # intended to pin — 2026-09-17 audit L-30).
         assert stored != hashlib.sha256(secret.encode()).digest()
+
+
+async def test_successful_challenge_lazily_rewraps_legacy_totp_ciphertext(
+    client: httpx.AsyncClient,
+    stable_totp_key: None,
+) -> None:
+    headers = await register(client, "totp-lazy-rekey@farm.in")
+    secret = await _enroll_and_activate(client, headers)
+    async with get_sessionmaker()() as db:
+        row = (
+            await db.execute(select(User).where(User.email == "totp-lazy-rekey@farm.in"))
+        ).scalar_one()
+        row.totp_secret_enc = _legacy_ciphertext(secret)
+        await db.commit()
+
+    login = await client.post(
+        "/api/auth/login",
+        json={"email": "totp-lazy-rekey@farm.in", "password": OWNER_PW},
+    )
+    assert login.status_code == 200, login.text
+    code, _step = _current_code(secret, drift=1)
+    challenge = await client.post(
+        "/api/auth/totp/challenge",
+        json={"mfa_token": login.json()["mfa_token"], "code": code},
+    )
+    assert challenge.status_code == 200, challenge.text
+
+    async with get_sessionmaker()() as db:
+        row = (
+            await db.execute(select(User).where(User.email == "totp-lazy-rekey@farm.in"))
+        ).scalar_one()
+        assert bytes(row.totp_secret_enc).startswith(TOTP_ENVELOPE_PREFIX)
+        assert decrypt_totp_secret_with_metadata(bytes(row.totp_secret_enc)).needs_rewrap is False
+
+
+async def test_undecryptable_totp_secret_fails_closed_without_500(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await register(client, "totp-unavailable@farm.in")
+    await _enroll_and_activate(client, headers)
+    async with get_sessionmaker()() as db:
+        row = (
+            await db.execute(select(User).where(User.email == "totp-unavailable@farm.in"))
+        ).scalar_one()
+        # Correct framing but an invalid AEAD tag exercises the operational
+        # failure path rather than the request schema boundary.
+        row.totp_secret_enc = b"\x00" * 12 + b"\x00" * 16
+        await db.commit()
+
+    login = await client.post(
+        "/api/auth/login",
+        json={"email": "totp-unavailable@farm.in", "password": OWNER_PW},
+    )
+    assert login.status_code == 200, login.text
+    challenge = await client.post(
+        "/api/auth/totp/challenge",
+        json={"mfa_token": login.json()["mfa_token"], "code": "000000"},
+    )
+    assert challenge.status_code == 503
+    assert challenge.json()["detail"] == (
+        "Two-factor authentication is temporarily unavailable. Contact an administrator."
+    )
 
 
 async def test_full_totp_login_challenge_flow(client: httpx.AsyncClient) -> None:

@@ -70,6 +70,11 @@ describe("formatDate", () => {
     expect(formatDate("2026-02-14T10:30:00")).toBe("14 Feb 2026");
   });
 
+  it("renders valid years before 0100 instead of treating them as 1900s", () => {
+    expect(formatDate("0001-02-03")).toBe("3 Feb 1");
+    expect(formatDate("0099-12-31")).toBe("31 Dec 99");
+  });
+
   it("renders an em dash for empty or invalid input", () => {
     expect(formatDate(null)).toBe("—");
     expect(formatDate(undefined)).toBe("—");

@@ -205,9 +205,7 @@ INJ3_CASES: list[tuple[str, str]] = [
 
 
 @pytest.mark.parametrize(("label", "bad"), INJ3_CASES, ids=[c[0] for c in INJ3_CASES])
-def test_postgres_text_rejects_invisible_and_directional_characters(
-    label: str, bad: str
-) -> None:
+def test_postgres_text_rejects_invisible_and_directional_characters(label: str, bad: str) -> None:
     schema, builder, _field = SCHEMA_CASES[0]  # AnimalCreateIn via its builder
     with pytest.raises(ValidationError, match="directional"):
         schema.model_validate(builder(bad))

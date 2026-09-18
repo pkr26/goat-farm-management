@@ -7,6 +7,8 @@ failure behavior.
 
 from __future__ import annotations
 
+import ast
+import asyncio
 import errno
 import hashlib
 import ipaddress
@@ -25,8 +27,16 @@ import pytest
 import yaml
 from sqlalchemy.engine import make_url
 
-from app.core.config import Settings
-from scripts import backup_legacy_lock, dotenv_value, healthcheck, pinned_copy
+from app.core.config import ScreeningWorkerSettings, Settings
+from app.worker import _await_cycle_with_heartbeats
+from app.worker.heartbeat import write_heartbeat
+from scripts import (
+    backup_legacy_lock,
+    dotenv_value,
+    healthcheck,
+    pinned_copy,
+    screening_worker_healthcheck,
+)
 
 from .conftest import _admin_sql
 
@@ -1562,9 +1572,18 @@ def test_backend_container_separates_migration_and_readiness() -> None:
     dockerfile = (REPO_ROOT / "Dockerfile").read_text()
     dockerignore = (REPO_ROOT / ".dockerignore").read_text()
     assert "COPY backend/scripts/healthcheck.py ./healthcheck.py" in dockerfile
+    assert (
+        "COPY backend/scripts/screening_worker_healthcheck.py ./screening_worker_healthcheck.py"
+        in dockerfile
+    )
     assert "CMD python healthcheck.py" in dockerfile
     assert "backend/scripts/*" in dockerignore
     assert "!backend/scripts/healthcheck.py" in dockerignore
+    assert "!backend/scripts/screening_worker_healthcheck.py" in dockerignore
+    assert "!backend/scripts/rekey_totp_secrets.py" in dockerignore
+    assert (
+        "COPY backend/scripts/rekey_totp_secrets.py ./scripts/rekey_totp_secrets.py" in dockerfile
+    )
     assert '"--no-proxy-headers"' in dockerfile
     assert '"--no-server-header"' in dockerfile
     assert "alembic upgrade head &&" not in dockerfile
@@ -1580,6 +1599,8 @@ def test_backend_container_separates_migration_and_readiness() -> None:
         "GOATFARM_MIN_PASSWORD_LENGTH",
         "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET",
         "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS",
+        "GOATFARM_TOTP_ENCRYPTION_KEY",
+        "GOATFARM_TOTP_ENCRYPTION_PREVIOUS_KEYS",
         "GOATFARM_TRUSTED_PROXY_HOSTS",
     ):
         assert setting in compose
@@ -1588,6 +1609,27 @@ def test_backend_container_separates_migration_and_readiness() -> None:
     assert db_probe[0] == "CMD-SHELL"
     assert "pg_isready -h 127.0.0.1" in db_probe[1]
     assert parsed_compose["services"]["backend"]["stop_grace_period"] == "40s"
+
+    # The polling worker is deliberately given only database, object-store,
+    # and provider credentials: it must not receive API cookie/JWT/HMAC
+    # material merely to process a photo. Its healthcheck observes a durable
+    # successful-cycle heartbeat rather than Python process liveness.
+    worker = parsed_compose["services"]["screening-worker"]
+    worker_env = worker["environment"]
+    assert worker["healthcheck"]["test"] == ["CMD", "python", "screening_worker_healthcheck.py"]
+    assert worker["healthcheck"]["interval"] == "30s"
+    assert worker_env["GOATFARM_SCREENING_WORKER_HEARTBEAT_PATH"]
+    assert worker_env["GOATFARM_SCREENING_WORKER_HEALTH_MAX_AGE_SECONDS"]
+    assert worker_env["GOATFARM_SCREENING_WORKER_MAX_CONSECUTIVE_CYCLE_FAILURES"]
+    for api_only_setting in (
+        "GOATFARM_COOKIE_SECURE",
+        "GOATFARM_CORS_ORIGINS",
+        "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET",
+        "GOATFARM_JWT_PRIVATE_KEY_PATH",
+        "GOATFARM_TOTP_ENCRYPTION_KEY",
+        "GOATFARM_TOTP_ENCRYPTION_PREVIOUS_KEYS",
+    ):
+        assert api_only_setting not in worker_env
 
     # Next's external rewrite sets changeOrigin, so the upstream Host is the
     # BACKEND_URL hostname. The Compose default must admit that internal name;
@@ -1599,6 +1641,246 @@ def test_backend_container_separates_migration_and_readiness() -> None:
     backend_url = backend_line.split("BACKEND_URL:", 1)[1].strip()
     backend_host = backend_url.split("://", 1)[1].split(":", 1)[0]
     assert backend_host in json.loads(allowed_defaults)
+
+
+def test_screening_worker_settings_need_no_api_secrets() -> None:
+    """The worker projection must remain independently bootable in production."""
+    settings = ScreeningWorkerSettings(
+        environment="production",
+        database_url="postgresql+asyncpg://worker:worker@db/goatfarm",
+        db_sslmode="verify-full",
+        screening_enabled=True,
+        s3_bucket="screening",
+        s3_access_key_id="worker-access-key",
+        s3_secret_access_key="worker-secret-key",
+        screening_anthropic_api_key="provider-key",
+    )
+
+    assert settings.screening_enabled is True
+    assert settings.screening_worker_max_consecutive_cycle_failures == 3
+    worker_fields = set(ScreeningWorkerSettings.model_fields)
+    assert not worker_fields.intersection(
+        {
+            "cookie_secure",
+            "cors_origins",
+            "idempotency_request_hmac_secret",
+            "jwt_private_key_path",
+        }
+    )
+
+
+def test_screening_worker_healthcheck_requires_a_fresh_successful_heartbeat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    heartbeat_path = tmp_path / "worker-heartbeat.json"
+    monkeypatch.setenv("GOATFARM_SCREENING_WORKER_HEARTBEAT_PATH", str(heartbeat_path))
+    monkeypatch.setenv("GOATFARM_SCREENING_WORKER_HEALTH_MAX_AGE_SECONDS", "60")
+    monkeypatch.setenv("GOATFARM_SCREENING_ENABLED", "true")
+
+    write_heartbeat(heartbeat_path, "ok")
+    screening_worker_healthcheck.main()
+    assert heartbeat_path.stat().st_mode & 0o777 == 0o600
+
+    # A large but progressing batch renews a working lease before its final
+    # successful-cycle state; it remains healthy rather than flapping.
+    write_heartbeat(heartbeat_path, "working")
+    screening_worker_healthcheck.main()
+
+    heartbeat_path.write_text(json.dumps({"status": "error", "updated_at": time.time()}))
+    with pytest.raises(SystemExit, match="unhealthy state"):
+        screening_worker_healthcheck.main()
+
+    # The stdlib parser accepts NaN despite JSON's grammar. It must not bypass
+    # stale-age comparisons (both comparisons against NaN return false).
+    heartbeat_path.write_text('{"status":"ok","updated_at":NaN}')
+    with pytest.raises(SystemExit, match="non-finite"):
+        screening_worker_healthcheck.main()
+
+    monkeypatch.setenv("GOATFARM_SCREENING_ENABLED", "false")
+    heartbeat_path.write_text(json.dumps({"status": "disabled", "updated_at": time.time()}))
+    screening_worker_healthcheck.main()
+
+
+def test_screening_worker_heartbeat_replaces_a_symlink_without_following_it(tmp_path: Path) -> None:
+    """The public target may be replaced atomically but must never be opened.
+
+    This models stale/malicious filesystem state left before worker boot. The
+    heartbeat has no reason to follow it: the writer must replace the link
+    with its own private same-directory inode and preserve the link target.
+    """
+    heartbeat_path = tmp_path / "worker-heartbeat.json"
+    victim = tmp_path / "unrelated.txt"
+    victim.write_text("leave me alone", encoding="utf-8")
+    heartbeat_path.symlink_to(victim)
+
+    write_heartbeat(heartbeat_path, "ok")
+
+    assert victim.read_text(encoding="utf-8") == "leave me alone"
+    assert heartbeat_path.is_symlink() is False
+    assert json.loads(heartbeat_path.read_text(encoding="utf-8"))["status"] == "ok"
+    assert heartbeat_path.stat().st_mode & 0o777 == 0o600
+    assert not list(tmp_path.glob(".worker-heartbeat.json.*.tmp"))
+
+
+@pytest.mark.asyncio
+async def test_screening_worker_renews_heartbeat_during_a_long_cycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A valid provider batch must not become unhealthy before it completes."""
+    from app import worker
+    from app.services.screening import CycleSummary
+
+    settings = ScreeningWorkerSettings(
+        screening_poll_interval_seconds=30,
+        screening_worker_health_max_age_seconds=60,
+    )
+    heartbeats: list[str] = []
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def cycle() -> CycleSummary:
+        entered.set()
+        await release.wait()
+        return CycleSummary()
+
+    monkeypatch.setattr(worker, "_working_heartbeat_interval_seconds", lambda _settings: 0.001)
+    monkeypatch.setattr(
+        worker, "_publish_heartbeat", lambda _settings, status: heartbeats.append(status)
+    )
+    waiter = asyncio.create_task(_await_cycle_with_heartbeats(cycle(), settings, asyncio.Event()))
+    await entered.wait()
+    await asyncio.sleep(0.01)
+    release.set()
+    assert await waiter == CycleSummary()
+    assert heartbeats.count("working") >= 2
+
+
+@pytest.mark.asyncio
+async def test_screening_worker_cancels_an_active_cycle_on_shutdown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SIGTERM must not wait for a full provider batch before exiting."""
+    from app import worker
+    from app.services.screening import CycleSummary
+
+    settings = ScreeningWorkerSettings(
+        screening_poll_interval_seconds=30,
+        screening_worker_health_max_age_seconds=60,
+    )
+    entered = asyncio.Event()
+    cancelled = asyncio.Event()
+    stop = asyncio.Event()
+
+    async def cycle() -> CycleSummary:
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+        raise AssertionError("the shutdown test cycle should be cancelled")
+
+    monkeypatch.setattr(worker, "_publish_heartbeat", lambda _settings, _status: None)
+    waiter = asyncio.create_task(_await_cycle_with_heartbeats(cycle(), settings, stop))
+    await entered.wait()
+    stop.set()
+    assert await asyncio.wait_for(waiter, timeout=0.5) is None
+    assert cancelled.is_set()
+
+
+@pytest.mark.asyncio
+async def test_screening_worker_restarts_after_only_consecutive_cycle_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A successful cycle clears the crash streak before the next failure."""
+    from app import worker
+    from app.services.screening import CycleSummary
+
+    settings = ScreeningWorkerSettings(
+        screening_enabled=True,
+        s3_bucket="screening",
+        s3_access_key_id="worker-access-key",
+        s3_secret_access_key="worker-secret-key",
+        screening_anthropic_api_key="provider-key",
+        screening_poll_interval_seconds=30,
+        screening_worker_health_max_age_seconds=60,
+        screening_worker_max_consecutive_cycle_failures=2,
+    )
+    heartbeats: list[str] = []
+    attempts = 0
+
+    class FakeSession:
+        async def __aenter__(self) -> object:
+            return object()
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+    class FakeRotation:
+        @staticmethod
+        def names() -> list[str]:
+            return ["test"]
+
+    outcomes: list[Exception | CycleSummary] = [
+        RuntimeError("first outage"),
+        CycleSummary(),
+        RuntimeError("second outage"),
+        RuntimeError("third outage"),
+    ]
+
+    async def cycle(*_args: object) -> CycleSummary:
+        nonlocal attempts
+        attempts += 1
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    async def skip_wait(_stop: asyncio.Event, _wait_seconds: int) -> None:
+        return None
+
+    monkeypatch.setattr(worker, "create_sessionmaker", lambda _settings: FakeSession)
+    monkeypatch.setattr(worker, "build_provider_rotation", lambda _settings: [object()])
+    monkeypatch.setattr(worker, "ProviderRotation", lambda _providers: FakeRotation())
+    monkeypatch.setattr(worker, "run_screening_cycle", cycle)
+    monkeypatch.setattr(worker, "_wait_for_stop", skip_wait)
+    monkeypatch.setattr(
+        worker, "_publish_heartbeat", lambda _settings, status: heartbeats.append(status)
+    )
+
+    assert await worker._run_loop(asyncio.Event(), settings) == 1
+    # At a limit of two, the success between the first and second outage must
+    # reset the streak: the worker reaches all four cycles before exiting on
+    # the final two failures.
+    assert attempts == 4
+    assert heartbeats.count("error") == 3
+    assert heartbeats.count("ok") == 1
+    assert heartbeats[-1] == "error"
+
+
+@pytest.mark.asyncio
+async def test_screening_worker_main_returns_nonzero_without_overwriting_error_heartbeat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The package entrypoint forwards the restart-worthy worker status."""
+    from app import worker
+
+    settings = ScreeningWorkerSettings()
+    writes: list[str] = []
+
+    async def failed_loop(_stop: asyncio.Event, _settings: ScreeningWorkerSettings) -> int:
+        return 1
+
+    monkeypatch.setattr(worker, "get_screening_worker_settings", lambda: settings)
+    monkeypatch.setattr(worker, "_run_loop", failed_loop)
+    monkeypatch.setattr(
+        worker,
+        "write_heartbeat",
+        lambda _path, status: writes.append(status),
+    )
+
+    assert await worker.main() == 1
+    assert writes == []
 
 
 @pytest.mark.parametrize(
@@ -2108,7 +2390,7 @@ def test_compose_publishes_only_one_edge_that_forwards_the_real_client_address()
     assert "proxy_set_header Host $http_host;" in proxy_conf
     assert "proxy_set_header Host $host;" not in proxy_conf
     assert "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;" in proxy_conf
-    assert "proxy_set_header X-Forwarded-Proto http;" in proxy_conf
+    assert "proxy_set_header X-Forwarded-Proto __GOATFARM_EDGE_PUBLIC_SCHEME__;" in proxy_conf
     assert "$http_x_forwarded_proto" not in proxy_conf
     assert "$$" not in proxy_conf
     assert "location /api/" in proxy_conf
@@ -2166,11 +2448,14 @@ def test_compose_production_edge_requires_an_asserted_https_terminator() -> None
     command = "\n".join(edge["command"])
 
     assert edge["ports"] == ["127.0.0.1:3000:3000"]
-    assert edge["environment"]["GOATFARM_ENVIRONMENT"] == "${GOATFARM_ENVIRONMENT:-development}"
+    assert edge["environment"]["GOATFARM_ENVIRONMENT"] == (
+        "${GOATFARM_ENVIRONMENT:?set GOATFARM_ENVIRONMENT explicitly (development or production)}"
+    )
     assert edge["environment"]["GOATFARM_EDGE_PUBLIC_SCHEME"] == "https"
-    assert '"$$GOATFARM_ENVIRONMENT" = "production"' in command
-    assert '"$$GOATFARM_EDGE_PUBLIC_SCHEME" != "https"' in command
-    assert "Refusing production edge without an asserted HTTPS terminator" in command
+    assert command == "/bin/sh\n/edge-entrypoint.sh"
+    edge_script = (REPO_ROOT / "docker" / "edge-entrypoint.sh").read_text()
+    assert '[ "$environment" = "production" ] && [ "$public_scheme" != "https" ]' in edge_script
+    assert "Refusing production edge without an asserted HTTPS terminator" in edge_script
 
     public = _render_compose_network(edge_bind_host="0.0.0.0", public_scheme="https")
     assert public["services"]["edge"]["ports"] == ["0.0.0.0:3000:3000"]
@@ -2215,16 +2500,18 @@ def test_edge_refuses_dev_public_bind_with_escape_hatch() -> None:
     """
     compose = _render_compose_network()
     command = "\n".join(compose["services"]["edge"]["command"])
+    edge_script = (REPO_ROOT / "docker" / "edge-entrypoint.sh").read_text()
 
     # Loopback spellings pass the case-list without triggering the guard
     # (the renderer resolves the bind-host interpolation to its default).
-    assert "127.0.0.1|localhost|::1) ;;" in command
+    assert "127.0.0.1|localhost|::1) ;;" in edge_script
     # The guard itself: production-exempt, opt-out-aware, exit 2, loud.
-    assert '"$$GOATFARM_ENVIRONMENT" != "production"' in command
-    assert '"$${GOATFARM_ALLOW_DEV_PUBLIC_BIND:-false}" != "true"' in command
-    assert "Refusing to bind the edge" in command
-    assert "GOATFARM_ALLOW_DEV_PUBLIC_BIND=true" in command
-    assert "exit 2" in command
+    assert command == "/bin/sh\n/edge-entrypoint.sh"
+    assert '[ "$environment" != "production" ]' in edge_script
+    assert '"${GOATFARM_ALLOW_DEV_PUBLIC_BIND:-false}" != "true"' in edge_script
+    assert "Refusing to bind the edge" in edge_script
+    assert "GOATFARM_ALLOW_DEV_PUBLIC_BIND=true" in edge_script
+    assert "exit 2" in edge_script
 
 
 def test_compose_network_override_avoids_collision_without_weakening_proxy_trust() -> None:
@@ -2265,8 +2552,12 @@ def test_compose_public_scheme_is_static_and_operator_controlled() -> None:
 
     local_proxy = local["configs"]["edge_proxy"]["content"].replace("$$", "$")
     tls_proxy = tls_terminated["configs"]["edge_proxy"]["content"].replace("$$", "$")
-    assert "proxy_set_header X-Forwarded-Proto http;" in local_proxy
-    assert "proxy_set_header X-Forwarded-Proto https;" in tls_proxy
+    assert "proxy_set_header X-Forwarded-Proto __GOATFARM_EDGE_PUBLIC_SCHEME__;" in local_proxy
+    assert "proxy_set_header X-Forwarded-Proto __GOATFARM_EDGE_PUBLIC_SCHEME__;" in tls_proxy
+    assert local["services"]["edge"]["environment"]["GOATFARM_EDGE_PUBLIC_SCHEME"] == "http"
+    assert (
+        tls_terminated["services"]["edge"]["environment"]["GOATFARM_EDGE_PUBLIC_SCHEME"] == "https"
+    )
     assert "$http_x_forwarded_proto" not in local_proxy + tls_proxy
 
 
@@ -2275,6 +2566,18 @@ def test_ci_cancels_only_superseded_pull_requests() -> None:
         workflow = (REPO_ROOT / ".github" / "workflows" / workflow_name).read_text()
         assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in workflow
         assert "cancel-in-progress: true" not in workflow
+
+
+def test_release_requires_green_ci_for_a_tagged_main_commit() -> None:
+    """A protected tag alone must not publish bits that CI never tested."""
+    workflow = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text()
+
+    assert "fetch-depth: 0" in workflow
+    assert "actions: read" in workflow
+    assert "Require successful CI for the tagged main commit" in workflow
+    assert 'git merge-base --is-ancestor "$TAGGED_SHA" origin/main' in workflow
+    assert "actions/workflows/ci.yml/runs?head_sha=${TAGGED_SHA}&status=completed" in workflow
+    assert '.conclusion == "success" and .event == "push"' in workflow
 
 
 def test_private_repository_codeql_keeps_results_without_unavailable_upload() -> None:
@@ -2300,7 +2603,16 @@ def test_compose_keeps_api_and_migration_credentials_separate_and_url_safe() -> 
 
     assert "GOATFARM_DATABASE_URL" not in migration_env
     assert "GOATFARM_MIGRATION_DATABASE_URL" in migration_env
-    assert migration_env["GOATFARM_ENVIRONMENT"] == "${GOATFARM_ENVIRONMENT:-development}"
+    required_environment = (
+        "${GOATFARM_ENVIRONMENT:?set GOATFARM_ENVIRONMENT explicitly (development or production)}"
+    )
+    required_sslmode = (
+        "${GOATFARM_DB_SSLMODE:?set GOATFARM_DB_SSLMODE explicitly (disable for local development)}"
+    )
+    assert migration_env["GOATFARM_ENVIRONMENT"] == required_environment
+    assert migration_env["GOATFARM_DB_SSLMODE"] == required_sslmode
+    assert api_env["GOATFARM_ENVIRONMENT"] == required_environment
+    assert api_env["GOATFARM_DB_SSLMODE"] == required_sslmode
     assert "GOATFARM_DATABASE_URL" in api_env
     assert "GOATFARM_MIGRATION_DATABASE_URL" not in api_env
     assert "postgresql+asyncpg://${POSTGRES" not in compose_text
@@ -2317,6 +2629,383 @@ def test_compose_keeps_api_and_migration_credentials_separate_and_url_safe() -> 
     assert "GOATFARM_DATABASE_URL=postgresql+asyncpg://" in compose_example
     assert "GOATFARM_MIGRATION_DATABASE_URL=postgresql+asyncpg://" in compose_example
     assert "Percent-encode reserved characters" in compose_example
+
+
+def test_local_compose_fails_closed_for_production_and_forwards_documented_knobs() -> None:
+    """The bundled TLS-off PostgreSQL is intentionally dev-only.
+
+    It must not look like a production topology merely because a root .env
+    typo fell back to development, and Compose must not discard documented
+    app settings such as JWT verification-key rotation or request limits.
+    """
+    compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text())
+    services = compose["services"]
+    migrate_command = "\n".join(services["migrate"]["command"])
+    assert '"$$GOATFARM_ENVIRONMENT" = "production"' in migrate_command
+    assert "bundled docker-compose PostgreSQL service is development-only" in migrate_command
+    assert "external verify-full PostgreSQL production deployment" in migrate_command
+
+    required_environment = (
+        "${GOATFARM_ENVIRONMENT:?set GOATFARM_ENVIRONMENT explicitly (development or production)}"
+    )
+    for service in ("migrate", "backend", "screening-worker", "edge"):
+        assert services[service]["environment"]["GOATFARM_ENVIRONMENT"] == required_environment
+    for service in ("migrate", "backend", "screening-worker"):
+        assert (
+            ":?set GOATFARM_DB_SSLMODE explicitly"
+            in services[service]["environment"]["GOATFARM_DB_SSLMODE"]
+        )
+
+    api_env = services["backend"]["environment"]
+    assert "GOATFARM_JWT_PREVIOUS_PUBLIC_KEY_PATHS" in api_env
+    assert "GOATFARM_TOTP_ENCRYPTION_KEY" in api_env
+    assert "GOATFARM_TOTP_ENCRYPTION_PREVIOUS_KEYS" in api_env
+    assert "GOATFARM_MAX_REQUEST_BODY_BYTES" in api_env
+    assert "GOATFARM_MAX_REQUEST_TARGET_BYTES" in api_env
+
+
+def test_production_compose_is_a_standalone_external_tls_topology() -> None:
+    """Production must not inherit the bundled, TLS-off development DB."""
+    production_path = REPO_ROOT / "docker-compose.production.yml"
+    production_text = production_path.read_text()
+    production = yaml.safe_load(production_text)
+    services = production["services"]
+
+    assert set(services) == {
+        "config-guard",
+        "migrate",
+        "backend",
+        "screening-worker",
+        "frontend",
+        "edge",
+    }
+    assert "db:" not in production_text
+    assert "postgres:" not in production_text
+    assert "pgdata" not in production_text
+    assert all("build" not in service for service in services.values())
+
+    backend_image = (
+        "${GOATFARM_BACKEND_IMAGE_REPOSITORY:?set the backend registry repository}"
+        "@${GOATFARM_BACKEND_IMAGE_DIGEST:?set its sha256 digest}"
+    )
+    frontend_image = (
+        "${GOATFARM_FRONTEND_IMAGE_REPOSITORY:?set the frontend registry repository}"
+        "@${GOATFARM_FRONTEND_IMAGE_DIGEST:?set its sha256 digest}"
+    )
+    assert services["migrate"]["image"] == backend_image
+    assert services["backend"]["image"] == backend_image
+    assert services["screening-worker"]["image"] == backend_image
+    assert services["config-guard"]["image"] == backend_image
+    assert services["frontend"]["image"] == frontend_image
+
+    guard = services["config-guard"]
+    assert guard["command"] == [
+        "python",
+        "scripts/compose_env_guard.py",
+        "/run/config/compose.env",
+    ]
+    assert guard["read_only"] is True
+    assert guard["network_mode"] == "none"
+    assert guard["volumes"][0]["target"] == "/run/config/compose.env"
+    assert guard["volumes"][0]["read_only"] is True
+    assert guard["volumes"][0]["bind"]["create_host_path"] is False
+
+    migrate_env = services["migrate"]["environment"]
+    api_env = services["backend"]["environment"]
+    worker_env = services["screening-worker"]["environment"]
+    assert "GOATFARM_DATABASE_URL" not in migrate_env
+    assert "GOATFARM_MIGRATION_DATABASE_URL" in migrate_env
+    assert "GOATFARM_MIGRATION_DATABASE_URL" not in api_env
+    assert "GOATFARM_MIGRATION_DATABASE_URL" not in worker_env
+    for env in (migrate_env, api_env, worker_env):
+        assert env["GOATFARM_ENVIRONMENT"] == "production"
+        assert env["GOATFARM_DB_SSLMODE"] == "verify-full"
+        assert env["GOATFARM_DB_SSLROOTCERT_PATH"] == "/run/secrets/goatfarm-postgres-ca.pem"
+    assert "GOATFARM_JWT_PRIVATE_KEY_PATH" not in migrate_env
+    assert "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET" not in migrate_env
+    assert "GOATFARM_TOTP_ENCRYPTION_KEY" not in migrate_env
+    assert "GOATFARM_JWT_PRIVATE_KEY_PATH" not in worker_env
+    assert "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET" not in worker_env
+    assert "GOATFARM_TOTP_ENCRYPTION_KEY" not in worker_env
+    assert "GOATFARM_TOTP_ENCRYPTION_KEY" in api_env
+    assert "GOATFARM_TOTP_ENCRYPTION_PREVIOUS_KEYS" in api_env
+    assert services["migrate"]["depends_on"]["config-guard"]["condition"] == (
+        "service_completed_successfully"
+    )
+
+    # All database clients see the same read-only CA bind; only the API sees
+    # the JWT directory. There is no writable secret/key volume in production.
+    for service in (services["migrate"], services["backend"], services["screening-worker"]):
+        assert any(
+            volume["target"] == "/run/secrets/goatfarm-postgres-ca.pem"
+            and volume["read_only"] is True
+            for volume in service["volumes"]
+        )
+    assert any(
+        volume["target"] == "/run/secrets/jwt" and volume["read_only"] is True
+        for volume in services["backend"]["volumes"]
+    )
+
+    edge = services["edge"]
+    assert edge["ports"] == ["127.0.0.1:3000:3000"]
+    assert edge["environment"]["GOATFARM_EDGE_PUBLIC_SCHEME"] == "https"
+    assert edge["environment"]["GOATFARM_ENVIRONMENT"] == "production"
+    assert edge["networks"]["goatfarm_app"]["ipv4_address"] == (
+        "${GOATFARM_EDGE_PROXY_IP:?set an unused IP inside GOATFARM_DOCKER_SUBNET}"
+    )
+    # A production TLS terminator sits in front of edge.  The default trusts
+    # only edge, while an explicit exact-hop list lets Uvicorn walk past the
+    # terminator's appended X-Forwarded-For address and retain per-client
+    # limits.  The nested interpolation must preserve the fixed-edge default.
+    assert api_env["GOATFARM_TRUSTED_PROXY_HOSTS"] == (
+        "${GOATFARM_TRUSTED_PROXY_HOSTS:-"
+        "${GOATFARM_EDGE_PROXY_IP:?set an unused IP inside GOATFARM_DOCKER_SUBNET}}"
+    )
+    assert production["configs"]["edge_proxy"]["file"] == (
+        "./docker/edge-proxy.production.conf.template"
+    )
+    template = (REPO_ROOT / "docker" / "edge-proxy.production.conf.template").read_text()
+    assert "limit_req_zone $binary_remote_addr" in template
+    assert "__GOATFARM_EDGE_PUBLIC_SCHEME__" in template
+    assert "__GOATFARM_EDGE_MAX_BODY_SIZE__" in template
+    assert "img-src 'self' data: blob: __GOATFARM_CSP_IMG_ORIGINS__" in template
+    assert "connect-src 'self' __GOATFARM_CSP_CONNECT_ORIGINS__" in template
+
+    # A completed one-shot service can be reused by a later ``compose up``
+    # even when its bind-mounted dotenv file changed. The runbook must execute
+    # the guard explicitly on every rollout, not merely render Compose.
+    readme = (REPO_ROOT / "README.md").read_text()
+    assert "run --rm --no-deps config-guard" in readme
+    assert "config-guard:\n      build: !reset null" in readme
+
+
+def test_compose_env_guard_rejects_names_compose_would_otherwise_drop(tmp_path: Path) -> None:
+    """The root deployment file gets a name check before migrations run."""
+    guard = REPO_ROOT / "backend" / "scripts" / "compose_env_guard.py"
+    valid_env = tmp_path / "valid.env"
+    valid_env.write_text(
+        "GOATFARM_ENVIRONMENT=production\n"
+        "GOATFARM_DB_SSLMODE=verify-full\n"
+        "GOATFARM_CSP_CONNECT_ORIGINS=https://bucket.example.test\n"
+        "GOATFARM_EDGE_MAX_BODY_SIZE=1m\n"
+        "GOATFARM_BACKEND_IMAGE_REPOSITORY=ghcr.io/example/backend\n"
+        "GOATFARM_BACKEND_IMAGE_DIGEST=sha256:abc\n"
+        "GOATFARM_FRONTEND_IMAGE_REPOSITORY=ghcr.io/example/frontend\n"
+        "GOATFARM_FRONTEND_IMAGE_DIGEST=sha256:def\n"
+        "GOATFARM_DB_CA_FILE=/secure/ca.pem\n"
+        "GOATFARM_JWT_SECRET_DIR=/secure/jwt\n"
+        "GOATFARM_COMPOSE_ENV_FILE=/secure/production.env\n"
+    )
+    result = subprocess.run(
+        [sys.executable, str(guard), str(valid_env)],
+        cwd=REPO_ROOT / "backend",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+    invalid_env = tmp_path / "invalid.env"
+    invalid_env.write_text(valid_env.read_text() + "GOATFARM_ENVIRONMNET=production\n")
+    result = subprocess.run(
+        [sys.executable, str(guard), str(invalid_env)],
+        cwd=REPO_ROOT / "backend",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 2
+    assert "GOATFARM_ENVIRONMNET" in result.stderr
+
+    local = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text())
+    assert local["services"]["config-guard"]["command"] == [
+        "python",
+        "scripts/compose_env_guard.py",
+        "/run/config/compose.env",
+    ]
+    assert local["services"]["config-guard"]["network_mode"] == "none"
+    assert local["services"]["migrate"]["depends_on"]["config-guard"]["condition"] == (
+        "service_completed_successfully"
+    )
+    assert (
+        "COPY backend/scripts/compose_env_guard.py ./scripts/compose_env_guard.py"
+        in (REPO_ROOT / "Dockerfile").read_text()
+    )
+    assert "!backend/scripts/compose_env_guard.py" in (REPO_ROOT / ".dockerignore").read_text()
+
+
+def _run_edge_config_validation(**overrides: str) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env.update(
+        {
+            "GOATFARM_EDGE_VALIDATE_ONLY": "true",
+            "GOATFARM_ENVIRONMENT": "development",
+            "GOATFARM_EDGE_PUBLIC_SCHEME": "http",
+            "GOATFARM_EDGE_BIND_HOST": "127.0.0.1",
+            "GOATFARM_SCREENING_ENABLED": "false",
+            "GOATFARM_CSP_CONNECT_ORIGINS": "",
+            "GOATFARM_CSP_IMG_ORIGINS": "",
+        }
+    )
+    env.update(overrides)
+    return subprocess.run(
+        ["/bin/sh", str(REPO_ROOT / "docker" / "edge-entrypoint.sh")],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+
+
+def test_edge_runtime_csp_is_validated_before_the_template_is_rendered(tmp_path: Path) -> None:
+    """Generic registry frontend images need exact, safe runtime S3 sources."""
+    script = REPO_ROOT / "docker" / "edge-entrypoint.sh"
+    assert subprocess.run(["/bin/sh", "-n", str(script)], check=False).returncode == 0
+
+    valid = _run_edge_config_validation(
+        GOATFARM_SCREENING_ENABLED="true",
+        GOATFARM_CSP_CONNECT_ORIGINS="https://bucket.s3.example.test https://cdn.example.test",
+        GOATFARM_CSP_IMG_ORIGINS="https://bucket.s3.example.test https://cdn.example.test",
+    )
+    assert valid.returncode == 0, valid.stderr
+
+    ipv6_loopback = _run_edge_config_validation(
+        GOATFARM_SCREENING_ENABLED="true",
+        GOATFARM_CSP_CONNECT_ORIGINS="http://[::1]:9000",
+        GOATFARM_CSP_IMG_ORIGINS="http://[::1]:9000",
+    )
+    assert ipv6_loopback.returncode == 0, ipv6_loopback.stderr
+
+    for override, expected in (
+        ({"GOATFARM_SCREENING_ENABLED": "true"}, "screening is enabled"),
+        (
+            {"GOATFARM_CSP_CONNECT_ORIGINS": "https://one.test,https://two.test"},
+            "not comma-separated",
+        ),
+        ({"GOATFARM_CSP_CONNECT_ORIGINS": "https://bucket.test/path"}, "must be origins"),
+        (
+            {"GOATFARM_CSP_CONNECT_ORIGINS": "https://bucket.test; add_header X bad"},
+            "unsafe for an nginx header",
+        ),
+        (
+            {"GOATFARM_CSP_CONNECT_ORIGINS": "https://bucket.test&bad.example"},
+            "unsafe for an nginx header",
+        ),
+        (
+            {"GOATFARM_CSP_CONNECT_ORIGINS": "https://bucket.test|bad.example"},
+            "unsafe for an nginx header",
+        ),
+        ({"GOATFARM_CSP_CONNECT_ORIGINS": "https://*.bucket.test"}, "unsafe for an nginx header"),
+        ({"GOATFARM_CSP_CONNECT_ORIGINS": "https://bucket.test:abc"}, "non-numeric HTTPS port"),
+        ({"GOATFARM_CSP_CONNECT_ORIGINS": "https://bucket.test:0"}, "out-of-range HTTPS port"),
+        ({"GOATFARM_CSP_CONNECT_ORIGINS": "https://bucket.test:65536"}, "out-of-range HTTPS port"),
+        ({"GOATFARM_CSP_CONNECT_ORIGINS": "https://bucket.test:12:34"}, "invalid HTTPS hostname"),
+        ({"GOATFARM_CSP_CONNECT_ORIGINS": "https://foo_bar.test"}, "invalid HTTPS hostname"),
+        ({"GOATFARM_CSP_CONNECT_ORIGINS": "https://[not-an-ip]"}, "invalid HTTPS IPv6 literal"),
+        ({"GOATFARM_CSP_CONNECT_ORIGINS": "http://localhost:abc"}, "non-numeric HTTP port"),
+        ({"GOATFARM_CSP_CONNECT_ORIGINS": "http://localhost:9000/path"}, "must be origins"),
+        # Command substitution strips a trailing newline; the validator must
+        # reject it before sed could render an extra nginx configuration line.
+        ({"GOATFARM_CSP_CONNECT_ORIGINS": "https://bucket.test\n"}, "literal ASCII spaces"),
+        ({"GOATFARM_CSP_CONNECT_ORIGINS": "   "}, "must not contain only whitespace"),
+        ({"GOATFARM_EDGE_MAX_BODY_SIZE": "1m; add_header X bad"}, "positive nginx byte size"),
+        ({"GOATFARM_EDGE_PUBLIC_SCHEME": "https;bad"}, "must be http or https"),
+    ):
+        result = _run_edge_config_validation(**override)
+        assert result.returncode == 2
+        assert expected in result.stderr
+
+    compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text())
+    edge = compose["services"]["edge"]
+    assert "/etc/nginx/conf.d:size=1m" in edge["tmpfs"]
+    assert {entry["target"] for entry in edge["configs"]} == {
+        "/edge-proxy.template",
+        "/edge-entrypoint.sh",
+    }
+    proxy = compose["configs"]["edge_proxy"]["content"]
+    assert "__GOATFARM_CSP_CONNECT_ORIGINS__" in proxy
+    assert "__GOATFARM_CSP_IMG_ORIGINS__" in proxy
+    assert "__GOATFARM_EDGE_PUBLIC_SCHEME__" in proxy
+    assert "__GOATFARM_EDGE_MAX_BODY_SIZE__" in proxy
+    assert (
+        edge["environment"]["GOATFARM_EDGE_MAX_BODY_SIZE"] == "${GOATFARM_EDGE_MAX_BODY_SIZE:-1m}"
+    )
+    # Compose would substitute an unescaped nginx ``$binary_remote_addr`` to
+    # an empty host environment variable. Pin the escape and exercise the
+    # exact template representation nginx receives after Compose unescapes it.
+    assert "limit_req_zone $$binary_remote_addr" in proxy
+
+    template = tmp_path / "edge-proxy.template"
+    # The standalone production manifest uses literal nginx variables in a
+    # file config, so exercise the exact runtime-rendered template too.
+    production_template = (REPO_ROOT / "docker" / "edge-proxy.production.conf.template").read_text()
+    assert "limit_req_zone $binary_remote_addr" in production_template
+    template.write_text(production_template)
+    rendered = tmp_path / "default.conf"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    _write_executable(fake_bin / "nginx", "#!/bin/sh\nexit 0\n")
+    render_env = os.environ.copy()
+    render_env.update(
+        {
+            "GOATFARM_EDGE_VALIDATE_ONLY": "false",
+            "GOATFARM_ENVIRONMENT": "development",
+            "GOATFARM_EDGE_PUBLIC_SCHEME": "http",
+            "GOATFARM_EDGE_BIND_HOST": "127.0.0.1",
+            "GOATFARM_EDGE_MAX_BODY_SIZE": "2m",
+            "GOATFARM_SCREENING_ENABLED": "true",
+            "GOATFARM_CSP_CONNECT_ORIGINS": "https://bucket.s3.example.test https://cdn.example.test",
+            "GOATFARM_CSP_IMG_ORIGINS": "https://bucket.s3.example.test https://cdn.example.test",
+            "EDGE_TEMPLATE_PATH": str(template),
+            "EDGE_RENDERED_CONFIG_PATH": str(rendered),
+            "PATH": f"{fake_bin}:{render_env['PATH']}",
+        }
+    )
+    rendered_result = subprocess.run(
+        ["/bin/sh", str(script)],
+        env=render_env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    assert rendered_result.returncode == 0, rendered_result.stderr
+    rendered_text = rendered.read_text()
+    assert "__GOATFARM_CSP_" not in rendered_text
+    assert (
+        "img-src 'self' data: blob: https://bucket.s3.example.test https://cdn.example.test"
+        in rendered_text
+    )
+    assert (
+        "connect-src 'self' https://bucket.s3.example.test https://cdn.example.test"
+        in rendered_text
+    )
+    assert "limit_req_zone $binary_remote_addr zone=auth_flood:10m rate=5r/s;" in rendered_text
+    assert "proxy_set_header X-Forwarded-Proto http;" in rendered_text
+    assert "client_max_body_size 2m;" in rendered_text
+
+    # Local Compose carries the same unrendered template content, except it
+    # escapes nginx variables with ``$$``. Render it through the exact same
+    # entrypoint to prove Compose cannot inject an unvalidated edge size or
+    # scheme directly into nginx.
+    local_template = tmp_path / "local-edge-proxy.template"
+    local_template.write_text(proxy.replace("$$", "$"))
+    local_rendered = tmp_path / "local-default.conf"
+    render_env["EDGE_TEMPLATE_PATH"] = str(local_template)
+    render_env["EDGE_RENDERED_CONFIG_PATH"] = str(local_rendered)
+    local_result = subprocess.run(
+        ["/bin/sh", str(script)],
+        env=render_env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    assert local_result.returncode == 0, local_result.stderr
+    local_text = local_rendered.read_text()
+    assert "proxy_set_header X-Forwarded-Proto http;" in local_text
+    assert "client_max_body_size 2m;" in local_text
 
 
 def test_migrations_and_restores_share_the_same_release_writer_lock() -> None:
@@ -2381,12 +3070,12 @@ def test_edge_body_cap_and_version_disclosure_are_pinned() -> None:
     DEFAULTS to the same byte count — the one correspondence that can be
     tested without a live deployment."""
     compose = (REPO_ROOT / "docker-compose.yml").read_text()
-    assert "client_max_body_size ${GOATFARM_EDGE_MAX_BODY_SIZE:-1m};" in compose
+    assert "client_max_body_size __GOATFARM_EDGE_MAX_BODY_SIZE__;" in compose
     assert "server_tokens off;" in compose
     assert "GOATFARM_EDGE_MAX_BODY_SIZE" in (REPO_ROOT / ".env.example").read_text()
 
     nginx_default = re.search(
-        r"client_max_body_size \$\{GOATFARM_EDGE_MAX_BODY_SIZE:-(\d+[kKmMgG]?)\};",
+        r"GOATFARM_EDGE_MAX_BODY_SIZE:\s*\$\{GOATFARM_EDGE_MAX_BODY_SIZE:-(\d+[kKmMgG]?)\}",
         compose,
     )
     assert nginx_default, "templated client_max_body_size default not found in compose"
@@ -2411,35 +3100,59 @@ RESTORE_FLOOR = REPO_ROOT / "backend" / "scripts" / "restore_floor.sh"
 RESTORE_FLOOR_REVISION = "f4e5f6a7b8c9"
 
 
-def _migration_chain() -> list[str]:
-    """Rebuild the linear revision chain from backend/alembic/versions."""
-    revisions: dict[str, str | None] = {}
+def _migration_graph() -> dict[str, tuple[str, ...]]:
+    """Read Alembic's revision DAG without assuming every release is linear."""
+    revisions: dict[str, tuple[str, ...]] = {}
     versions_dir = REPO_ROOT / "backend" / "alembic" / "versions"
     for path in sorted(versions_dir.glob("*.py")):
-        text = path.read_text()
-        match_rev = re.search(r'^revision(?::[^=]*)?\s*=\s*"([0-9a-f]+)"', text, re.M)
-        match_down = re.search(
-            r'^down_revision(?::[^=]*)?\s*=\s*(None|"([0-9a-f]+)")', text, re.M
-        )
-        if match_rev:
-            revisions[match_rev.group(1)] = (
-                match_down.group(2) if match_down and match_down.group(2) else None
-            )
-    children: dict[str, list[str]] = {}
-    for revision, parent in revisions.items():
-        if parent:
-            children.setdefault(parent, []).append(revision)
+        values: dict[str, object] = {}
+        for node in ast.parse(path.read_text(), filename=str(path)).body:
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                name, value = node.target.id, node.value
+            elif (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+            ):
+                name, value = node.targets[0].id, node.value
+            else:
+                continue
+            if name in {"revision", "down_revision"} and value is not None:
+                values[name] = ast.literal_eval(value)
+        revision = values.get("revision")
+        parent_value = values.get("down_revision")
+        assert isinstance(revision, str), f"missing revision id in {path.name}"
+        if parent_value is None:
+            parents: tuple[str, ...] = ()
+        elif isinstance(parent_value, str):
+            parents = (parent_value,)
+        else:
+            assert isinstance(parent_value, tuple), f"invalid parents in {path.name}"
+            assert all(isinstance(parent, str) for parent in parent_value)
+            parents = parent_value
+        revisions[revision] = parents
+    children = {parent for parents in revisions.values() for parent in parents}
     heads = [revision for revision in revisions if revision not in children]
     assert len(heads) == 1, f"migration chain has {len(heads)} heads: {heads}"
-    chain: list[str] = []
-    current = next(revision for revision, parent in revisions.items() if parent is None)
-    while current:
-        chain.append(current)
-        successors = children.get(current)
-        assert successors is None or len(successors) == 1, "migration chain is not linear"
-        current = successors[0] if successors else None
-    assert len(chain) == len(revisions)
-    return chain
+    return revisions
+
+
+def _migration_revisions_from_floor() -> set[str]:
+    """All descendants of the privacy floor, including merged branches."""
+    revisions = _migration_graph()
+    children: dict[str, list[str]] = {}
+    for revision, parents in revisions.items():
+        for parent in parents:
+            children.setdefault(parent, []).append(revision)
+    allowed: set[str] = set()
+    pending = [RESTORE_FLOOR_REVISION]
+    while pending:
+        revision = pending.pop()
+        if revision in allowed:
+            continue
+        allowed.add(revision)
+        pending.extend(children.get(revision, []))
+    return allowed
 
 
 def _floor_allows(revision: str) -> bool:
@@ -2454,13 +3167,8 @@ def _floor_allows(revision: str) -> bool:
 
 
 def test_restore_floor_allows_the_chain_from_the_purge_onward() -> None:
-    """INFRA-3 (corrected 2026-09-17): every revision at-or-after the purge
-    floor — including the CURRENT head, whose random hex sorts below the
-    floor as a raw string — must pass the floor check."""
-    chain = _migration_chain()
-    floor_index = chain.index(RESTORE_FLOOR_REVISION)
-    assert floor_index > 0
-    for revision in chain[floor_index:]:
+    """Every post-floor DAG node, including branch and merge nodes, is safe."""
+    for revision in _migration_revisions_from_floor():
         assert _floor_allows(revision), f"current backup revision refused: {revision}"
 
 
@@ -2469,9 +3177,10 @@ def test_restore_floor_refuses_pre_purge_and_unknown_revisions() -> None:
     random ids sort ABOVE the floor as raw strings, which the original
     lexicographic comparison let through (the 2026-09-17 re-audit's HIGH
     finding). Unknown-but-well-formed and malformed markers fail closed."""
-    chain = _migration_chain()
-    floor_index = chain.index(RESTORE_FLOOR_REVISION)
-    for revision in chain[:floor_index]:
+    allowed = _migration_revisions_from_floor()
+    for revision in _migration_graph():
+        if revision in allowed:
+            continue
         assert not _floor_allows(revision), f"pre-purge revision accepted: {revision}"
     assert not _floor_allows("000000000000")
     assert not _floor_allows("not-a-revision")
@@ -2479,18 +3188,27 @@ def test_restore_floor_refuses_pre_purge_and_unknown_revisions() -> None:
     assert not _floor_allows("A19B2569D466")  # case-sensitive hex, fail closed
 
 
-def test_restore_floor_allowlist_stays_in_sync_with_the_migration_chain() -> None:
-    """The helper's allowlist must be the chain from the floor to the head in
-    chain order — a new migration that forgets to append itself to
-    restore_floor.sh fails here, and so does any hand-edit that breaks the
-    order."""
+def test_restore_floor_allowlist_stays_in_sync_with_the_migration_graph() -> None:
+    """The helper's allowlist must cover exactly the post-floor revision DAG.
+
+    A merge revision has two parents, so a simple linear-chain parser would
+    make a safe migration look like multiple heads. The list remains ordered
+    topologically for operator readability, while membership is the actual
+    restore safety property.
+    """
     text = RESTORE_FLOOR.read_text()
     match = re.search(r"RESTORE_ALLOWED_REVISIONS=\(\s*(.*?)\)", text, re.S)
     assert match, "RESTORE_ALLOWED_REVISIONS array not found in restore_floor.sh"
     listed = re.findall(r'"([0-9a-f]+)"', match.group(1))
-    chain = _migration_chain()
-    floor_index = chain.index(RESTORE_FLOOR_REVISION)
-    assert listed == chain[floor_index:]
+    assert len(listed) == len(set(listed)), "restore allowlist contains duplicates"
+    assert set(listed) == _migration_revisions_from_floor()
+    positions = {revision: index for index, revision in enumerate(listed)}
+    for revision, parents in _migration_graph().items():
+        if revision not in positions:
+            continue
+        for parent in parents:
+            if parent in positions:
+                assert positions[parent] < positions[revision]
 
 
 def test_restore_runs_the_floor_check_before_touching_the_target_database() -> None:
@@ -2499,9 +3217,7 @@ def test_restore_runs_the_floor_check_before_touching_the_target_database() -> N
     success is declared."""
     restore_text = RESTORE.read_text()
     assert restore_text.count("restore_floor.sh") >= 2
-    assert restore_text.index("restore_floor.sh") < restore_text.index(
-        "--single-transaction"
-    )
+    assert restore_text.index("restore_floor.sh") < restore_text.index("--single-transaction")
     assert restore_text.index("restore_floor.sh") < restore_text.index(
         "contains user schema objects"
     )

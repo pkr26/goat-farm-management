@@ -1,0 +1,48 @@
+# Production edge template. It is rendered by edge-entrypoint.sh after every
+# value substituted below is validated; unlike the local Compose-inline
+# template, this file deliberately contains literal nginx $variables.
+
+limit_req_zone $binary_remote_addr zone=auth_flood:10m rate=5r/s;
+
+server {
+    listen 3000;
+    server_name _;
+
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto __GOATFARM_EDGE_PUBLIC_SCHEME__;
+    proxy_http_version 1.1;
+    client_max_body_size __GOATFARM_EDGE_MAX_BODY_SIZE__;
+    server_tokens off;
+
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: __GOATFARM_CSP_IMG_ORIGINS__; font-src 'self' data:; connect-src 'self' __GOATFARM_CSP_CONNECT_ORIGINS__; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
+
+    # Docker's embedded resolver + variable proxy_pass forces lookup after a
+    # routine backend/frontend container recreation instead of caching a dead
+    # container IP for the nginx worker lifetime.
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
+    location = /edge-healthz {
+        allow 127.0.0.1;
+        deny all;
+        access_log off;
+        return 200 "ok\n";
+    }
+
+    location /api/auth/ {
+        limit_req zone=auth_flood burst=20 nodelay;
+        limit_req_status 429;
+        set $backend_upstream backend;
+        proxy_pass http://$backend_upstream:8000$request_uri;
+    }
+
+    location /api/ {
+        set $backend_upstream backend;
+        proxy_pass http://$backend_upstream:8000$request_uri;
+    }
+
+    location / {
+        set $frontend_upstream frontend;
+        proxy_pass http://$frontend_upstream:3000$request_uri;
+    }
+}

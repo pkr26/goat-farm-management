@@ -1,7 +1,8 @@
 # Shared application-settings loading for backup.sh and restore.sh (sourced).
 #
 # GOATFARM_ENVIRONMENT and GOATFARM_DB_SSLMODE jointly gate TLS and mandatory
-# GPG in both scripts. Resolve both from one descriptor-pinned backend/.env
+# GPG in both scripts. An optional private-CA path travels with them. Resolve
+# all three from one descriptor-pinned backend/.env
 # snapshot: independent lookups could observe different atomic replacements
 # and combine a production value with a development default. The helper uses
 # the application's python-dotenv grammar. Explicit non-empty exports still
@@ -26,12 +27,13 @@ _missing_env_file_classification() {
 # Explicit non-empty shell/environment values still win independently.
 load_app_safety_settings() {
     local env_file="${SCRIPT_DIR}/../.env"
-    local snapshot="" status=0 file_sslmode="" file_environment="" remainder=""
+    local snapshot="" status=0 file_sslmode="" file_environment="" file_rootcert="" remainder=""
 
     if [[ ${GOATFARM_DB_SSLMODE:+defined} == defined \
         && ${GOATFARM_ENVIRONMENT:+defined} == defined ]]; then
         DB_SSLMODE="${GOATFARM_DB_SSLMODE}"
         ENVIRONMENT="${GOATFARM_ENVIRONMENT}"
+        DB_SSLROOTCERT_PATH="${GOATFARM_DB_SSLROOTCERT_PATH:-}"
         return 0
     fi
 
@@ -50,7 +52,8 @@ load_app_safety_settings() {
     snapshot="$(
         "${PYTHON_BIN}" "${SCRIPT_DIR}/dotenv_value.py" "${env_file}" \
             --snapshot GOATFARM_DB_SSLMODE __ENV_FILE_ABSENT__ \
-            GOATFARM_ENVIRONMENT __ENV_FILE_ABSENT__
+            GOATFARM_ENVIRONMENT __ENV_FILE_ABSENT__ \
+            GOATFARM_DB_SSLROOTCERT_PATH __ENV_FILE_ABSENT__
     )" || status=$?
     if (( status != 0 )); then
         echo "Cannot safely load deployment settings from backend/.env" >&2
@@ -62,11 +65,16 @@ load_app_safety_settings() {
     fi
     file_sslmode="${snapshot%%$'\n'*}"
     remainder="${snapshot#*$'\n'}"
-    if [[ "${remainder}" == *$'\n'* ]]; then
+    if [[ "${remainder}" != *$'\n'* ]]; then
         echo "Deployment settings helper returned invalid metadata" >&2
         exit 2
     fi
-    file_environment="${remainder}"
+    file_environment="${remainder%%$'\n'*}"
+    file_rootcert="${remainder#*$'\n'}"
+    if [[ "${file_rootcert}" == *$'\n'* ]]; then
+        echo "Deployment settings helper returned invalid metadata" >&2
+        exit 2
+    fi
 
     # A sentinel means either the file vanished between the existence check
     # and this pinned read (fail closed) or a present file that legitimately
@@ -86,9 +94,16 @@ load_app_safety_settings() {
         fi
         file_environment="development"
     fi
+    if [[ "${file_rootcert}" == __ENV_FILE_ABSENT__ ]]; then
+        # Unlike environment/sslmode this value is optional. Its sentinel is
+        # a complete, pinned answer from the same snapshot even if a racing
+        # replacement removes the pathname immediately afterward.
+        file_rootcert=""
+    fi
 
     DB_SSLMODE="${GOATFARM_DB_SSLMODE:-${file_sslmode}}"
     ENVIRONMENT="${GOATFARM_ENVIRONMENT:-${file_environment}}"
+    DB_SSLROOTCERT_PATH="${GOATFARM_DB_SSLROOTCERT_PATH:-${file_rootcert}}"
 }
 
 # Validate the resolved DB_SSLMODE and ENVIRONMENT exactly like config.py's
@@ -108,4 +123,17 @@ validate_app_settings() {
             exit 2
             ;;
     esac
+    if [[ -n "${DB_SSLROOTCERT_PATH:-}" ]]; then
+        case "${DB_SSLMODE}" in
+            verify-ca|verify-full) ;;
+            *)
+                echo "GOATFARM_DB_SSLROOTCERT_PATH requires GOATFARM_DB_SSLMODE=verify-ca or verify-full" >&2
+                exit 2
+                ;;
+        esac
+        if [[ ! -f "${DB_SSLROOTCERT_PATH}" || ! -r "${DB_SSLROOTCERT_PATH}" ]]; then
+            echo "GOATFARM_DB_SSLROOTCERT_PATH must name a readable CA certificate file" >&2
+            exit 2
+        fi
+    fi
 }

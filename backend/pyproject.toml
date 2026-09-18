@@ -24,7 +24,10 @@ dependencies = [
     # image normalization, and outbound vision-model calls (httpx moves from
     # dev-only to runtime: production provider traffic now depends on it).
     "boto3==1.40.11",
-    "Pillow==11.3.0",
+    # User-provided screening photos reach Pillow's native decoders. Keep the
+    # pinned release on the current patched line rather than relying on a
+    # transitive resolver upgrade.
+    "Pillow==12.3.0",
     "httpx==0.28.1",
 ]
 
@@ -91,9 +94,13 @@ addopts = ["--strict-markers", "--strict-config"]
 # the attribution; the measured app-wide number only goes up, so the 75%
 # ratchet below stays honest.
 concurrency = ["greenlet", "thread"]
+# Line coverage can report a fully covered conditional while one safety branch
+# (often the failure path) was never exercised. Keep the backend ratchet on
+# branch coverage too; CI passes --cov-branch explicitly for clarity.
+branch = true
 
 [tool.coverage.report]
-# Coverage ratchet floor for `pytest --cov=app` (ci.yml). Single-sourced here
+# Coverage ratchet floor for `pytest --cov=app --cov-branch` (ci.yml). Single-sourced here
 # so pytest-cov enforces the same floor for local instrumented runs as for CI
 # (the flag --cov-fail-under would override, not complement, this value).
 # Keep it at or below the measured app-wide coverage on main — raise it as

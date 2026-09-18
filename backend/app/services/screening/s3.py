@@ -9,6 +9,8 @@ screening credentials.
 from __future__ import annotations
 
 import logging
+import time
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, cast
 
@@ -16,13 +18,29 @@ import boto3
 from botocore.client import Config as BotoConfig
 from botocore.exceptions import BotoCoreError, ClientError
 
-from ...core.config import Settings
+from ...core.config import ScreeningRuntimeSettings
 
 logger = logging.getLogger(__name__)
 
 # Presigning is local SigV4 signing — no network round-trip — but boto3
 # still requires the credentials; an over-long expiry buys nothing.
 _PRESIGN_EXPIRY_CAP_SECONDS = 86_400
+_DOWNLOAD_CHUNK_BYTES = 1024 * 1024
+# The worker invokes this synchronous client through ``asyncio.to_thread``.
+# Cancelling that coroutine does not stop a blocked thread, and asyncio waits
+# for executor work at process shutdown. Keep each S3 socket operation and a
+# complete capped download below Compose's finite worker stop grace instead
+# of relying on botocore's ~60-second defaults/retry backoff.
+_S3_CONNECT_TIMEOUT_SECONDS = 5
+_S3_READ_TIMEOUT_SECONDS = 5
+_S3_TOTAL_MAX_ATTEMPTS = 1
+_S3_DOWNLOAD_DEADLINE_SECONDS = 20
+# S3 evaluates a POST policy's content-length range against the multipart
+# request, not just the object payload.  This bounded allowance covers the
+# policy/signature fields, MIME boundaries and a maximal client filename so a
+# file exactly at the advertised object cap remains uploadable.  The worker
+# independently HEADs and stream-caps the object itself at the stricter cap.
+_POST_MULTIPART_OVERHEAD_BYTES = 64 * 1024
 
 
 class ScreeningStorageError(Exception):
@@ -35,22 +53,67 @@ class ScreeningObjectMissingError(ScreeningStorageError):
     as "come back next cycle", not an error."""
 
 
+class ScreeningObjectChangedError(ScreeningStorageError):
+    """An object changed after its metadata was inspected.
+
+    The worker uses an ETag conditional GET (or an object version when the
+    bucket has versioning) so a presigned uploader cannot swap bytes between
+    the size/type check and the decode.  This is retryable: a later cycle
+    will HEAD the new immutable snapshot.
+    """
+
+
+class ScreeningObjectTooLargeError(ScreeningStorageError):
+    """A download exceeded the caller's hard byte ceiling."""
+
+
+@dataclass(frozen=True)
+class ScreeningObjectInfo:
+    """The immutable facts checked before a raw image is downloaded."""
+
+    size: int
+    etag: str | None
+    version_id: str | None
+    content_type: str | None
+    metadata: dict[str, str]
+
+
+@dataclass(frozen=True)
+class PresignedPost:
+    """Browser form target plus the policy-bound fields S3 requires."""
+
+    url: str
+    fields: dict[str, str]
+
+
 class ScreeningStorage:
     """List/download/upload/presign within one configured bucket."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: ScreeningRuntimeSettings) -> None:
         self._settings = settings
         self._client = None
 
     @property
     def bucket(self) -> str:
-        assert self._settings.s3_bucket is not None  # validated when enabled
-        return self._settings.s3_bucket
+        bucket = self._settings.s3_bucket
+        if not bucket or not bucket.strip():
+            # Settings normally reject this before storage is constructed,
+            # but direct service callers must not get an AssertionError (or
+            # an accidental ``None`` passed to boto3 under ``python -O``).
+            raise ScreeningStorageError("screening S3 bucket is not configured")
+        return bucket
 
     def _ensure_client(self) -> Any:
         if self._client is None:
             s = self._settings
-            if not s.s3_bucket or not s.s3_access_key_id or not s.s3_secret_access_key:
+            if (
+                not s.s3_bucket
+                or not s.s3_bucket.strip()
+                or not s.s3_access_key_id
+                or not s.s3_access_key_id.get_secret_value().strip()
+                or not s.s3_secret_access_key
+                or not s.s3_secret_access_key.get_secret_value().strip()
+            ):
                 raise ScreeningStorageError("screening S3 settings incomplete (bucket/credentials)")
             try:
                 self._client = boto3.client(
@@ -60,11 +123,29 @@ class ScreeningStorage:
                     aws_access_key_id=s.s3_access_key_id.get_secret_value(),
                     aws_secret_access_key=s.s3_secret_access_key.get_secret_value(),
                     config=BotoConfig(
-                        # Long listings and 20 MB photo downloads are the
-                        # norm; the default retry budget suits quick metadata
-                        # calls, not transfers.
-                        retries={"max_attempts": 3, "mode": "adaptive"},
+                        # Pipeline-level retry/backoff already handles a
+                        # transient object-store failure. Retrying hidden
+                        # inside one non-cancellable worker thread makes a
+                        # SIGTERM routinely outlive its 40-second grace.
+                        retries={"total_max_attempts": _S3_TOTAL_MAX_ATTEMPTS, "mode": "standard"},
+                        connect_timeout=_S3_CONNECT_TIMEOUT_SECONDS,
+                        read_timeout=_S3_READ_TIMEOUT_SECONDS,
                         signature_version="s3v4",
+                        # Direct browser CSP needs to name the exact origin
+                        # returned by a presigned POST/GET.  Keep AWS S3
+                        # proper on virtual-hosted *regional* endpoints,
+                        # including us-east-1, rather than silently yielding
+                        # the legacy global s3.amazonaws.com host.  A custom
+                        # S3-compatible endpoint retains its own addressing
+                        # behavior/configuration.
+                        s3=(
+                            {
+                                "addressing_style": "virtual",
+                                "us_east_1_regional_endpoint": "regional",
+                            }
+                            if s.s3_endpoint_url is None
+                            else None
+                        ),
                     ),
                 )
             except (BotoCoreError, ClientError) as exc:
@@ -88,12 +169,14 @@ class ScreeningStorage:
             raise ScreeningStorageError(f"S3 list failed under {prefix!r}: {exc}") from exc
         return collected[:max_keys]
 
-    def object_size(self, key: str) -> int | None:
-        """ContentLength via HEAD, or None when the object is missing.
+    def object_info(self, key: str) -> ScreeningObjectInfo | None:
+        """HEAD metadata, or ``None`` while a presigned upload is absent.
 
-        A metadata read sizes a download before any byte is transferred,
-        so the pipeline can refuse oversized objects without reading
-        them; other HEAD failures are storage errors like any other.
+        The returned ETag/version is passed back to ``download`` as a
+        conditional snapshot selector.  That closes the otherwise classic
+        HEAD→GET time-of-check/time-of-use window for a still-valid upload
+        form.  Metadata is normalized to lower-case because S3 does the same
+        for user metadata headers.
         """
         client = self._ensure_client()
         try:
@@ -105,17 +188,87 @@ class ScreeningStorage:
             raise ScreeningStorageError(f"S3 head failed for {key!r}: {exc}") from exc
         except BotoCoreError as exc:
             raise ScreeningStorageError(f"S3 head failed for {key!r}: {exc}") from exc
-        return int(response["ContentLength"])
+        metadata = {
+            str(metadata_key).lower(): str(metadata_value)
+            for metadata_key, metadata_value in cast(
+                dict[str, object], response.get("Metadata") or {}
+            ).items()
+        }
+        content_type = response.get("ContentType")
+        return ScreeningObjectInfo(
+            size=int(response["ContentLength"]),
+            etag=cast(str | None, response.get("ETag")),
+            version_id=cast(str | None, response.get("VersionId")),
+            content_type=cast(str | None, content_type),
+            metadata=metadata,
+        )
 
-    def download(self, key: str) -> bytes:
+    def object_size(self, key: str) -> int | None:
+        """Compatibility helper for callers interested only in size."""
+        info = self.object_info(key)
+        return None if info is None else info.size
+
+    def download(
+        self,
+        key: str,
+        *,
+        max_bytes: int,
+        etag: str | None = None,
+        version_id: str | None = None,
+    ) -> bytes:
+        """Read one immutable object snapshot without exceeding ``max_bytes``.
+
+        A trusted ``ContentLength`` alone is not a memory limit: an object
+        can be replaced after HEAD, and incompatible S3 implementations can
+        report broken metadata.  We therefore reject an oversized GET header
+        *and* stream-read at most ``max_bytes + 1`` bytes before joining.
+        """
+        if max_bytes < 1:
+            raise ValueError("max_bytes must be positive")
         client = self._ensure_client()
+        params: dict[str, object] = {"Bucket": self.bucket, "Key": key}
+        if version_id is not None:
+            params["VersionId"] = version_id
+        elif etag is not None:
+            params["IfMatch"] = etag
         try:
-            response = client.get_object(Bucket=self.bucket, Key=key)
-            return cast(bytes, response["Body"].read())
+            deadline = time.monotonic() + _S3_DOWNLOAD_DEADLINE_SECONDS
+            response = client.get_object(**params)
+            content_length = int(response.get("ContentLength", 0))
+            if content_length > max_bytes:
+                raise ScreeningObjectTooLargeError(
+                    f"object exceeds {max_bytes} byte download cap ({content_length} bytes)"
+                )
+            body = response["Body"]
+            chunks: list[bytes] = []
+            read = 0
+            try:
+                while True:
+                    if time.monotonic() >= deadline:
+                        raise ScreeningStorageError(
+                            "S3 download exceeded "
+                            f"{_S3_DOWNLOAD_DEADLINE_SECONDS}s transfer deadline"
+                        )
+                    chunk = cast(bytes, body.read(min(_DOWNLOAD_CHUNK_BYTES, max_bytes - read + 1)))
+                    if not chunk:
+                        break
+                    read += len(chunk)
+                    if read > max_bytes:
+                        raise ScreeningObjectTooLargeError(
+                            f"object exceeds {max_bytes} byte download cap while streaming"
+                        )
+                    chunks.append(chunk)
+            finally:
+                body.close()
+            return b"".join(chunks)
         except ClientError as exc:
             code = exc.response.get("Error", {}).get("Code", "")
             if code in {"NoSuchKey", "404", "NotFound"}:
                 raise ScreeningObjectMissingError(f"object not in bucket yet: {key!r}") from exc
+            if code in {"PreconditionFailed", "412"}:
+                raise ScreeningObjectChangedError(
+                    f"object changed while being claimed: {key!r}"
+                ) from exc
             raise ScreeningStorageError(f"S3 download failed for {key!r}: {exc}") from exc
         except BotoCoreError as exc:
             raise ScreeningStorageError(f"S3 download failed for {key!r}: {exc}") from exc
@@ -127,25 +280,51 @@ class ScreeningStorage:
         except (BotoCoreError, ClientError) as exc:
             raise ScreeningStorageError(f"S3 upload failed for {key!r}: {exc}") from exc
 
-    def presign_put(self, key: str, content_type: str) -> str:
-        """Short-lived direct-upload URL. The signed content-type header is
-        part of the signature, so the client must send exactly this value
-        on its PUT."""
+    def presign_post(
+        self,
+        key: str,
+        *,
+        content_type: str,
+        upload_token: str,
+        max_bytes: int,
+    ) -> PresignedPost:
+        """Mint a policy-bound browser upload form.
+
+        Unlike a presigned PUT, a POST policy can enforce content-length
+        range server-side.  The token is an S3 user-metadata condition bound
+        to the pre-created database row; the worker refuses an object whose
+        HEAD metadata does not match it.
+        """
+        if max_bytes < 1:
+            raise ValueError("max_bytes must be positive")
         client = self._ensure_client()
-        return cast(
-            str,
-            client.generate_presigned_url(
-                "put_object",
-                Params={
-                    "Bucket": self.bucket,
-                    "Key": key,
-                    "ContentType": content_type,
-                },
+        fields = {
+            "Content-Type": content_type,
+            "x-amz-meta-screening-token": upload_token,
+            "success_action_status": "201",
+        }
+        try:
+            response = client.generate_presigned_post(
+                Bucket=self.bucket,
+                Key=key,
+                Fields=fields,
+                Conditions=[
+                    {"Content-Type": content_type},
+                    {"x-amz-meta-screening-token": upload_token},
+                    {"success_action_status": "201"},
+                    ["content-length-range", 1, max_bytes + _POST_MULTIPART_OVERHEAD_BYTES],
+                ],
                 ExpiresIn=min(
                     self._settings.screening_presign_expiry_seconds,
                     _PRESIGN_EXPIRY_CAP_SECONDS,
                 ),
-            ),
+            )
+        except (BotoCoreError, ClientError) as exc:
+            raise ScreeningStorageError(f"S3 presign failed for {key!r}: {exc}") from exc
+        returned_fields = cast(dict[str, object], response["fields"])
+        return PresignedPost(
+            url=cast(str, response["url"]),
+            fields={field: str(value) for field, value in returned_fields.items()},
         )
 
     def presign_get(self, key: str) -> str:

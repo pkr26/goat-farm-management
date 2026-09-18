@@ -86,6 +86,7 @@ describe("protected mutation idempotency transport", () => {
     "/api/team/workers",
     "/api/health/events",
     "/api/simulation/scenarios",
+    "/api/planner/plans",
     "/api/feeding/dispense",
     "/api/feeding/mix",
     "/api/feeding/inventory/7/add",
@@ -171,6 +172,7 @@ describe("protected mutation idempotency transport", () => {
     expect(isIdempotencyProtectedMutation("/api/simulation/scenarios", "POST")).toBe(
       true,
     );
+    expect(isIdempotencyProtectedMutation("/api/planner/plans", "POST")).toBe(true);
     expect(isIdempotencyProtectedMutation("/api/finance", "POST")).toBe(false);
     expect(isIdempotencyProtectedMutation("/api/finance/42/correct", "POST")).toBe(false);
     expect(isIdempotencyProtectedMutation("/api/purchases", "POST")).toBe(false);

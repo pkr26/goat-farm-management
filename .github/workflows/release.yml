@@ -4,8 +4,10 @@ name: Release
 # linux/amd64 + linux/arm64, gate each architecture on the same Trivy policy
 # as security.yml BEFORE anything is published, then push multi-arch manifests
 # to ghcr.io with provenance+SBOM attestations and cut a GitHub release
-# carrying the per-architecture SPDX SBOMs. Tags are cut only after the CI
-# gate on main is green, so this workflow runs no tests itself.
+# carrying the per-architecture SPDX SBOMs. A release tag is accepted only
+# when its exact commit is reachable from main and has a completed successful
+# CI run; repository tag protection remains an additional control, not the
+# sole release gate.
 on:
   push:
     tags: ["v*"]
@@ -33,6 +35,7 @@ jobs:
       # workflow may write packages.
       packages: write
       contents: read
+      actions: read
     outputs:
       backend_image: ${{ steps.images.outputs.backend_image }}
       frontend_image: ${{ steps.images.outputs.frontend_image }}
@@ -40,6 +43,27 @@ jobs:
       frontend_digest: ${{ steps.assemble.outputs.frontend_digest }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Require successful CI for the tagged main commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAGGED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$TAGGED_SHA" origin/main; then
+            echo "::error::Refusing release: $TAGGED_SHA is not reachable from main."
+            exit 1
+          fi
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${TAGGED_SHA}&status=completed&per_page=100" \
+            --jq '.workflow_runs[] | select(.conclusion == "success" and .event == "push") | .id' \
+            | grep -q . || {
+              echo "::error::Refusing release: no successful push CI run exists for $TAGGED_SHA."
+              exit 1
+            }
 
       - name: Set up QEMU (arm64 emulation)
         # The published images are multi-arch; the arm64 legs need emulation

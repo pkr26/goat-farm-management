@@ -53,7 +53,16 @@ from .providers import (
     gate as run_gate,
 )
 from .rotation import GateExhaustedError, GateOutcome, ProviderRotation
-from .s3 import ScreeningStorage, ScreeningStorageError, get_screening_storage
+from .s3 import (
+    PresignedPost,
+    ScreeningObjectChangedError,
+    ScreeningObjectInfo,
+    ScreeningObjectMissingError,
+    ScreeningObjectTooLargeError,
+    ScreeningStorage,
+    ScreeningStorageError,
+    get_screening_storage,
+)
 from .specialists import (
     DISEASE_VOCABULARY,
     SPECIALIST_PROMPT_VERSIONS,
@@ -91,9 +100,14 @@ __all__ = [
     "NormalizedImage",
     "OpenAICompatibleProvider",
     "ParsedRawKey",
+    "PresignedPost",
     "ProviderAnswer",
     "ProviderError",
     "ProviderRotation",
+    "ScreeningObjectChangedError",
+    "ScreeningObjectInfo",
+    "ScreeningObjectMissingError",
+    "ScreeningObjectTooLargeError",
     "ScreeningStorage",
     "ScreeningStorageError",
     "SpecialistCallResult",

@@ -19,7 +19,7 @@ from typing import Protocol
 import httpx
 from pydantic import SecretStr
 
-from ...core.config import ScreeningRotationProvider, Settings
+from ...core.config import ScreeningRotationProvider, ScreeningRuntimeSettings
 from .gate import GateResponse, gate_instruction, parse_gate_response
 
 
@@ -64,7 +64,7 @@ class AnthropicProvider:
 
     def __init__(
         self,
-        settings: Settings,
+        settings: ScreeningRuntimeSettings,
         *,
         name: str = "anthropic",
         client: httpx.AsyncClient | None = None,
@@ -145,7 +145,7 @@ class OpenAICompatibleProvider:
 
     def __init__(
         self,
-        settings: Settings,
+        settings: ScreeningRuntimeSettings,
         *,
         name: str = "openai_compatible",
         client: httpx.AsyncClient | None = None,
@@ -230,7 +230,7 @@ async def gate(provider: VisionProvider, image_jpeg: bytes) -> GateCallResult:
     )
 
 
-def build_provider_rotation(settings: Settings) -> list[VisionProvider]:
+def build_provider_rotation(settings: ScreeningRuntimeSettings) -> list[VisionProvider]:
     """The configured provider list, rotation order preserved.
 
     Non-empty GOATFARM_SCREENING_PROVIDER_ROTATION wins; otherwise the

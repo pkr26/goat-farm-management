@@ -24,4 +24,9 @@ export interface ScreeningUploadIn {
      */
   file_name: string;
   content_type: ScreeningUploadInContentType;
+  /**
+     * @minimum 1
+     * @maximum 26214400
+     */
+  file_size: number;
 }

@@ -1,9 +1,9 @@
 /**
  * ADVERSARIAL AUDIT G2/G3 — configuration & secret-exposure attacks (executed).
  *
- * G2  CSP: pin every hardening directive that exists today and document the
- *     known `script-src 'unsafe-inline'` gap (M-9) as an assertion, so any
- *     accidental CSP loosening (or the future nonce fix) is caught here.
+ * G2  CSP: pin every edge-delivered hardening directive and the runtime
+ *     validation contract. Release frontend images are intentionally generic;
+ *     the public edge receives the deployment's S3 origin at startup.
  * G3  Secret exposure: scan every shipped source file for token/credential
  *     persistence patterns. The design invariant: the access token lives in
  *     memory only; localStorage carries exactly two keys (the farm selection
@@ -18,6 +18,15 @@ import { describe, expect, it } from "vitest";
 
 const SRC_ROOT = join(import.meta.dirname, "..", "..");
 const NEXT_CONFIG_SOURCE = readFileSync(join(SRC_ROOT, "..", "next.config.ts"), "utf8");
+const COMPOSE_SOURCE = readFileSync(join(SRC_ROOT, "..", "..", "docker-compose.yml"), "utf8");
+const EDGE_ENTRYPOINT_SOURCE = readFileSync(
+  join(SRC_ROOT, "..", "..", "docker", "edge-entrypoint.sh"),
+  "utf8",
+);
+const PRODUCTION_EDGE_TEMPLATE_SOURCE = readFileSync(
+  join(SRC_ROOT, "..", "..", "docker", "edge-proxy.production.conf.template"),
+  "utf8",
+);
 
 function allSourceFiles(dir: string): string[] {
   const out: string[] = [];
@@ -39,24 +48,33 @@ describe("ADV G2: Content-Security-Policy hardening directives", () => {
     expect(NEXT_CONFIG_SOURCE).toContain('"Cross-Origin-Opener-Policy"');
     expect(NEXT_CONFIG_SOURCE).toContain('"Cross-Origin-Resource-Policy"');
     expect(NEXT_CONFIG_SOURCE).toContain('"X-Permitted-Cross-Domain-Policies"');
-    // CSP + HSTS are appended for production builds only (documented HMR
-    // carve-out for dev): the PROD_ONLY_HEADERS list must hold exactly those.
+    // HSTS is appended for production builds only. CSP must never appear here:
+    // build-time headers cannot represent the deployment-specific S3 origin
+    // carried by a generic registry image.
     expect(NEXT_CONFIG_SOURCE).toContain("isProd ? [...SECURITY_HEADERS, ...PROD_ONLY_HEADERS] : SECURITY_HEADERS");
+    expect(NEXT_CONFIG_SOURCE).not.toContain('key: "Content-Security-Policy"');
   });
 
-  it("ATTEMPTED & REVERTED (M-9): nonce CSP blocked by Next 16 bootstrap scripts", () => {
-    // A middleware nonce CSP was built and smoke-tested during this audit:
-    // Next 16 (standalone) never applied the request-header nonce to its
-    // inline bootstrap scripts — with 'strict-dynamic' real browsers would
-    // block hydration. The verified posture keeps script-src 'unsafe-inline'
-    // (pinned here) until the framework supports nonce'd RSC payloads; every
-    // other directive is enforced and pinned below.
-    expect(NEXT_CONFIG_SOURCE).toContain("script-src 'self' 'unsafe-inline'");
-    expect(NEXT_CONFIG_SOURCE).toContain("object-src 'none'");
-    expect(NEXT_CONFIG_SOURCE).toContain("base-uri 'self'");
-    expect(NEXT_CONFIG_SOURCE).toContain("form-action 'self'");
-    expect(NEXT_CONFIG_SOURCE).toContain("frame-ancestors 'none'");
-    expect(NEXT_CONFIG_SOURCE).toContain("connect-src 'self'");
+  it("delivers a strict runtime CSP and validates direct-S3 source lists", () => {
+    // Next 16 App Router still needs inline hydration payloads, so the known
+    // bounded carve-out remains. Every other directive is edge-delivered.
+    const edgePolicies = COMPOSE_SOURCE + PRODUCTION_EDGE_TEMPLATE_SOURCE;
+    expect(edgePolicies).toContain("add_header Content-Security-Policy");
+    expect(edgePolicies).toContain("script-src 'self' 'unsafe-inline'");
+    expect(edgePolicies).toContain("object-src 'none'");
+    expect(edgePolicies).toContain("base-uri 'self'");
+    expect(edgePolicies).toContain("form-action 'self'");
+    expect(edgePolicies).toContain("frame-ancestors 'none'");
+    expect(edgePolicies).toContain("connect-src 'self' __GOATFARM_CSP_CONNECT_ORIGINS__");
+    // Camera previews use same-page URL.createObjectURL() values before an
+    // image reaches S3, so blob: is a narrowly scoped image-only source.
+    expect(edgePolicies).toContain("img-src 'self' data: blob: __GOATFARM_CSP_IMG_ORIGINS__");
+    expect(COMPOSE_SOURCE).toContain("GOATFARM_CSP_CONNECT_ORIGINS");
+    expect(COMPOSE_SOURCE).toContain("GOATFARM_CSP_IMG_ORIGINS");
+    expect(EDGE_ENTRYPOINT_SOURCE).toContain("validate_csp_sources");
+    expect(EDGE_ENTRYPOINT_SOURCE).toContain("screening is enabled but");
+    expect(EDGE_ENTRYPOINT_SOURCE).toContain("unsafe for an nginx header");
+    expect(EDGE_ENTRYPOINT_SOURCE).toContain("edge-proxy.template");
     expect(NEXT_CONFIG_SOURCE).toContain("max-age=63072000; includeSubDomains");
   });
 

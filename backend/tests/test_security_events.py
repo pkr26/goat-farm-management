@@ -77,9 +77,7 @@ async def test_invalid_access_token_emits_event(
     client: httpx.AsyncClient, caplog: pytest.LogCaptureFixture
 ) -> None:
     with caplog.at_level(logging.INFO, logger="goatfarm.audit"):
-        resp = await client.get(
-            "/api/auth/me", headers={"Authorization": "Bearer not.a.jwt"}
-        )
+        resp = await client.get("/api/auth/me", headers={"Authorization": "Bearer not.a.jwt"})
     assert resp.status_code == 401
     assert any("event='auth.token.invalid'" in m for m in _events(caplog)), _events(caplog)
 
@@ -97,9 +95,7 @@ async def test_revoked_generation_token_emits_event(
     with caplog.at_level(logging.INFO, logger="goatfarm.audit"):
         resp = await client.get("/api/auth/me", headers=old_headers)
     assert resp.status_code == 401
-    assert any(
-        "event='auth.token.version_mismatch'" in m for m in _events(caplog)
-    ), _events(caplog)
+    assert any("event='auth.token.version_mismatch'" in m for m in _events(caplog)), _events(caplog)
 
 
 async def test_rbac_denial_emits_event(
@@ -143,8 +139,7 @@ async def test_rbac_denial_emits_event(
         )
     assert denied.status_code == 403
     assert any(
-        "event='rbac.denied'" in m and "permission='finance.manage'" in m
-        for m in _events(caplog)
+        "event='rbac.denied'" in m and "permission='finance.manage'" in m for m in _events(caplog)
     ), _events(caplog)
 
 
@@ -171,6 +166,5 @@ async def test_dpr_download_emits_event(
         resp = await client.get(f"/api/planner/plans/{plan_id}/dpr", headers=owner)
     assert resp.status_code == 200
     assert any(
-        "event='planner.dpr.download'" in m and f"plan_id={plan_id}" in m
-        for m in _events(caplog)
+        "event='planner.dpr.download'" in m and f"plan_id={plan_id}" in m for m in _events(caplog)
     ), _events(caplog)

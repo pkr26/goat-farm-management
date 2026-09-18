@@ -325,14 +325,14 @@ def test_dpr_markdown_title_is_single_line_and_directional_free() -> None:
     result = run_simulation(a, with_break_even=False)
     evil = (
         "Unit\n\n## Means of finance\n\n| Bank loan | \u20b90 |\n"
-        "| Equity | \u20b99 crore |\n| Officer | =HYPERLINK(\"http://evil.example\",\"c\") |"
+        '| Equity | \u20b99 crore |\n| Officer | =HYPERLINK("http://evil.example","c") |'
         "\u2028PUNE"
     )
     markdown = build_dpr_markdown(a, result, plan_name=evil)
     title_line = markdown.splitlines()[0]
     assert title_line == (
         "# Detailed Project Report — Unit ## Means of finance | Bank loan | "
-        "₹0 | | Equity | ₹9 crore | | Officer | =HYPERLINK(\"http://evil.example\",\"c\") | PUNE"
+        '₹0 | | Equity | ₹9 crore | | Officer | =HYPERLINK("http://evil.example","c") | PUNE'
     )
     # No line separator or carriage return from the payload survived, and
     # the forged content exists only inside the single title line (the

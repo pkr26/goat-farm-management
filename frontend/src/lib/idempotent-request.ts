@@ -243,6 +243,10 @@ export function isIdempotencyProtectedMutation(url: string, method?: string): bo
     path === "/api/team/workers" ||
     path === "/api/health/events" ||
     path === "/api/simulation/scenarios" ||
+    // Saving a plan creates durable planning state. Its server endpoint
+    // accepts Idempotency-Key, so preserve the key across an ambiguous retry
+    // instead of leaving a completed save indistinguishable from a timeout.
+    path === "/api/planner/plans" ||
     // Pregnancy/kidding creation auto-creates tasks and (for kidding) animals,
     // so an ambiguous replay duplicates durable stock. Both routes now
     // declare the Idempotency-Key server-side too, so the automatic network

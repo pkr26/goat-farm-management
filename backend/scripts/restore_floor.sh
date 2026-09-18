@@ -13,12 +13,11 @@
 # Usage: restore_floor.sh <revision>   → exit 0 = allowed, exit 1 = refused
 # (the reason and operator guidance are printed to stderr).
 #
-# MAINTENANCE: RESTORE_ALLOWED_REVISIONS is the migration chain from the
-# floor to the current head, in chain order. Append each new revision above
-# the head when adding a migration. The chain-sync test
-# (tests/test_deployment_artifacts.py) regenerates the chain from
-# backend/alembic/versions and fails on any drift, so a migration that
-# forgets this list cannot merge.
+# MAINTENANCE: RESTORE_ALLOWED_REVISIONS is the migration graph reachable
+# from the floor to the current head, in topological order. Append every new
+# branch or merge revision after each of its parents. The graph-sync test
+# (tests/test_deployment_artifacts.py) rebuilds Alembic's DAG and fails on
+# any drift, so a migration that forgets this list cannot merge.
 
 set -euo pipefail
 
@@ -69,6 +68,10 @@ RESTORE_ALLOWED_REVISIONS=(
     "c9e0f1a3b4d5"
     "d0f1a2b3c4d6"
     "c3e5a9f1d7b4"
+    "a6d4e2f9c8b7"
+    "c4d8e1f9a2b7"
+    "b7e8f9a0c1d2"
+    "f7a9c1e3b5d7"
 )
 
 revision="${1:-}"

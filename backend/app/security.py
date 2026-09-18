@@ -46,12 +46,13 @@ from argon2.exceptions import (
     VerificationError,
     VerifyMismatchError,
 )
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-from .core.config import BACKEND_DIR, get_settings
+from .core.config import BACKEND_DIR, decode_totp_encryption_key, get_settings
 
 _logger = logging.getLogger(__name__)
 
@@ -874,18 +875,37 @@ def decode_refresh_claims(token: str) -> RefreshClaims | None:
 #
 # No new dependency: RFC 6238 is HMAC-SHA1 over a 30-second step with a
 # 6-digit truncation, expressible in a few lines of stdlib. The shared secret
-# is a 160-bit random value (base32). At rest it is AES-GCM encrypted under a
-# key derived (HKDF-SHA256) from the JWT signing private key — production
-# already mounts that key, so TOTP needs no new operator secret, and a DB
-# dump alone cannot recover second-factor material. If the JWT keypair is
-# ever rotated, stored secrets become undecryptable and affected users must
-# re-enroll (fail closed; the key-rotation runbook gains one line).
+# is a 160-bit random value (base32). New records are AES-GCM encrypted under
+# an independent operator-managed AES-256 key, not JWT signing material. That
+# keeps TOTP usable across a JWT signing-key rotation. Raw v1 ciphertext is
+# retained only as a migration reader while its original active JWT signer is
+# still configured; successful TOTP use rewraps it into the versioned format.
 
 TOTP_STEP_SECONDS = 30
 TOTP_DIGITS = 6
 TOTP_DRIFT_STEPS = 1  # accept the neighbouring steps (±30 s clock skew)
 TOTP_SECRET_BYTES = 20
 TOTP_CHALLENGE_TTL_SECONDS = 300
+TOTP_ENVELOPE_PREFIX = b"goatfarm:totp:v2:"
+TOTP_ENVELOPE_AAD = b"goatfarm-totp-secret-v2"
+TOTP_LEGACY_AAD = b"totp"
+AESGCM_NONCE_BYTES = 12
+AESGCM_TAG_BYTES = 16
+
+
+class TotpSecretUnavailableError(ValueError):
+    """Stored TOTP material cannot be authenticated with configured keys.
+
+    Callers must fail closed without exposing which key/version or ciphertext
+    property was wrong. This intentionally absorbs InvalidTag and malformed
+    rows so an administrator sees a bounded operational failure rather than a
+    user receiving an unrelated 500.
+    """
+
+
+class DecryptedTotpSecret(NamedTuple):
+    secret: str
+    needs_rewrap: bool
 
 
 def generate_totp_secret_b32() -> str:
@@ -940,22 +960,20 @@ def verify_totp_code(
     return matched
 
 
-# (keyring identity, derived key): the cache must never outlive the keyring it
-# was derived from. _get_jwt_keyring() live-reloads when the configured key
-# paths change, and a stale key would keep encrypting new TOTP secrets under
-# the pre-rotation key while decode failures of older rows were misattributed
-# to "rotation" (2026-09-17 audit L-6). Keying on the keyring object itself
-# makes the reload self-invalidating.
-_totp_aes_key_cache: tuple[object, bytes] | None = None
+# The raw v1 reader deliberately remains tied to the active signer and is
+# never used for a new write once an independent TOTP key is configured. It
+# exists solely to migrate legacy rows before the JWT signing cutover. Keying
+# this cache on the JWT keyring object makes a signer reload self-invalidating.
+_legacy_totp_aes_key_cache: tuple[object, bytes] | None = None
 
 
-def _totp_encryption_key() -> bytes:
-    """AES-256 key = HKDF(active JWT private key). Derived, never stored."""
-    global _totp_aes_key_cache
+def _legacy_totp_encryption_key() -> bytes:
+    """AES-256 key used by pre-v2 raw TOTP ciphertext only."""
+    global _legacy_totp_aes_key_cache
     keyring = _get_jwt_keyring()
-    if _totp_aes_key_cache is None or _totp_aes_key_cache[0] is not keyring:
+    if _legacy_totp_aes_key_cache is None or _legacy_totp_aes_key_cache[0] is not keyring:
         pem = keyring.signing_private_key.encode()
-        _totp_aes_key_cache = (
+        _legacy_totp_aes_key_cache = (
             keyring,
             HKDF(
                 algorithm=hashes.SHA256(),
@@ -964,22 +982,109 @@ def _totp_encryption_key() -> bytes:
                 info=b"goatfarm totp secret at rest",
             ).derive(pem),
         )
-    return _totp_aes_key_cache[1]
+    return _legacy_totp_aes_key_cache[1]
+
+
+def _totp_stable_keyring() -> tuple[bytes, tuple[bytes, ...]] | None:
+    """Current independent TOTP key followed by decryption-only predecessors.
+
+    Settings validates both syntax and production presence. There is no cache
+    here: decoding a tiny base64url value is negligible beside AES-GCM and it
+    means a test/deployment configuration reload cannot accidentally retain a
+    removed predecessor in process memory.
+    """
+    settings = get_settings()
+    if settings.totp_encryption_key is None:
+        return None
+    current = decode_totp_encryption_key(
+        settings.totp_encryption_key,
+        setting_name="GOATFARM_TOTP_ENCRYPTION_KEY",
+    )
+    previous = tuple(
+        decode_totp_encryption_key(
+            key,
+            setting_name=f"GOATFARM_TOTP_ENCRYPTION_PREVIOUS_KEYS[{index}]",
+        )
+        for index, key in enumerate(settings.totp_encryption_previous_keys)
+    )
+    return current, previous
+
+
+def _decrypt_totp_payload(key: bytes, nonce: bytes, ciphertext: bytes, aad: bytes) -> str:
+    try:
+        return AESGCM(key).decrypt(nonce, ciphertext, aad).decode("ascii")
+    except (InvalidTag, ValueError, UnicodeDecodeError) as exc:
+        raise TotpSecretUnavailableError("stored TOTP secret cannot be decrypted") from exc
+
+
+def _is_valid_totp_ciphertext(payload: bytes) -> bool:
+    return len(payload) >= AESGCM_NONCE_BYTES + AESGCM_TAG_BYTES
 
 
 def encrypt_totp_secret(secret_b32: str) -> bytes:
-    nonce = os.urandom(12)
-    ciphertext = AESGCM(_totp_encryption_key()).encrypt(nonce, secret_b32.encode("ascii"), b"totp")
-    return nonce + ciphertext
+    """Encrypt a TOTP shared secret under the configured current key.
+
+    The legacy write mode keeps existing development installations working
+    before they set the independent key. Production cannot reach it because
+    Settings refuses to start without GOATFARM_TOTP_ENCRYPTION_KEY.
+    """
+    nonce = os.urandom(AESGCM_NONCE_BYTES)
+    keyring = _totp_stable_keyring()
+    if keyring is None:
+        ciphertext = AESGCM(_legacy_totp_encryption_key()).encrypt(
+            nonce, secret_b32.encode("ascii"), TOTP_LEGACY_AAD
+        )
+        return nonce + ciphertext
+    current_key, _previous = keyring
+    ciphertext = AESGCM(current_key).encrypt(nonce, secret_b32.encode("ascii"), TOTP_ENVELOPE_AAD)
+    return TOTP_ENVELOPE_PREFIX + nonce + ciphertext
+
+
+def decrypt_totp_secret_with_metadata(encrypted: bytes) -> DecryptedTotpSecret:
+    """Decrypt a versioned or legacy TOTP row and report whether to rewrap.
+
+    A v2 row is tried against the current stable key and then its bounded
+    predecessor ring. Raw v1 rows are only tried against the active JWT
+    signer-derived key while it remains available. This deliberately avoids
+    retaining an old JWT private key in the long-running API process.
+    """
+    payload = bytes(encrypted)
+    if payload.startswith(TOTP_ENVELOPE_PREFIX):
+        body = payload[len(TOTP_ENVELOPE_PREFIX) :]
+        if not _is_valid_totp_ciphertext(body):
+            raise TotpSecretUnavailableError("stored TOTP secret is malformed")
+        keyring = _totp_stable_keyring()
+        if keyring is None:
+            raise TotpSecretUnavailableError("independent TOTP encryption key is unavailable")
+        nonce, ciphertext = body[:AESGCM_NONCE_BYTES], body[AESGCM_NONCE_BYTES:]
+        current, previous = keyring
+        for index, key in enumerate((current, *previous)):
+            try:
+                secret = _decrypt_totp_payload(key, nonce, ciphertext, TOTP_ENVELOPE_AAD)
+            except TotpSecretUnavailableError:
+                continue
+            return DecryptedTotpSecret(secret=secret, needs_rewrap=index > 0)
+        raise TotpSecretUnavailableError("stored TOTP secret cannot be decrypted")
+
+    if not _is_valid_totp_ciphertext(payload):
+        raise TotpSecretUnavailableError("stored TOTP secret is malformed")
+    nonce, ciphertext = payload[:AESGCM_NONCE_BYTES], payload[AESGCM_NONCE_BYTES:]
+    try:
+        legacy_key = _legacy_totp_encryption_key()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise TotpSecretUnavailableError("legacy TOTP key is unavailable") from exc
+    secret = _decrypt_totp_payload(legacy_key, nonce, ciphertext, TOTP_LEGACY_AAD)
+    # Raw ciphertext becomes legacy only when an independent key has been
+    # configured; until then it remains the active development format.
+    return DecryptedTotpSecret(secret=secret, needs_rewrap=_totp_stable_keyring() is not None)
 
 
 def decrypt_totp_secret(encrypted: bytes) -> str:
-    nonce, ciphertext = encrypted[:12], encrypted[12:]
-    return AESGCM(_totp_encryption_key()).decrypt(nonce, ciphertext, b"totp").decode("ascii")
+    """Compatibility wrapper for callers that only need the shared secret."""
+    return decrypt_totp_secret_with_metadata(encrypted).secret
 
 
 def _reset_totp_key_cache_for_tests() -> None:
-    """The HKDF input is the ACTIVE signing key; key-rotation tests re-point
-    it and must not keep deriving from the pre-rotation bytes."""
-    global _totp_aes_key_cache
-    _totp_aes_key_cache = None
+    """Drop the legacy signer-derived cache after a JWT test reconfiguration."""
+    global _legacy_totp_aes_key_cache
+    _legacy_totp_aes_key_cache = None

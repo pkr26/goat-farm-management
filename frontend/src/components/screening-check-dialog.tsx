@@ -2,12 +2,13 @@
 
 /**
  * Disease-check walkthrough dialog: pick each farm bucket (pen), take a
- * photo of its goats, upload it straight to S3 via a presigned PUT, repeat.
+ * photo of its goats, upload it straight to S3 via a constrained presigned
+ * POST form, repeat.
  * "Finish & process" submits the batch — the worker screens every photo as
  * the bytes land and results show up in the review queue.
  *
  * The phone's bytes never touch the API: the backend mints the key
- * (raw/<farm>/<date>/<bucket>/…) and a short-lived PUT URL, and no AWS
+ * (raw/<farm>/<date>/<bucket>/…) and a short-lived POST policy, and no AWS
  * credential ever reaches this device.
  */
 
@@ -64,14 +65,13 @@ export function DiseaseCheckDialog({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // Synchronous double-click lock: `disabled={uploading}` only applies after
-  // the re-render, so two events delivered in the same React batch would both
-  // enter uploadPendingPhoto and (with no batch yet) mint two ScreeningBatch
-  // rows — the lazy-mint comment below exists precisely to avoid that (2026-09-17
-  // audit L-20; the account-dialog beginAction pattern).
-  const uploadInFlight = useRef(false);
-  // Bumped on every open: an upload started under a previous walkthrough
-  // session must not credit its photo to the freshly reset one.
+  // Synchronous double-click lock, scoped to its walkthrough epoch.
+  // `disabled={uploading}` only applies after the re-render, so two events in
+  // the same React batch would otherwise mint two batches. Crucially, a stale
+  // request from a closed walkthrough must not lock a newly opened one.
+  const uploadInFlightEpoch = useRef<number | null>(null);
+  // Bumped on every open/close boundary: an upload started under a previous
+  // walkthrough session must not credit its photo to the freshly reset one.
   const walkthroughEpoch = useRef(0);
 
   // A fresh walkthrough starts clean on open. The batch itself is minted
@@ -79,6 +79,10 @@ export function DiseaseCheckDialog({
   // look around (or losing signal before any photo) must not leave empty
   // ScreeningBatch rows piling up in the walkthrough list.
   useEffect(() => {
+    // Closing invalidates every outstanding continuation immediately; opening
+    // gets a new token. An old create response must never populate the new
+    // session's batch state or keep its controls locked.
+    walkthroughEpoch.current += 1;
     if (!open) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setBatchId(null);
@@ -86,11 +90,10 @@ export function DiseaseCheckDialog({
     setUploadedByBucket({});
     setPendingFile(null);
     setPreviewUrl(null);
-    // A stalled PUT from the closed session can never settle its `finally`
+    // A stalled object-store upload from the closed session can never settle its `finally`
     // once it times out — but a session closed mid-upload must not leave the
     // reopened dialog inert with `uploading` stuck true (2026-09-17 audit M-11).
     setUploading(false);
-    walkthroughEpoch.current += 1;
   }, [open]);
 
   // Revoke object URLs when the preview changes or the dialog closes.
@@ -106,7 +109,7 @@ export function DiseaseCheckDialog({
       toast.error(t("screening.check.uploadFailed"));
       return;
     }
-    if (file.size > MAX_UPLOAD_BYTES) {
+    if (file.size < 1 || file.size > MAX_UPLOAD_BYTES) {
       toast.error(t("screening.check.uploadFailed"));
       return;
     }
@@ -115,54 +118,69 @@ export function DiseaseCheckDialog({
     setPreviewUrl(URL.createObjectURL(file));
   };
 
-  const ensureBatchId = async (): Promise<number | null> => {
+  const ensureBatchId = async (epoch: number): Promise<number | null> => {
     if (batchId !== null) return batchId;
     try {
       const result = await createBatch.mutateAsync(undefined);
-      if (result.status === 201) {
+      if (result.status === 201 && walkthroughEpoch.current === epoch) {
         setBatchId(result.data.id);
         return result.data.id;
       }
       return null;
     } catch {
-      toast.error(t("screening.check.noBatch"));
+      if (walkthroughEpoch.current === epoch) {
+        toast.error(t("screening.check.noBatch"));
+      }
       return null;
     }
   };
 
   const uploadPendingPhoto = async () => {
     if (!pendingFile || !selectedBucket) return;
-    if (uploadInFlight.current) return;
-    uploadInFlight.current = true;
     const epoch = walkthroughEpoch.current;
+    if (uploadInFlightEpoch.current === epoch) return;
+    uploadInFlightEpoch.current = epoch;
     const stillCurrentSession = () => walkthroughEpoch.current === epoch;
     setUploading(true);
     try {
-      const activeBatchId = await ensureBatchId();
-      if (activeBatchId === null) return;
+      const activeBatchId = await ensureBatchId(epoch);
+      if (activeBatchId === null || !stillCurrentSession()) return;
       const extension = pendingFile.type === "image/png" ? ".png" : ".jpg";
       const result = await requestUploadApiScreeningUploadsPost({
         batch_id: activeBatchId,
         bucket: selectedBucket as "BREEDING",
         file_name: `photo${extension}`,
         content_type: pendingFile.type as "image/jpeg" | "image/png",
+        // The API rejects an impossible size before it pre-registers a
+        // pending image; S3 independently enforces this same bound in its
+        // signed POST policy.
+        file_size: pendingFile.size,
       });
-      if (result.status !== 201) return;
-      // Direct PUT to S3 — the signed content type must be sent verbatim.
-      // Bounded like every api-client request: on flaky mobile data an
-      // unbounded PUT never settles, leaving the dialog's uploading state
-      // wedged until a full page reload (2026-09-17 audit M-11).
+      if (result.status !== 201 || !stillCurrentSession()) return;
+      // Direct POST to S3. Every signed field must precede `file`: the policy
+      // binds this exact pre-registered object, content type, and byte range.
+      // Do not set Content-Type manually — the browser supplies the required
+      // multipart boundary for FormData.
+      const formData = new FormData();
+      for (const [name, value] of Object.entries(result.data.upload_fields)) {
+        formData.append(name, value);
+      }
+      formData.append("file", pendingFile);
+      // Bounded like every API request: on flaky mobile data an unbounded
+      // upload never settles, leaving the dialog's uploading state wedged
+      // until a full page reload (2026-09-17 audit M-11).
       const response = await fetch(result.data.upload_url, {
-        method: "PUT",
-        body: pendingFile,
-        headers: { "Content-Type": pendingFile.type },
+        method: result.data.upload_method ?? "POST",
+        body: formData,
         signal: AbortSignal.timeout(60_000),
       });
       if (!response.ok) {
-        toast.error(t("screening.check.uploadFailed"));
+        if (stillCurrentSession()) {
+          toast.error(t("screening.check.uploadFailed"));
+        }
         return;
       }
-      // A session closed (and reopened) while this PUT was in flight owns a
+      // A session closed (and reopened) while this upload was in flight owns a
       // fresh walkthrough: the photo belongs to the OLD session's batch, so
       // neither its counts nor its toasts may touch the new session's state
       // (2026-09-17 audit L-20).
@@ -182,7 +200,9 @@ export function DiseaseCheckDialog({
         toast.error(t("screening.check.uploadFailed"));
       }
     } finally {
-      uploadInFlight.current = false;
+      if (uploadInFlightEpoch.current === epoch) {
+        uploadInFlightEpoch.current = null;
+      }
       if (stillCurrentSession()) {
         setUploading(false);
       }

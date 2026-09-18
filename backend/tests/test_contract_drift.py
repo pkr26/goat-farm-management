@@ -97,6 +97,45 @@ def test_openapi_declares_bearer_security_on_protected_operations() -> None:
     assert "security" not in schema["paths"]["/api/auth/login"]["post"]
 
 
+def test_openapi_error_responses_match_runtime_shapes_and_have_no_dangling_schema_refs() -> None:
+    """Business-rule 422s are strings; malformed requests carry safe issues.
+
+    The router-wide response declaration is intentionally richer than
+    FastAPI's default 422. Pin both union branches and the global middleware
+    errors, then walk all schema refs so a manually-written OpenAPI ref cannot
+    silently point at a component FastAPI no longer emits.
+    """
+    schema = create_app().openapi()
+    components = schema["components"]["schemas"]
+    responses = schema["paths"]["/api/finance/insurance/{policy_id}/claim"]["post"]["responses"]
+
+    assert responses["422"]["content"]["application/json"]["schema"] == {
+        "oneOf": [
+            {"$ref": "#/components/schemas/ErrorOut"},
+            {"$ref": "#/components/schemas/RequestValidationErrorOut"},
+        ]
+    }
+    assert components["RequestValidationErrorOut"]["required"] == ["detail"]
+    assert components["RequestValidationIssueOut"]["required"] == ["type", "loc", "msg"]
+    for status_code in ("413", "414", "415", "500", "503"):
+        assert responses[status_code]["content"]["application/json"]["schema"] == {
+            "$ref": "#/components/schemas/ErrorOut"
+        }
+
+    def schema_references(value: object) -> set[str]:
+        if isinstance(value, dict):
+            direct = {value["$ref"]} if isinstance(value.get("$ref"), str) else set()
+            return direct | set().union(*(schema_references(item) for item in value.values()))
+        if isinstance(value, list):
+            return set().union(*(schema_references(item) for item in value))
+        return set()
+
+    schema_refs = {
+        ref for ref in schema_references(schema) if ref.startswith("#/components/schemas/")
+    }
+    assert all(ref.removeprefix("#/components/schemas/") in components for ref in schema_refs)
+
+
 def test_farm_response_contract_requires_every_emitted_key() -> None:
     farm_schema = create_app().openapi()["components"]["schemas"]["FarmOut"]
 

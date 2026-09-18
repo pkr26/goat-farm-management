@@ -10,6 +10,7 @@ screening-specific permission.
 """
 
 import datetime as dt
+import secrets
 import uuid
 from decimal import Decimal
 from typing import Annotated, Any, Literal, cast
@@ -23,6 +24,7 @@ from sqlalchemy.orm import selectinload
 from ..core.config import get_settings
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
 from ..models import (
+    Farm,
     ScreeningBatch,
     ScreeningCrop,
     ScreeningFinding,
@@ -37,6 +39,7 @@ from ..models.enums import (
 )
 from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET
 from ..schemas.screening import (
+    MAX_SCREENING_UPLOAD_BYTES,
     ScreeningBatchBucketProgressOut,
     ScreeningBatchListOut,
     ScreeningBatchOut,
@@ -59,7 +62,7 @@ from ..schemas.screening import (
     ScreeningUploadIn,
     ScreeningUploadOut,
 )
-from ..services.screening import ScreeningStorage
+from ..services.screening import ScreeningStorage, ScreeningStorageError
 from ..utils import today, utcnow
 
 router = APIRouter(prefix="/api/screening", tags=["screening"], responses=COMMON_ERROR_RESPONSES)
@@ -69,6 +72,24 @@ MANAGE = Annotated[set[str], Depends(require_perm("health.manage"))]
 
 SCREENING_LIST_DEFAULT_LIMIT = 25
 SCREENING_LIST_MAX_LIMIT = 200
+
+# Hard server-enforced intake ceilings.  They intentionally live beside the
+# mutation paths rather than in a client hint: a compromised health manager
+# can mint forms directly, so the API must bound both the number of open
+# walkthroughs and the model-bound work each farm can queue.
+MAX_OPEN_SCREENING_BATCHES_PER_FARM = 5
+MAX_SCREENING_IMAGES_PER_BATCH = 100
+MAX_IN_FLIGHT_SCREENING_IMAGES_PER_FARM = 250
+# An open walkthrough may request forms for up to a day (the maximum S3
+# policy lifetime) and gets one small hand-off grace period.  Once stale it
+# no longer consumes the five-batch farm capacity and cannot be revived to
+# mint fresh uploads.  Existing rows can still be submitted/reviewed.
+MAX_OPEN_SCREENING_BATCH_AGE = dt.timedelta(hours=25)
+_IN_FLIGHT_SCREENING_STATUSES = (
+    ScreeningImageStatus.PENDING.value,
+    ScreeningImageStatus.PROCESSING.value,
+    ScreeningImageStatus.ERROR.value,
+)
 
 
 async def _latest_runs_by_image(
@@ -418,8 +439,10 @@ async def provider_stats(
         item: tuple[tuple[str, str], dict[str, int | Decimal | None]],
     ) -> tuple[int, str, str]:
         runs = item[1]["gate_runs"]
-        assert isinstance(runs, int)  # gate stats are COUNT()s
-        return (-runs, item[0][0], item[0][1])
+        # ``_slot`` seeds this from COUNT() and every merge writes an int,
+        # but preserve a stable response even if a hand-repaired row leaves
+        # the aggregate mapping malformed.
+        return (-int(runs or 0), item[0][0], item[0][1])
 
     providers = [
         ScreeningProviderStatsOut(provider=provider, model=model, **values)  # type: ignore[arg-type]
@@ -476,7 +499,13 @@ async def export_dataset(
             severity=cast(ScreeningSeverityStr | None, finding.severity),
             region=finding.region,
             captured_date=image.captured_date,
-            image_s3_key=image.s3_key,
+            # Dataset consumers need the worker-owned normalized derivative
+            # whose bytes produced ``image.sha256``. The direct browser POST
+            # target remains mutable until its policy expires, so exporting
+            # that raw key would make a reviewed training record point at
+            # different bytes after a valid replay. A legacy row can lack a
+            # derivative; retain its raw key as the only available fallback.
+            image_s3_key=image.normalized_key or image.s3_key,
             image_sha256=image.sha256,
             crop_index=crop.crop_index if crop is not None else None,
             crop_box_1000=(
@@ -607,6 +636,30 @@ async def create_batch(
             status_code=503,
             detail="Screening storage is not configured on this deployment",
         )
+    # Serialize farm-level intake checks with upload/submission mutations.
+    # Without this lock, parallel requests can each observe spare capacity
+    # and collectively create an unbounded set of open walkthroughs.
+    await db.execute(select(Farm.id).where(Farm.id == farm.id).with_for_update())
+    active_batch_after = utcnow() - MAX_OPEN_SCREENING_BATCH_AGE
+    open_batches = (
+        await db.execute(
+            select(func.count())
+            .select_from(ScreeningBatch)
+            .where(
+                ScreeningBatch.farm_id == farm.id,
+                ScreeningBatch.submitted_at.is_(None),
+                ScreeningBatch.created_at >= active_batch_after,
+            )
+        )
+    ).scalar_one()
+    if open_batches >= MAX_OPEN_SCREENING_BATCHES_PER_FARM:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                "Too many open screening walkthroughs for this farm; submit or let an "
+                "abandoned walkthrough expire before starting another"
+            ),
+        )
     batch = ScreeningBatch(farm_id=farm.id, created_by_id=user.id)
     db.add(batch)
     await db.commit()
@@ -659,11 +712,16 @@ async def submit_batch(
         )
     if not 1 <= batch_id <= MAX_INT32_ID:
         raise HTTPException(status_code=404, detail="Screening batch not found")
+    # Lock ordering is always farm → batch (also used by request_upload), so
+    # an upload racing submit has one serial outcome: either the upload is
+    # registered before submission or it is rejected as too late.  There is
+    # no gap where a row can commit after the batch has been closed.
+    await db.execute(select(Farm.id).where(Farm.id == farm.id).with_for_update())
     batch = (
         await db.execute(
-            select(ScreeningBatch).where(
-                ScreeningBatch.farm_id == farm.id, ScreeningBatch.id == batch_id
-            )
+            select(ScreeningBatch)
+            .where(ScreeningBatch.farm_id == farm.id, ScreeningBatch.id == batch_id)
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if batch is None:
@@ -696,53 +754,127 @@ async def request_upload(
     farm: CurrentFarm,
     _perms: MANAGE,
 ) -> ScreeningUploadOut:
-    """Mint a presigned PUT for one pen photo.
+    """Mint a constrained presigned POST for one pen photo.
 
     The server builds the key (``raw/<farm>/<date>/<bucket>/<batch>-<id>``)
     — the client never chooses where a photo lands — pre-creates the
-    PENDING image row so the walkthrough shows live progress, and the
-    phone uploads its bytes straight to S3. No AWS credential ever
-    reaches the device."""
+    PENDING image row so the walkthrough shows live progress, and returns a
+    policy that binds MIME, size and a row-specific metadata token.  No AWS
+    credential ever reaches the device.
+    """
     settings = get_settings()
     if not settings.screening_enabled:
         raise HTTPException(
             status_code=503,
             detail="Screening storage is not configured on this deployment",
         )
+    # Use the same lock order as submit_batch.  In particular, do not read
+    # submitted_at outside a lock then create a row later: that allowed an
+    # upload registration to commit after a concurrent submit closed a batch.
+    await db.execute(select(Farm.id).where(Farm.id == farm.id).with_for_update())
     batch = (
         await db.execute(
-            select(ScreeningBatch).where(
-                ScreeningBatch.farm_id == farm.id, ScreeningBatch.id == payload.batch_id
-            )
+            select(ScreeningBatch)
+            .where(ScreeningBatch.farm_id == farm.id, ScreeningBatch.id == payload.batch_id)
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if batch is None:
         raise HTTPException(status_code=404, detail="Screening batch not found")
     if batch.submitted_at is not None:
         raise HTTPException(status_code=409, detail="Batch already submitted")
+    if batch.created_at < utcnow() - MAX_OPEN_SCREENING_BATCH_AGE:
+        # Do not let an old row fall out of the capacity count and then be
+        # reused indefinitely to evade the open-walkthrough quota.  We leave
+        # pre-existing rows intact so their already-issued forms can drain
+        # and the batch can still be submitted for review.
+        raise HTTPException(
+            status_code=409,
+            detail="Batch upload window expired; start a new walkthrough",
+        )
+
+    images_in_batch = (
+        await db.execute(
+            select(func.count())
+            .select_from(ScreeningImage)
+            .where(
+                ScreeningImage.farm_id == farm.id,
+                ScreeningImage.batch_id == batch.id,
+            )
+        )
+    ).scalar_one()
+    if images_in_batch >= MAX_SCREENING_IMAGES_PER_BATCH:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                "A screening walkthrough may contain at most "
+                f"{MAX_SCREENING_IMAGES_PER_BATCH} photos"
+            ),
+        )
+    in_flight = (
+        await db.execute(
+            select(func.count())
+            .select_from(ScreeningImage)
+            .where(
+                ScreeningImage.farm_id == farm.id,
+                ScreeningImage.status.in_(_IN_FLIGHT_SCREENING_STATUSES),
+            )
+        )
+    ).scalar_one()
+    if in_flight >= MAX_IN_FLIGHT_SCREENING_IMAGES_PER_FARM:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                "Too many screening photos are already awaiting processing for this farm; "
+                "wait for the queue to drain"
+            ),
+        )
 
     extension = _UPLOAD_EXTENSION_BY_CONTENT_TYPE[payload.content_type]
+    captured_date = today(farm.timezone)
     key = (
-        f"{settings.screening_s3_prefix}/{farm.id}/{today().isoformat()}/"
+        f"{settings.screening_s3_prefix}/{farm.id}/{captured_date.isoformat()}/"
         f"{payload.bucket}/{batch.id}-{uuid.uuid4().hex[:12]}{extension}"
     )
+    upload_token = secrets.token_urlsafe(32)
     image = ScreeningImage(
         farm_id=farm.id,
         bucket=payload.bucket,
         batch_id=batch.id,
         s3_bucket=settings.s3_bucket,
         s3_key=key,
-        captured_date=today(),
+        upload_content_type=payload.content_type,
+        upload_token=upload_token,
+        captured_date=captured_date,
         status=ScreeningImageStatus.PENDING.value,
     )
     db.add(image)
+    # Obtain an id before signing so the form can be bound to this durable
+    # pre-registration.  Presigning is local SigV4 work; if it fails, roll
+    # back rather than leaving a row whose form was never handed to a client.
+    await db.flush()
+    try:
+        upload = ScreeningStorage(settings).presign_post(
+            key,
+            content_type=payload.content_type,
+            upload_token=upload_token,
+            max_bytes=MAX_SCREENING_UPLOAD_BYTES,
+        )
+    except ScreeningStorageError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail="Could not prepare screening upload storage; try again later",
+        ) from exc
     await db.commit()
     await db.refresh(image)
 
-    upload_url = ScreeningStorage(settings).presign_put(key, payload.content_type)
     return ScreeningUploadOut(
         image_id=image.id,
         s3_key=key,
-        upload_url=upload_url,
+        upload_url=upload.url,
+        upload_method="POST",
+        upload_fields=upload.fields,
+        max_upload_bytes=MAX_SCREENING_UPLOAD_BYTES,
         expires_in_seconds=settings.screening_presign_expiry_seconds,
     )

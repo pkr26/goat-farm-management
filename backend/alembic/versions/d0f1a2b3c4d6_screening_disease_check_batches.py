@@ -31,9 +31,7 @@ def upgrade() -> None:
     op.create_table(
         "screening_batches",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column(
-            "farm_id", sa.Integer(), sa.ForeignKey("farms.id"), nullable=False
-        ),
+        sa.Column("farm_id", sa.Integer(), sa.ForeignKey("farms.id"), nullable=False),
         sa.Column(
             "created_by_id",
             sa.Integer(),
@@ -53,12 +51,8 @@ def upgrade() -> None:
         ),
         sa.UniqueConstraint("farm_id", "id", name="uq_screening_batches_farm_id_id"),
     )
-    op.create_index(
-        "ix_screening_batches_farm_id", "screening_batches", ["farm_id"]
-    )
-    op.create_index(
-        "ix_screening_batches_created_by_id", "screening_batches", ["created_by_id"]
-    )
+    op.create_index("ix_screening_batches_farm_id", "screening_batches", ["farm_id"])
+    op.create_index("ix_screening_batches_created_by_id", "screening_batches", ["created_by_id"])
     op.create_index(
         "ix_screening_batches_farm_created",
         "screening_batches",
@@ -79,17 +73,13 @@ def upgrade() -> None:
         ["farm_id", "batch_id"],
         ["farm_id", "id"],
     )
-    op.create_index(
-        "ix_screening_images_batch", "screening_images", ["farm_id", "batch_id"]
-    )
+    op.create_index("ix_screening_images_batch", "screening_images", ["farm_id", "batch_id"])
 
 
 def downgrade() -> None:
     op.drop_index("ix_screening_images_batch", table_name="screening_images")
     op.drop_constraint("fk_screening_images_batch", "screening_images", type_="foreignkey")
-    op.drop_constraint(
-        "ck_screening_images_bucket_vocabulary", "screening_images", type_="check"
-    )
+    op.drop_constraint("ck_screening_images_bucket_vocabulary", "screening_images", type_="check")
     op.drop_column("screening_images", "batch_id")
     op.drop_column("screening_images", "bucket")
     op.drop_index("ix_screening_batches_farm_created", table_name="screening_batches")

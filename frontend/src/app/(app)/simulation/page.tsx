@@ -125,6 +125,7 @@ import {
   RiskBandTable,
 } from "./components/results-visuals";
 import { formatFarmDateTime, formatMoney } from "@/lib/format";
+import { useLanguage, useT, type MessageKey, type TFn } from "@/lib/i18n";
 import {
   SIMULATION_SECTION_HELP,
   simulationFieldHelp,
@@ -148,7 +149,7 @@ type BoundResult = {
   options: string;
   /** Saved scenario the run came from; null for an ad-hoc editor run. */
   scenarioId: number | null;
-  source: string;
+  source: { kind: "editor" } | { kind: "scenario"; name: string };
 };
 
 const INTEGER_FIELDS = new Set([
@@ -308,60 +309,62 @@ const FIELD_BOUNDS: Record<
 
 /** Units the naming heuristics in numericRule cannot infer. Explicit paths
  * win, exactly as FIELD_BOUNDS does for limits. */
-const FIELD_UNITS: Record<string, string> = {
-  "costs.labour_per_head_threshold": "head per labourer",
-  "feed.fodder_yield_t_dm_per_acre_year": "t DM/acre/yr",
-  "feed.initial_fodder_stock_kg_dm": "kg DM",
-  "feed.fodder_storage_capacity_kg_dm": "kg DM",
-  "costs.planned_capacity_head": "head",
-  // An integer head-count ratio (1 buck per N does), not a 0-1 fraction: the
-  // heuristic chain's trailing `ratio` test would otherwise caption it one.
-  "culling.buck_doe_ratio": "females per male",
-  // Sexed-semen AI levers — permanently retired and stripped server-side
-  // (see FIELD_BOUNDS above); these unit captions never render.
-  "reproduction.sexed_semen_services": "services",
-  "reproduction.sexed_female_fraction": "%",
-  "reproduction.sexed_conception_multiplier": "×",
-  "reproduction.max_services_before_cull": "services; 0 = off",
-  "growth.young_male_weight_premium": "%",
-  "sales.festival_hold_months": "months; 0 = sell at finish",
-  "optimization.maximum_project_cost": "₹",
-  "optimization.maximum_funding_gap": "₹",
-  // Fractions and multipliers whose names also contain a money or duration
-  // substring, which the heuristic chain settles first. Captioning a 0-0.6 tax
-  // rate "₹" invites farmers to type 30 for 30%; the entry must stay explicit
-  // because the money/duration tests cannot simply be moved (see numericRule).
-  "sales.selling_cost_fraction": "fraction",
-  "sales.milk_sale_litres_per_doe_day": "litres/doe/day",
-  "sales.milk_price_per_litre": "₹/litre",
-  "feed.water_litres_kid_per_day": "litres/day",
-  "feed.water_litres_weaner_per_day": "litres/day",
-  "feed.water_litres_grower_per_day": "litres/day",
-  "feed.water_litres_doe_per_day": "litres/day",
-  "feed.water_litres_lactating_doe_per_day": "litres/day",
-  "feed.water_litres_buck_per_day": "litres/day",
-  // Fields the heuristics would caption as a 0-1 fraction or as a plain
-  // multiplier.
-  "sales.male_calf_sell_at_birth_fraction": "fraction",
-  "sales.male_calf_price_per_head": "₹/head",
-  "sales.annual_livestock_price_growth_rate": "fraction",
-  "feed.annual_feed_price_growth_rate": "fraction",
-  "feed.fodder_storage_loss_fraction_monthly": "fraction",
-  "costs.operating_cost_growth_rate_annual": "fraction",
-  "finance.income_tax_rate": "fraction",
-  "risk.correlation_strength": "fraction",
-  "risk.disease_outbreak_probability_annual": "fraction",
-  "risk.drought_probability_annual": "fraction",
-  "risk.market_crash_probability_annual": "fraction",
-  "risk.disease_adult_mortality_multiplier": "multiplier",
-  "risk.disease_kid_mortality_multiplier": "multiplier",
-  "risk.disease_conception_multiplier": "multiplier",
-  "risk.drought_fodder_yield_multiplier": "multiplier",
-  "risk.drought_feed_price_multiplier": "multiplier",
-  "risk.market_crash_price_multiplier": "multiplier",
-  "optimization.doe_scale_low": "multiplier",
-  "optimization.doe_scale_high": "multiplier",
-};
+function fieldUnits(t: TFn): Record<string, string> {
+  return {
+    "costs.labour_per_head_threshold": t("simulation.unit.headPerLabourer"),
+    "feed.fodder_yield_t_dm_per_acre_year": t("simulation.unit.tonnesDmPerAcreYear"),
+    "feed.initial_fodder_stock_kg_dm": t("simulation.unit.kgDm"),
+    "feed.fodder_storage_capacity_kg_dm": t("simulation.unit.kgDm"),
+    "costs.planned_capacity_head": t("simulation.unit.head"),
+    // An integer head-count ratio (1 buck per N does), not a 0-1 fraction: the
+    // heuristic chain's trailing `ratio` test would otherwise caption it one.
+    "culling.buck_doe_ratio": t("simulation.unit.femalesPerMale"),
+    // Sexed-semen AI levers — permanently retired and stripped server-side
+    // (see FIELD_BOUNDS above); these unit captions never render.
+    "reproduction.sexed_semen_services": t("simulation.unit.services"),
+    "reproduction.sexed_female_fraction": "%",
+    "reproduction.sexed_conception_multiplier": "×",
+    "reproduction.max_services_before_cull": t("simulation.unit.servicesZeroOff"),
+    "growth.young_male_weight_premium": "%",
+    "sales.festival_hold_months": t("simulation.unit.monthsZeroSellAtFinish"),
+    "optimization.maximum_project_cost": "₹",
+    "optimization.maximum_funding_gap": "₹",
+    // Fractions and multipliers whose names also contain a money or duration
+    // substring, which the heuristic chain settles first. Captioning a 0-0.6 tax
+    // rate "₹" invites farmers to type 30 for 30%; the entry must stay explicit
+    // because the money/duration tests cannot simply be moved (see numericRule).
+    "sales.selling_cost_fraction": t("simulation.unit.fraction"),
+    "sales.milk_sale_litres_per_doe_day": t("simulation.unit.litresDoeDay"),
+    "sales.milk_price_per_litre": t("simulation.unit.currencyPerLitre"),
+    "feed.water_litres_kid_per_day": t("simulation.unit.litresDay"),
+    "feed.water_litres_weaner_per_day": t("simulation.unit.litresDay"),
+    "feed.water_litres_grower_per_day": t("simulation.unit.litresDay"),
+    "feed.water_litres_doe_per_day": t("simulation.unit.litresDay"),
+    "feed.water_litres_lactating_doe_per_day": t("simulation.unit.litresDay"),
+    "feed.water_litres_buck_per_day": t("simulation.unit.litresDay"),
+    // Fields the heuristics would caption as a 0-1 fraction or as a plain
+    // multiplier.
+    "sales.male_calf_sell_at_birth_fraction": t("simulation.unit.fraction"),
+    "sales.male_calf_price_per_head": t("simulation.unit.currencyPerHead"),
+    "sales.annual_livestock_price_growth_rate": t("simulation.unit.fraction"),
+    "feed.annual_feed_price_growth_rate": t("simulation.unit.fraction"),
+    "feed.fodder_storage_loss_fraction_monthly": t("simulation.unit.fraction"),
+    "costs.operating_cost_growth_rate_annual": t("simulation.unit.fraction"),
+    "finance.income_tax_rate": t("simulation.unit.fraction"),
+    "risk.correlation_strength": t("simulation.unit.fraction"),
+    "risk.disease_outbreak_probability_annual": t("simulation.unit.fraction"),
+    "risk.drought_probability_annual": t("simulation.unit.fraction"),
+    "risk.market_crash_probability_annual": t("simulation.unit.fraction"),
+    "risk.disease_adult_mortality_multiplier": t("simulation.unit.multiplier"),
+    "risk.disease_kid_mortality_multiplier": t("simulation.unit.multiplier"),
+    "risk.disease_conception_multiplier": t("simulation.unit.multiplier"),
+    "risk.drought_fodder_yield_multiplier": t("simulation.unit.multiplier"),
+    "risk.drought_feed_price_multiplier": t("simulation.unit.multiplier"),
+    "risk.market_crash_price_multiplier": t("simulation.unit.multiplier"),
+    "optimization.doe_scale_low": t("simulation.unit.multiplier"),
+    "optimization.doe_scale_high": t("simulation.unit.multiplier"),
+  };
+}
 
 /** Fields the backend models as "amount, or null for no ceiling". They arrive
  * as null by default, which every typed branch of renderField would drop —
@@ -373,35 +376,43 @@ const NULLABLE_NUMBER_FIELDS = new Set([
 
 /** Numeric fields constrained to a closed set of values — rendered as a
  * select so an out-of-set number can never reach the API. */
-const NUMERIC_FIELD_OPTIONS: Record<string, Record<string, string>> = {
-  "reproduction.weaning_days": {
-    "60": "60 days (operational standard)",
-    "90": "90 days (research standard)",
-  },
-};
+function numericFieldOptions(t: TFn): Record<string, Record<string, string>> {
+  return {
+    "reproduction.weaning_days": {
+      "60": t("simulation.option.weaning60"),
+      "90": t("simulation.option.weaning90"),
+    },
+  };
+}
 
-const STRING_FIELD_OPTIONS: Record<string, Record<string, string>> = {
-  "herd.foundation_flock_state": { mixed: "Mixed", open: "Open" },
-  "growth.growth_regime": {
-    stall_fed: "Stall-fed",
-    semi_intensive: "Semi-intensive (grazing)",
-  },
-  "costs.capacity_basis": {
-    projected_peak: "Projected peak",
-    planned: "Planned capacity",
-    opening_herd: "Opening herd",
-  },
-  "optimization.objective": {
-    balanced: "Balanced",
-    npv: "Highest NPV",
-    liquidity: "Strongest liquidity",
-  },
-};
+function stringFieldOptions(t: TFn): Record<string, Record<string, string>> {
+  return {
+    "herd.foundation_flock_state": {
+      mixed: t("simulation.option.mixed"),
+      open: t("simulation.option.open"),
+    },
+    "growth.growth_regime": {
+      stall_fed: t("simulation.option.stallFed"),
+      semi_intensive: t("simulation.option.semiIntensive"),
+    },
+    "costs.capacity_basis": {
+      projected_peak: t("simulation.option.projectedPeak"),
+      planned: t("simulation.option.plannedCapacity"),
+      opening_herd: t("simulation.option.openingHerd"),
+    },
+    "optimization.objective": {
+      balanced: t("simulation.option.balanced"),
+      npv: t("simulation.option.highestNpv"),
+      liquidity: t("simulation.option.strongestLiquidity"),
+    },
+  };
+}
 
 function numberArrayRule(
   section: string,
   key: string,
   horizonMonths: number,
+  t: TFn,
 ): NumberArrayRule {
   const path = `${section}.${key}`;
   if (path === "growth.weight_by_age_months") {
@@ -410,7 +421,7 @@ function numberArrayRule(
       exclusiveMin: 0,
       max: 1000,
       nondecreasing: true,
-      itemLabel: "weights (ages 0-12)",
+      itemLabel: t("simulation.array.weightByAge"),
     };
   }
   if (path === "sales.festival_sale_months") {
@@ -421,7 +432,7 @@ function numberArrayRule(
       max: horizonMonths,
       allowEmpty: true,
       unique: true,
-      itemLabel: "simulation months",
+      itemLabel: t("simulation.array.simulationMonths"),
     };
   }
   if (key.startsWith("monthly_")) {
@@ -429,13 +440,13 @@ function numberArrayRule(
       exactLength: 12,
       exclusiveMin: 0,
       max: 10,
-      itemLabel: "monthly multipliers (Jan-Dec)",
+      itemLabel: t("simulation.array.monthlyMultipliers"),
     };
   }
-  return { itemLabel: "values" };
+  return { itemLabel: t("simulation.array.values") };
 }
 
-function numericRule(section: string, key: string): NumericRule {
+function numericRule(section: string, key: string, t: TFn): NumericRule {
   const path = `${section}.${key}`;
   const rule: NumericRule = {
     integer: INTEGER_FIELDS.has(path),
@@ -489,19 +500,20 @@ function numericRule(section: string, key: string): NumericRule {
     Object.assign(rule, explicitBounds);
   }
 
-  if (FIELD_UNITS[path]) rule.unit = FIELD_UNITS[path];
+  const units = fieldUnits(t);
+  if (units[path]) rule.unit = units[path];
   else if (
     path === "sales.eid_price_uplift" ||
     path === "finance.loan_fraction_of_project_cost"
   )
-    rule.unit = "fraction";
+    rule.unit = t("simulation.unit.fraction");
   // `_per_month` / `_per_year` are rates of the underlying metric, not
   // durations — settle them before the month/year duration patterns, which
   // otherwise caption ₹10,000/month of labour as "months".
-  else if (key.endsWith("_per_month")) rule.unit = "₹/month";
-  else if (key.endsWith("_per_year")) rule.unit = "₹/yr";
-  else if (key.includes("month")) rule.unit = "months";
-  else if (key.includes("year")) rule.unit = "years";
+  else if (key.endsWith("_per_month")) rule.unit = t("simulation.unit.currencyPerMonth");
+  else if (key.endsWith("_per_year")) rule.unit = t("simulation.unit.currencyPerYear");
+  else if (key.includes("month")) rule.unit = t("simulation.unit.months");
+  else if (key.includes("year")) rule.unit = t("simulation.unit.years");
   else if (
     key.includes("price") ||
     key.includes("cost") ||
@@ -509,14 +521,15 @@ function numericRule(section: string, key: string): NumericRule {
     key.includes("labour") ||
     key.includes("overhead")
   )
-    rule.unit = "₹";
-  else if (key.includes("weight") || key.includes("_kg")) rule.unit = "kg";
-  else if (key.includes("acre")) rule.unit = "acres";
+    rule.unit = t("simulation.unit.currency");
+  else if (key.includes("weight") || key.includes("_kg")) rule.unit = t("simulation.unit.kg");
+  else if (key.includes("acre")) rule.unit = t("simulation.unit.acres");
   // This test stays last: hoisting it above the money/duration ones captions
   // concent*rate*_price_per_kg and *_duration_months as "fraction". Fields it
   // therefore cannot reach (income_tax_rate, selling_cost_fraction, …) belong
   // in FIELD_UNITS, not in a reordering of this chain.
-  else if (/rate|ratio|fraction|pct|share|dmi_/.test(key)) rule.unit = "fraction";
+  else if (/rate|ratio|fraction|pct|share|dmi_/.test(key))
+    rule.unit = t("simulation.unit.fraction");
   return rule;
 }
 
@@ -545,55 +558,66 @@ function scenarioUsable(scenario: ScenarioRow): scenario is ScenarioRow & {
 }
 
 /** Quick-pick simulation horizons (meta.horizon_months stays editable). */
-const HORIZON_PRESETS = [
-  { months: 60, label: "5 yr" },
-  { months: 120, label: "10 yr" },
-  { months: 180, label: "15 yr" },
-  { months: 240, label: "20 yr" },
-] as const;
+const HORIZON_PRESETS = [60, 120, 180, 240] as const;
 
 /** value → label maps for the root `items` prop: without them, Base UI's
  * Select.Value renders the raw value in the closed trigger. */
-function eventClassItems(vocabulary: FarmVocabulary): Record<string, string> {
-  const young = vocabulary.young;
+function eventClassItems(
+  vocabulary: FarmVocabulary,
+  t: TFn,
+  language: "en" | "te",
+): Record<string, string> {
+  const young = language === "en" ? vocabulary.young : t("simulation.token.kid");
   return {
-    doe: vocabulary.femaleAdult.charAt(0).toUpperCase() + vocabulary.femaleAdult.slice(1),
-    buck: vocabulary.maleAdult.charAt(0).toUpperCase() + vocabulary.maleAdult.slice(1),
-    female_kid: `Female ${young}`,
-    male_kid: `Male ${young}`,
-    female_weaner: "Female weaner",
-    male_weaner: "Male weaner",
-    female_grower: "Female grower",
-    male_grower: "Male grower",
+    doe:
+      language === "en"
+        ? vocabulary.femaleAdult.charAt(0).toUpperCase() + vocabulary.femaleAdult.slice(1)
+        : t("simulation.token.doe"),
+    buck:
+      language === "en"
+        ? vocabulary.maleAdult.charAt(0).toUpperCase() + vocabulary.maleAdult.slice(1)
+        : t("simulation.token.buck"),
+    female_kid: t("simulation.event.class.femaleYoung", { young }),
+    male_kid: t("simulation.event.class.maleYoung", { young }),
+    female_weaner: t("simulation.event.class.femaleWeaner"),
+    male_weaner: t("simulation.event.class.maleWeaner"),
+    female_grower: t("simulation.event.class.femaleGrower"),
+    male_grower: t("simulation.event.class.maleGrower"),
   };
 }
 
-const EVENT_KIND_ITEMS: Record<string, string> = {
-  purchase: "Purchase",
-  sale: "Sale",
-};
+function eventKindItems(t: TFn): Record<string, string> {
+  return {
+    purchase: t("simulation.event.kind.purchase"),
+    sale: t("simulation.event.kind.sale"),
+  };
+}
 
 /** Inline validation for the herd events editor; horizon comes from meta. */
-function validateEvents(events: HerdEventAssumptions[], horizonMonths: number): string[] {
+function validateEvents(
+  events: HerdEventAssumptions[],
+  horizonMonths: number,
+  t: TFn,
+): string[] {
   const errors: string[] = [];
   events.forEach((event, i) => {
-    const label = `Event ${i + 1}`;
+    const label = t("simulation.event.number", { number: i + 1 });
     if (
       !Number.isInteger(event.month) ||
       event.month < 1 ||
       event.month > horizonMonths
     ) {
-      errors.push(`${label}: month must be a whole number between 1 and ${horizonMonths}.`);
+      errors.push(t("simulation.validation.eventMonth", { label, horizon: horizonMonths }));
     }
     if (!Number.isFinite(event.count) || event.count <= 0 || event.count > 100_000) {
-      errors.push(`${label}: count must be greater than 0 and at most 100,000.`);
+      errors.push(t("simulation.validation.eventCount", { label }));
     }
     if (
       event.price_per_head !== null &&
       event.price_per_head !== undefined &&
       (Number.isNaN(event.price_per_head) || event.price_per_head < 0)
     ) {
-      errors.push(`${label}: price per head must be zero or more (or left blank).`);
+      errors.push(t("simulation.validation.eventPrice", { label }));
     }
   });
   return errors;
@@ -630,15 +654,23 @@ function errorMessage(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.detail : fallback;
 }
 
+function localizedVerdict(verdict: string, t: TFn, language: "en" | "te"): string {
+  if (language === "en") return verdict;
+  if (verdict === "VIABLE") return t("simulation.verdict.viable");
+  if (verdict === "VIABLE WITH CAUTION") return t("simulation.verdict.viableWithCaution");
+  if (verdict === "NOT VIABLE") return t("simulation.verdict.notViable");
+  return verdict;
+}
+
 /** Heavy runs get a long transport budget (see api-client), but an abort is
  *  still possible: say what actually happened instead of a generic failure —
  *  the server may still be computing (M-6). */
-function runErrorMessage(err: unknown, fallback: string): string {
+function runErrorMessage(err: unknown, fallback: string, t: TFn): string {
   // AbortSignal.timeout() rejects with a TimeoutError DOMException — that is
   // our own budget expiring. A bare AbortError is a transport-level failure
   // (undici aborts dropped connections) and must keep the generic fallback.
   if (err instanceof Error && err.name === "TimeoutError") {
-    return "The simulation run timed out on the connection — the server may still be computing. Try again with fewer Monte Carlo runs or less analysis enabled.";
+    return t("simulation.error.runTimeout");
   }
   return errorMessage(err, fallback);
 }
@@ -655,39 +687,51 @@ function formatCalibrationValue(value: CalibrationEvidence["calibrated_value"]):
 function fieldFacts(
   rule: NumericRule | NumberArrayRule | undefined,
   value: unknown,
+  t: TFn,
+  language: "en" | "te",
   options?: Record<string, string>,
 ): { term: string; value: string }[] {
   const facts: { term: string; value: string }[] = [];
-  if (options) facts.push({ term: "Choices", value: Object.values(options).join(", ") });
+  if (options)
+    facts.push({ term: t("simulation.facts.choices"), value: Object.values(options).join(", ") });
   if (rule && "unit" in rule && rule.unit !== undefined)
-    facts.push({ term: "Unit", value: rule.unit });
+    facts.push({ term: t("simulation.facts.unit"), value: rule.unit });
   if (rule) {
     const bounds: string[] = [];
-    if (rule.exclusiveMin !== undefined) bounds.push(`greater than ${rule.exclusiveMin}`);
-    if (rule.min !== undefined) bounds.push(`at least ${rule.min}`);
-    if (rule.max !== undefined) bounds.push(`at most ${rule.max}`);
+    if (rule.exclusiveMin !== undefined)
+      bounds.push(t("simulation.facts.greaterThan", { value: rule.exclusiveMin }));
+    if (rule.min !== undefined) bounds.push(t("simulation.facts.atLeast", { value: rule.min }));
+    if (rule.max !== undefined) bounds.push(t("simulation.facts.atMost", { value: rule.max }));
     if ("exactLength" in rule && rule.exactLength !== undefined)
-      bounds.push(`exactly ${rule.exactLength} values`);
+      bounds.push(t("simulation.facts.exactlyValues", { count: rule.exactLength }));
     if ("maxLength" in rule && rule.maxLength !== undefined)
-      bounds.push(`at most ${rule.maxLength} values`);
-    if (rule.integer) bounds.push("whole numbers only");
-    if (bounds.length > 0) facts.push({ term: "Allowed values", value: bounds.join(", ") });
+      bounds.push(t("simulation.facts.atMostValues", { count: rule.maxLength }));
+    if (rule.integer) bounds.push(t("simulation.facts.wholeNumbersOnly"));
+    if (bounds.length > 0)
+      facts.push({ term: t("simulation.facts.allowedValues"), value: bounds.join(", ") });
   }
-  if (typeof value === "boolean") facts.push({ term: "Current value", value: value ? "On" : "Off" });
+  if (typeof value === "boolean")
+    facts.push({
+      term: t("simulation.facts.currentValue"),
+      value: value ? t("simulation.facts.on") : t("simulation.facts.off"),
+    });
   else if (typeof value === "number")
-    facts.push({ term: "Current value", value: String(value) });
+    facts.push({ term: t("simulation.facts.currentValue"), value: String(value) });
   else if (typeof value === "string" && value.length > 0 && value.length <= 80)
-    facts.push({ term: "Current value", value });
+    facts.push({
+      term: t("simulation.facts.currentValue"),
+      value: language === "te" ? (options?.[value] ?? value) : value,
+    });
   else if (Array.isArray(value))
     facts.push({
-      term: "Current value",
-      value: value.length <= 12 ? value.join(", ") : `${value.length} values`,
+      term: t("simulation.facts.currentValue"),
+      value: value.length <= 12 ? value.join(", ") : t("simulation.facts.valueCount", { count: value.length }),
     });
   return facts;
 }
 
 /** Rows of the side-by-side scenario comparison table. */
-const COMPARE_ROWS: {
+function compareRows(t: TFn): {
   key: keyof Pick<
     ViabilityMetrics,
     | "npv"
@@ -703,39 +747,265 @@ const COMPARE_ROWS: {
   >;
   label: string;
   format: (m: ViabilityMetrics) => string;
-}[] = [
-  { key: "npv", label: "NPV", format: (m) => formatMoney(m.npv) },
-  { key: "irr", label: "IRR", format: (m) => formatPercent(m.irr) },
-  { key: "mirr", label: "MIRR", format: (m) => formatPercent(m.mirr) },
-  { key: "bcr", label: "BCR", format: (m) => formatRatio(m.bcr) },
-  { key: "avg_dscr", label: "Avg DSCR", format: (m) => formatRatio(m.avg_dscr) },
-  { key: "min_dscr", label: "Minimum DSCR", format: (m) => formatRatio(m.min_dscr) },
-  {
-    key: "operating_margin",
-    label: "Operating margin",
-    format: (m) => formatPercent(m.operating_margin),
-  },
-  {
-    key: "minimum_cash_balance",
-    label: "Minimum cash",
-    format: (m) => formatMoney(m.minimum_cash_balance),
-  },
-  {
-    key: "additional_working_capital_required",
-    label: "Additional working capital",
-    format: (m) => formatMoney(m.additional_working_capital_required),
-  },
-  {
-    key: "payback_month",
-    label: "Payback month",
-    format: (m) => (m.payback_month === null ? "—" : String(m.payback_month)),
-  },
-];
+}[] {
+  return [
+    { key: "npv", label: t("simulation.metric.npv"), format: (m) => formatMoney(m.npv) },
+    { key: "irr", label: t("simulation.metric.irr"), format: (m) => formatPercent(m.irr) },
+    { key: "mirr", label: t("simulation.metric.mirr"), format: (m) => formatPercent(m.mirr) },
+    { key: "bcr", label: t("simulation.metric.bcr"), format: (m) => formatRatio(m.bcr) },
+    {
+      key: "avg_dscr",
+      label: t("simulation.metric.avgDscr"),
+      format: (m) => formatRatio(m.avg_dscr),
+    },
+    {
+      key: "min_dscr",
+      label: t("simulation.metric.minimumDscr"),
+      format: (m) => formatRatio(m.min_dscr),
+    },
+    {
+      key: "operating_margin",
+      label: t("simulation.metric.operatingMargin"),
+      format: (m) => formatPercent(m.operating_margin),
+    },
+    {
+      key: "minimum_cash_balance",
+      label: t("simulation.metric.minimumCash"),
+      format: (m) => formatMoney(m.minimum_cash_balance),
+    },
+    {
+      key: "additional_working_capital_required",
+      label: t("simulation.metric.additionalWorkingCapital"),
+      format: (m) => formatMoney(m.additional_working_capital_required),
+    },
+    {
+      key: "payback_month",
+      label: t("simulation.metric.paybackMonth"),
+      format: (m) => (m.payback_month === null ? "—" : String(m.payback_month)),
+    },
+  ];
+}
 
 type SectionValues = Record<string, unknown>;
 
 /** Whole litres with Indian digit grouping for the water-demand figures. */
-const litres = (value: number): string => Math.round(value).toLocaleString("en-IN");
+const litres = (value: number, language: "en" | "te"): string =>
+  Math.round(value).toLocaleString(language === "te" ? "te-IN" : "en-IN");
+
+/**
+ * Assumption payloads are deliberately data-driven, so their labels cannot
+ * be a closed JSX list. Translate the words that make up current and future
+ * snake-case keys; an unknown machine field still degrades to its readable
+ * humanized form rather than disappearing.
+ */
+const FIELD_TOKEN_KEYS: Record<string, MessageKey> = {
+  active: "simulation.token.active",
+  adult: "simulation.token.adult",
+  age: "simulation.token.age",
+  annual: "simulation.token.annual",
+  asset: "simulation.token.asset",
+  at: "simulation.token.at",
+  auto: "simulation.token.auto",
+  basis: "simulation.token.basis",
+  birth: "simulation.token.birth",
+  breed: "simulation.token.breed",
+  breeding: "simulation.token.breeding",
+  buck: "simulation.token.buck",
+  buffer: "simulation.token.buffer",
+  calf: "simulation.token.calf",
+  candidates: "simulation.token.candidates",
+  capacity: "simulation.token.capacity",
+  carryforward: "simulation.token.carryforward",
+  conception: "simulation.token.conception",
+  concentrate: "simulation.token.concentrate",
+  correlation: "simulation.token.correlation",
+  cost: "simulation.token.cost",
+  costs: "simulation.token.costs",
+  cull: "simulation.token.cull",
+  cultivated: "simulation.token.cultivated",
+  days: "simulation.token.days",
+  discount: "simulation.token.discount",
+  disease: "simulation.token.disease",
+  dm: "simulation.token.dm",
+  dmi: "simulation.token.dmi",
+  doe: "simulation.token.doe",
+  does: "simulation.token.does",
+  drought: "simulation.token.drought",
+  dry: "simulation.token.dry",
+  duration: "simulation.token.duration",
+  eid: "simulation.token.eid",
+  enabled: "simulation.token.enabled",
+  equipment: "simulation.token.equipment",
+  feed: "simulation.token.feed",
+  female: "simulation.token.female",
+  festival: "simulation.token.festival",
+  flock: "simulation.token.flock",
+  fodder: "simulation.token.fodder",
+  fraction: "simulation.token.fraction",
+  foundation: "simulation.token.foundation",
+  gap: "simulation.token.gap",
+  gestation: "simulation.token.gestation",
+  grazing: "simulation.token.grazing",
+  green: "simulation.token.green",
+  growers: "simulation.token.growers",
+  growth: "simulation.token.growth",
+  head: "simulation.token.head",
+  herd: "simulation.token.herd",
+  high: "simulation.token.high",
+  hold: "simulation.token.hold",
+  horizon: "simulation.token.horizon",
+  include: "simulation.token.include",
+  income: "simulation.token.income",
+  initial: "simulation.token.initial",
+  insurance: "simulation.token.insurance",
+  interest: "simulation.token.interest",
+  kg: "simulation.token.kg",
+  kid: "simulation.token.kid",
+  kids: "simulation.token.kids",
+  lactating: "simulation.token.lactating",
+  lactation: "simulation.token.lactation",
+  labour: "simulation.token.labour",
+  life: "simulation.token.life",
+  litter: "simulation.token.litter",
+  livestock: "simulation.token.livestock",
+  loan: "simulation.token.loan",
+  loss: "simulation.token.loss",
+  low: "simulation.token.low",
+  male: "simulation.token.male",
+  manure: "simulation.token.manure",
+  market: "simulation.token.market",
+  max: "simulation.token.max",
+  maximum: "simulation.token.maximum",
+  meat: "simulation.token.meat",
+  minimum: "simulation.token.minimum",
+  misc: "simulation.token.misc",
+  month: "simulation.token.month",
+  monthly: "simulation.token.monthly",
+  months: "simulation.token.months",
+  mortality: "simulation.token.mortality",
+  multipliers: "simulation.token.multipliers",
+  nlm: "simulation.token.nlm",
+  open: "simulation.token.open",
+  operating: "simulation.token.operating",
+  overhead: "simulation.token.overhead",
+  pct: "simulation.token.pct",
+  per: "simulation.token.per",
+  planned: "simulation.token.planned",
+  price: "simulation.token.price",
+  premium: "simulation.token.premium",
+  probability: "simulation.token.probability",
+  process: "simulation.token.process",
+  project: "simulation.token.project",
+  purchased: "simulation.token.purchased",
+  parity: "simulation.token.parity",
+  rate: "simulation.token.rate",
+  radius: "simulation.token.radius",
+  recovery: "simulation.token.recovery",
+  regime: "simulation.token.regime",
+  reinvestment: "simulation.token.reinvestment",
+  residual: "simulation.token.residual",
+  retention: "simulation.token.retention",
+  rho: "simulation.token.rho",
+  risk: "simulation.token.risk",
+  runs: "simulation.token.runs",
+  sale: "simulation.token.sale",
+  scale: "simulation.token.scale",
+  seed: "simulation.token.seed",
+  sell: "simulation.token.sell",
+  service: "simulation.token.service",
+  services: "simulation.token.services",
+  settling: "simulation.token.settling",
+  sex: "simulation.token.sex",
+  shed: "simulation.token.shed",
+  share: "simulation.token.share",
+  size: "simulation.token.size",
+  sold: "simulation.token.sold",
+  start: "simulation.token.start",
+  state: "simulation.token.state",
+  stillbirth: "simulation.token.stillbirth",
+  stock: "simulation.token.stock",
+  storage: "simulation.token.storage",
+  subsidy: "simulation.token.subsidy",
+  tax: "simulation.token.tax",
+  term: "simulation.token.term",
+  terminal: "simulation.token.terminal",
+  threshold: "simulation.token.threshold",
+  t: "simulation.token.tonnes",
+  useful: "simulation.token.useful",
+  value: "simulation.token.value",
+  variation: "simulation.token.variation",
+  vet: "simulation.token.vet",
+  water: "simulation.token.water",
+  weaner: "simulation.token.weaner",
+  weaners: "simulation.token.weaners",
+  weaning: "simulation.token.weaning",
+  weight: "simulation.token.weight",
+  within: "simulation.token.within",
+  working: "simulation.token.working",
+  year: "simulation.token.year",
+  years: "simulation.token.years",
+  yield: "simulation.token.yield",
+  young: "simulation.token.young",
+  acre: "simulation.token.acre",
+  acres: "simulation.token.acres",
+  animal: "simulation.token.animal",
+  before: "simulation.token.before",
+  bucks: "simulation.token.bucks",
+  by: "simulation.token.by",
+  capital: "simulation.token.capital",
+  carlo: "simulation.token.carlo",
+  class: "simulation.token.class",
+  count: "simulation.token.count",
+  crash: "simulation.token.crash",
+  creep: "simulation.token.creep",
+  day: "simulation.token.day",
+  dscr: "simulation.token.dscr",
+  family: "simulation.token.family",
+  first: "simulation.token.first",
+  funding: "simulation.token.funding",
+  grower: "simulation.token.grower",
+  kind: "simulation.token.kind",
+  litre: "simulation.token.litre",
+  litres: "simulation.token.litres",
+  maintenance: "simulation.token.maintenance",
+  milk: "simulation.token.milk",
+  min: "simulation.token.min",
+  monte: "simulation.token.monte",
+  moratorium: "simulation.token.moratorium",
+  multiplier: "simulation.token.multiplier",
+  objective: "simulation.token.objective",
+  of: "simulation.token.of",
+  outbreak: "simulation.token.outbreak",
+  place: "simulation.token.place",
+  post: "simulation.token.post",
+  pre: "simulation.token.pre",
+  pregnant: "simulation.token.pregnant",
+  purchase: "simulation.token.purchase",
+  ratio: "simulation.token.ratio",
+  realization: "simulation.token.realization",
+  rotation: "simulation.token.rotation",
+  run: "simulation.token.run",
+  selling: "simulation.token.selling",
+  step: "simulation.token.step",
+  steps: "simulation.token.steps",
+  strength: "simulation.token.strength",
+  transport: "simulation.token.transport",
+  uplift: "simulation.token.uplift",
+};
+
+function localizedFieldLabel(key: string, t: TFn, language: "en" | "te"): string {
+  // Keep the default-language route byte-for-byte compatible with its
+  // historic humanizer. Telugu needs token-aware labels because direct title
+  // casing of a snake-case backend key would otherwise leak English.
+  if (language === "en") return humanize(key);
+  return key
+    .split(/[._\s]+/)
+    .filter(Boolean)
+    .map((token) => FIELD_TOKEN_KEYS[token.toLowerCase()]
+      ? t(FIELD_TOKEN_KEYS[token.toLowerCase()])
+      : humanize(token))
+    .join(" ");
+}
 
 /** Dairy-machinery assumption keys permanently retired for the goat-meat
  * profile (backend SimulationAssumptions._drop_retired_dairy_fields strips
@@ -765,6 +1035,8 @@ function sectionEntries(assumptions: SimulationAssumptions): [string, SectionVal
 }
 
 function SimulationPageContent({ perms }: { perms: PermissionsState }) {
+  const t = useT();
+  const { language } = useLanguage();
   const { can } = perms;
   const allowed = can("simulation.view");
   const canManage = can("simulation.manage");
@@ -1093,7 +1365,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
   /** Horizon from the meta section; gates event-month validation. */
   const horizonMonths = assumptions?.meta?.horizon_months ?? 240;
   const simVocabulary = farmVocabulary;
-  const eventErrors = validateEvents(events, horizonMonths);
+  const eventErrors = validateEvents(events, horizonMonths, t);
   const assumptionErrors: string[] = [];
   if (assumptions) {
     const start = assumptions.meta?.start_year_month;
@@ -1105,7 +1377,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       Number(match[2]) < 1 ||
       Number(match[2]) > 12
     )
-      assumptionErrors.push("Start year month must be a real month from 1900-01 to 2200-12.");
+      assumptionErrors.push(t("simulation.validation.startYearMonth"));
 
     const finance = assumptions.finance;
     if (
@@ -1114,14 +1386,14 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       typeof finance.subsidy_fraction === "number" &&
       finance.loan_fraction_of_project_cost + finance.subsidy_fraction > 1
     )
-      assumptionErrors.push("Loan fraction plus subsidy fraction must not exceed 1.");
+      assumptionErrors.push(t("simulation.validation.loanPlusSubsidy"));
     if (
       finance &&
       typeof finance.moratorium_months === "number" &&
       typeof finance.loan_term_months === "number" &&
       finance.moratorium_months >= finance.loan_term_months
     )
-      assumptionErrors.push("Moratorium must be shorter than the loan term.");
+      assumptionErrors.push(t("simulation.validation.moratorium"));
 
     const feed = assumptions.feed;
     if (
@@ -1130,28 +1402,24 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       typeof feed.fodder_storage_capacity_kg_dm === "number" &&
       feed.initial_fodder_stock_kg_dm > feed.fodder_storage_capacity_kg_dm
     )
-      assumptionErrors.push("Initial fodder stock must fit within fodder storage capacity.");
+      assumptionErrors.push(t("simulation.validation.fodderStock"));
 
     const costs = assumptions.costs;
     if (
       costs?.capacity_basis === "planned" &&
       (costs.planned_capacity_head ?? 0) <= 0
     )
-      assumptionErrors.push(
-        "Planned capacity must be greater than 0 when the capacity basis is planned.",
-      );
+      assumptionErrors.push(t("simulation.validation.plannedCapacity"));
 
     const festivalMonths = assumptions.sales?.festival_sale_months ?? [];
     if (new Set(festivalMonths).size !== festivalMonths.length)
-      assumptionErrors.push("Festival sale months must not contain duplicates.");
+      assumptionErrors.push(t("simulation.validation.festivalDuplicates"));
     if (
       festivalMonths.some(
         (month) => !Number.isInteger(month) || month < 1 || month > horizonMonths,
       )
     )
-      assumptionErrors.push(
-        `Festival sale months must be whole numbers between 1 and ${horizonMonths}.`,
-      );
+      assumptionErrors.push(t("simulation.validation.festivalMonths", { horizon: horizonMonths }));
 
     const optimizationAssumptions = assumptions.optimization;
     if (
@@ -1161,7 +1429,12 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       optimizationAssumptions.doe_scale_low > optimizationAssumptions.doe_scale_high
     )
       assumptionErrors.push(
-        `Herd scale low must be less than or equal to herd scale high (measured in ${simVocabulary.femaleAdultPlural}).`,
+        t("simulation.validation.herdScale", {
+          herd:
+            language === "en"
+              ? simVocabulary.femaleAdultPlural
+              : t("simulation.token.does"),
+        }),
       );
 
     const growth = assumptions.growth;
@@ -1171,9 +1444,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
     // the birth weight past month 1 must be caught here or the run only fails
     // at the API with a message that never names the birth weight field.
     if (weightCurve?.some((weight, i) => i > 0 && weight < weightCurve[i - 1]))
-      assumptionErrors.push(
-        "Weight by age months must not decrease from birth to month 12 — lower the birth weight or raise the curve.",
-      );
+      assumptionErrors.push(t("simulation.validation.weightCurve"));
     const yearling = weightCurve
       ? Math.max(...weightCurve.slice(0, 13))
       : null;
@@ -1185,7 +1456,12 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       (growth.adult_weight_doe_kg < yearling || growth.adult_weight_buck_kg < yearling)
     )
       assumptionErrors.push(
-        `Adult ${simVocabulary.femaleAdult} and ${simVocabulary.maleAdult} weights must be at least the highest yearling weight.`,
+        t("simulation.validation.adultWeight", {
+          female:
+            language === "en" ? simVocabulary.femaleAdult : t("simulation.token.doe"),
+          male:
+            language === "en" ? simVocabulary.maleAdult : t("simulation.token.buck"),
+        }),
       );
 
     const risk = assumptions.risk;
@@ -1201,12 +1477,16 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
             Number((value as SectionValues).high) >= 1
           )
         )
-          assumptionErrors.push(`${humanize(key)} low and high must bracket 1.`);
+          assumptionErrors.push(
+            t("simulation.validation.riskBracket", {
+              label: localizedFieldLabel(key, t, language),
+            }),
+          );
       }
     }
   }
   if (events.length > 500)
-    assumptionErrors.push("A simulation can contain at most 500 herd events.");
+    assumptionErrors.push(t("simulation.validation.maxEvents"));
   const hasEditorErrors =
     invalidFields.size > 0 || assumptionErrors.length > 0 || eventErrors.length > 0;
   const currentPayload = assumptions ? { ...assumptions, events } : null;
@@ -1293,12 +1573,15 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       rows.push({ month: m, kind, animal_class, count, price_per_head: null });
     }
     if (rows.length === 0) {
-      toast.error("That repeat plan starts beyond the simulation horizon.");
+      toast.error(t("simulation.error.recurrenceBeyondHorizon"));
       return;
     }
     if (events.length + rows.length > 500) {
       toast.error(
-        `That repeat plan needs ${rows.length} rows; only ${500 - events.length} event slots remain.`,
+        t("simulation.error.recurrenceCapacity", {
+          rows: rows.length,
+          remaining: 500 - events.length,
+        }),
       );
       return;
     }
@@ -1310,7 +1593,12 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
     ]);
     setEvents((prev) => [...prev, ...rows]);
     setRecurrenceOpen(false);
-    toast.success(`Added ${rows.length} recurring ${kind} event(s).`);
+    toast.success(
+      t("simulation.toast.recurrenceAdded", {
+        count: rows.length,
+        kind: language === "en" ? kind : eventKindItems(t)[kind],
+      }),
+    );
   }
 
   async function onUseCurrentHerd() {
@@ -1324,7 +1612,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       const res = await snapshotQuery.refetch();
       if (res.isError || res.data?.status !== 200) {
         if (!farmScope()) return;
-        toast.error(errorMessage(res.error, "Could not load the herd snapshot."));
+        toast.error(errorMessage(res.error, t("simulation.error.herdSnapshot")));
         return;
       }
       if (editorEpochRef.current !== epoch) {
@@ -1332,9 +1620,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
         // flight; applying it now would overwrite that scenario's saved head
         // counts and silently detach the scenario binding. Never fail
         // silently — say so, so the operator can click again.
-        toast.error(
-          "The editor was reloaded while the herd snapshot was loading. Click “Use current herd” again to apply it.",
-        );
+        toast.error(t("simulation.error.herdSnapshotStale"));
         return;
       }
       acceptDefaultsRef.current = false;
@@ -1363,10 +1649,10 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       );
       setEditorVersion((version) => version + 1);
       if (!farmScope()) return;
-      toast.success(`Loaded current herd (${snap.total_head} head).`);
+      toast.success(t("simulation.toast.currentHerdLoaded", { count: snap.total_head }));
     } catch (err) {
       if (!farmScope()) return;
-      toast.error(errorMessage(err, "Could not load the herd snapshot."));
+      toast.error(errorMessage(err, t("simulation.error.herdSnapshot")));
     }
   }
 
@@ -1382,16 +1668,14 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       const res = await calibrationQuery.refetch();
       if (res.isError || res.data?.status !== 200) {
         if (!farmScope()) return;
-        toast.error(errorMessage(res.error, "Could not calibrate from farm records."));
+        toast.error(errorMessage(res.error, t("simulation.error.calibration")));
         return;
       }
       if (
         editorEpochRef.current !== epoch ||
         calibrationParamsGeneration.current !== paramsGeneration
       ) {
-        toast.error(
-          "The editor or calibration settings changed while calibration was running. Calibrate again to apply fresh farm evidence.",
-        );
+        toast.error(t("simulation.error.calibrationStale"));
         return;
       }
       acceptDefaultsRef.current = false;
@@ -1406,12 +1690,10 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       setInvalidFields(new Set());
       setEditorVersion((version) => version + 1);
       if (!farmScope()) return;
-      toast.success(
-        `Calibrated ${calibrated.evidence.length} assumptions from farm records.`,
-      );
+      toast.success(t("simulation.toast.calibrated", { count: calibrated.evidence.length }));
     } catch (err) {
       if (!farmScope()) return;
-      toast.error(errorMessage(err, "Could not calibrate from farm records."));
+      toast.error(errorMessage(err, t("simulation.error.calibration")));
     }
   }
 
@@ -1436,11 +1718,11 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
             fingerprint: assumptionsFingerprint(payload),
             options: runOptionsFingerprint(monteCarlo, sensitivity, optimization),
             scenarioId: null,
-            source: "Current editor assumptions",
+            source: { kind: "editor" },
           });
       } catch (err) {
         if (!farmScope()) return;
-        const message = runErrorMessage(err, "Simulation failed");
+        const message = runErrorMessage(err, t("simulation.error.run"), t);
         setRunError(message);
         toast.error(message);
       }
@@ -1464,11 +1746,11 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
             fingerprint: assumptionsFingerprint(scenario.assumptions),
             options: runOptionsFingerprint(monteCarlo, sensitivity, optimization),
             scenarioId: scenario.id,
-            source: `Saved scenario “${scenario.name}”`,
+            source: { kind: "scenario", name: scenario.name },
           });
       } catch (err) {
         if (!farmScope()) return;
-        const message = runErrorMessage(err, "Scenario run failed");
+        const message = runErrorMessage(err, t("simulation.error.scenarioRun"), t);
         setRunError(message);
         toast.error(message);
       } finally {
@@ -1482,9 +1764,12 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       const farmScope = captureFarmScope();
       setPendingDelete(null);
       try {
-        await deleteMutation.mutateAsync({ scenarioId: scenario.id });
+        await deleteMutation.mutateAsync({
+          scenarioId: scenario.id,
+          params: { expected_revision: scenario.revision },
+        });
         if (!farmScope()) return;
-        toast.success("Scenario deleted.");
+        toast.success(t("simulation.toast.scenarioDeleted"));
         // The deleted row owned focus; the section heading is the nearest
         // sensible home once it unmounts.
         document.getElementById("sim-scenarios")?.focus({ preventScroll: true });
@@ -1514,7 +1799,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
         // during a failing DELETE must not surface in the new farm's UI
         // (RT-P2-5).
         if (!farmScope()) return;
-        toast.error(errorMessage(err, "Could not delete the scenario."));
+        toast.error(errorMessage(err, t("simulation.error.deleteScenario")));
       }
     });
   }
@@ -1560,7 +1845,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
           },
         });
         if (!farmScope()) return;
-        toast.success("Scenario saved.");
+        toast.success(t("simulation.toast.scenarioSaved"));
         if (created.status === 201) {
           // The API intentionally preserves oldest-first ordering, so the new
           // row belongs on the final page rather than page zero.
@@ -1575,7 +1860,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
         setSaveNotes("");
       } catch (err) {
         if (!farmScope()) return;
-        const message = errorMessage(err, "Could not save the scenario.");
+        const message = errorMessage(err, t("simulation.error.saveScenario"));
         setSaveError(message);
         toast.error(message);
       }
@@ -1602,7 +1887,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
           setLoadedScenario(updated.data);
         }
         if (!farmScope()) return;
-        toast.success("Scenario updated.");
+        toast.success(t("simulation.toast.scenarioUpdated"));
         invalidateScenarios();
       } catch (err) {
         if (!farmScope()) return;
@@ -1625,23 +1910,21 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
               // revision while preserving old assumptions would turn the
               // retry into a lost update against the other operator.
               loadScenarioIntoEditor(fresh.data);
-              toast.error(
-                "This scenario changed elsewhere. The editor was refreshed to the latest revision; review it before saving again.",
-              );
+              toast.error(t("simulation.error.scenarioConflict"));
               return;
             }
           } catch {
             // Keep the original conflict detail below when refresh fails.
           }
         }
-        toast.error(errorMessage(err, "Could not update the scenario."));
+        toast.error(errorMessage(err, t("simulation.error.updateScenario")));
       }
     });
   }
 
   /** Species-aware display label for one assumption field. */
   function fieldLabelFor(key: string): string {
-    return speciesAwareLabel(humanize(key));
+    return speciesAwareLabel(localizedFieldLabel(key, t, language));
   }
 
   /** Opens the "?" dialog for one field: explanation plus unit/range/value. */
@@ -1655,18 +1938,25 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
   ): void {
     const path = subKey ? `${section}.${key}.${subKey}` : `${section}.${key}`;
     const entry = simulationFieldHelp(path, simVocabulary);
-    const label = entry?.label ?? fieldLabelFor(subKey ?? key);
+    // The established English help entries use carefully written sentence
+    // casing (for example, “Meat price”). Preserve that default wording;
+    // Telugu instead uses the token-localized field name rather than leaking
+    // the English entry label.
+    const label =
+      language === "en"
+        ? (entry?.label ?? fieldLabelFor(subKey ?? key))
+        : fieldLabelFor(subKey ?? key);
     setFieldExplain({
       label,
       body: entry?.help.body ?? null,
-      facts: fieldFacts(rule, value, options),
+      facts: fieldFacts(rule, value, t, language, options),
     });
   }
 
   /** One editor row; the input type follows the value type. */
   function renderField(section: string, key: string, value: unknown) {
     const id = `sim-${section}-${key}`;
-    const numericOptions = NUMERIC_FIELD_OPTIONS[`${section}.${key}`];
+    const numericOptions = numericFieldOptions(t)[`${section}.${key}`];
     if (numericOptions && typeof value === "number") {
       return (
         <div key={id} className="space-y-1.5">
@@ -1696,7 +1986,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
         </div>
       );
     }
-    const stringOptions = STRING_FIELD_OPTIONS[`${section}.${key}`];
+    const stringOptions = stringFieldOptions(t)[`${section}.${key}`];
     if (stringOptions) {
       return (
         <div key={id} className="space-y-1.5">
@@ -1730,7 +2020,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       NULLABLE_NUMBER_FIELDS.has(`${section}.${key}`) &&
       (value === null || typeof value === "number")
     ) {
-      const rule = numericRule(section, key);
+      const rule = numericRule(section, key, t);
       return (
         <div key={id} className="space-y-1.5">
           <div className="flex items-center gap-1.5">
@@ -1749,13 +2039,15 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
             onCommit={(n) => updateField(section, key, n)}
           />
           <p className="text-xs text-muted-foreground">
-            {rule.unit ? `Unit: ${rule.unit} — ` : ""}blank means no limit
+            {rule.unit
+              ? t("simulation.field.blankNoLimitWithUnit", { unit: rule.unit })
+              : t("simulation.field.blankNoLimit")}
           </p>
         </div>
       );
     }
     if (typeof value === "number") {
-      const rule = numericRule(section, key);
+      const rule = numericRule(section, key, t);
       return (
         <div key={id} className="space-y-1.5">
           <div className="flex items-center gap-1.5">
@@ -1777,7 +2069,11 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
             onValidityChange={(valid) => setFieldValidity(`field:${id}`, valid)}
             onCommit={(n) => updateField(section, key, n)}
           />
-          {rule.unit && <p className="text-xs text-muted-foreground">Unit: {rule.unit}</p>}
+          {rule.unit && (
+            <p className="text-xs text-muted-foreground">
+              {t("simulation.field.unit", { unit: rule.unit })}
+            </p>
+          )}
         </div>
       );
     }
@@ -1826,19 +2122,22 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
           />
           {monthIsInvalid && (
             <p id={errorId} role="alert" className="text-sm text-destructive">
-              Enter a real month from 1900-01 to 2200-12.
+              {t("simulation.validation.startYearMonthInput")}
             </p>
           )}
         </div>
       );
     }
     if (Array.isArray(value)) {
-      const rule = numberArrayRule(section, key, horizonMonths);
+      const rule = numberArrayRule(section, key, horizonMonths, t);
       return (
         <div key={id} className="space-y-1.5 sm:col-span-2 lg:col-span-3">
           <div className="flex items-center gap-1.5">
             <Label htmlFor={id}>
-              {fieldLabelFor(key)} ({rule.itemLabel}, comma-separated)
+              {t("simulation.field.arrayLabel", {
+                label: fieldLabelFor(key),
+                items: rule.itemLabel,
+              })}
             </Label>
             <FieldHelpButton
               label={fieldLabelFor(key)}
@@ -1883,12 +2182,12 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
 
   function renderNestedField(section: string, key: string, subKey: string, value: unknown) {
     const id = `sim-${section}-${key}-${subKey}`;
-    const subLabel = humanize(subKey);
+    const subLabel = fieldLabelFor(subKey);
     if (typeof value === "number") {
       const rule: NumericRule =
         section === "risk" && (subKey === "low" || subKey === "high")
-          ? { exclusiveMin: 0, max: 100, unit: "multiplier" }
-          : numericRule(section, subKey);
+          ? { exclusiveMin: 0, max: 100, unit: t("simulation.unit.multiplier") }
+          : numericRule(section, subKey, t);
       return (
         <div key={id} className="space-y-1.5">
           <div className="flex items-center gap-1.5">
@@ -1905,7 +2204,11 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
             onValidityChange={(valid) => setFieldValidity(`field:${id}`, valid)}
             onCommit={(n) => updateNestedField(section, key, subKey, n)}
           />
-          {rule.unit && <p className="text-xs text-muted-foreground">Unit: {rule.unit}</p>}
+          {rule.unit && (
+            <p className="text-xs text-muted-foreground">
+              {t("simulation.field.unit", { unit: rule.unit })}
+            </p>
+          )}
         </div>
       );
     }
@@ -1982,33 +2285,33 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           <MetricCard
             value={formatMoney(m.npv)}
-            label="NPV"
+            label={t("simulation.metric.npv")}
             icon={IndianRupee}
             tint={m.npv >= 0 ? "success" : "destructive"}
             onInfo={infoFor("npv")}
           />
           <MetricCard
             value={formatPercent(m.irr)}
-            label="IRR"
+            label={t("simulation.metric.irr")}
             icon={Percent}
             onInfo={infoFor("irr")}
           />
           <MetricCard
             value={formatPercent(m.mirr)}
-            label="MIRR"
+            label={t("simulation.metric.mirr")}
             icon={TrendingUp}
             onInfo={infoFor("mirr")}
           />
           <MetricCard
             value={formatRatio(m.bcr)}
-            label="BCR"
+            label={t("simulation.metric.bcr")}
             icon={Scale}
             tint={m.bcr === null ? "default" : m.bcr >= 1 ? "success" : "destructive"}
             onInfo={infoFor("bcr")}
           />
           <MetricCard
             value={formatRatio(m.avg_dscr)}
-            label="Avg DSCR"
+            label={t("simulation.metric.avgDscr")}
             icon={Gauge}
             tint={
               m.avg_dscr === null
@@ -2023,7 +2326,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
           />
           <MetricCard
             value={formatRatio(m.min_dscr)}
-            label="Minimum DSCR"
+            label={t("simulation.metric.minimumDscr")}
             icon={ShieldAlert}
             tint={
               m.min_dscr === null
@@ -2038,7 +2341,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
           />
           <MetricCard
             value={formatPercent(m.operating_margin)}
-            label="Operating margin"
+            label={t("simulation.metric.operatingMargin")}
             icon={TrendingUp}
             tint={
               m.operating_margin === null
@@ -2051,7 +2354,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
           />
           <MetricCard
             value={m.payback_month === null ? "—" : String(m.payback_month)}
-            label="Payback month"
+            label={t("simulation.metric.paybackMonth")}
             icon={CalendarClock}
             tint="warning"
             onInfo={infoFor("payback_month")}
@@ -2062,70 +2365,72 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                 ? "—"
                 : formatMoney(m.break_even_meat_price_per_kg)
             }
-            label="Break-even meat (₹/kg)"
+            label={t("simulation.metric.breakEvenMeat")}
             icon={Beef}
             tint="warning"
             onInfo={infoFor("break_even_meat_price_per_kg")}
           />
           <MetricCard
             value={formatMoney(m.project_cost)}
-            label="Project cost"
+            label={t("simulation.metric.projectCost")}
             icon={Wallet}
             onInfo={infoFor("project_cost")}
           />
           <MetricCard
             value={formatMoney(m.loan_amount)}
-            label="Loan"
+            label={t("simulation.metric.loan")}
             icon={Landmark}
             onInfo={infoFor("loan_amount")}
           />
           <MetricCard
             value={formatMoney(m.subsidy_amount)}
-            label="Subsidy"
+            label={t("simulation.metric.subsidy")}
             icon={HandCoins}
             tint="success"
             onInfo={infoFor("subsidy_amount")}
           />
           <MetricCard
             value={formatMoney(m.equity)}
-            label="Equity"
+            label={t("simulation.metric.equity")}
             icon={PiggyBank}
             onInfo={infoFor("equity")}
           />
           <MetricCard
             value={formatHead(m.peak_capacity_head)}
-            label="Funded capacity (head)"
+            label={t("simulation.metric.fundedCapacity")}
             icon={Building2}
             onInfo={infoFor("peak_capacity_head")}
           />
           <MetricCard
             value={formatMoney(m.terminal_value)}
-            label="Terminal value"
+            label={t("simulation.metric.terminalValue")}
             icon={Wallet}
             onInfo={infoFor("terminal_value")}
           />
           <MetricCard
             value={formatMoney(m.minimum_cash_balance)}
-            label={`Minimum cash (month ${m.minimum_cash_month})`}
+            label={t("simulation.metric.minimumCashMonth", { month: m.minimum_cash_month })}
             icon={Wallet}
             tint={m.minimum_cash_balance < 0 ? "destructive" : "success"}
             onInfo={infoFor("minimum_cash_balance")}
           />
           <MetricCard
             value={formatMoney(m.additional_working_capital_required)}
-            label="Additional working capital"
+            label={t("simulation.metric.additionalWorkingCapital")}
             icon={HandCoins}
             tint={m.additional_working_capital_required > 0 ? "destructive" : "success"}
             onInfo={infoFor("additional_working_capital_required")}
           />
           <MetricCard
-            value={`${formatRatio(r.feed_summary.land_requirement_acres)} acres`}
-            label="Fodder land required"
+              value={t("simulation.metric.acresValue", {
+                value: formatRatio(r.feed_summary.land_requirement_acres),
+              })}
+              label={t("simulation.metric.fodderLandRequired")}
             icon={Wheat}
           />
           <MetricCard
             value={String(r.feed_summary.fodder_deficit_months)}
-            label="Fodder deficit months"
+            label={t("simulation.metric.fodderDeficitMonths")}
             icon={Wheat}
             tint={r.feed_summary.fodder_deficit_months > 0 ? "warning" : "success"}
           />
@@ -2133,8 +2438,10 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
            * client types lag it, so read defensively. */}
           {typeof peakWater === "number" && (
             <MetricCard
-              value={`${litres(peakWater)} L/day`}
-              label="Peak water demand"
+              value={t("simulation.metric.litresPerDay", {
+                value: litres(peakWater, language),
+              })}
+              label={t("simulation.metric.peakWaterDemand")}
               icon={Droplets}
               tint="warning"
             />
@@ -2142,15 +2449,23 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
         </div>
         {annualWater.length > 0 && (
           <p className="text-sm text-muted-foreground">
-            Annual water demand:{" "}
-            {annualWater.map((v, i) => `Y${i + 1} ${litres(v)} L`).join(" · ")}
+            {t("simulation.result.annualWaterDemand", {
+              values: annualWater
+                .map((v, i) =>
+                  t("simulation.result.annualWaterYear", {
+                    year: i + 1,
+                    value: litres(v, language),
+                  }),
+                )
+                .join(" · "),
+            })}
           </p>
         )}
 
         {r.narrative_report && r.narrative_report.length > 0 && (
           <Card>
             <CardHeader>
-              <CardTitle>Report</CardTitle>
+              <CardTitle>{t("simulation.result.report")}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-5">
               {r.narrative_report.map((section) => {
@@ -2159,11 +2474,13 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                   typeof section.figures?.verdict === "string"
                     ? section.figures.verdict
                     : null;
+                const verdictLabel =
+                  verdict === null ? null : localizedVerdict(verdict, t, language);
                 return (
                   <section key={section.key} className="space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="font-medium">{section.title}</h3>
-                      {verdict && (
+                      {verdictLabel && (
                         <Badge
                           variant={
                             verdict === "VIABLE"
@@ -2173,7 +2490,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                                 : "destructive"
                           }
                         >
-                          {verdict}
+                          {verdictLabel}
                         </Badge>
                       )}
                     </div>
@@ -2196,44 +2513,48 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
           >
             <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
             <p>
-              Projected peak herd exceeds funded housing and equipment capacity by{" "}
-              {formatHead(capacityShortfall)} head. This plan is not physically feasible at
-              the configured capacity.
+              {t("simulation.result.capacityShortfall", {
+                count: formatHead(capacityShortfall),
+              })}
             </p>
           </div>
         )}
 
         <DataTableCard
-          title="Capital and terminal-value bridge"
-          description={`${humanize(r.project_cost_breakdown.capacity_basis)} basis funds ${formatHead(r.project_cost_breakdown.capacity_places)} places against a projected peak of ${formatHead(r.project_cost_breakdown.projected_peak_head)} head.`}
+          title={t("simulation.table.capitalBridge")}
+          description={t("simulation.table.capitalBridgeDescription", {
+            basis: localizedFieldLabel(r.project_cost_breakdown.capacity_basis, t, language),
+            places: formatHead(r.project_cost_breakdown.capacity_places),
+            peak: formatHead(r.project_cost_breakdown.projected_peak_head),
+          })}
         >
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Component</TableHead>
-                <TableHead className="text-right">Opening project cost</TableHead>
-                <TableHead className="text-right">Closing recovery</TableHead>
+                <TableHead>{t("simulation.table.component")}</TableHead>
+                <TableHead className="text-right">{t("simulation.table.openingProjectCost")}</TableHead>
+                <TableHead className="text-right">{t("simulation.table.closingRecovery")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {[
                 {
-                  label: "Shed",
+                  label: t("simulation.table.shed"),
                   opening: r.project_cost_breakdown.shed_cost,
                   closing: r.terminal_value_breakdown.shed,
                 },
                 {
-                  label: "Equipment",
+                  label: t("simulation.table.equipment"),
                   opening: r.project_cost_breakdown.equipment_cost,
                   closing: r.terminal_value_breakdown.equipment,
                 },
                 {
-                  label: "Livestock",
+                  label: t("simulation.table.livestock"),
                   opening: r.project_cost_breakdown.stock_cost,
                   closing: r.terminal_value_breakdown.livestock,
                 },
                 {
-                  label: "Working capital",
+                  label: t("simulation.table.workingCapital"),
                   opening: r.project_cost_breakdown.working_capital,
                   closing: r.terminal_value_breakdown.working_capital,
                 },
@@ -2249,7 +2570,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                 </TableRow>
               ))}
               <TableRow>
-                <TableCell className="font-semibold">Total</TableCell>
+                <TableCell className="font-semibold">{t("simulation.table.total")}</TableCell>
                 <TableCell className="text-right font-semibold tabular-nums">
                   {formatMoney(m.project_cost)}
                 </TableCell>
@@ -2262,34 +2583,34 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
         </DataTableCard>
 
         <DataTableCard
-          title="Annual P&amp;L"
-          description="Accrual profit, tax, debt service and project cash flow by year. Revenue splits into meat (young-stock sold at live weight), cull (spent-animal disposals) and manure."
+          title={t("simulation.table.annualPl")}
+          description={t("simulation.table.annualPlDescription")}
         >
           <div className="overflow-x-auto">
             <Table className="min-w-[1700px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Year</TableHead>
-                  <TableHead className="text-right">Revenue</TableHead>
-                  <TableHead className="text-right" title="Young-stock meat sales (surplus males and females sold at live weight)">
-                    Meat ₹
+                  <TableHead>{t("simulation.table.year")}</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.revenue")}</TableHead>
+                  <TableHead className="text-right" title={t("simulation.table.meatTitle")}>
+                    {t("simulation.table.meatCurrency")}
                   </TableHead>
-                  <TableHead className="text-right" title="Cull animal disposals (spent females, rotated males, repeat breeders)">
-                    Cull ₹
+                  <TableHead className="text-right" title={t("simulation.table.cullTitle")}>
+                    {t("simulation.table.cullCurrency")}
                   </TableHead>
-                  <TableHead className="text-right" title="Manure/dung income">
-                    Manure ₹
+                  <TableHead className="text-right" title={t("simulation.table.manureTitle")}>
+                    {t("simulation.table.manureCurrency")}
                   </TableHead>
-                  <TableHead className="text-right">Opex</TableHead>
-                  <TableHead className="text-right">EBITDA</TableHead>
-                  <TableHead className="text-right">Depreciation</TableHead>
-                  <TableHead className="text-right">EBIT</TableHead>
-                  <TableHead className="text-right">Interest</TableHead>
-                  <TableHead className="text-right">Tax</TableHead>
-                  <TableHead className="text-right">PAT</TableHead>
-                  <TableHead className="text-right">Debt service</TableHead>
-                  <TableHead className="text-right">Terminal value</TableHead>
-                  <TableHead className="text-right">Net cash flow</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.opex")}</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.ebitda")}</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.depreciation")}</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.ebit")}</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.interest")}</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.tax")}</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.pat")}</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.debtService")}</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.terminalValue")}</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.netCashFlow")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -2328,34 +2649,36 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
         </DataTableCard>
 
         <DataTableCard
-          title="Monthly projection"
-          description={`Herd and cash-flow detail over ${r.months.length} months.`}
+          title={t("simulation.table.monthlyProjection")}
+          description={t("simulation.table.monthlyProjectionDescription", {
+            count: r.months.length,
+          })}
         >
           <div className="max-h-96 overflow-auto rounded-lg border">
             <Table className="min-w-[1400px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Month</TableHead>
-                  <TableHead>Total herd</TableHead>
-                  <TableHead>Births</TableHead>
-                  <TableHead>Deaths</TableHead>
-                  <TableHead>Sales head</TableHead>
-                  <TableHead className="text-right">Meat ₹/kg</TableHead>
-                  <TableHead className="text-right">Sales revenue</TableHead>
-                  <TableHead className="text-right">Cull head</TableHead>
-                  <TableHead className="text-right">Cull revenue</TableHead>
-                  <TableHead className="text-right">Purchased green kg</TableHead>
-                  <TableHead className="text-right">Feed cost</TableHead>
-                  <TableHead className="text-right">Selling cost</TableHead>
-                  <TableHead className="text-right">Tax</TableHead>
-                  <TableHead className="text-right">Debt service</TableHead>
-                  <TableHead className="text-right">Terminal value</TableHead>
-                  <TableHead className="text-right">Net cash flow</TableHead>
-                  <TableHead className="text-right">Cash balance</TableHead>
-                  <TableHead className="text-right">Cumulative cash flow</TableHead>
-                  <TableHead className="text-right">Fodder stock (kg DM)</TableHead>
-                  <TableHead className="text-right">Water (L)</TableHead>
-                  <TableHead>Events</TableHead>
+                  <TableHead>{t("simulation.table.month")}</TableHead>
+                  <TableHead>{t("simulation.table.totalHerd")}</TableHead>
+                  <TableHead>{t("simulation.table.births")}</TableHead>
+                  <TableHead>{t("simulation.table.deaths")}</TableHead>
+                  <TableHead>{t("simulation.table.salesHead")}</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.meatPerKg")}</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.salesRevenue")}</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.cullHead")}</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.cullRevenue")}</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.purchasedGreenKg")}</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.feedCost")}</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.sellingCost")}</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.tax")}</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.debtService")}</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.terminalValue")}</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.netCashFlow")}</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.cashBalance")}</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.cumulativeCashFlow")}</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.fodderStock")}</TableHead>
+                  <TableHead className="text-right">{t("simulation.table.water")}</TableHead>
+                  <TableHead>{t("simulation.table.events")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -2426,7 +2749,10 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                     <TableCell className="text-right tabular-nums">
                       {/* Optional water-demand column (contract addition). */}
                       {typeof (row as { water_litres?: number }).water_litres === "number"
-                        ? litres((row as { water_litres?: number }).water_litres as number)
+                        ? litres(
+                            (row as { water_litres?: number }).water_litres as number,
+                            language,
+                          )
                         : "—"}
                     </TableCell>
                     <TableCell>
@@ -2451,7 +2777,10 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
           <Card>
             <CardHeader>
               <CardTitle>
-                Monte Carlo ({r.monte_carlo.runs} runs, seed {r.monte_carlo.seed})
+                {t("simulation.result.monteCarloTitle", {
+                  runs: r.monte_carlo.runs,
+                  seed: r.monte_carlo.seed,
+                })}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -2460,39 +2789,39 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                     a hard-coded emerald painted a loss-making mean as success. */}
                 <MetricCard
                   value={formatMoney(r.monte_carlo.npv_mean)}
-                  label="NPV mean"
+                  label={t("simulation.metric.npvMean")}
                   icon={IndianRupee}
                   tint={r.monte_carlo.npv_mean >= 0 ? "success" : "destructive"}
                 />
                 <MetricCard
                   value={formatMoney(r.monte_carlo.npv_std)}
-                  label="NPV std"
+                  label={t("simulation.metric.npvStd")}
                   icon={Sigma}
                 />
                 <MetricCard
                   value={formatMoney(r.monte_carlo.npv_p5)}
-                  label="P5"
+                  label={t("simulation.metric.npvP5")}
                   icon={ChartColumn}
                 />
                 <MetricCard
                   value={formatMoney(r.monte_carlo.npv_p50)}
-                  label="P50"
+                  label={t("simulation.metric.npvP50")}
                   icon={ChartColumn}
                 />
                 <MetricCard
                   value={formatMoney(r.monte_carlo.npv_p95)}
-                  label="P95"
+                  label={t("simulation.metric.npvP95")}
                   icon={ChartColumn}
                 />
                 <MetricCard
                   value={`${(r.monte_carlo.prob_npv_negative * 100).toFixed(1)}%`}
-                  label="P(NPV < 0)"
+                  label={t("simulation.metric.probabilityNegativeNpv")}
                   icon={TriangleAlert}
                   tint={r.monte_carlo.prob_npv_negative > 0 ? "destructive" : "success"}
                 />
                 <MetricCard
                   value={formatPercent(r.monte_carlo.prob_liquidity_shortfall)}
-                  label="P(cash shortfall)"
+                  label={t("simulation.metric.probabilityCashShortfall")}
                   icon={Wallet}
                   tint={
                     r.monte_carlo.prob_liquidity_shortfall > 0 ? "destructive" : "success"
@@ -2500,19 +2829,19 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                 />
                 <MetricCard
                   value={formatPercent(r.monte_carlo.prob_dscr_below_one)}
-                  label="P(DSCR < 1)"
+                  label={t("simulation.metric.probabilityDscrBelowOne")}
                   icon={ShieldAlert}
                   tint={r.monte_carlo.prob_dscr_below_one > 0 ? "destructive" : "success"}
                 />
                 <MetricCard
                   value={formatMoney(r.monte_carlo.minimum_cash_p5)}
-                  label="Minimum cash P5"
+                  label={t("simulation.metric.minimumCashP5")}
                   icon={Wallet}
                   tint={r.monte_carlo.minimum_cash_p5 < 0 ? "destructive" : "success"}
                 />
                 <MetricCard
                   value={formatMoney(r.monte_carlo.minimum_cash_p50)}
-                  label="Minimum cash P50"
+                  label={t("simulation.metric.minimumCashP50")}
                   icon={Wallet}
                   tint={r.monte_carlo.minimum_cash_p50 < 0 ? "destructive" : "success"}
                 />
@@ -2525,10 +2854,11 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                 p95={r.monte_carlo.npv_p95}
               />
               <p className="text-sm text-muted-foreground">
-                Mean path events: {formatRatio(r.monte_carlo.mean_disease_outbreaks, 2)}
-                {" disease, "}
-                {formatRatio(r.monte_carlo.mean_drought_events, 2)} drought, and{" "}
-                {formatRatio(r.monte_carlo.mean_market_crashes, 2)} market crash.
+                {t("simulation.result.meanPathEvents", {
+                  disease: formatRatio(r.monte_carlo.mean_disease_outbreaks, 2),
+                  drought: formatRatio(r.monte_carlo.mean_drought_events, 2),
+                  market: formatRatio(r.monte_carlo.mean_market_crashes, 2),
+                })}
               </p>
               <RiskBandTable
                 herd={r.monte_carlo.herd_percentiles}
@@ -2544,21 +2874,21 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
 
         {sortedSensitivity && sortedSensitivity.length > 0 && (
           <DataTableCard
-            title="Sensitivity (ΔNPV)"
-            description="Parameters ranked by their largest absolute NPV swing."
+            title={t("simulation.table.sensitivity")}
+            description={t("simulation.table.sensitivityDescription")}
           >
             <Table className="min-w-[680px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Parameter</TableHead>
-                  <TableHead>ΔNPV low</TableHead>
-                  <TableHead>ΔNPV high</TableHead>
+                  <TableHead>{t("simulation.table.parameter")}</TableHead>
+                  <TableHead>{t("simulation.table.deltaNpvLow")}</TableHead>
+                  <TableHead>{t("simulation.table.deltaNpvHigh")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {sortedSensitivity.map((item) => (
                   <TableRow key={item.parameter}>
-                    <TableCell>{humanize(item.parameter)}</TableCell>
+                    <TableCell>{localizedFieldLabel(item.parameter, t, language)}</TableCell>
                     <TableCell
                       className={
                         item.delta_npv_low < 0 ? "text-destructive" : undefined
@@ -2604,7 +2934,9 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                       )
                       .map(([key, value]) => (
                         <div key={key} className="contents">
-                          <dt className="text-muted-foreground">{humanize(key)}</dt>
+                          <dt className="text-muted-foreground">
+                            {localizedFieldLabel(key, t, language)}
+                          </dt>
                           <dd>{formatFigure(key, value)}</dd>
                         </div>
                       ))}
@@ -2623,8 +2955,8 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Simulation"
-        description="Project herd growth, cash flow and viability from editable bio-economic assumptions."
+        title={t("simulation.page.title")}
+        description={t("simulation.page.description")}
         actions={
           <>
             <Button
@@ -2639,7 +2971,9 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
               <GitCompareArrows />
 
 
-              {compareQuery.isFetching ? "Comparing…" : "Compare selected"}
+              {compareQuery.isFetching
+                ? t("simulation.action.comparing")
+                : t("simulation.action.compareSelected")}
             </Button>
             {canManage && (
               <>
@@ -2652,7 +2986,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                   disabled={!assumptions || hasEditorErrors || simulationAction.pending}
                 >
                   <Save />
-                  Save as scenario
+                  {t("simulation.action.saveAsScenario")}
                 </Button>
                 {loadedScenario && (
                   <Button
@@ -2666,8 +3000,8 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                     }
                   >
                     {updateMutation.isPending
-                      ? "Updating…"
-                      : `Update ${loadedScenario.name}`}
+                      ? t("simulation.action.updating")
+                      : t("simulation.action.updateScenario", { name: loadedScenario.name })}
                   </Button>
                 )}
               </>
@@ -2677,7 +3011,9 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
               disabled={!assumptions || hasEditorErrors || simulationAction.pending}
             >
               <Play />
-              {runMutation.isPending ? "Running…" : "Run simulation"}
+              {runMutation.isPending
+                ? t("simulation.action.running")
+                : t("simulation.action.runSimulation")}
             </Button>
           </>
         }
@@ -2686,7 +3022,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       {/* Sticky in-page navigator — the simulation is one long scroll;
           this keeps every section one click away. */}
       <nav
-        aria-label="Simulation sections"
+        aria-label={t("simulation.nav.label")}
         className="sticky top-14 z-20 -mx-4 flex items-center gap-2 border-b bg-background/90 px-4 py-2 backdrop-blur-md md:-mx-6 md:px-6"
       >
         {/* Links first, run cluster last: the cluster's ml-auto pushes it to
@@ -2694,12 +3030,12 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
             links in DOM order. */}
         <ul className="flex min-w-0 gap-1 overflow-x-auto text-sm">
           {([
-            ["sim-setup", "Setup"],
-            calibration ? (["sim-calibration", "Calibration"]) : null,
-            ["sim-assumptions", "Assumptions"],
-            ["sim-events", "Herd events"],
-            result ? (["sim-results", "Results"]) : null,
-            ["sim-scenarios", "Scenarios"],
+            ["sim-setup", t("simulation.nav.setup")],
+            calibration ? (["sim-calibration", t("simulation.nav.calibration")]) : null,
+            ["sim-assumptions", t("simulation.nav.assumptions")],
+            ["sim-events", t("simulation.nav.herdEvents")],
+            result ? (["sim-results", t("simulation.nav.results")]) : null,
+            ["sim-scenarios", t("simulation.nav.scenarios")],
           ].filter(Boolean) as [string, string][]).map(([href, label]) => (
             <li key={href}>
               <a
@@ -2733,15 +3069,25 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                   labels so they never collide with the results section's
                   metric labels in text queries or screen readers. */}
               <span
-                aria-label={`Net present value (last run): ${formatMoney(result.data.metrics.npv)}${resultIsStale ? " — inputs changed since this run" : ""}`}
-                title={`Net present value (last run)${resultIsStale ? " — inputs changed since this run" : ""}`}
+                aria-label={t("simulation.accessibility.lastRunNpv", {
+                  value: formatMoney(result.data.metrics.npv),
+                  changed: resultIsStale ? t("simulation.accessibility.inputsChanged") : "",
+                })}
+                title={t("simulation.accessibility.lastRunNpvTitle", {
+                  changed: resultIsStale ? t("simulation.accessibility.inputsChanged") : "",
+                })}
                 className={`hidden items-center rounded-md bg-muted px-2 py-1 text-xs sm:inline-flex${resultIsStale ? " opacity-60" : ""}`}
               >
                 <span className="table-numeric font-medium">{formatMoney(result.data.metrics.npv)}</span>
               </span>
               <span
-                aria-label={`Internal rate of return (last run): ${formatPercent(result.data.metrics.irr)}${resultIsStale ? " — inputs changed since this run" : ""}`}
-                title={`Internal rate of return (last run)${resultIsStale ? " — inputs changed since this run" : ""}`}
+                aria-label={t("simulation.accessibility.lastRunIrr", {
+                  value: formatPercent(result.data.metrics.irr),
+                  changed: resultIsStale ? t("simulation.accessibility.inputsChanged") : "",
+                })}
+                title={t("simulation.accessibility.lastRunIrrTitle", {
+                  changed: resultIsStale ? t("simulation.accessibility.inputsChanged") : "",
+                })}
                 className={`hidden items-center rounded-md bg-muted px-2 py-1 text-xs md:inline-flex${resultIsStale ? " opacity-60" : ""}`}
               >
                 <span className="table-numeric font-medium">{formatPercent(result.data.metrics.irr)}</span>
@@ -2754,7 +3100,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
             disabled={!assumptions || hasEditorErrors || simulationAction.pending}
           >
             <Play aria-hidden="true" />
-            {runMutation.isPending ? "Running…" : "Run"}
+            {runMutation.isPending ? t("simulation.action.running") : t("simulation.action.run")}
           </Button>
         </div>
       </nav>
@@ -2762,15 +3108,15 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
 
       <Card id="sim-setup" tabIndex={-1} className="scroll-mt-28 focus:outline-none">
         <CardHeader>
-          <CardTitle>Setup</CardTitle>
+          <CardTitle>{t("simulation.setup.title")}</CardTitle>
           <CardDescription>
-            Pick a breed and rearing system, then load the baseline assumptions.
+            {t("simulation.setup.description")}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-end gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="sim-breed">Breed</Label>
+              <Label htmlFor="sim-breed">{t("simulation.setup.breed")}</Label>
               <Select
                 value={breed}
                 onValueChange={(value) => {
@@ -2791,7 +3137,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="sim-system">System</Label>
+              <Label htmlFor="sim-system">{t("simulation.setup.system")}</Label>
               <Select
                 value={system}
                 onValueChange={(v) => {
@@ -2799,7 +3145,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                   setSystem(v as BreedDefaultsApiSimulationDefaultsGetSystem);
                 }}
                 items={Object.fromEntries(
-                  (breeds?.systems ?? [system]).map((s) => [s, humanize(s)]),
+                  (breeds?.systems ?? [system]).map((s) => [s, localizedFieldLabel(s, t, language)]),
                 )}
               >
                 <SelectTrigger id="sim-system">
@@ -2808,7 +3154,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                 <SelectContent>
                   {(breeds?.systems ?? [system]).map((s) => (
                     <SelectItem key={s} value={s}>
-                      {humanize(s)}
+                      {localizedFieldLabel(s, t, language)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -2831,7 +3177,9 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
               disabled={defaultsQuery.isFetching}
             >
               <RefreshCw />
-              {defaultsQuery.isFetching ? "Loading…" : "Load defaults"}
+              {defaultsQuery.isFetching
+                ? t("common.loading")
+                : t("simulation.action.loadDefaults")}
             </Button>
             <Button
               variant="outline"
@@ -2839,12 +3187,16 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
               disabled={!assumptions || snapshotQuery.isFetching || defaultsQuery.isFetching}
             >
               <Building2 />
-              {snapshotQuery.isFetching ? "Loading…" : "Use current herd"}
+              {snapshotQuery.isFetching
+                ? t("common.loading")
+                : t("simulation.action.useCurrentHerd")}
             </Button>
             {canCalibrate && (
               <>
                 <div className="space-y-1.5">
-                  <Label htmlFor="sim-calibration-lookback">Calibration history</Label>
+                  <Label htmlFor="sim-calibration-lookback">
+                    {t("simulation.setup.calibrationHistory")}
+                  </Label>
                   <Select
                     value={String(calibrationLookback)}
                     onValueChange={(value) => {
@@ -2852,10 +3204,10 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                       setCalibrationLookback(Number(value));
                     }}
                     items={{
-                      "12": "12 months",
-                      "24": "24 months",
-                      "36": "36 months",
-                      "60": "60 months",
+                      "12": t("simulation.setup.months", { count: 12 }),
+                      "24": t("simulation.setup.months", { count: 24 }),
+                      "36": t("simulation.setup.months", { count: 36 }),
+                      "60": t("simulation.setup.months", { count: 60 }),
                     }}
                   >
                     <SelectTrigger id="sim-calibration-lookback">
@@ -2864,7 +3216,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                     <SelectContent>
                       {[12, 24, 36, 60].map((months) => (
                         <SelectItem key={months} value={String(months)}>
-                          {months} months
+                          {t("simulation.setup.months", { count: months })}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -2876,7 +3228,9 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                   disabled={!assumptions || calibrationQuery.isFetching}
                 >
                   <Database />
-                  {calibrationQuery.isFetching ? "Calibrating…" : "Calibrate from farm"}
+                  {calibrationQuery.isFetching
+                    ? t("simulation.action.calibrating")
+                    : t("simulation.action.calibrateFromFarm")}
                 </Button>
               </>
             )}
@@ -2885,12 +3239,12 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
             <p role="alert" className="text-sm text-destructive">
               {defaultsQuery.error instanceof ApiError
                 ? defaultsQuery.error.detail
-                : "Could not load the defaults."}
+                : t("simulation.error.defaults")}
             </p>
           )}
           {breedsQuery.isError && (
             <p role="alert" className="text-sm text-destructive">
-              {errorMessage(breedsQuery.error, "Could not load available breeds and systems.")}
+              {errorMessage(breedsQuery.error, t("simulation.error.breeds"))}
             </p>
           )}
         </CardContent>
@@ -2898,14 +3252,19 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
 
       {calibration && (
         <DataTableCard
-          title="Farm calibration evidence"
+          title={t("simulation.calibration.title")}
           id="sim-calibration"
           tabIndex={-1}
           className="scroll-mt-28 focus:outline-none"
-          description={`Records through ${calibration.reference_date}, using a ${calibration.lookback_months}-month lookback.`}
+          description={t("simulation.calibration.description", {
+            date: calibration.reference_date,
+            months: calibration.lookback_months,
+          })}
           actions={
             <span className="text-sm font-medium tabular-nums">
-              {formatPercent(calibration.coverage_score)} coverage
+              {t("simulation.calibration.coverage", {
+                value: formatPercent(calibration.coverage_score),
+              })}
             </span>
           }
           contentClassName="space-y-4"
@@ -2925,27 +3284,26 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
           )}
           {calibration.evidence.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No farm observations met the evidence thresholds; breed-system defaults remain
-              in use.
+              {t("simulation.calibration.empty")}
             </p>
           ) : (
             <div className="overflow-x-auto">
               <Table className="min-w-[720px]">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Assumption</TableHead>
-                    <TableHead>Baseline</TableHead>
-                    <TableHead>Calibrated</TableHead>
-                    <TableHead>Sample</TableHead>
-                    <TableHead>Confidence</TableHead>
-                    <TableHead>Evidence</TableHead>
+                    <TableHead>{t("simulation.calibration.assumption")}</TableHead>
+                    <TableHead>{t("simulation.calibration.baseline")}</TableHead>
+                    <TableHead>{t("simulation.calibration.calibrated")}</TableHead>
+                    <TableHead>{t("simulation.calibration.sample")}</TableHead>
+                    <TableHead>{t("simulation.calibration.confidence")}</TableHead>
+                    <TableHead>{t("simulation.calibration.evidence")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {calibration.evidence.map((item) => (
                     <TableRow key={item.path}>
                       <TableCell className="font-medium">
-                        {item.path.split(".").map(humanize).join(" / ")}
+                        {item.path.split(".").map((part) => localizedFieldLabel(part, t, language)).join(" / ")}
                       </TableCell>
                       <TableCell className="tabular-nums">
                         {formatCalibrationValue(item.previous_value)}
@@ -2954,7 +3312,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                         {formatCalibrationValue(item.calibrated_value)}
                       </TableCell>
                       <TableCell className="tabular-nums">{item.sample_size}</TableCell>
-                      <TableCell>{humanize(item.confidence)}</TableCell>
+                      <TableCell>{localizedFieldLabel(item.confidence, t, language)}</TableCell>
                       <TableCell>
                         <div>{item.source}</div>
                         <p className="text-xs text-muted-foreground">{item.method}</p>
@@ -2971,34 +3329,36 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       <fieldset disabled={defaultsQuery.isFetching} className="contents">
       <Card id="sim-assumptions" tabIndex={-1} className="scroll-mt-28 focus:outline-none">
         <CardHeader>
-          <CardTitle>Assumptions</CardTitle>
+          <CardTitle>{t("simulation.assumptions.title")}</CardTitle>
           <CardDescription>
-            Model inputs grouped by section — values start from your farm&apos;s calibration or the breed-system defaults.
+            {t("simulation.assumptions.description")}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {!assumptions && !defaultsQuery.isError && (
-            <InlineLoading>Loading defaults…</InlineLoading>
+            <InlineLoading>{t("simulation.assumptions.loading")}</InlineLoading>
           )}
           {assumptions?.meta && (
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm text-muted-foreground">Horizon presets:</span>
+              <span className="text-sm text-muted-foreground">
+                {t("simulation.assumptions.horizonPresets")}
+              </span>
               {HORIZON_PRESETS.map((preset) => (
                 <Button
-                  key={preset.months}
+                  key={preset}
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    updateField("meta", "horizon_months", preset.months);
+                    updateField("meta", "horizon_months", preset);
                     setFieldValidity("field:sim-meta-horizon_months", true);
                     setHorizonInputVersion((version) => version + 1);
                   }}
                 >
-                  {preset.label}
+                  {t("simulation.assumptions.horizonPreset", { years: preset / 12 })}
                 </Button>
               ))}
               <span className="text-xs text-muted-foreground">
-                120 months = 10 years
+                {t("simulation.assumptions.horizonExample")}
               </span>
             </div>
           )}
@@ -3010,12 +3370,14 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                 className="rounded-lg border"
               >
                 <summary className="flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50">
-                  {humanize(section)}
+                  {localizedFieldLabel(section, t, language)}
                   <FieldHelpButton
-                    label={humanize(section)}
+                    label={localizedFieldLabel(section, t, language)}
                     onClick={() =>
                       setFieldExplain({
-                        label: `${humanize(section)} assumptions`,
+                        label: t("simulation.assumptions.sectionTitle", {
+                          section: localizedFieldLabel(section, t, language),
+                        }),
                         body: SIMULATION_SECTION_HELP[section]?.(simVocabulary) ?? null,
                         facts: [],
                       })
@@ -3031,8 +3393,12 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
             ))}
           {invalidFields.size > 0 && (
             <p role="alert" className="text-sm text-destructive">
-              Fix {invalidFields.size} highlighted numeric field
-              {invalidFields.size === 1 ? "" : "s"} before running or saving.
+              {t(
+                invalidFields.size === 1
+                  ? "simulation.validation.fixHighlightedOne"
+                  : "simulation.validation.fixHighlightedMany",
+                { count: invalidFields.size },
+              )}
             </p>
           )}
           {assumptionErrors.map((error) => (
@@ -3044,11 +3410,11 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       </Card>
 
       <DataTableCard
-        title="Herd events"
+        title={t("simulation.events.title")}
         id="sim-events"
         tabIndex={-1}
         className="scroll-mt-28 focus:outline-none"
-        description="Purchases or sales that fire at a given simulation month."
+        description={t("simulation.events.description")}
         actions={
           <div className="flex items-center gap-2">
             <Button
@@ -3058,7 +3424,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
               disabled={!assumptions || events.length >= 500}
             >
               <Repeat />
-              Repeat plan
+              {t("simulation.action.repeatPlan")}
             </Button>
             <Button
               variant="outline"
@@ -3072,7 +3438,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
               disabled={!assumptions || events.length >= 500}
             >
               <Plus />
-              Add event
+              {t("simulation.action.addEvent")}
             </Button>
           </div>
         }
@@ -3081,18 +3447,18 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
         {events.length === 0 ? (
           <EmptyState
             icon={CalendarClock}
-            title="No scheduled events"
-            description="Add purchases or sales that fire at a given simulation month."
+            title={t("simulation.events.emptyTitle")}
+            description={t("simulation.events.emptyDescription")}
           />
         ) : (
           <Table className="min-w-[760px]">
             <TableHeader>
               <TableRow>
-                <TableHead>Month</TableHead>
-                <TableHead>Kind</TableHead>
-                <TableHead>Class</TableHead>
-                <TableHead>Count</TableHead>
-                <TableHead>Price/head</TableHead>
+                <TableHead>{t("simulation.events.month")}</TableHead>
+                <TableHead>{t("simulation.events.kind")}</TableHead>
+                <TableHead>{t("simulation.events.class")}</TableHead>
+                <TableHead>{t("simulation.events.count")}</TableHead>
+                <TableHead>{t("simulation.events.pricePerHeadColumn")}</TableHead>
                 <TableHead />
               </TableRow>
             </TableHeader>
@@ -3104,7 +3470,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                   <TableCell>
                     <NumberInput
                       id={`simulation-${eventKey}-month`}
-                      aria-label="Month"
+                      aria-label={t("simulation.events.month")}
                       min={1}
                       max={horizonMonths}
                       integer
@@ -3124,13 +3490,13 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                           kind: v as HerdEventAssumptions["kind"],
                         })
                       }
-                      items={EVENT_KIND_ITEMS}
+                      items={eventKindItems(t)}
                     >
-                      <SelectTrigger aria-label="Kind" size="sm">
+                      <SelectTrigger aria-label={t("simulation.events.kind")} size="sm">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {Object.entries(EVENT_KIND_ITEMS).map(([value, label]) => (
+                        {Object.entries(eventKindItems(t)).map(([value, label]) => (
                           <SelectItem key={value} value={value}>
                             {label}
                           </SelectItem>
@@ -3146,13 +3512,13 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                           animal_class: v as HerdEventAssumptions["animal_class"],
                         })
                       }
-                      items={eventClassItems(simVocabulary)}
+                      items={eventClassItems(simVocabulary, t, language)}
                     >
-                      <SelectTrigger aria-label="Class" size="sm">
+                      <SelectTrigger aria-label={t("simulation.events.class")} size="sm">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {Object.entries(eventClassItems(simVocabulary)).map(([value, label]) => (
+                        {Object.entries(eventClassItems(simVocabulary, t, language)).map(([value, label]) => (
                           <SelectItem key={value} value={value}>
                             {label}
                           </SelectItem>
@@ -3163,7 +3529,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                   <TableCell>
                     <NumberInput
                       id={`simulation-${eventKey}-count`}
-                      aria-label="Count"
+                      aria-label={t("simulation.events.count")}
                       exclusiveMin={0}
                       max={100_000}
                       className="w-20"
@@ -3177,10 +3543,10 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                   <TableCell>
                     <NumberInput
                       id={`simulation-${eventKey}-price`}
-                      aria-label="Price per head"
+                      aria-label={t("simulation.events.pricePerHead")}
                       min={0}
                       max={1_000_000_000}
-                      placeholder="auto"
+                      placeholder={t("simulation.events.auto")}
                       className="w-24"
                       nullable
                       value={event.price_per_head ?? null}
@@ -3196,7 +3562,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                       size="sm"
                       onClick={() => removeEvent(index)}
                     >
-                      Remove
+                      {t("simulation.action.remove")}
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -3215,17 +3581,15 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       <Dialog open={recurrenceOpen} onOpenChange={setRecurrenceOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Recurring event plan</DialogTitle>
+            <DialogTitle>{t("simulation.recurrence.title")}</DialogTitle>
             <DialogDescription>
-              Generate rows for a repeated purchase or sale — e.g. 50 does
-              every 2 months. Rows land in the herd-events table for review,
-              never silently.
+              {t("simulation.recurrence.description")}
             </DialogDescription>
           </DialogHeader>
           {/* Phones stack single-column like every other create dialog. */}
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1">
-              <Label htmlFor="recurrence-month">First month</Label>
+              <Label htmlFor="recurrence-month">{t("simulation.recurrence.firstMonth")}</Label>
               <NumberInput
                 id="recurrence-month"
                 min={1}
@@ -3239,7 +3603,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
               />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="recurrence-count">Count</Label>
+              <Label htmlFor="recurrence-count">{t("simulation.events.count")}</Label>
               <NumberInput
                 id="recurrence-count"
                 exclusiveMin={0}
@@ -3252,7 +3616,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
               />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="recurrence-every">Every (months)</Label>
+              <Label htmlFor="recurrence-every">{t("simulation.recurrence.everyMonths")}</Label>
               <NumberInput
                 id="recurrence-every"
                 min={1}
@@ -3266,7 +3630,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
               />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="recurrence-repeat">Repeats</Label>
+              <Label htmlFor="recurrence-repeat">{t("simulation.recurrence.repeats")}</Label>
               <NumberInput
                 id="recurrence-repeat"
                 min={1}
@@ -3280,7 +3644,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
               />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="recurrence-kind">Kind</Label>
+              <Label htmlFor="recurrence-kind">{t("simulation.events.kind")}</Label>
               <Select
                 value={recurrence.kind}
                 onValueChange={(v) =>
@@ -3289,13 +3653,13 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                     kind: v as HerdEventAssumptions["kind"],
                   }))
                 }
-                items={EVENT_KIND_ITEMS}
+                items={eventKindItems(t)}
               >
                 <SelectTrigger id="recurrence-kind" size="sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {Object.entries(EVENT_KIND_ITEMS).map(([value, label]) => (
+                  {Object.entries(eventKindItems(t)).map(([value, label]) => (
                     <SelectItem key={value} value={value}>
                       {label}
                     </SelectItem>
@@ -3304,7 +3668,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
               </Select>
             </div>
             <div className="space-y-1">
-              <Label htmlFor="recurrence-class">Class</Label>
+              <Label htmlFor="recurrence-class">{t("simulation.events.class")}</Label>
               <Select
                 value={recurrence.animal_class}
                 onValueChange={(v) =>
@@ -3313,13 +3677,13 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                     animal_class: v as HerdEventAssumptions["animal_class"],
                   }))
                 }
-                items={eventClassItems(simVocabulary)}
+                items={eventClassItems(simVocabulary, t, language)}
               >
                 <SelectTrigger id="recurrence-class" size="sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {Object.entries(eventClassItems(simVocabulary)).map(([value, label]) => (
+                  {Object.entries(eventClassItems(simVocabulary, t, language)).map(([value, label]) => (
                     <SelectItem key={value} value={value}>
                       {label}
                     </SelectItem>
@@ -3330,14 +3694,14 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRecurrenceOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             {/* L-23 (2026-09-17 audit): NumberInput commits only valid drafts,
              * so clicking Generate with an invalid box would commit the stale
              * last-valid value instead — hold the button until every dialog
              * input reports valid. */}
             <Button onClick={applyRecurrence} disabled={recurrenceInvalid.size > 0}>
-              Generate rows
+              {t("simulation.action.generateRows")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -3347,7 +3711,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl bg-card px-4 py-3 ring-1 ring-foreground/10">
-          <span className="text-sm font-medium">Run options</span>
+          <span className="text-sm font-medium">{t("simulation.runOptions.title")}</span>
           <div className="flex items-center gap-2">
             <Checkbox
               id="sim-monte-carlo"
@@ -3355,7 +3719,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
               onCheckedChange={(checked) => setMonteCarlo(checked === true)}
             />
             <Label htmlFor="sim-monte-carlo" className="font-normal">
-              Monte Carlo
+              {t("simulation.runOptions.monteCarlo")}
             </Label>
           </div>
           <div className="flex items-center gap-2">
@@ -3365,7 +3729,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
               onCheckedChange={(checked) => setSensitivity(checked === true)}
             />
             <Label htmlFor="sim-sensitivity" className="font-normal">
-              Sensitivity
+              {t("simulation.runOptions.sensitivity")}
             </Label>
           </div>
           <div className="flex items-center gap-2">
@@ -3375,13 +3739,13 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
               onCheckedChange={(checked) => setOptimization(checked === true)}
             />
             <Label htmlFor="sim-optimization" className="font-normal">
-              Optimization
+              {t("simulation.runOptions.optimization")}
             </Label>
           </div>
         </div>
         {loadedScenario && (
           <p className="text-sm text-muted-foreground">
-            Editing scenario: {loadedScenario.name}
+            {t("simulation.runOptions.editingScenario", { name: loadedScenario.name })}
           </p>
         )}
         {runError && (
@@ -3393,10 +3757,19 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
 
       {result && (
         <section className="space-y-3">
-          <h2 id="sim-results" tabIndex={-1} className="scroll-mt-28 font-heading text-lg font-semibold focus:outline-none">Results</h2>
-          <p className="text-sm text-muted-foreground">Source: {result.source}</p>
+          <h2 id="sim-results" tabIndex={-1} className="scroll-mt-28 font-heading text-lg font-semibold focus:outline-none">
+            {t("simulation.results.title")}
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            {t("simulation.results.source", {
+              source:
+                result.source.kind === "editor"
+                  ? t("simulation.result.currentEditor")
+                  : t("simulation.result.savedScenario", { name: result.source.name }),
+            })}
+          </p>
           <p className="text-xs text-muted-foreground">
-            Model {result.data.model_version} · assumptions fingerprint{" "}
+            {t("simulation.results.modelFingerprint", { model: result.data.model_version })}{" "}
             <span className="font-mono" title={result.data.assumptions_fingerprint}>
               {result.data.assumptions_fingerprint.slice(0, 12)}
             </span>
@@ -3406,9 +3779,12 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
               role="status"
               className="rounded-lg border border-warning/40 bg-warning-tint/60 px-3 py-2 text-sm text-warning-tint-foreground"
             >
-              These results do not match the current{" "}
-              {result.scenarioId === null ? "editor assumptions" : "saved scenario"} or run
-              options. Run the simulation again before using them for a decision.
+              {t("simulation.results.stale", {
+                source:
+                  result.scenarioId === null
+                    ? t("simulation.results.editorAssumptions")
+                    : t("simulation.results.savedScenario"),
+              })}
             </p>
           )}
           {renderResults(result.data)}
@@ -3416,28 +3792,31 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       )}
 
       <DataTableCard
-        title="Scenarios"
+        title={t("simulation.scenarios.title")}
         id="sim-scenarios"
         tabIndex={-1}
         className="scroll-mt-28 focus:outline-none"
-        description={`Saved assumption sets to load, run, update or compare. Select 2–${MAX_COMPARE_SCENARIOS} valid scenarios (${selectedUsableIds.length} selected).`}
+        description={t("simulation.scenarios.description", {
+          max: MAX_COMPARE_SCENARIOS,
+          selected: selectedUsableIds.length,
+        })}
         contentClassName="space-y-4"
       >
         {scenariosQuery.isError ? (
           <p role="alert" className="text-sm text-destructive">
-            {errorMessage(scenariosQuery.error, "Could not load saved scenarios.")}
+            {errorMessage(scenariosQuery.error, t("simulation.error.savedScenarios"))}
           </p>
         ) : scenariosQuery.isLoading ? (
           <TableSkeleton rows={4} columns={4} />
         ) : scenarioTotal === 0 ? (
           <EmptyState
             icon={FolderOpen}
-            title="No saved scenarios yet."
-            description="Save the current assumptions as a scenario to rerun or compare later."
+            title={t("simulation.scenarios.emptyTitle")}
+            description={t("simulation.scenarios.emptyDescription")}
           />
         ) : scenarios.length === 0 ? (
           <p role="status" className="text-sm text-muted-foreground">
-            This scenario page no longer exists. Returning to the last available page…
+            {t("simulation.scenarios.pageMoved")}
           </p>
         ) : (
           <div className="space-y-3">
@@ -3445,9 +3824,9 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-8" />
-                  <TableHead>Name</TableHead>
-                  <TableHead>Notes</TableHead>
-                  <TableHead>Updated</TableHead>
+                  <TableHead>{t("simulation.scenarios.name")}</TableHead>
+                  <TableHead>{t("simulation.scenarios.notes")}</TableHead>
+                  <TableHead>{t("simulation.scenarios.updated")}</TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
@@ -3456,7 +3835,9 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                   <TableRow key={scenario.id}>
                     <TableCell>
                       <Checkbox
-                        aria-label={`Compare ${scenario.name}`}
+                        aria-label={t("simulation.scenarios.compareScenario", {
+                          name: scenario.name,
+                        })}
                         checked={
                           scenarioUsable(scenario) && selectedIds.includes(scenario.id)
                         }
@@ -3488,7 +3869,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                       <div>{scenario.name}</div>
                       {!scenarioUsable(scenario) && (
                         <span className="text-xs font-normal text-destructive">
-                          Invalid saved assumptions
+                          {t("simulation.scenarios.invalidAssumptions")}
                         </span>
                       )}
                     </TableCell>
@@ -3511,7 +3892,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                           }}
                           disabled={!scenarioUsable(scenario)}
                         >
-                          Load
+                          {t("simulation.action.load")}
                         </Button>
                         <Button
                           variant="outline"
@@ -3521,7 +3902,9 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                             !scenarioUsable(scenario) || simulationAction.pending
                           }
                         >
-                          {runningScenarioId === scenario.id ? "Running…" : "Run"}
+                          {runningScenarioId === scenario.id
+                            ? t("simulation.action.running")
+                            : t("simulation.action.run")}
                         </Button>
                         {canManage && (
                           <Button
@@ -3530,7 +3913,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                             disabled={simulationAction.pending}
                             onClick={() => setPendingDelete(scenario)}
                           >
-                            Delete
+                            {t("simulation.action.delete")}
                           </Button>
                         )}
                       </div>
@@ -3544,33 +3927,33 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
               limit={scenarioPage?.limit ?? SCENARIO_PAGE_SIZE}
               offset={scenarioPage?.offset ?? scenarioOffset}
               onOffsetChange={onScenarioOffsetChange}
-              label="saved scenarios"
+              label={t("simulation.scenarios.paginationLabel")}
             />
           </div>
         )}
         {compareQuery.isError && (
           <p role="alert" className="text-sm text-destructive">
-            {errorMessage(compareQuery.error, "Could not compare the selected scenarios.")}
+            {errorMessage(compareQuery.error, t("simulation.error.compareScenarios"))}
           </p>
         )}
         {comparePayload && comparePayload.results.length > 0 && (
           <div className="space-y-2">
-            <h3 className="text-sm font-medium">Comparison</h3>
+            <h3 className="text-sm font-medium">{t("simulation.scenarios.comparison")}</h3>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Metric</TableHead>
-                  {comparePayload.scenarios.map((scenario) => (
-                    <TableHead key={scenario.id}>{scenario.name}</TableHead>
+                  <TableHead>{t("simulation.scenarios.metric")}</TableHead>
+                  {comparePayload.scenarios.map((scenario, index) => (
+                    <TableHead key={`${scenario.id}-${index}`}>{scenario.name}</TableHead>
                   ))}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {COMPARE_ROWS.map((row) => (
+                {compareRows(t).map((row) => (
                   <TableRow key={row.key}>
                     <TableCell className="font-medium">{row.label}</TableCell>
                     {comparePayload.results.map((r, i) => (
-                      <TableCell key={comparePayload.scenarios[i]?.id ?? i}>
+                      <TableCell key={`${comparePayload.scenarios[i]?.id ?? "result"}-${i}`}>
                         {row.format(r.metrics)}
                       </TableCell>
                     ))}
@@ -3594,7 +3977,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       >
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Save as scenario</DialogTitle>
+            <DialogTitle>{t("simulation.action.saveAsScenario")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             {saveError && (
@@ -3603,7 +3986,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
               </p>
             )}
             <div className="space-y-1.5">
-              <Label htmlFor="scenario-name">Name *</Label>
+              <Label htmlFor="scenario-name">{t("simulation.scenarios.nameRequired")}</Label>
               <Input
                 id="scenario-name"
                 maxLength={120}
@@ -3613,7 +3996,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="scenario-notes">Notes</Label>
+              <Label htmlFor="scenario-notes">{t("simulation.scenarios.notes")}</Label>
               <Input
                 id="scenario-notes"
                 maxLength={2000}
@@ -3629,7 +4012,9 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                   !saveName.trim() || hasEditorErrors || simulationAction.pending
                 }
               >
-                {simulationAction.pending ? "Saving…" : "Save scenario"}
+                {simulationAction.pending
+                  ? t("simulation.action.saving")
+                  : t("simulation.action.saveScenario")}
               </Button>
             </DialogFooter>
           </div>
@@ -3644,16 +4029,15 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
         >
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Delete scenario?</DialogTitle>
+              <DialogTitle>{t("simulation.delete.title")}</DialogTitle>
               <DialogDescription>
                 {pendingDelete !== null && (
                   <>
-                    This permanently deletes{" "}
+                    {t("simulation.delete.descriptionBefore")}{" "}
                     <span className="font-medium text-foreground">
                       {pendingDelete.name}
                     </span>{" "}
-                    and its saved assumptions. Results already on screen stay
-                    until the next run.
+                    {t("simulation.delete.descriptionAfter")}
                   </>
                 )}
               </DialogDescription>
@@ -3665,7 +4049,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                 disabled={simulationAction.pending}
                 onClick={() => setPendingDelete(null)}
               >
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button
                 type="button"
@@ -3675,7 +4059,9 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                   if (pendingDelete) void onDeleteScenario(pendingDelete);
                 }}
               >
-                {simulationAction.pending ? "Deleting…" : "Delete scenario"}
+                {simulationAction.pending
+                  ? t("simulation.action.deleting")
+                  : t("simulation.action.deleteScenario")}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -3699,8 +4085,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                 <p className="text-sm text-muted-foreground">{fieldExplain.body}</p>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  No written explanation for this field yet — the unit, allowed
-                  values and current value are listed below.
+                  {t("simulation.field.noExplanation")}
                 </p>
               )}
               {fieldExplain.facts.length > 0 && (
@@ -3723,13 +4108,15 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
 
 
 export default function SimulationPage() {
+  const t = useT();
   const perms = usePermissions();
   return (
     <PermissionGate
       perms={perms}
       perm="simulation.view"
-      label="Simulation"
-      description="Project herd growth, cash flow and viability from editable bio-economic assumptions."
+      label={t("simulation.page.title")}
+      description={t("simulation.page.description")}
+      noAccessMessage={t("simulation.noAccess")}
       cards={2}
       announce
     >

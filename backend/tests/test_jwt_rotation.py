@@ -25,7 +25,6 @@ def _uid(claims: object) -> int:
     return claims.user_id
 
 
-
 @pytest.fixture(autouse=True)
 def _reset_keyring() -> Iterator[None]:
     """Keep environment/keyring changes isolated from the rest of the suite."""

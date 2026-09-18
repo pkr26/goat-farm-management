@@ -54,7 +54,7 @@ class ScreeningBatch(Base):
     """One "disease check" walkthrough of the farm (Phase upload).
 
     A farm worker opens a batch, photographs each herd bucket (pen) —
-    capture → upload per photo via presigned PUT — then submits it. The
+    capture → upload per photo via constrained presigned POST — then submits it. The
     worker screens every photo in the batch as the bytes land; the API
     derives per-bucket progress from the image rows (uploaded / screened /
     flagged), so the batch needs no worker-side state machine.
@@ -117,6 +117,18 @@ class ScreeningImage(Base):
             f"bucket IS NULL OR bucket IN ({sql_in_values(Bucket)})",
             name="ck_screening_images_bucket_vocabulary",
         ),
+        CheckConstraint(
+            "upload_content_type IS NULL OR upload_content_type IN ('image/jpeg', 'image/png')",
+            name="ck_screening_images_upload_content_type",
+        ),
+        CheckConstraint(
+            "(upload_content_type IS NULL) = (upload_token IS NULL)",
+            name="ck_screening_images_upload_registration_pair",
+        ),
+        CheckConstraint(
+            "upload_token IS NULL OR length(upload_token) >= 32",
+            name="ck_screening_images_upload_token_nontrivial",
+        ),
         ForeignKeyConstraint(
             ["farm_id", "batch_id"],
             ["screening_batches.farm_id", "screening_batches.id"],
@@ -129,6 +141,18 @@ class ScreeningImage(Base):
             "created_at",
         ),
         Index("ix_screening_images_batch", "farm_id", "batch_id"),
+        # Claim-fairness scan: status + next_attempt_at drive eligibility,
+        # farm_id partitions the round-robin, created_at/id break ties.
+        # Must match c4d8e1f9a2b7_screening_upload_hardening exactly or
+        # Alembic autogenerate reports drift.
+        Index(
+            "ix_screening_images_claim_fairness",
+            "status",
+            "next_attempt_at",
+            "farm_id",
+            "created_at",
+            "id",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -140,6 +164,13 @@ class ScreeningImage(Base):
     batch_id: Mapped[int | None] = mapped_column(Integer)
     s3_bucket: Mapped[str] = mapped_column(String(MAX_S3_BUCKET_LENGTH))
     s3_key: Mapped[str] = mapped_column(String(MAX_S3_KEY_LENGTH))
+    # Direct uploads are pre-registered before the browser receives a
+    # constrained presigned POST.  The worker checks both values from the
+    # object's HEAD metadata before it ever decodes bytes, so merely being
+    # able to write something under the raw prefix cannot associate it with
+    # a tenant image row.
+    upload_content_type: Mapped[str | None] = mapped_column(String(20))
+    upload_token: Mapped[str | None] = mapped_column(String(64))
     # Content hash of the normalized bytes; identical bytes re-uploaded under
     # a second key are SKIPPED as duplicates instead of re-billed to a model.
     sha256: Mapped[str | None] = mapped_column(String(64), index=True)
@@ -152,6 +183,10 @@ class ScreeningImage(Base):
     captured_date: Mapped[dt.date | None] = mapped_column(Date)
     status: Mapped[str] = mapped_column(String(20), default=ScreeningImageStatus.PENDING.value)
     error: Mapped[str | None] = mapped_column(Text)
+    # A minted URL may not have landed in object storage yet.  Backing off
+    # those probes prevents a collection of slow/abandoned phones from
+    # monopolizing every screening cycle before the presign expiry sweep.
+    next_attempt_at: Mapped[dt.datetime | None] = mapped_column()
     created_at: Mapped[dt.datetime] = mapped_column(
         default=utcnow, server_default=text("timezone('UTC', now())")
     )
@@ -170,6 +205,42 @@ class ScreeningImage(Base):
     )
     runs: Mapped[list[ScreeningRun]] = relationship(
         back_populates="image", cascade="all, delete-orphan"
+    )
+
+
+class ScreeningContentClaim(Base):
+    """The canonical image for one normalized content digest within a farm.
+
+    ``screening_images`` deliberately permits repeated content: each upload
+    needs its own intake/audit row.  This compact table supplies the separate
+    concurrency boundary, so two workers that normalize two keys to the same
+    bytes cannot both send them to a paid model.  The composite foreign key
+    makes the canonical image tenant-local even if an id is supplied from a
+    different farm.
+    """
+
+    __tablename__ = "screening_content_claims"
+    __table_args__ = (
+        UniqueConstraint("farm_id", "sha256", name="uq_screening_content_claims_farm_sha256"),
+        # A raw upload is immutable once its normalized content has been
+        # claimed.  This prevents a later overwrite of its S3 key from making
+        # one review record canonical for two different byte streams.
+        UniqueConstraint("farm_id", "image_id", name="uq_screening_content_claims_farm_image"),
+        CheckConstraint("length(sha256) = 64", name="ck_screening_content_claims_sha256_length"),
+        ForeignKeyConstraint(
+            ["farm_id", "image_id"],
+            ["screening_images.farm_id", "screening_images.id"],
+            name="fk_screening_content_claims_image",
+            ondelete="CASCADE",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    farm_id: Mapped[int] = mapped_column(Integer)
+    image_id: Mapped[int] = mapped_column(Integer)
+    sha256: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
     )
 
 

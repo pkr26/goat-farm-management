@@ -71,9 +71,7 @@ def upgrade() -> None:
             "farm_id", "image_id", "crop_index", name="uq_screening_crops_image_index"
         ),
     )
-    op.create_index(
-        "ix_screening_crops_farm_image", "screening_crops", ["farm_id", "image_id"]
-    )
+    op.create_index("ix_screening_crops_farm_image", "screening_crops", ["farm_id", "image_id"])
 
     op.add_column("screening_runs", sa.Column("crop_id", sa.Integer(), nullable=True))
     op.add_column("screening_findings", sa.Column("crop_id", sa.Integer(), nullable=True))

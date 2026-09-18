@@ -189,7 +189,8 @@ describe("createAnimalSchema — campaign kills", () => {
   });
 
   it("defaults the historical reason to empty (failing BORN validation), not undefined", () => {
-    const { historical_import_reason: _r, ...withoutReason } = bornBase;
+    const withoutReason: Record<string, unknown> = { ...bornBase };
+    delete withoutReason.historical_import_reason;
     // The .default("") makes an omitted reason fail loudly with the custom
     // issue instead of crashing the refine on undefined.
     expect(issuesOf(withoutReason)).toContainEqual([

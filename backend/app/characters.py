@@ -26,9 +26,7 @@ _CONTROL_RANGE = frozenset(chr(code) for code in range(0x7F, 0xA0))
 _LINE_SEPARATORS = frozenset("\u2028\u2029")
 
 # Bidirectional embedding/override marks and isolates (visual-order spoofing).
-_BIDI_CONTROLS = frozenset(
-    chr(code) for code in (*range(0x202A, 0x202F), *range(0x2066, 0x206A))
-)
+_BIDI_CONTROLS = frozenset(chr(code) for code in (*range(0x202A, 0x202F), *range(0x2066, 0x206A)))
 
 # Invisible direction marks and the byte-order mark.
 _INVISIBLE_MARKS = frozenset("\u200e\u200f\ufeff")
@@ -51,9 +49,7 @@ def sanitize_single_line(value: str, *, replacement: str = " ") -> str:
     additional document sections or log-looking lines inside the artifact
     (2026-09-16 audit, INJ-1).
     """
-    cleaned = "".join(
-        replacement if char in SINGLE_LINE_BREAK_CHARS else char for char in value
-    )
+    cleaned = "".join(replacement if char in SINGLE_LINE_BREAK_CHARS else char for char in value)
     if replacement == " ":
         # Collapse the runs the replacements created ("a\r\n\r\nb" -> "a b").
         while "  " in cleaned:

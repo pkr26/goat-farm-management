@@ -1,0 +1,255 @@
+# Production Compose topology for signed registry images and an external,
+# authenticated PostgreSQL service. This is intentionally a standalone file:
+# do NOT layer it over docker-compose.yml, whose bundled TLS-off Postgres is
+# local-development-only. See README for the required secret files and the
+# outer TLS terminator that proxies only to the loopback edge listener.
+
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-service-hardening: &service-hardening
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: ["ALL"]
+  logging: *default-logging
+
+x-db-ca: &db-ca
+  type: bind
+  source: '${GOATFARM_DB_CA_FILE:?set GOATFARM_DB_CA_FILE to the mounted PostgreSQL CA PEM}'
+  target: /run/secrets/goatfarm-postgres-ca.pem
+  read_only: true
+
+services:
+  # Validate the exact --env-file before any database-capable service starts.
+  # Compose otherwise discards misspelt root-file variables that it does not
+  # interpolate, bypassing the API process's ordinary env typo guard.
+  config-guard:
+    image: '${GOATFARM_BACKEND_IMAGE_REPOSITORY:?set the backend registry repository}@${GOATFARM_BACKEND_IMAGE_DIGEST:?set its sha256 digest}'
+    command: ["python", "scripts/compose_env_guard.py", "/run/config/compose.env"]
+    restart: "no"
+    read_only: true
+    healthcheck:
+      disable: true
+    network_mode: none
+    <<: *service-hardening
+    mem_limit: 128m
+    cpus: 0.25
+    volumes:
+      - type: bind
+        source: '${GOATFARM_COMPOSE_ENV_FILE:?set this to the exact production --env-file path}'
+        target: /run/config/compose.env
+        read_only: true
+        bind:
+          create_host_path: false
+
+  # The only DDL-capable process. It receives neither the API DB credential
+  # nor JWT/cookie/idempotency secrets, and must complete before API/worker
+  # services are allowed to start.
+  migrate:
+    image: '${GOATFARM_BACKEND_IMAGE_REPOSITORY:?set the backend registry repository}@${GOATFARM_BACKEND_IMAGE_DIGEST:?set its sha256 digest}'
+    command: ["alembic", "upgrade", "head"]
+    <<: *service-hardening
+    mem_limit: 1g
+    cpus: 1.0
+    depends_on:
+      config-guard:
+        condition: service_completed_successfully
+    environment:
+      GOATFARM_MIGRATION_DATABASE_URL: '${GOATFARM_MIGRATION_DATABASE_URL:?set the external DDL-role PostgreSQL URL}'
+      GOATFARM_ENVIRONMENT: production
+      GOATFARM_DB_SSLMODE: verify-full
+      GOATFARM_DB_SSLROOTCERT_PATH: /run/secrets/goatfarm-postgres-ca.pem
+      GOATFARM_MIGRATION_STATEMENT_TIMEOUT_MS: ${GOATFARM_MIGRATION_STATEMENT_TIMEOUT_MS:-0}
+    volumes:
+      - *db-ca
+    networks:
+      - goatfarm_app
+
+  backend:
+    image: '${GOATFARM_BACKEND_IMAGE_REPOSITORY:?set the backend registry repository}@${GOATFARM_BACKEND_IMAGE_DIGEST:?set its sha256 digest}'
+    restart: unless-stopped
+    <<: *service-hardening
+    mem_limit: 2g
+    cpus: 2.0
+    stop_grace_period: 40s
+    depends_on:
+      config-guard:
+        condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      GOATFARM_DATABASE_URL: '${GOATFARM_DATABASE_URL:?set the external DDL-free API PostgreSQL URL}'
+      GOATFARM_ENVIRONMENT: production
+      GOATFARM_DB_SSLMODE: verify-full
+      GOATFARM_DB_SSLROOTCERT_PATH: /run/secrets/goatfarm-postgres-ca.pem
+      GOATFARM_COOKIE_SECURE: "true"
+      GOATFARM_CORS_ORIGINS: '${GOATFARM_CORS_ORIGINS:?set exact public HTTPS SPA origin JSON}'
+      GOATFARM_ALLOWED_HOSTS: '${GOATFARM_ALLOWED_HOSTS:?set exact public API host JSON}'
+      GOATFARM_MIN_PASSWORD_LENGTH: 12
+      GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET: '${GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET:?set a stable 32+ character secret}'
+      GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS: '${GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS:-[]}'
+      # Independent from JWT signing material so active MFA survives JWT-key
+      # cutover. The previous-key ring supports a deliberate TOTP-key rotation.
+      GOATFARM_TOTP_ENCRYPTION_KEY: '${GOATFARM_TOTP_ENCRYPTION_KEY:?set an independent 32-byte base64url TOTP encryption key}'
+      GOATFARM_TOTP_ENCRYPTION_PREVIOUS_KEYS: '${GOATFARM_TOTP_ENCRYPTION_PREVIOUS_KEYS:-[]}'
+      GOATFARM_MAX_REQUEST_BODY_BYTES: ${GOATFARM_MAX_REQUEST_BODY_BYTES:-1048576}
+      GOATFARM_MAX_REQUEST_TARGET_BYTES: ${GOATFARM_MAX_REQUEST_TARGET_BYTES:-8192}
+      # By default trust only the fixed edge address below.  An outer TLS
+      # terminator makes nginx append another trusted hop to X-Forwarded-For;
+      # operators can extend this list with that exact peer address so Uvicorn
+      # walks past the terminator and recovers the real client IP.  Do not use
+      # a broad Docker subnet: every member could then spoof forwarding data.
+      GOATFARM_TRUSTED_PROXY_HOSTS: '${GOATFARM_TRUSTED_PROXY_HOSTS:-${GOATFARM_EDGE_PROXY_IP:?set an unused IP inside GOATFARM_DOCKER_SUBNET}}'
+      GOATFARM_JWT_PRIVATE_KEY_PATH: /run/secrets/jwt/jwt_private.pem
+      GOATFARM_JWT_PUBLIC_KEY_PATH: /run/secrets/jwt/jwt_public.pem
+      GOATFARM_JWT_PREVIOUS_PUBLIC_KEY_PATHS: '${GOATFARM_JWT_PREVIOUS_PUBLIC_KEY_PATHS:-[]}'
+      GOATFARM_SCREENING_ENABLED: ${GOATFARM_SCREENING_ENABLED:-false}
+      GOATFARM_S3_ENDPOINT_URL: ${GOATFARM_S3_ENDPOINT_URL:-}
+      GOATFARM_S3_REGION: ${GOATFARM_S3_REGION:-us-east-1}
+      GOATFARM_S3_BUCKET: ${GOATFARM_S3_BUCKET:-}
+      GOATFARM_S3_ACCESS_KEY_ID: ${GOATFARM_S3_ACCESS_KEY_ID:-}
+      GOATFARM_S3_SECRET_ACCESS_KEY: ${GOATFARM_S3_SECRET_ACCESS_KEY:-}
+      GOATFARM_SCREENING_S3_PREFIX: ${GOATFARM_SCREENING_S3_PREFIX:-raw}
+      GOATFARM_SCREENING_PRESIGN_EXPIRY_SECONDS: ${GOATFARM_SCREENING_PRESIGN_EXPIRY_SECONDS:-900}
+      GOATFARM_SCREENING_PROVIDER: ${GOATFARM_SCREENING_PROVIDER:-anthropic}
+      GOATFARM_SCREENING_PROVIDER_ROTATION: '${GOATFARM_SCREENING_PROVIDER_ROTATION:-[]}'
+      GOATFARM_SCREENING_ANTHROPIC_BASE_URL: ${GOATFARM_SCREENING_ANTHROPIC_BASE_URL:-https://api.anthropic.com}
+      GOATFARM_SCREENING_ANTHROPIC_API_KEY: ${GOATFARM_SCREENING_ANTHROPIC_API_KEY:-}
+      GOATFARM_SCREENING_ANTHROPIC_MODEL: ${GOATFARM_SCREENING_ANTHROPIC_MODEL:-claude-sonnet-4-5}
+      GOATFARM_SCREENING_OPENAI_BASE_URL: ${GOATFARM_SCREENING_OPENAI_BASE_URL:-https://api.openai.com/v1}
+      GOATFARM_SCREENING_OPENAI_API_KEY: ${GOATFARM_SCREENING_OPENAI_API_KEY:-}
+      GOATFARM_SCREENING_OPENAI_MODEL: ${GOATFARM_SCREENING_OPENAI_MODEL:-gpt-5}
+    volumes:
+      - *db-ca
+      - type: bind
+        source: '${GOATFARM_JWT_SECRET_DIR:?set GOATFARM_JWT_SECRET_DIR to a read-only PEM directory}'
+        target: /run/secrets/jwt
+        read_only: true
+    expose: ["8000"]
+    networks:
+      - goatfarm_app
+
+  screening-worker:
+    image: '${GOATFARM_BACKEND_IMAGE_REPOSITORY:?set the backend registry repository}@${GOATFARM_BACKEND_IMAGE_DIGEST:?set its sha256 digest}'
+    command: ["python", "-m", "app.worker"]
+    restart: unless-stopped
+    <<: *service-hardening
+    mem_limit: 1g
+    cpus: 1.0
+    stop_grace_period: 40s
+    healthcheck:
+      test: ["CMD", "python", "screening_worker_healthcheck.py"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      GOATFARM_DATABASE_URL: '${GOATFARM_DATABASE_URL:?set the external DDL-free API PostgreSQL URL}'
+      GOATFARM_ENVIRONMENT: production
+      GOATFARM_DB_SSLMODE: verify-full
+      GOATFARM_DB_SSLROOTCERT_PATH: /run/secrets/goatfarm-postgres-ca.pem
+      GOATFARM_SCREENING_ENABLED: ${GOATFARM_SCREENING_ENABLED:-false}
+      GOATFARM_S3_ENDPOINT_URL: ${GOATFARM_S3_ENDPOINT_URL:-}
+      GOATFARM_S3_REGION: ${GOATFARM_S3_REGION:-us-east-1}
+      GOATFARM_S3_BUCKET: ${GOATFARM_S3_BUCKET:-}
+      GOATFARM_S3_ACCESS_KEY_ID: ${GOATFARM_S3_ACCESS_KEY_ID:-}
+      GOATFARM_S3_SECRET_ACCESS_KEY: ${GOATFARM_S3_SECRET_ACCESS_KEY:-}
+      GOATFARM_SCREENING_S3_PREFIX: ${GOATFARM_SCREENING_S3_PREFIX:-raw}
+      GOATFARM_SCREENING_POLL_INTERVAL_SECONDS: ${GOATFARM_SCREENING_POLL_INTERVAL_SECONDS:-300}
+      GOATFARM_SCREENING_MAX_IMAGES_PER_CYCLE: ${GOATFARM_SCREENING_MAX_IMAGES_PER_CYCLE:-50}
+      GOATFARM_SCREENING_IMAGE_MAX_EDGE_PX: ${GOATFARM_SCREENING_IMAGE_MAX_EDGE_PX:-1568}
+      GOATFARM_SCREENING_PRESIGN_EXPIRY_SECONDS: ${GOATFARM_SCREENING_PRESIGN_EXPIRY_SECONDS:-900}
+      GOATFARM_SCREENING_PROVIDER: ${GOATFARM_SCREENING_PROVIDER:-anthropic}
+      GOATFARM_SCREENING_PROVIDER_ROTATION: '${GOATFARM_SCREENING_PROVIDER_ROTATION:-[]}'
+      GOATFARM_SCREENING_CROP_DETECTION_ENABLED: ${GOATFARM_SCREENING_CROP_DETECTION_ENABLED:-true}
+      GOATFARM_SCREENING_MAX_CROPS_PER_IMAGE: ${GOATFARM_SCREENING_MAX_CROPS_PER_IMAGE:-8}
+      GOATFARM_SCREENING_ANTHROPIC_BASE_URL: ${GOATFARM_SCREENING_ANTHROPIC_BASE_URL:-https://api.anthropic.com}
+      GOATFARM_SCREENING_ANTHROPIC_API_KEY: ${GOATFARM_SCREENING_ANTHROPIC_API_KEY:-}
+      GOATFARM_SCREENING_ANTHROPIC_MODEL: ${GOATFARM_SCREENING_ANTHROPIC_MODEL:-claude-sonnet-4-5}
+      GOATFARM_SCREENING_OPENAI_BASE_URL: ${GOATFARM_SCREENING_OPENAI_BASE_URL:-https://api.openai.com/v1}
+      GOATFARM_SCREENING_OPENAI_API_KEY: ${GOATFARM_SCREENING_OPENAI_API_KEY:-}
+      GOATFARM_SCREENING_OPENAI_MODEL: ${GOATFARM_SCREENING_OPENAI_MODEL:-gpt-5}
+      GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS: ${GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS:-120}
+      GOATFARM_SCREENING_WORKER_HEARTBEAT_PATH: ${GOATFARM_SCREENING_WORKER_HEARTBEAT_PATH:-/tmp/goatfarm-screening-worker.json}
+      GOATFARM_SCREENING_WORKER_HEALTH_MAX_AGE_SECONDS: ${GOATFARM_SCREENING_WORKER_HEALTH_MAX_AGE_SECONDS:-900}
+      GOATFARM_SCREENING_WORKER_MAX_CONSECUTIVE_CYCLE_FAILURES: ${GOATFARM_SCREENING_WORKER_MAX_CONSECUTIVE_CYCLE_FAILURES:-3}
+    volumes:
+      - *db-ca
+    networks:
+      - goatfarm_app
+
+  frontend:
+    image: '${GOATFARM_FRONTEND_IMAGE_REPOSITORY:?set the frontend registry repository}@${GOATFARM_FRONTEND_IMAGE_DIGEST:?set its sha256 digest}'
+    restart: unless-stopped
+    <<: *service-hardening
+    mem_limit: 1g
+    cpus: 1.0
+    depends_on:
+      backend:
+        condition: service_healthy
+    expose: ["3000"]
+    networks:
+      - goatfarm_app
+
+  edge:
+    image: nginx:1.30-alpine@sha256:dc5069ad14f19660b141b21236140b91656bf89bbc3e2417c70ae650cd66104c
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "SETGID", "SETUID"]
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=64m
+      - /var/run:size=1m
+      - /etc/nginx/conf.d:size=1m
+    mem_limit: 256m
+    cpus: 0.5
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/edge-healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    configs:
+      - source: edge_proxy
+        target: /edge-proxy.template
+      - source: edge_entrypoint
+        target: /edge-entrypoint.sh
+        mode: 0555
+    environment:
+      GOATFARM_ENVIRONMENT: production
+      GOATFARM_EDGE_PUBLIC_SCHEME: https
+      GOATFARM_EDGE_BIND_HOST: 127.0.0.1
+      GOATFARM_EDGE_MAX_BODY_SIZE: ${GOATFARM_EDGE_MAX_BODY_SIZE:-1m}
+      GOATFARM_SCREENING_ENABLED: ${GOATFARM_SCREENING_ENABLED:-false}
+      GOATFARM_CSP_CONNECT_ORIGINS: '${GOATFARM_CSP_CONNECT_ORIGINS:-}'
+      GOATFARM_CSP_IMG_ORIGINS: '${GOATFARM_CSP_IMG_ORIGINS:-}'
+    command: ["/bin/sh", "/edge-entrypoint.sh"]
+    networks:
+      goatfarm_app:
+        ipv4_address: '${GOATFARM_EDGE_PROXY_IP:?set an unused IP inside GOATFARM_DOCKER_SUBNET}'
+    # Only a trusted host TLS terminator may reach this raw HTTP listener.
+    ports: ["127.0.0.1:3000:3000"]
+
+configs:
+  edge_proxy:
+    file: ./docker/edge-proxy.production.conf.template
+  edge_entrypoint:
+    file: ./docker/edge-entrypoint.sh
+
+networks:
+  goatfarm_app:
+    ipam:
+      config:
+        - subnet: '${GOATFARM_DOCKER_SUBNET:?set a private /24 for the production app network}'

@@ -334,7 +334,11 @@ function RecordKiddingDialog({
   } = useForm<KiddingValues>({
     resolver,
     defaultValues: {
-      date: farmToday(),
+      // A long-running pregnancy can reach its species' gestation ceiling
+      // before the operator opens this dialog. Defaulting to today in that
+      // case immediately made the untouched form invalid, even though the
+      // input itself correctly advertised the earlier ceiling.
+      date: latestKiddingDate,
       ease: "NORMAL",
       placenta: "unrecorded",
       mastitis_suspected: false,

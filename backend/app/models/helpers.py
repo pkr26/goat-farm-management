@@ -161,14 +161,11 @@ def no_control_characters(value: str) -> str:
     rejects those too.
     """
     if any(
-        char in "\t\n\r"
-        or char in FORBIDDEN_TEXT_CHARS
-        or unicodedata.category(char) == "Cc"
+        char in "\t\n\r" or char in FORBIDDEN_TEXT_CHARS or unicodedata.category(char) == "Cc"
         for char in value
     ):
         raise ValueError(
-            "cannot contain tabs, line breaks, control, or directional "
-            "formatting characters"
+            "cannot contain tabs, line breaks, control, or directional formatting characters"
         )
     return value
 

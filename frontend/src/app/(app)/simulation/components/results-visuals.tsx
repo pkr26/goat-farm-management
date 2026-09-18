@@ -23,6 +23,7 @@ import {
 import { Histogram } from "@/components/charts";
 import type { FarmVocabulary } from "@/lib/farm-vocabulary";
 import { formatMoney } from "@/lib/format";
+import { useLanguage, useT } from "@/lib/i18n";
 
 import { formatHead, formatPercent, formatRatio, humanize } from "./format-helpers";
 
@@ -40,13 +41,14 @@ export function MonteCarloHistogram({
   p50?: number;
   p95?: number;
 }) {
+  const t = useT();
   const totalRuns = counts.reduce((sum, count) => sum + count, 0);
   const max = Math.max(...counts, 1);
   const peakBin = counts.indexOf(max);
   const bins = counts.map((count, i) => ({
     label: `${formatMoney(edges[i])} – ${formatMoney(edges[i + 1])}`,
     value: count,
-    unit: "runs",
+    unit: t("simulation.monteCarlo.runs"),
   }));
   return (
     <Histogram
@@ -54,7 +56,12 @@ export function MonteCarloHistogram({
       domain={[edges[0], edges[edges.length - 1]]}
       markers={[
         p50 !== undefined
-          ? { label: "Median (P50)", value: p50, display: formatMoney(p50), strong: true }
+          ? {
+              label: t("simulation.monteCarlo.medianP50"),
+              value: p50,
+              display: formatMoney(p50),
+              strong: true,
+            }
           : null,
         p5 !== undefined ? { label: "P5", value: p5, display: formatMoney(p5) } : null,
         p95 !== undefined ? { label: "P95", value: p95, display: formatMoney(p95) } : null,
@@ -64,7 +71,13 @@ export function MonteCarloHistogram({
         display?: string;
         strong?: boolean;
       }[]}
-      ariaLabel={`NPV histogram: ${totalRuns} runs across ${counts.length} bins, most frequent ${formatMoney(edges[peakBin])} – ${formatMoney(edges[peakBin + 1])} with ${max} runs`}
+      ariaLabel={t("simulation.monteCarlo.histogramAria", {
+        runs: totalRuns,
+        bins: counts.length,
+        start: formatMoney(edges[peakBin]),
+        end: formatMoney(edges[peakBin + 1]),
+        count: max,
+      })}
     />
   );
 }
@@ -76,6 +89,7 @@ export function RiskBandTable({
   herd: PercentileBand;
   liquidity: PercentileBand;
 }) {
+  const t = useT();
   const monthCount = Math.min(herd.p50.length, liquidity.p50.length);
   const indices = Array.from(
     new Set([
@@ -89,18 +103,18 @@ export function RiskBandTable({
 
   return (
     <div className="space-y-2">
-      <h3 className="text-sm font-medium">Annual uncertainty checkpoints</h3>
+      <h3 className="text-sm font-medium">{t("simulation.riskBands.title")}</h3>
       <div className="overflow-x-auto rounded-lg border">
         <Table className="min-w-[760px]">
           <TableHeader>
             <TableRow>
-              <TableHead>Month</TableHead>
-              <TableHead className="text-right">Herd P5</TableHead>
-              <TableHead className="text-right">Herd P50</TableHead>
-              <TableHead className="text-right">Herd P95</TableHead>
-              <TableHead className="text-right">Cash P5</TableHead>
-              <TableHead className="text-right">Cash P50</TableHead>
-              <TableHead className="text-right">Cash P95</TableHead>
+              <TableHead>{t("simulation.riskBands.month")}</TableHead>
+              <TableHead className="text-right">{t("simulation.riskBands.herdP5")}</TableHead>
+              <TableHead className="text-right">{t("simulation.riskBands.herdP50")}</TableHead>
+              <TableHead className="text-right">{t("simulation.riskBands.herdP95")}</TableHead>
+              <TableHead className="text-right">{t("simulation.riskBands.cashP5")}</TableHead>
+              <TableHead className="text-right">{t("simulation.riskBands.cashP50")}</TableHead>
+              <TableHead className="text-right">{t("simulation.riskBands.cashP95")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -146,6 +160,13 @@ function optimizationCandidateIdentity(candidate: OptimizationCandidate): string
   ].join(":");
 }
 
+function localizedObjective(objective: string, t: ReturnType<typeof useT>): string {
+  if (objective === "balanced") return t("simulation.option.balanced");
+  if (objective === "npv") return t("simulation.option.highestNpv");
+  if (objective === "liquidity") return t("simulation.option.strongestLiquidity");
+  return humanize(objective);
+}
+
 
 export function OptimizationResults({
   result,
@@ -155,6 +176,8 @@ export function OptimizationResults({
   /** The page's species vocabulary — one screen, one set of nouns. */
   vocabulary: FarmVocabulary;
 }) {
+  const t = useT();
+  const { language } = useLanguage();
   const baselineIdentity = optimizationCandidateIdentity(result.baseline);
   const recommendedIdentity = result.recommended
     ? optimizationCandidateIdentity(result.recommended)
@@ -162,19 +185,21 @@ export function OptimizationResults({
   const rows: { label: string; candidate: OptimizationCandidate }[] = [
     {
       label:
-        recommendedIdentity === baselineIdentity ? "Baseline / recommended" : "Baseline",
+        recommendedIdentity === baselineIdentity
+          ? t("simulation.optimization.baselineRecommended")
+          : t("simulation.optimization.baseline"),
       candidate: result.baseline,
     },
   ];
   if (result.recommended && recommendedIdentity !== baselineIdentity) {
-    rows.push({ label: "Recommended", candidate: result.recommended });
+    rows.push({ label: t("simulation.optimization.recommended"), candidate: result.recommended });
   }
   const seen = new Set(rows.map((row) => optimizationCandidateIdentity(row.candidate)));
   for (const candidate of result.alternatives ?? []) {
     const identity = optimizationCandidateIdentity(candidate);
     if (seen.has(identity)) continue;
     seen.add(identity);
-    rows.push({ label: `Alternative ${candidate.rank}`, candidate });
+    rows.push({ label: t("simulation.optimization.alternative", { rank: candidate.rank }), candidate });
   }
 
   return (
@@ -182,10 +207,14 @@ export function OptimizationResults({
       title={
         <span className="flex items-center gap-2">
           <Target className="size-4" aria-hidden />
-          Optimization
+          {t("simulation.optimization.title")}
         </span>
       }
-      description={`${result.feasible_candidates} of ${result.evaluated_candidates} evaluated candidates satisfy the ${humanize(result.objective)} objective constraints.`}
+      description={t("simulation.optimization.description", {
+        feasible: result.feasible_candidates,
+        evaluated: result.evaluated_candidates,
+        objective: localizedObjective(result.objective, t),
+      })}
       contentClassName="space-y-4"
     >
       {result.recommended === null && (
@@ -194,28 +223,32 @@ export function OptimizationResults({
           className="flex gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive"
         >
           <ShieldAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
-          No evaluated candidate satisfies every financing and capacity constraint. The
-          baseline below is diagnostic, not a recommendation.
+          {t("simulation.optimization.noFeasible")}
         </div>
       )}
       <div className="overflow-x-auto">
         <Table className="min-w-[820px]">
           <TableHeader>
             <TableRow>
-              <TableHead>Decision set</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">{`${vocabulary.femaleAdult}s / ${vocabulary.maleAdult}s / ceiling`}</TableHead>
-              <TableHead className="text-right">Sale age</TableHead>
-              <TableHead className="text-right">Retention</TableHead>
-              <TableHead className="text-right">Debt share</TableHead>
-              <TableHead className="text-right">Project cost</TableHead>
-              <TableHead className="text-right">Capacity / peak</TableHead>
-              <TableHead className="text-right">NPV</TableHead>
-              <TableHead className="text-right">IRR</TableHead>
-              <TableHead className="text-right">Min DSCR</TableHead>
-              <TableHead className="text-right">Minimum cash</TableHead>
-              <TableHead className="text-right">Funding gap</TableHead>
-              <TableHead>Constraint findings</TableHead>
+              <TableHead>{t("simulation.optimization.decisionSet")}</TableHead>
+              <TableHead>{t("simulation.optimization.status")}</TableHead>
+              <TableHead className="text-right">
+                {t("simulation.optimization.herdColumns", {
+                  female: language === "en" ? vocabulary.femaleAdult : t("simulation.token.doe"),
+                  male: language === "en" ? vocabulary.maleAdult : t("simulation.token.buck"),
+                })}
+              </TableHead>
+              <TableHead className="text-right">{t("simulation.optimization.saleAge")}</TableHead>
+              <TableHead className="text-right">{t("simulation.optimization.retention")}</TableHead>
+              <TableHead className="text-right">{t("simulation.optimization.debtShare")}</TableHead>
+              <TableHead className="text-right">{t("simulation.optimization.projectCost")}</TableHead>
+              <TableHead className="text-right">{t("simulation.optimization.capacityPeak")}</TableHead>
+              <TableHead className="text-right">{t("simulation.metric.npv")}</TableHead>
+              <TableHead className="text-right">{t("simulation.metric.irr")}</TableHead>
+              <TableHead className="text-right">{t("simulation.optimization.minimumDscr")}</TableHead>
+              <TableHead className="text-right">{t("simulation.optimization.minimumCash")}</TableHead>
+              <TableHead className="text-right">{t("simulation.optimization.fundingGap")}</TableHead>
+              <TableHead>{t("simulation.optimization.constraintFindings")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -225,14 +258,18 @@ export function OptimizationResults({
                 <TableCell
                   className={candidate.feasible ? "text-success" : "text-destructive"}
                 >
-                  {candidate.feasible ? "Feasible" : "Infeasible"}
+                  {candidate.feasible
+                    ? t("simulation.optimization.feasible")
+                    : t("simulation.optimization.infeasible")}
                 </TableCell>
                 <TableCell className="text-right tabular-nums">
                   {candidate.starting_does} / {candidate.starting_bucks} /{" "}
                   {candidate.max_breeding_does}
                 </TableCell>
                 <TableCell className="text-right tabular-nums">
-                  {candidate.sale_age_months} mo
+                  {t("simulation.optimization.monthsShort", {
+                    count: candidate.sale_age_months,
+                  })}
                 </TableCell>
                 <TableCell className="text-right tabular-nums">
                   {formatPercent(candidate.female_retention_fraction)}
@@ -269,7 +306,7 @@ export function OptimizationResults({
                 <TableCell className="min-w-56 text-xs">
                   {(candidate.constraint_violations ?? []).length > 0
                     ? candidate.constraint_violations?.join("; ")
-                    : "None"}
+                    : t("simulation.optimization.none")}
                 </TableCell>
               </TableRow>
             ))}

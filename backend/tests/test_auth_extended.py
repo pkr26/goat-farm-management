@@ -238,6 +238,7 @@ def test_production_refresh_cookie_is_host_bound(monkeypatch: pytest.MonkeyPatch
         db_sslmode="verify-full",
         min_password_length=12,
         idempotency_request_hmac_secret="independent-production-hmac-secret-123456789",
+        totp_encryption_key="VFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFQ",
     )
     monkeypatch.setattr(auth_api, "get_settings", lambda: settings)
     response = Response()

@@ -24,12 +24,18 @@ from ..models.finance import (
     INSURANCE_STATUS_CLAIMED,
     INSURANCE_STATUS_LAPSED,
 )
-from ..utils import add_months, money, today
+from ..utils import add_months, money, today, utcnow
 from ._common import _add_task
 
 # A renewal duty lands a month ahead of the policy's renewal date: late
 # enough not to nag, early enough to arrange the insurer's paperwork.
 INSURANCE_RENEWAL_LEAD_DAYS = 30
+
+# Insurance premiums are immutable register payments rather than mutable
+# Transaction rows.  Finance summaries use this explicit category so the
+# aggregate is explainable without pretending the payment is a manual ledger
+# transaction.
+INSURANCE_PREMIUM_CATEGORY = "INSURANCE"
 
 # BIZ-3 (2026-09-16): one renewal books one non-prorated premium row, so the
 # covered span needs a bound — five years, renewed successively for longer.
@@ -44,10 +50,10 @@ async def monthly_pnl(db: AsyncSession, farm: Farm, n_months: int = 12) -> list[
     """Income vs expense for the last ``n_months`` calendar months,
     including zero-activity months, most recent first.
 
-    Aggregated in SQL (GROUP BY month/type/category) — the row-at-a-time
-    Python sum loaded every transaction into memory. Output shape and
-    rounding are unchanged: row totals rounded to 2dp, category sums raw.
-    Voided rows remain in the audit trail but never affect financial totals."""
+    Ledger rows and immutable premium payments are each aggregated in SQL;
+    no transaction-by-transaction scan is loaded into Python. Output shape
+    and rounding are unchanged: row totals rounded to 2dp, category sums raw.
+    Voided ledger rows remain in the audit trail but never affect totals."""
     current_month = today(farm.timezone).replace(day=1)
     first_month = add_months(current_month, -(n_months - 1))
     after_last_month = add_months(current_month, 1)
@@ -91,6 +97,38 @@ async def monthly_pnl(db: AsyncSession, farm: Farm, n_months: int = 12) -> list[
         )
         cat[kind] += total
 
+    # Premiums are payment facts outside ``transactions``.  Their accounting
+    # date is when the farm recorded the payment, not the coverage start:
+    # renewal may be paid early for a future period.  Keep the same category
+    # shape as ledger rows so consumers see the expense's provenance rather
+    # than a silent adjustment to the monthly total.
+    premium_month_col = func.to_char(InsurancePremium.recorded_on, "YYYY-MM")
+    premium_result = await db.execute(
+        select(premium_month_col, func.sum(InsurancePremium.premium))
+        .where(
+            InsurancePremium.farm_id == farm.id,
+            InsurancePremium.recorded_on >= first_month,
+            InsurancePremium.recorded_on < after_last_month,
+        )
+        .group_by(premium_month_col)
+    )
+    for month, total in premium_result.all():
+        row = months.setdefault(
+            month,
+            {
+                "month": month,
+                "income": Decimal("0.00"),
+                "expense": Decimal("0.00"),
+                "categories": {},
+            },
+        )
+        row["expense"] += total
+        category = row["categories"].setdefault(
+            INSURANCE_PREMIUM_CATEGORY,
+            {"income": Decimal("0.00"), "expense": Decimal("0.00")},
+        )
+        category["expense"] += total
+
     rows = sorted(months.values(), key=lambda r: r["month"], reverse=True)
     for row in rows:
         row["income"] = round(row["income"], 2)
@@ -107,6 +145,7 @@ async def _book_premium(
     premium: Decimal,
     covered_from: date,
     covered_until: date,
+    recorded_on: date,
     recorded_by_id: int | None,
 ) -> None:
     """Append one premium payment to the policy's audit history.
@@ -123,6 +162,7 @@ async def _book_premium(
             premium=money(premium),
             covered_from=covered_from,
             covered_until=covered_until,
+            recorded_on=recorded_on,
             recorded_by_id=recorded_by_id,
         )
     )
@@ -146,6 +186,7 @@ async def _spawn_renewal_task(db: AsyncSession, farm_id: int, policy: InsuranceP
         animal_id=policy.animal_id,
         title_key="insurance_renewal",
         title_args={
+            "policy_id": policy.id,
             "policy_number": policy.policy_number,
             "renewal_date": policy.renewal_date.isoformat(),
             "due_date": due.isoformat(),
@@ -172,6 +213,37 @@ async def _require_linked_animal_active(
             f"Cannot {action}: covered animal {animal.tag_number} has left the herd "
             f"({animal.status.lower()})"
         )
+
+
+async def _lock_new_policy_animal_active(db: AsyncSession, farm: Farm, animal_id: int) -> Animal:
+    """Lock a newly covered animal through policy creation.
+
+    Creation has no policy row to serialize against yet.  Without the animal
+    lock, a status-change transaction can lapse every policy it can see and
+    commit the animal's exit just before this transaction commits a new
+    ``active`` policy.  The lock makes the two outcomes serial: creation
+    commits first and the exit then lapses it, or the exit commits first and
+    creation rejects the no-longer-active animal.
+    """
+    animal = (
+        await db.execute(
+            select(Animal)
+            .where(Animal.id == animal_id, Animal.farm_id == farm.id)
+            # The API may have resolved this object earlier in the same
+            # session. Rehydrate it under the lock so an identity-map value
+            # cannot hide a just-committed status change.
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if animal is None:
+        raise ValueError("Cannot register insurance: covered animal is not on this farm")
+    if animal.status != AnimalStatus.ACTIVE.value:
+        raise ValueError(
+            f"Cannot register insurance: covered animal {animal.tag_number} has left the herd "
+            f"({animal.status.lower()})"
+        )
+    return animal
 
 
 async def create_insurance_policy(
@@ -209,6 +281,8 @@ async def create_insurance_policy(
         raise ValueError(
             "A policy can cover at most five years — renew successively for longer cover"
         )
+    if animal_id is not None:
+        await _lock_new_policy_animal_active(db, farm, animal_id)
     policy = InsurancePolicy(
         farm_id=farm.id,
         animal_id=animal_id,
@@ -230,6 +304,7 @@ async def create_insurance_policy(
         premium=policy.premium,
         covered_from=start_date,
         covered_until=renewal_date,
+        recorded_on=reference,
         recorded_by_id=created_by_id,
     )
     if renewal_date > reference:
@@ -268,6 +343,21 @@ async def renew_insurance_policy(
             "New renewal date cannot be before the current renewal date "
             f"{policy.renewal_date.isoformat()}"
         )
+    effective_premium = money(premium) if premium is not None else policy.premium
+    if renewal_date == policy.renewal_date:
+        # A client that lost a successful response can safely replay the
+        # exact renewal without minting another premium or duty.  Equal-date
+        # requests are never allowed to alter price or reactivate lapsed
+        # cover: those are real state changes and require a new period.
+        if premium is not None and effective_premium != policy.premium:
+            raise ValueError(
+                "A renewal date must be later than the current renewal date to change premium"
+            )
+        if policy.status == INSURANCE_STATUS_LAPSED:
+            raise ValueError(
+                "A renewal date must be later than the current renewal date to reactivate cover"
+            )
+        return policy
     # BIZ-3 (2026-09-16): the register books ONE non-prorated premium row per
     # renewal — an arbitrarily distant horizon would book a decades-long span
     # for a single premium. Bound the covered span at five years; longer
@@ -277,8 +367,8 @@ async def renew_insurance_policy(
             "A renewal can extend coverage by at most five years — renew "
             "successively for longer cover"
         )
-    effective_premium = money(premium) if premium is not None else policy.premium
     previous_horizon = policy.renewal_date
+    recorded_on = today(farm.timezone)
     policy.renewal_date = renewal_date
     policy.premium = effective_premium
     policy.status = INSURANCE_STATUS_ACTIVE
@@ -290,9 +380,10 @@ async def renew_insurance_policy(
         premium=effective_premium,
         covered_from=previous_horizon,
         covered_until=renewal_date,
+        recorded_on=recorded_on,
         recorded_by_id=recorded_by_id,
     )
-    if renewal_date > today(farm.timezone):
+    if renewal_date > recorded_on:
         await _spawn_renewal_task(db, farm.id, policy)
     return policy
 
@@ -303,6 +394,7 @@ async def claim_insurance_policy(
     policy: InsurancePolicy,
     *,
     claim_date: date,
+    claimed_by_id: int,
 ) -> InsurancePolicy:
     """Record a claim against a policy: the register's terminal event.
 
@@ -319,6 +411,9 @@ async def claim_insurance_policy(
     if claim_date < policy.start_date:
         raise ValueError("Claim date cannot be before the policy start date")
     policy.status = INSURANCE_STATUS_CLAIMED
+    policy.claim_date = claim_date
+    policy.claimed_at = utcnow()
+    policy.claimed_by_id = claimed_by_id
     await db.flush()
     return policy
 
@@ -332,14 +427,24 @@ async def lapse_policies_for_animal(db: AsyncSession, farm: Farm, animal: Animal
     a fact about cover that was live at exit, not a retroactive rewrite.
     Returns the number of policies lapsed (0 for herd-level calls).
     """
+    # The exit path holds the animal row already. Lock policy rows in a stable
+    # order too: a concurrent claim locks its policy, records terminal claim
+    # metadata, and commits. Without this lock the exit can have read ACTIVE
+    # before that commit and then write only ``status='lapsed'`` over the
+    # claimed row, violating the metadata/state constraint at commit time.
+    # PostgreSQL rechecks the ACTIVE predicate after a wait, so a policy that
+    # was claimed meanwhile simply falls out of this result and stays claimed.
     policies = (
         (
             await db.execute(
-                select(InsurancePolicy).where(
+                select(InsurancePolicy)
+                .where(
                     InsurancePolicy.farm_id == farm.id,
                     InsurancePolicy.animal_id == animal.id,
                     InsurancePolicy.status.in_((INSURANCE_STATUS_ACTIVE, "renewed")),
                 )
+                .order_by(InsurancePolicy.id)
+                .with_for_update()
             )
         )
         .scalars()

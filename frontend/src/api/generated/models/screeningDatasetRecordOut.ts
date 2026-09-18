@@ -8,8 +8,13 @@ import type { ScreeningDatasetRecordOutSeverity } from './screeningDatasetRecord
 import type { ScreeningDatasetRecordOutVetStatus } from './screeningDatasetRecordOutVetStatus';
 
 /**
- * One training example: image + optional crop box + model label + the
- * vet verdict that makes the label trustworthy.
+ * One training example: immutable normalized image + optional crop box,
+ * model label, and the vet verdict that makes the label trustworthy.
+ *
+ * ``image_s3_key`` intentionally identifies the normalized derivative that
+ * was actually sent to the model, not the short-lived browser-upload raw
+ * key. A presigned raw POST may be replayed before expiry; the derivative is
+ * worker-owned and its bytes match ``image_sha256``.
  */
 export interface ScreeningDatasetRecordOut {
   finding_id: number;

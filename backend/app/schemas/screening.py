@@ -35,6 +35,10 @@ ScreeningBucketStr = Literal[
 ]
 
 ALLOWED_UPLOAD_CONTENT_TYPES = ("image/jpeg", "image/png")
+# Kept in the request schema as well as exposed in ``ScreeningUploadOut`` so
+# an oversized local file is rejected before the server reserves a PENDING
+# intake row and signs an object-store form for it.
+MAX_SCREENING_UPLOAD_BYTES = 25 * 1024 * 1024
 
 
 ScreeningImageId = Annotated[int, Field(ge=1, le=MAX_INT32_ID)]
@@ -197,8 +201,14 @@ class ScreeningStatsOut(BaseModel):
 
 
 class ScreeningDatasetRecordOut(BaseModel):
-    """One training example: image + optional crop box + model label + the
-    vet verdict that makes the label trustworthy."""
+    """One training example: immutable normalized image + optional crop box,
+    model label, and the vet verdict that makes the label trustworthy.
+
+    ``image_s3_key`` intentionally identifies the normalized derivative that
+    was actually sent to the model, not the short-lived browser-upload raw
+    key. A presigned raw POST may be replayed before expiry; the derivative is
+    worker-owned and its bytes match ``image_sha256``.
+    """
 
     finding_id: int
     vet_status: ScreeningFindingStatusStr
@@ -221,7 +231,6 @@ class ScreeningDatasetExportOut(BaseModel):
     generated_at: datetime
     record_count: int
     records: list[ScreeningDatasetRecordOut]
-
 
 
 class ScreeningBatchBucketProgressOut(BaseModel):
@@ -259,10 +268,26 @@ class ScreeningUploadIn(StrictInputModel):
     # Extension only — the server generates the stored filename.
     file_name: str = Field(min_length=5, max_length=255, pattern=r"^[\w.\- ]+\.(?i:jpe?g|png)$")
     content_type: Literal["image/jpeg", "image/png"]
+    # The browser already has the selected File at this point.  Requiring its
+    # size lets the API reject an impossible upload before it consumes one of
+    # the farm's bounded pre-registrations; the S3 POST policy independently
+    # enforces the same cap against a dishonest client.
+    file_size: int = Field(ge=1, le=MAX_SCREENING_UPLOAD_BYTES)
 
 
 class ScreeningUploadOut(BaseModel):
+    """A constrained browser-to-object-store POST form.
+
+    ``upload_url`` is retained as the transport target for existing clients,
+    but callers must use ``upload_method`` and append every ``upload_fields``
+    entry to a ``FormData`` before appending the file as ``file``.  The S3
+    policy binds the form to this pre-registered image and caps its bytes.
+    """
+
     image_id: int
     s3_key: str
     upload_url: str
+    upload_method: Literal["POST"] = "POST"
+    upload_fields: dict[str, str]
+    max_upload_bytes: int
     expires_in_seconds: int

@@ -2,8 +2,10 @@
 
 import asyncio
 import json
+import ssl
 from collections.abc import AsyncGenerator
-from typing import Any
+from pathlib import Path
+from typing import Any, Protocol
 
 from sqlalchemy import TypeDecorator
 from sqlalchemy.dialects.postgresql import JSONB
@@ -16,6 +18,48 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase
 
 from .core.config import get_settings
+
+
+class DatabaseTlsSettings(Protocol):
+    """The configuration subset that selects authenticated DB transport."""
+
+    @property
+    def db_sslmode(self) -> str: ...
+
+    @property
+    def db_sslrootcert_path(self) -> Path | None: ...
+
+
+class DatabaseRuntimeSettings(DatabaseTlsSettings, Protocol):
+    """The subset of configuration needed to open an application DB pool."""
+
+    database_url: str
+    db_pool_size: int
+    db_max_overflow: int
+    db_pool_timeout: int
+    db_statement_timeout_ms: int
+
+
+def database_ssl_connect_arg(settings: DatabaseTlsSettings) -> str | ssl.SSLContext:
+    """Return asyncpg's TLS argument without relying on ``~/.postgresql``.
+
+    Passing the mode string ``verify-full`` makes asyncpg search for a
+    per-user ``root.crt``. The non-root container image intentionally has no
+    such home directory, so a production pool would fail only at first
+    connection. An explicit standard-library context instead uses either an
+    operator-mounted CA file or the image's normal system trust store, while
+    preserving verify-full hostname checking.
+
+    ``allow``/``prefer`` retain asyncpg's mode-string fallback semantics;
+    production validation never permits either one.
+    """
+    if settings.db_sslmode not in {"verify-ca", "verify-full"}:
+        return settings.db_sslmode
+    context = ssl.create_default_context(
+        cafile=str(settings.db_sslrootcert_path) if settings.db_sslrootcert_path else None
+    )
+    context.check_hostname = settings.db_sslmode == "verify-full"
+    return context
 
 
 class Base(DeclarativeBase):
@@ -69,25 +113,36 @@ _engine: AsyncEngine | None = None
 _sessionmaker: async_sessionmaker[AsyncSession] | None = None
 
 
+def create_engine(settings: DatabaseRuntimeSettings) -> AsyncEngine:
+    """Create an independent pool from an explicit settings projection.
+
+    The API retains its process-global pool below. The screening worker calls
+    this factory with its least-privilege settings, which avoids importing the
+    API's JWT/cookie configuration just to connect to PostgreSQL.
+    """
+    return create_async_engine(
+        settings.database_url,
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
+        pool_timeout=settings.db_pool_timeout,
+        pool_pre_ping=True,
+        pool_recycle=1800,
+        connect_args={
+            "server_settings": {"statement_timeout": str(settings.db_statement_timeout_ms)},
+            "ssl": database_ssl_connect_arg(settings),
+        },
+    )
+
+
+def create_sessionmaker(settings: DatabaseRuntimeSettings) -> async_sessionmaker[AsyncSession]:
+    """Create a session factory owned by a non-API process."""
+    return async_sessionmaker(bind=create_engine(settings), autoflush=False, expire_on_commit=False)
+
+
 def get_engine() -> AsyncEngine:
     global _engine
     if _engine is None:
-        settings = get_settings()
-        _engine = create_async_engine(
-            settings.database_url,
-            pool_size=settings.db_pool_size,
-            max_overflow=settings.db_max_overflow,
-            pool_timeout=settings.db_pool_timeout,
-            # Verify each checked-out connection is alive (survives Postgres
-            # restarts/failover), and recycle connections well under typical
-            # NAT/LB idle reaping so a dead connection never serves a request.
-            pool_pre_ping=True,
-            pool_recycle=1800,
-            connect_args={
-                "server_settings": {"statement_timeout": str(settings.db_statement_timeout_ms)},
-                "ssl": settings.db_sslmode,
-            },
-        )
+        _engine = create_engine(get_settings())
     return _engine
 
 

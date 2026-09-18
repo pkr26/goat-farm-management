@@ -407,7 +407,26 @@ async def test_scenario_crud(client: httpx.AsyncClient) -> None:
     )
     assert legacy_retry.status_code == 409, legacy_retry.text
 
-    deleted = await client.delete(f"/api/simulation/scenarios/{created['id']}", headers=headers)
+    # Destructive calls cannot omit their concurrency token.
+    missing_delete_revision = await client.delete(
+        f"/api/simulation/scenarios/{created['id']}", headers=headers
+    )
+    assert missing_delete_revision.status_code == 422, missing_delete_revision.text
+
+    # The update above advanced the revision, so a stale delete is rejected
+    # instead of silently erasing the newer scenario.
+    stale_delete = await client.delete(
+        f"/api/simulation/scenarios/{created['id']}",
+        params={"expected_revision": created["revision"]},
+        headers=headers,
+    )
+    assert stale_delete.status_code == 409, stale_delete.text
+
+    deleted = await client.delete(
+        f"/api/simulation/scenarios/{created['id']}",
+        params={"expected_revision": created["revision"] + 1},
+        headers=headers,
+    )
     assert deleted.status_code == 204
     assert deleted.content == b""
     gone = await client.get(f"/api/simulation/scenarios/{created['id']}", headers=headers)
@@ -587,7 +606,11 @@ async def test_scenario_cross_farm_404(client: httpx.AsyncClient) -> None:
         )
     ).status_code == 404
     assert (
-        await client.delete(f"/api/simulation/scenarios/{created['id']}", headers=owner_b)
+        await client.delete(
+            f"/api/simulation/scenarios/{created['id']}",
+            params={"expected_revision": created["revision"]},
+            headers=owner_b,
+        )
     ).status_code == 404
     # And it does not leak into Farm B's list.
     listing = await client.get("/api/simulation/scenarios", headers=owner_b)
@@ -1680,7 +1703,11 @@ async def test_stale_scenario_row_never_500s(client: httpx.AsyncClient) -> None:
         headers=headers,
     )
     assert patched.status_code == 200, patched.text
-    deleted = await client.delete(f"/api/simulation/scenarios/{stale['id']}", headers=headers)
+    deleted = await client.delete(
+        f"/api/simulation/scenarios/{stale['id']}",
+        params={"expected_revision": patched.json()["revision"]},
+        headers=headers,
+    )
     assert deleted.status_code == 204
 
 

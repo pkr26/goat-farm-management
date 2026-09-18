@@ -273,7 +273,26 @@ async def test_planner_plan_crud(client: httpx.AsyncClient) -> None:
     )
     assert rename.status_code == 400
 
-    deleted = await client.delete(f"/api/planner/plans/{created['id']}", headers=headers)
+    # A DELETE must prove the version it reviewed; a missing token cannot
+    # silently fall back to a destructive last-write-wins operation.
+    missing_delete_revision = await client.delete(
+        f"/api/planner/plans/{created['id']}", headers=headers
+    )
+    assert missing_delete_revision.status_code == 422, missing_delete_revision.text
+
+    # A stale tab cannot delete the newer accepted target edit.
+    stale_delete = await client.delete(
+        f"/api/planner/plans/{created['id']}",
+        params={"expected_revision": 1},
+        headers=headers,
+    )
+    assert stale_delete.status_code == 409, stale_delete.text
+
+    deleted = await client.delete(
+        f"/api/planner/plans/{created['id']}",
+        params={"expected_revision": 2},
+        headers=headers,
+    )
     assert deleted.status_code == 204
     assert (
         await client.get(f"/api/planner/plans/{created['id']}", headers=headers)
@@ -393,6 +412,33 @@ async def test_planner_plan_patch_answers_422_not_500_on_stale_stored_assumption
     assert "no longer validate" in resp.text
 
 
+async def test_planner_assumptions_only_patch_keeps_column_anchor_authoritative(
+    client: httpx.AsyncClient,
+) -> None:
+    """A malicious/stale embedded anchor cannot disagree with saved-plan DPRs."""
+    owner = await owner_with_farm(client)
+    assumptions = await default_assumptions(client, owner)
+    created = await _create_plan(client, owner, "One anchor", assumptions)
+    conflicting_assumptions = {
+        **assumptions,
+        "meta": {**assumptions["meta"], "start_year_month": "2029-01"},
+    }
+
+    patched = await client.patch(
+        f"/api/planner/plans/{created['id']}",
+        json={"expected_revision": created["revision"], "assumptions": conflicting_assumptions},
+        headers=owner,
+    )
+    assert patched.status_code == 200, patched.text
+    body = patched.json()
+    assert body["start_year_month"] == START
+    assert body["assumptions"]["meta"]["start_year_month"] == START
+
+    fetched = await client.get(f"/api/planner/plans/{created['id']}", headers=owner)
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.json()["assumptions"]["meta"]["start_year_month"] == START
+
+
 async def test_backward_plan_ceiling_rejection_is_not_charged(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -455,7 +501,11 @@ async def test_planner_plan_farm_scoping(client: httpx.AsyncClient) -> None:
         )
     ).status_code == 404
     assert (
-        await client.delete(f"/api/planner/plans/{created['id']}", headers=other)
+        await client.delete(
+            f"/api/planner/plans/{created['id']}",
+            params={"expected_revision": created["revision"]},
+            headers=other,
+        )
     ).status_code == 404
     listing = await client.get("/api/planner/plans", headers=other)
     assert listing.json()["total"] == 0

@@ -16,6 +16,7 @@ import { z } from "zod";
 import {
   useAddInsurancePolicyApiFinanceInsurancePost,
   useClaimPolicyApiFinanceInsurancePolicyIdClaimPost,
+  useInsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet,
   useListInsurancePoliciesApiFinanceInsuranceGet,
   useRenewPolicyApiFinanceInsurancePolicyIdRenewPost,
 } from "@/api/generated/endpoints";
@@ -54,7 +55,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/lib/api-client";
 import { mutationError } from "@/lib/mutations";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
-import { farmToday, formatDate, formatMoney } from "@/lib/format";
+import {
+  addDays,
+  farmToday,
+  formatDate,
+  formatFarmDateTime,
+  formatMoney,
+} from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import {
   isPersistableNonnegativeMoney,
@@ -415,12 +422,14 @@ function RenewPolicyDialog({
     formState: { errors, isSubmitting },
   } = useForm<RenewalInput, unknown, RenewalValues>({
     resolver: zodResolver(renewalSchema.superRefine((values, ctx) => {
-      // renew_insurance_policy refuses to move the horizon backwards.
-      if (values.renewal_date < policy.renewal_date) {
+      // A same-day "renewal" has no coverage interval to book and used to
+      // mutate the current premium without a corresponding premium event.
+      // Require a real forward extension, mirroring the server invariant.
+      if (values.renewal_date <= policy.renewal_date) {
         ctx.addIssue({
           code: "custom",
           path: ["renewal_date"],
-          message: `Cannot be before the current renewal date ${formatDate(policy.renewal_date)}`,
+          message: `Must be after the current renewal date ${formatDate(policy.renewal_date)}`,
         });
       }
     })),
@@ -480,7 +489,7 @@ function RenewPolicyDialog({
               <Input
                 id="new_renewal_date"
                 type="date"
-                min={policy.renewal_date}
+                min={addDays(policy.renewal_date, 1)}
                 aria-invalid={Boolean(errors.renewal_date) || undefined}
                 aria-describedby={errors.renewal_date ? "new-renewal-date-error" : undefined}
                 {...register("renewal_date")}
@@ -594,6 +603,91 @@ function ClaimPolicyDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Load immutable audit facts only when an operator asks to inspect them.
+ * Native details/summary gives keyboard and screen-reader users the same
+ * disclosure control without adding a custom button state machine. */
+function PolicyHistoryDisclosure({ policy }: { policy: InsurancePolicyOut }) {
+  const [open, setOpen] = useState(false);
+  const history = useInsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet(policy.id, {
+    query: { enabled: open },
+  });
+  const payload = history.data?.status === 200 ? history.data.data : undefined;
+
+  return (
+    <details
+      className="rounded-md border border-dashed p-2 text-sm"
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary className="cursor-pointer font-medium text-primary">
+        Premium &amp; claim history
+      </summary>
+      {open && (
+        <section
+          aria-label={`Premium and claim history for ${policy.policy_number}`}
+          className="mt-2 space-y-2"
+        >
+          {history.isLoading && (
+            <p role="status" aria-live="polite" className="text-muted-foreground">
+              Loading history…
+            </p>
+          )}
+          {history.isError && (
+            <div role="alert" className="flex flex-wrap items-center gap-2 text-destructive">
+              <span>Could not load policy history.</span>
+              <Button type="button" size="sm" variant="outline" onClick={() => void history.refetch()}>
+                Retry history
+              </Button>
+            </div>
+          )}
+          {payload && (
+            <>
+              <div>
+                <p className="font-medium">Premium entries</p>
+                {payload.premiums.length === 0 ? (
+                  <p className="text-muted-foreground">No premium entries recorded.</p>
+                ) : (
+                  <ul className="mt-1 space-y-1" aria-label="Premium entries">
+                    {payload.premiums.map((entry) => (
+                      <li key={entry.id} className="rounded bg-muted/50 p-1.5">
+                        <span className="font-medium tabular-nums">{formatMoney(entry.premium)}</span>
+                        <span className="text-muted-foreground">
+                          {" · Coverage "}
+                          {formatDate(entry.covered_from)}–{formatDate(entry.covered_until)}
+                          {" · Recorded "}
+                          {formatDate(entry.recorded_on)}
+                          {entry.recorded_by_id !== null
+                            ? ` by user #${entry.recorded_by_id}`
+                            : ""}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div>
+                <p className="font-medium">Claim</p>
+                {payload.policy.claim_date ? (
+                  <p>
+                    Recorded {formatDate(payload.policy.claim_date)}
+                    {payload.policy.claimed_by_id !== null
+                      ? ` by user #${payload.policy.claimed_by_id}`
+                      : ""}
+                    {payload.policy.claimed_at
+                      ? ` (${formatFarmDateTime(payload.policy.claimed_at)})`
+                      : ""}
+                  </p>
+                ) : (
+                  <p className="text-muted-foreground">No claim recorded.</p>
+                )}
+              </div>
+            </>
+          )}
+        </section>
+      )}
+    </details>
   );
 }
 
@@ -733,6 +827,7 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
                     <dd>{formatDate(policy.renewal_date)}</dd>
                   </div>
                 </dl>
+                <PolicyHistoryDisclosure policy={policy} />
                 {canManage && (
                   <div className="flex flex-wrap gap-2 pt-1">
                     <Button
@@ -769,6 +864,7 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
                 <TableHead className="text-right">Premium</TableHead>
                 <TableHead>Renewal date</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>History</TableHead>
                 {canManage && <TableHead className="text-right" />}
               </TableRow>
             </TableHeader>
@@ -804,6 +900,9 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
                     <StatusBadge status={policy.status}>
                       {enumLabel("insuranceStatus", policy.status)}
                     </StatusBadge>
+                  </TableCell>
+                  <TableCell className="min-w-60 align-top">
+                    <PolicyHistoryDisclosure policy={policy} />
                   </TableCell>
                   {canManage && (
                     <TableCell className="text-right">

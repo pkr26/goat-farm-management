@@ -28,8 +28,12 @@ KIDDING_LOCK_ORDER = "e7f9a1b3c5d8"
 # Autogenerate-drift checks must run at the CURRENT head (backend-core audit
 # wave: task provenance/title keys → updated_at/phenotype/vocabularies →
 # exact weight numerics + index hygiene → kidding parity backfill →
-# screening batches → residual numerics/next-due ceiling/jsonb shape).
-HEAD = "c3e5a9f1d7b4"
+# screening batches → residual numerics/next-due ceiling/jsonb shape →
+# screening upload hardening + finance/planner integrity merge → durable
+# screening-content claims).
+HEAD = "f7a9c1e3b5d7"
+SCREENING_CONTENT_CLAIMS_PARENT = "b7e8f9a0c1d2"
+SCREENING_CONTENT_CLAIMS = "f7a9c1e3b5d7"
 LEGACY_LOSS_NOTE = "Legacy pregnancy-loss row; original date and cause were not captured."
 ADMIN_URL = "postgresql://localhost:5432/postgres"
 
@@ -72,6 +76,130 @@ async def _alembic(
     else:
         assert result.returncode != 0, result.stdout + result.stderr
     return result
+
+
+async def test_screening_content_claim_migration_backfills_canonical_rows() -> None:
+    """The new uniqueness boundary preserves existing screening history."""
+    database = _throwaway_name("screening_content_claims")
+    await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+    await _admin(f'CREATE DATABASE "{database}"')
+    database_url = f"postgresql://localhost:5432/{database}"
+    digest = "a" * 64
+    other_digest = "b" * 64
+    try:
+        await _alembic(database, "upgrade", SCREENING_CONTENT_CLAIMS_PARENT)
+        connection = await asyncpg.connect(database_url)
+        try:
+            owner_id = await connection.fetchval(
+                """
+                INSERT INTO users (email, password_hash, created_at)
+                VALUES ('content-claim-owner@example.test', 'not-used', timezone('UTC', now()))
+                RETURNING id
+                """
+            )
+            first_farm_id = await connection.fetchval(
+                """
+                INSERT INTO farms (name, owner_id, created_at, updated_at)
+                VALUES ('First claim farm', $1, timezone('UTC', now()), timezone('UTC', now()))
+                RETURNING id
+                """,
+                owner_id,
+            )
+            second_farm_id = await connection.fetchval(
+                """
+                INSERT INTO farms (name, owner_id, created_at, updated_at)
+                VALUES ('Second claim farm', $1, timezone('UTC', now()), timezone('UTC', now()))
+                RETURNING id
+                """,
+                owner_id,
+            )
+            first_image_id = await connection.fetchval(
+                """
+                INSERT INTO screening_images (farm_id, s3_bucket, s3_key, sha256, status)
+                VALUES ($1, 'photos', 'raw/first.jpg', $2, 'HEALTHY')
+                RETURNING id
+                """,
+                first_farm_id,
+                digest,
+            )
+            # A historical duplicate keeps its own audit row, while the
+            # migration deterministically gives the lowest id the claim.
+            duplicate_image_id = await connection.fetchval(
+                """
+                INSERT INTO screening_images (farm_id, s3_bucket, s3_key, sha256, status)
+                VALUES ($1, 'photos', 'raw/duplicate.jpg', $2, 'SKIPPED')
+                RETURNING id
+                """,
+                first_farm_id,
+                digest,
+            )
+            second_farm_image_id = await connection.fetchval(
+                """
+                INSERT INTO screening_images (farm_id, s3_bucket, s3_key, sha256, status)
+                VALUES ($1, 'photos', 'raw/other-farm.jpg', $2, 'HEALTHY')
+                RETURNING id
+                """,
+                second_farm_id,
+                digest,
+            )
+        finally:
+            await connection.close()
+
+        await _alembic(database, "upgrade", SCREENING_CONTENT_CLAIMS)
+        connection = await asyncpg.connect(database_url)
+        try:
+            claims = await connection.fetch(
+                """
+                SELECT farm_id, image_id, sha256
+                FROM screening_content_claims
+                ORDER BY farm_id, image_id
+                """
+            )
+            assert [(row["farm_id"], row["image_id"], row["sha256"]) for row in claims] == [
+                (first_farm_id, first_image_id, digest),
+                (second_farm_id, second_farm_image_id, digest),
+            ]
+            assert duplicate_image_id != first_image_id
+
+            with pytest.raises(asyncpg.UniqueViolationError) as duplicate_claim:
+                await connection.execute(
+                    """
+                    INSERT INTO screening_content_claims (farm_id, image_id, sha256)
+                    VALUES ($1, $2, $3)
+                    """,
+                    first_farm_id,
+                    duplicate_image_id,
+                    digest,
+                )
+            assert (
+                duplicate_claim.value.constraint_name == "uq_screening_content_claims_farm_sha256"
+            )
+
+            with pytest.raises(asyncpg.ForeignKeyViolationError) as cross_tenant_claim:
+                await connection.execute(
+                    """
+                    INSERT INTO screening_content_claims (farm_id, image_id, sha256)
+                    VALUES ($1, $2, $3)
+                    """,
+                    second_farm_id,
+                    first_image_id,
+                    other_digest,
+                )
+            assert cross_tenant_claim.value.constraint_name == "fk_screening_content_claims_image"
+        finally:
+            await connection.close()
+
+        await _alembic(database, "downgrade", SCREENING_CONTENT_CLAIMS_PARENT)
+        connection = await asyncpg.connect(database_url)
+        try:
+            assert (
+                await connection.fetchval("SELECT to_regclass('screening_content_claims') IS NULL")
+                is True
+            )
+        finally:
+            await connection.close()
+    finally:
+        await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
 
 
 async def test_exact_money_migration_refuses_lossy_rows_and_backfills_utc() -> None:

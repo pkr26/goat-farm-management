@@ -5,4 +5,4 @@
  * OpenAPI spec version: 2.0.0
  */
 
-export type ValidationErrorCtx = { [key: string]: unknown };
+export type ScreeningUploadOutUploadFields = {[key: string]: string};

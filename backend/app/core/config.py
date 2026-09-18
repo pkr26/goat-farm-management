@@ -3,18 +3,29 @@ vars prefixed GOATFARM_, e.g. GOATFARM_DATABASE_URL."""
 
 from __future__ import annotations
 
+import base64
+import binascii
 import ipaddress
 import os
 import re
+import tempfile
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
-from urllib.parse import urlsplit
+from typing import Literal, Protocol
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from dotenv import dotenv_values
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
+# Container workers use Python's secure temporary directory by default. The
+# heartbeat writer itself creates an exclusive 0600 file and atomically
+# replaces this target; operators can still mount and configure a different
+# private path when their runtime requires it.
+DEFAULT_SCREENING_WORKER_HEARTBEAT_PATH = Path(tempfile.gettempdir()) / (
+    "goatfarm-screening-worker.json"
+)
 
 
 def _dev_key_dir() -> Path:
@@ -33,7 +44,9 @@ def _dev_key_dir() -> Path:
 
 MAX_PREVIOUS_JWT_PUBLIC_KEYS = 3
 MAX_PREVIOUS_IDEMPOTENCY_HMAC_SECRETS = 3
+MAX_PREVIOUS_TOTP_ENCRYPTION_KEYS = 3
 MIN_IDEMPOTENCY_HMAC_SECRET_LENGTH = 32
+TOTP_ENCRYPTION_KEY_BYTES = 32
 DEVELOPMENT_IDEMPOTENCY_HMAC_SECRET = "development-only-idempotency-hmac-secret-change-me"
 HOST_LABEL_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 COOKIE_NAME_PATTERN = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
@@ -58,16 +71,34 @@ NON_APP_ENV_VARS = frozenset(
         "GOATFARM_EDGE_BIND_HOST",
         "GOATFARM_EDGE_PUBLIC_SCHEME",
         "GOATFARM_EDGE_PROXY_IP",
+        "GOATFARM_EDGE_MAX_BODY_SIZE",
         "GOATFARM_DOCKER_SUBNET",
         "GOATFARM_DOCKER_DATA_SUBNET",
         "GOATFARM_ALLOW_DEV_PUBLIC_BIND",
+        "GOATFARM_CSP_CONNECT_ORIGINS",
+        "GOATFARM_CSP_IMG_ORIGINS",
+        # docker-compose.production.yml interpolation/secret-mount inputs.
+        # The preflight guard validates their spelling before Compose starts;
+        # they are deliberately never forwarded into the API/worker process.
+        "GOATFARM_BACKEND_IMAGE_REPOSITORY",
+        "GOATFARM_BACKEND_IMAGE_DIGEST",
+        "GOATFARM_FRONTEND_IMAGE_REPOSITORY",
+        "GOATFARM_FRONTEND_IMAGE_DIGEST",
+        "GOATFARM_DB_CA_FILE",
+        "GOATFARM_JWT_SECRET_DIR",
+        "GOATFARM_COMPOSE_ENV_FILE",
     }
 )
 
 
+def _known_goatfarm_env_names(known_fields: frozenset[str] | set[str] | None) -> set[str]:
+    if known_fields is None:
+        return set()
+    return {f"GOATFARM_{name.upper()}" for name in known_fields} | NON_APP_ENV_VARS
+
+
 def unknown_goatfarm_env_vars(known_fields: frozenset[str] | set[str] | None = None) -> set[str]:
-    """GOATFARM_* process-env names that are neither Settings fields nor
-    known script/edge-only variables (RT-M2-1).
+    """Unknown GOATFARM_* names in the process environment (RT-M2-1).
 
     ``extra="forbid"`` only rejects unknown keys inside ``backend/.env`` and
     direct construction — production injects config through process
@@ -76,15 +107,154 @@ def unknown_goatfarm_env_vars(known_fields: frozenset[str] | set[str] | None = N
     """
     if known_fields is None:
         return set()
-    known = {f"GOATFARM_{name.upper()}" for name in known_fields}
-    known |= NON_APP_ENV_VARS
+    known = _known_goatfarm_env_names(known_fields)
     return {name for name in os.environ if name.startswith("GOATFARM_")} - known
+
+
+def unknown_goatfarm_dotenv_vars(
+    known_fields: frozenset[str] | set[str] | None = None,
+    path: Path | None = None,
+) -> set[str]:
+    """Unknown GOATFARM_* names in the shared backend dotenv file.
+
+    The migration/worker projections intentionally use ``extra=ignore`` so
+    one shared ``backend/.env`` can contain API-only secrets. Pydantic would
+    otherwise also ignore a misspelt safety knob there. Scan names separately
+    against the union of all recognised Settings fields, using the same
+    case-insensitive spelling Pydantic accepts.
+    """
+    if known_fields is None:
+        return set()
+    dotenv_path = path or (BACKEND_DIR / ".env")
+    if not dotenv_path.is_file():
+        return set()
+    known = _known_goatfarm_env_names(known_fields)
+    values = dotenv_values(dotenv_path)
+    return {
+        name.upper() for name in values if name is not None and name.upper().startswith("GOATFARM_")
+    } - known
 
 
 PRODUCTION_REFRESH_COOKIE_NAME = "__Host-goatfarm_refresh"
 
 # asyncpg `ssl` connect-arg values (same names as libpq's sslmode).
 DbSslMode = Literal["disable", "allow", "prefer", "require", "verify-ca", "verify-full"]
+_DB_SSL_MODES = frozenset({"disable", "allow", "prefer", "require", "verify-ca", "verify-full"})
+_ASYNCPG_DATABASE_URL_SCHEME = "postgresql+asyncpg"
+
+
+def _normalize_database_url(value: str, *, sslmode: DbSslMode, setting_name: str) -> str:
+    """Validate the asyncpg URL contract and remove a compatible libpq mode.
+
+    SQLAlchemy's asyncpg dialect forwards URL query keys directly to
+    ``asyncpg.connect``. ``sslmode`` is a libpq key, not an asyncpg one, so a
+    conventional ``...?sslmode=verify-full`` URL otherwise crashes only when
+    the pool opens (``TypeError: unexpected keyword argument 'sslmode'``).
+    TLS is deliberately configured by the explicit GOATFARM_DB_* settings,
+    which let the DB layer construct a private-CA-aware SSLContext. Accept a
+    matching legacy URL mode solely for safe migration, then strip it before
+    it reaches the driver; reject a conflict or any other URL-level SSL knob
+    rather than weakening or bypassing that explicit policy.
+    """
+    if value != value.strip() or any(character.isspace() for character in value):
+        raise ValueError(f"{setting_name} must not contain whitespace")
+    try:
+        parsed = urlsplit(value)
+        # Accessing these properties validates malformed ports and IPv6 hosts.
+        host = parsed.hostname
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError(f"{setting_name} must be a valid postgresql+asyncpg URL") from exc
+    if parsed.scheme != _ASYNCPG_DATABASE_URL_SCHEME:
+        raise ValueError(
+            f"{setting_name} must use {_ASYNCPG_DATABASE_URL_SCHEME}://, not {parsed.scheme!r}"
+        )
+    if host is None or not parsed.netloc:
+        raise ValueError(f"{setting_name} must include a database host")
+    if port == 0:
+        raise ValueError(f"{setting_name} must use a valid database port")
+    if parsed.path in {"", "/"}:
+        raise ValueError(f"{setting_name} must include a database name")
+    if parsed.fragment:
+        raise ValueError(f"{setting_name} must not contain a URL fragment")
+
+    query_pairs = parse_qsl(parsed.query, keep_blank_values=True)
+    sslmode_values = [
+        query_value for query_key, query_value in query_pairs if query_key.casefold() == "sslmode"
+    ]
+    if len(sslmode_values) > 1:
+        raise ValueError(f"{setting_name} must not declare sslmode more than once")
+    if sslmode_values:
+        url_sslmode = sslmode_values[0].casefold()
+        if url_sslmode not in _DB_SSL_MODES:
+            raise ValueError(f"{setting_name} has an unsupported sslmode={sslmode_values[0]!r}")
+        if url_sslmode != sslmode:
+            raise ValueError(
+                f"{setting_name} sslmode={sslmode_values[0]!r} conflicts with "
+                f"GOATFARM_DB_SSLMODE={sslmode!r}; configure TLS with GOATFARM_DB_SSLMODE"
+            )
+
+    # ``ssl=...`` is an asyncpg option, but it would compete with the
+    # explicit SSLContext passed by app.db. The rest are libpq-only variants
+    # that asyncpg cannot consume. Reject all URL-level SSL configuration
+    # except the matching, normalized compatibility ``sslmode`` above.
+    forbidden_tls_keys = sorted(
+        {
+            query_key
+            for query_key, _query_value in query_pairs
+            if query_key.casefold() != "sslmode"
+            and (query_key.casefold() == "ssl" or query_key.casefold().startswith("ssl"))
+        }
+    )
+    if forbidden_tls_keys:
+        raise ValueError(
+            f"{setting_name} must not use URL TLS parameter(s) "
+            f"{', '.join(forbidden_tls_keys)}; configure GOATFARM_DB_SSLMODE "
+            "and GOATFARM_DB_SSLROOTCERT_PATH instead"
+        )
+
+    if not sslmode_values:
+        return value
+    return urlunsplit(
+        parsed._replace(
+            query=urlencode(
+                [
+                    (query_key, query_value)
+                    for query_key, query_value in query_pairs
+                    if query_key.casefold() != "sslmode"
+                ],
+                doseq=True,
+            )
+        )
+    )
+
+
+def _readable_db_root_certificate(value: Path | None) -> Path | None:
+    """Validate an optional private-CA bundle before a pool is created.
+
+    asyncpg's string ``verify-full`` mode looks only in a PostgreSQL-home
+    location, which does not exist for the non-root container user. The DB
+    layer builds a standard-library SSLContext instead; this setting supplies
+    an explicitly mounted private CA when the system trust store is not enough.
+    """
+    if value is None:
+        return None
+    if not value.is_file():
+        raise ValueError("GOATFARM_DB_SSLROOTCERT_PATH must name a readable CA certificate file")
+    try:
+        with value.open("rb") as certificate:
+            certificate.read(1)
+    except OSError as exc:
+        raise ValueError(
+            "GOATFARM_DB_SSLROOTCERT_PATH must name a readable CA certificate file"
+        ) from exc
+    return value
+
+
+def _invalid_db_ca_mode(path: Path | None, sslmode: DbSslMode) -> str | None:
+    if path is not None and sslmode not in {"verify-ca", "verify-full"}:
+        return "GOATFARM_DB_SSLROOTCERT_PATH requires GOATFARM_DB_SSLMODE verify-ca or verify-full"
+    return None
 
 
 class MigrationSettings(BaseSettings):
@@ -109,15 +279,57 @@ class MigrationSettings(BaseSettings):
     database_url: str = "postgresql+asyncpg://localhost:5432/goatfarm"
     migration_database_url: str | None = None
     db_sslmode: DbSslMode = "disable"
+    db_sslrootcert_path: Path | None = None
     migration_statement_timeout_ms: int = Field(default=0, ge=0)
+
+    @field_validator("db_sslrootcert_path")
+    @classmethod
+    def _valid_db_root_certificate(cls, value: Path | None) -> Path | None:
+        return _readable_db_root_certificate(value)
 
     @model_validator(mode="after")
     def _production_tls(self) -> MigrationSettings:
+        self.database_url = _normalize_database_url(
+            self.database_url,
+            sslmode=self.db_sslmode,
+            setting_name="GOATFARM_DATABASE_URL",
+        )
+        if self.migration_database_url is not None:
+            self.migration_database_url = _normalize_database_url(
+                self.migration_database_url,
+                sslmode=self.db_sslmode,
+                setting_name="GOATFARM_MIGRATION_DATABASE_URL",
+            )
+        # ``extra=ignore`` is intentional for a shared backend .env: this
+        # least-privilege process must not require API cookie/JWT settings.
+        # Process-environment typos are different, though — a misspelled
+        # GOATFARM_ENVIRONMENT would otherwise silently select development
+        # defaults and bypass this privileged job's production TLS gate.
+        known_fields = frozenset(type(self).model_fields) | frozenset(Settings.model_fields)
+        unknown = unknown_goatfarm_env_vars(known_fields) | unknown_goatfarm_dotenv_vars(
+            known_fields
+        )
+        if unknown:
+            raise ValueError(
+                "Refusing migration: unknown GOATFARM_* environment variable(s): "
+                f"{', '.join(sorted(unknown))}"
+            )
         if self.environment == "production" and self.db_sslmode != "verify-full":
             raise ValueError(
                 f"Refusing migration: GOATFARM_DB_SSLMODE={self.db_sslmode!r} is unsafe "
                 "in production — use 'verify-full'"
             )
+        # Alembic is the only component intentionally allowed to receive the
+        # DDL-capable database identity.  Falling back to DATABASE_URL here
+        # would make a direct production invocation either run migrations as
+        # the API role or tempt an operator to grant that long-lived role DDL
+        # privileges.  Development retains the ergonomic single-URL fallback.
+        if self.environment == "production" and not self.migration_database_url:
+            raise ValueError(
+                "Refusing migration: GOATFARM_MIGRATION_DATABASE_URL is required in production"
+            )
+        if problem := _invalid_db_ca_mode(self.db_sslrootcert_path, self.db_sslmode):
+            raise ValueError(problem)
         return self
 
 
@@ -158,6 +370,117 @@ class ScreeningRotationProvider(BaseModel):
         return value.rstrip("/")
 
 
+class ScreeningRuntimeSettings(Protocol):
+    """The deliberately small configuration surface used by screening code.
+
+    The API and its worker have different secret requirements.  Keeping the
+    common, structural contract here lets the worker run without receiving
+    cookie/JWT/idempotency secrets that are irrelevant to image processing.
+    """
+
+    environment: Literal["development", "production"]
+    database_url: str
+    db_sslmode: DbSslMode
+    db_sslrootcert_path: Path | None
+    db_pool_size: int
+    db_max_overflow: int
+    db_pool_timeout: int
+    db_statement_timeout_ms: int
+    screening_enabled: bool
+    s3_endpoint_url: str | None
+    s3_region: str
+    s3_bucket: str | None
+    s3_access_key_id: SecretStr | None
+    s3_secret_access_key: SecretStr | None
+    screening_s3_prefix: str
+    screening_poll_interval_seconds: int
+    screening_max_images_per_cycle: int
+    screening_image_max_edge_px: int
+    screening_crop_detection_enabled: bool
+    screening_max_crops_per_image: int
+    screening_presign_expiry_seconds: int
+    screening_provider: Literal["anthropic", "openai_compatible"]
+    screening_anthropic_base_url: str
+    screening_anthropic_api_key: SecretStr | None
+    screening_anthropic_model: str
+    screening_openai_base_url: str
+    screening_openai_api_key: SecretStr | None
+    screening_openai_model: str
+    screening_provider_rotation: list[ScreeningRotationProvider]
+    screening_provider_timeout_seconds: int
+
+
+def _has_nonblank_secret(value: SecretStr | None) -> bool:
+    """Whether an operator-supplied secret has usable non-whitespace bytes.
+
+    ``SecretStr(\" \")`` is truthy, so checking the wrapper object itself
+    accepts a whitespace-only environment value and leaves a worker that can
+    never authenticate to S3 or its selected model provider.  Do the check in
+    one place for both the API and least-privilege worker projections.
+    """
+    return value is not None and bool(value.get_secret_value().strip())
+
+
+def decode_totp_encryption_key(value: SecretStr | str, *, setting_name: str) -> bytes:
+    """Decode one canonical, unpadded base64url AES-256 TOTP key.
+
+    The format is intentionally strict so the configured current key and its
+    verification-only predecessors have one stable representation. That makes
+    duplicate checks meaningful and prevents an operator from believing two
+    spellings name different keys during a rotation.
+    """
+    raw = value.get_secret_value() if isinstance(value, SecretStr) else value
+    if not raw or raw != raw.strip():
+        raise ValueError(f"{setting_name} must be a non-blank unpadded base64url key")
+    try:
+        decoded = base64.b64decode(raw + ("=" * (-len(raw) % 4)), altchars=b"-_", validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise ValueError(f"{setting_name} must be a base64url-encoded key") from exc
+    canonical = base64.urlsafe_b64encode(decoded).rstrip(b"=").decode("ascii")
+    if raw != canonical or len(decoded) != TOTP_ENCRYPTION_KEY_BYTES:
+        raise ValueError(
+            f"{setting_name} must be exactly {TOTP_ENCRYPTION_KEY_BYTES} bytes encoded as "
+            "canonical unpadded base64url"
+        )
+    return decoded
+
+
+def _screening_configuration_problems(settings: ScreeningRuntimeSettings) -> list[str]:
+    """Return missing screening prerequisites without leaking secret values."""
+    if not settings.screening_enabled:
+        return []
+    missing: list[str] = []
+    if not settings.s3_bucket or not settings.s3_bucket.strip():
+        missing.append("GOATFARM_S3_BUCKET")
+    if not _has_nonblank_secret(settings.s3_access_key_id) or not _has_nonblank_secret(
+        settings.s3_secret_access_key
+    ):
+        missing.append("GOATFARM_S3_ACCESS_KEY_ID / GOATFARM_S3_SECRET_ACCESS_KEY")
+    if settings.screening_provider_rotation:
+        names = [entry.name for entry in settings.screening_provider_rotation]
+        if len(set(names)) != len(names):
+            missing.append("GOATFARM_SCREENING_PROVIDER_ROTATION with duplicate provider names")
+        blank_keys = [
+            entry.name
+            for entry in settings.screening_provider_rotation
+            if not entry.api_key.get_secret_value().strip()
+        ]
+        if blank_keys:
+            missing.append(
+                f"GOATFARM_SCREENING_PROVIDER_ROTATION blank api_key for: {', '.join(blank_keys)}"
+            )
+    else:
+        if settings.screening_provider == "anthropic" and not _has_nonblank_secret(
+            settings.screening_anthropic_api_key
+        ):
+            missing.append("GOATFARM_SCREENING_ANTHROPIC_API_KEY")
+        if settings.screening_provider == "openai_compatible" and not _has_nonblank_secret(
+            settings.screening_openai_api_key
+        ):
+            missing.append("GOATFARM_SCREENING_OPENAI_API_KEY")
+    return missing
+
+
 class Settings(BaseSettings):
     # env_file resolved against backend/ so launching uvicorn/alembic from
     # the repo root (or a Docker WORKDIR) still picks it up.
@@ -184,6 +507,10 @@ class Settings(BaseSettings):
     # Production requires "verify-full": encryption without certificate and
     # hostname verification does not authenticate the database server.
     db_sslmode: DbSslMode = "disable"
+
+    # Optional private CA bundle for a managed/self-hosted PostgreSQL endpoint.
+    # With no bundle, verify-{ca,full} uses the image's system trust store.
+    db_sslrootcert_path: Path | None = None
 
     # Connection pool + per-statement guardrails. The statement timeout is a
     # backstop against runaway queries (a full-table scan must not hold a
@@ -270,6 +597,17 @@ class Settings(BaseSettings):
     # verification work; the environment value is a JSON array of paths.
     jwt_previous_public_key_paths: list[Path] = Field(
         default_factory=list, max_length=MAX_PREVIOUS_JWT_PUBLIC_KEYS
+    )
+    # TOTP secrets deliberately use an independent, stable AES-256 key rather
+    # than JWT signing material. Production requires it; development can omit
+    # it temporarily so existing raw v1 ciphertext remains readable while it
+    # is migrated. New ciphertext under a configured key is versioned.
+    totp_encryption_key: SecretStr | None = None
+    # Verification/decryption-only predecessors for a deliberate TOTP-key
+    # rotation. New writes always use totp_encryption_key. Keep this bounded
+    # so each login does a finite amount of authenticated-decryption work.
+    totp_encryption_previous_keys: list[SecretStr] = Field(
+        default_factory=list, max_length=MAX_PREVIOUS_TOTP_ENCRYPTION_KEYS
     )
     jwt_algorithm: Literal["RS256"] = "RS256"
     # Bind signed tokens to this service/client pair. Signature validity alone
@@ -429,6 +767,20 @@ class Settings(BaseSettings):
     )
     # A gate call that exceeds this is abandoned and retried next cycle.
     screening_provider_timeout_seconds: int = Field(default=120, ge=10, le=600)
+    # Used only by the worker process, but recognized by the API settings so
+    # a shared operator .env cannot be rejected as an unknown variable.
+    screening_worker_heartbeat_path: Path = DEFAULT_SCREENING_WORKER_HEARTBEAT_PATH
+    screening_worker_health_max_age_seconds: int = Field(default=900, ge=60, le=86_400)
+    # A permanently failing worker must eventually exit so the orchestrator
+    # can replace it. Individual image/provider errors are recorded by the
+    # pipeline and do not count here; this limit is only for whole-cycle
+    # exceptions such as lost database or object-store connectivity.
+    screening_worker_max_consecutive_cycle_failures: int = Field(default=3, ge=1, le=100)
+
+    @field_validator("db_sslrootcert_path")
+    @classmethod
+    def _valid_db_root_certificate(cls, value: Path | None) -> Path | None:
+        return _readable_db_root_certificate(value)
 
     @field_validator("screening_s3_prefix")
     @classmethod
@@ -490,6 +842,31 @@ class Settings(BaseSettings):
         if not normalized:
             raise ValueError("must not be blank")
         return normalized
+
+    @field_validator("totp_encryption_key", mode="before")
+    @classmethod
+    def _empty_totp_encryption_key_is_unset(cls, value: object) -> object:
+        # Compose's optional interpolation yields an empty string. Treat only
+        # that exact value as absent in development so older local stacks keep
+        # their legacy reader; whitespace remains an explicit invalid secret.
+        return None if value == "" else value
+
+    @field_validator("totp_encryption_key")
+    @classmethod
+    def _valid_totp_encryption_key(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None:
+            decode_totp_encryption_key(value, setting_name="GOATFARM_TOTP_ENCRYPTION_KEY")
+        return value
+
+    @field_validator("totp_encryption_previous_keys")
+    @classmethod
+    def _valid_previous_totp_encryption_keys(cls, value: list[SecretStr]) -> list[SecretStr]:
+        for index, key in enumerate(value):
+            decode_totp_encryption_key(
+                key,
+                setting_name=f"GOATFARM_TOTP_ENCRYPTION_PREVIOUS_KEYS[{index}]",
+            )
+        return value
 
     @field_validator("allowed_hosts")
     @classmethod
@@ -680,6 +1057,17 @@ class Settings(BaseSettings):
         trivially insecure — an HTTP refresh-cookie, localhost CORS origins,
         or a plaintext database connection are always operator mistakes,
         never valid production config."""
+        self.database_url = _normalize_database_url(
+            self.database_url,
+            sslmode=self.db_sslmode,
+            setting_name="GOATFARM_DATABASE_URL",
+        )
+        if self.migration_database_url is not None:
+            self.migration_database_url = _normalize_database_url(
+                self.migration_database_url,
+                sslmode=self.db_sslmode,
+                setting_name="GOATFARM_MIGRATION_DATABASE_URL",
+            )
         # Argon2 requires at least 8 KiB per lane. Validate this relationship
         # before startup primes the dummy hash, yielding an actionable config
         # error rather than a native hashing failure during boot.
@@ -687,6 +1075,8 @@ class Settings(BaseSettings):
             raise ValueError(
                 "GOATFARM_ARGON2_MEMORY_COST must be at least 8 * GOATFARM_ARGON2_PARALLELISM"
             )
+        if problem := _invalid_db_ca_mode(self.db_sslrootcert_path, self.db_sslmode):
+            raise ValueError(problem)
         # Keep local HTTP development ergonomic, but make the production
         # default host-bound. A __Host- cookie cannot carry Domain, must be
         # Secure and must use Path=/; the response helper enforces the latter
@@ -712,47 +1102,24 @@ class Settings(BaseSettings):
                 "backend/.env.example"
             )
         # Screening must be fully configured or fully off — in every
-        # environment, not just production. A worker that boots "enabled"
-        # with a missing bucket or provider key would log errors forever
-        # while the farm believes photos are being screened.
-        if self.screening_enabled:
-            missing: list[str] = []
-            if not self.s3_bucket:
-                missing.append("GOATFARM_S3_BUCKET")
-            if not self.s3_access_key_id or not self.s3_secret_access_key:
-                missing.append("GOATFARM_S3_ACCESS_KEY_ID / GOATFARM_S3_SECRET_ACCESS_KEY")
-            if self.screening_provider_rotation:
-                # Rotation entries carry their own credentials; a blank key
-                # inside the JSON blob is the same silent failure a missing
-                # env var would be.
-                names = [entry.name for entry in self.screening_provider_rotation]
-                if len(set(names)) != len(names):
-                    missing.append(
-                        "GOATFARM_SCREENING_PROVIDER_ROTATION with duplicate provider names"
-                    )
-                blank_keys = [
-                    entry.name
-                    for entry in self.screening_provider_rotation
-                    if not entry.api_key.get_secret_value().strip()
-                ]
-                if blank_keys:
-                    missing.append(
-                        f"GOATFARM_SCREENING_PROVIDER_ROTATION blank api_key for: "
-                        f"{', '.join(blank_keys)}"
-                    )
-            else:
-                if self.screening_provider == "anthropic" and not self.screening_anthropic_api_key:
-                    missing.append("GOATFARM_SCREENING_ANTHROPIC_API_KEY")
-                if (
-                    self.screening_provider == "openai_compatible"
-                    and not self.screening_openai_api_key
-                ):
-                    missing.append("GOATFARM_SCREENING_OPENAI_API_KEY")
-            if missing:
-                raise ValueError(
-                    "GOATFARM_SCREENING_ENABLED=true but incomplete screening config: "
-                    f"{', '.join(missing)} — supply the values or leave screening disabled"
-                )
+        # environment, not just production. Share the check with the worker
+        # projection so neither process can accept a credential the other
+        # would reject (including whitespace-only secret values).
+        if missing := _screening_configuration_problems(self):
+            raise ValueError(
+                "GOATFARM_SCREENING_ENABLED=true but incomplete screening config: "
+                f"{', '.join(missing)} — supply the values or leave screening disabled"
+            )
+        if self.screening_worker_health_max_age_seconds < self.screening_poll_interval_seconds + 30:
+            raise ValueError(
+                "GOATFARM_SCREENING_WORKER_HEALTH_MAX_AGE_SECONDS must exceed "
+                "GOATFARM_SCREENING_POLL_INTERVAL_SECONDS by at least 30 seconds"
+            )
+        if self.totp_encryption_key is None and self.totp_encryption_previous_keys:
+            raise ValueError(
+                "GOATFARM_TOTP_ENCRYPTION_PREVIOUS_KEYS requires a current "
+                "GOATFARM_TOTP_ENCRYPTION_KEY"
+            )
         if self.environment != "production":
             return self
         problems: list[str] = []
@@ -760,6 +1127,22 @@ class Settings(BaseSettings):
         previous_hmac_secrets = [
             secret.get_secret_value() for secret in self.idempotency_request_hmac_previous_secrets
         ]
+        current_totp_key = self.totp_encryption_key
+        previous_totp_keys = [
+            secret.get_secret_value() for secret in self.totp_encryption_previous_keys
+        ]
+        if current_totp_key is None:
+            problems.append(
+                "GOATFARM_TOTP_ENCRYPTION_KEY is required in production; generate an independent "
+                "32-byte base64url key and rekey legacy TOTP ciphertext before JWT cutover"
+            )
+        elif current_totp_key.get_secret_value() in previous_totp_keys:
+            problems.append(
+                "GOATFARM_TOTP_ENCRYPTION_KEY must not also appear in "
+                "GOATFARM_TOTP_ENCRYPTION_PREVIOUS_KEYS"
+            )
+        if len(set(previous_totp_keys)) != len(previous_totp_keys):
+            problems.append("GOATFARM_TOTP_ENCRYPTION_PREVIOUS_KEYS must not contain duplicates")
         if (
             len(current_hmac_secret) < MIN_IDEMPOTENCY_HMAC_SECRET_LENGTH
             or current_hmac_secret == DEVELOPMENT_IDEMPOTENCY_HMAC_SECRET
@@ -900,9 +1283,148 @@ class Settings(BaseSettings):
         return self
 
 
+class ScreeningWorkerSettings(BaseSettings):
+    """Least-privilege settings projection for the screening worker.
+
+    The worker needs database, object-storage and provider credentials.  It
+    must not require (or receive) browser-cookie, JWT, CORS or idempotency
+    secrets simply because it shares an image with the API.  ``extra=ignore``
+    intentionally permits an operator's shared backend ``.env`` file; direct
+    process-environment typos are still rejected by the validator below.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="GOATFARM_", env_file=BACKEND_DIR / ".env", extra="ignore"
+    )
+
+    environment: Literal["development", "production"] = "development"
+    database_url: str = "postgresql+asyncpg://localhost:5432/goatfarm"
+    db_sslmode: DbSslMode = "disable"
+    db_sslrootcert_path: Path | None = None
+    db_pool_size: int = Field(default=2, ge=1)
+    db_max_overflow: int = Field(default=2, ge=0)
+    db_pool_timeout: int = Field(default=30, ge=1)
+    db_statement_timeout_ms: int = Field(default=30_000, ge=1)
+
+    screening_enabled: bool = False
+    s3_endpoint_url: str | None = None
+    s3_region: str = "us-east-1"
+    s3_bucket: str | None = None
+    s3_access_key_id: SecretStr | None = None
+    s3_secret_access_key: SecretStr | None = None
+    screening_s3_prefix: str = Field(default="raw", min_length=1, max_length=100)
+    screening_poll_interval_seconds: int = Field(default=300, ge=30)
+    screening_max_images_per_cycle: int = Field(default=50, ge=1, le=1_000)
+    screening_image_max_edge_px: int = Field(default=1_568, ge=256, le=4_096)
+    screening_crop_detection_enabled: bool = True
+    screening_max_crops_per_image: int = Field(default=8, ge=1, le=20)
+    screening_presign_expiry_seconds: int = Field(default=900, ge=60, le=86_400)
+    screening_provider: Literal["anthropic", "openai_compatible"] = "anthropic"
+    screening_anthropic_base_url: str = "https://api.anthropic.com"
+    screening_anthropic_api_key: SecretStr | None = None
+    screening_anthropic_model: str = "claude-sonnet-4-5"
+    screening_openai_base_url: str = "https://api.openai.com/v1"
+    screening_openai_api_key: SecretStr | None = None
+    screening_openai_model: str = "gpt-5"
+    screening_provider_rotation: list[ScreeningRotationProvider] = Field(
+        default_factory=list, max_length=8
+    )
+    screening_provider_timeout_seconds: int = Field(default=120, ge=10, le=600)
+
+    # A local, atomic heartbeat powers the container health check. It carries
+    # no customer data and stays inside the worker container's writable /tmp.
+    screening_worker_heartbeat_path: Path = DEFAULT_SCREENING_WORKER_HEARTBEAT_PATH
+    screening_worker_health_max_age_seconds: int = Field(default=900, ge=60, le=86_400)
+    # After this many unhandled whole-cycle failures, exit nonzero so
+    # ``restart: unless-stopped`` replaces a live-but-broken worker. Per-image
+    # verdict/provider errors remain durable pipeline results, not crashes.
+    screening_worker_max_consecutive_cycle_failures: int = Field(default=3, ge=1, le=100)
+
+    @field_validator("db_sslrootcert_path")
+    @classmethod
+    def _valid_db_root_certificate(cls, value: Path | None) -> Path | None:
+        return _readable_db_root_certificate(value)
+
+    @field_validator("screening_s3_prefix")
+    @classmethod
+    def _valid_screening_prefix(cls, value: str) -> str:
+        normalized = value.strip("/")
+        if not normalized or ".." in normalized.split("/"):
+            raise ValueError(
+                "GOATFARM_SCREENING_S3_PREFIX must be a simple path prefix "
+                "(no leading slash, no '..' segments)"
+            )
+        return normalized
+
+    @field_validator("screening_anthropic_base_url", "screening_openai_base_url")
+    @classmethod
+    def _https_provider_base_url(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        host = parsed.hostname or ""
+        if parsed.scheme != "https" and host not in {"localhost", "127.0.0.1", "::1"}:
+            raise ValueError(
+                f"{value!r} must use https:// (or an explicit loopback host for "
+                "local model gateways)"
+            )
+        return value.rstrip("/")
+
+    @field_validator("s3_endpoint_url")
+    @classmethod
+    def _https_s3_endpoint_url(cls, value: str | None) -> str | None:
+        if value is None or value == "":
+            return None
+        parsed = urlsplit(value)
+        host = parsed.hostname or ""
+        if parsed.scheme != "https" and host not in {"localhost", "127.0.0.1", "::1"}:
+            raise ValueError(
+                f"s3_endpoint_url {value!r} must use https:// (or an explicit loopback host)"
+            )
+        return value.rstrip("/")
+
+    @model_validator(mode="after")
+    def _worker_safety(self) -> ScreeningWorkerSettings:
+        self.database_url = _normalize_database_url(
+            self.database_url,
+            sslmode=self.db_sslmode,
+            setting_name="GOATFARM_DATABASE_URL",
+        )
+        known_fields = frozenset(type(self).model_fields) | frozenset(Settings.model_fields)
+        unknown = unknown_goatfarm_env_vars(known_fields) | unknown_goatfarm_dotenv_vars(
+            known_fields
+        )
+        if unknown:
+            raise ValueError(
+                "Refusing worker boot: unknown GOATFARM_* environment variable(s): "
+                f"{', '.join(sorted(unknown))}"
+            )
+        if self.environment == "production" and self.db_sslmode != "verify-full":
+            raise ValueError(
+                f"GOATFARM_DB_SSLMODE={self.db_sslmode!r} is unsafe in production — "
+                "use 'verify-full'"
+            )
+        if problem := _invalid_db_ca_mode(self.db_sslrootcert_path, self.db_sslmode):
+            raise ValueError(problem)
+        if self.screening_worker_health_max_age_seconds < self.screening_poll_interval_seconds + 30:
+            raise ValueError(
+                "GOATFARM_SCREENING_WORKER_HEALTH_MAX_AGE_SECONDS must exceed "
+                "GOATFARM_SCREENING_POLL_INTERVAL_SECONDS by at least 30 seconds"
+            )
+        if problems := _screening_configuration_problems(self):
+            raise ValueError(
+                "GOATFARM_SCREENING_ENABLED=true but incomplete screening config: "
+                f"{', '.join(problems)} — supply the values or leave screening disabled"
+            )
+        return self
+
+
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+@lru_cache
+def get_screening_worker_settings() -> ScreeningWorkerSettings:
+    return ScreeningWorkerSettings()
 
 
 @lru_cache

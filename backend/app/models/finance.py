@@ -186,6 +186,21 @@ class InsurancePolicy(Base):
             f"status IN ({sql_in_values(INSURANCE_POLICY_STATUSES)})",
             name="ck_insurance_policies_status",
         ),
+        # A legacy claimed row may predate claim attribution and therefore
+        # carry all three fields as NULL.  Every newly recorded claim carries
+        # the complete fact; partial attribution is never meaningful.
+        CheckConstraint(
+            "(status = 'claimed' AND "
+            "((claim_date IS NULL AND claimed_at IS NULL AND claimed_by_id IS NULL) OR "
+            "(claim_date IS NOT NULL AND claimed_at IS NOT NULL AND claimed_by_id IS NOT NULL))) "
+            "OR (status <> 'claimed' AND claim_date IS NULL "
+            "AND claimed_at IS NULL AND claimed_by_id IS NULL)",
+            name="ck_insurance_policies_claim_metadata_state",
+        ),
+        CheckConstraint(
+            "claim_date IS NULL OR claim_date >= start_date",
+            name="ck_insurance_policies_claim_after_start",
+        ),
         CheckConstraint(
             "btrim(policy_number) <> ''",
             name="ck_insurance_policies_policy_number_nonblank",
@@ -225,6 +240,11 @@ class InsurancePolicy(Base):
     created_at: Mapped[datetime] = mapped_column(
         default=utcnow, server_default=text("timezone('UTC', now())")
     )
+    # Claim attribution is a terminal register fact.  The API has no edit
+    # path for it; all three fields are set atomically by claim_insurance_policy.
+    claim_date: Mapped[date | None]
+    claimed_at: Mapped[datetime | None]
+    claimed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
     animal: Mapped[Animal | None] = relationship(foreign_keys=[animal_id])
 
@@ -256,7 +276,19 @@ class InsurancePremium(Base):
             ["insurance_policies.farm_id", "insurance_policies.id"],
             name="fk_insurance_premiums_farm_policy",
         ),
+        # One policy period represents one immutable payment fact.  The
+        # application lock handles normal concurrent renewals; this durable
+        # candidate key also keeps a direct/import writer from double-booking
+        # the same covered period.
+        UniqueConstraint(
+            "farm_id",
+            "policy_id",
+            "covered_from",
+            "covered_until",
+            name="uq_insurance_premiums_farm_policy_period",
+        ),
         Index("ix_insurance_premiums_farm_policy", "farm_id", "policy_id"),
+        Index("ix_insurance_premiums_farm_recorded_on", "farm_id", "recorded_on"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -265,6 +297,10 @@ class InsurancePremium(Base):
     premium: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     covered_from: Mapped[date]
     covered_until: Mapped[date]
+    # Farm-local accounting date of the payment event.  Coverage can begin
+    # in the future when a policy is renewed early, so it is deliberately not
+    # inferred from covered_from in finance aggregates.
+    recorded_on: Mapped[date]
     recorded_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(
         default=utcnow, server_default=text("timezone('UTC', now())")

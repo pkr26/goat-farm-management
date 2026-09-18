@@ -341,8 +341,7 @@ async def test_rbac_denial_emits_an_identifiable_audit_log_record(
     records = [
         record
         for record in caplog.records
-        if record.name == "goatfarm.audit"
-        and record.getMessage().startswith("security_event")
+        if record.name == "goatfarm.audit" and record.getMessage().startswith("security_event")
     ]
     assert len(records) == 1, [record.getMessage() for record in records]
     assert records[0].levelno == logging.INFO

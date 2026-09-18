@@ -9,13 +9,8 @@ FROM node:24-alpine@sha256:50c8e8ca1d27439048670df5883f32d57cf81cff6233222c893fd
 WORKDIR /app
 ARG BACKEND_URL=http://backend:8000
 ENV BACKEND_URL=${BACKEND_URL}
-# Build-time CSP additions for the cross-origin S3 presigned traffic of the
-# disease-screening walkthrough (see src/lib/csp-origins.ts). Empty default:
-# the production CSP stays exactly 'self'/data: until an operator opts in.
-ARG GOATFARM_CSP_CONNECT_ORIGINS=
-ARG GOATFARM_CSP_IMG_ORIGINS=
-ENV GOATFARM_CSP_CONNECT_ORIGINS=${GOATFARM_CSP_CONNECT_ORIGINS} \
-    GOATFARM_CSP_IMG_ORIGINS=${GOATFARM_CSP_IMG_ORIGINS}
+# CSP is set by the public edge at runtime, where a generic registry image
+# can receive the deployment's actual S3/MinIO origin after validation.
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN corepack enable && pnpm build
@@ -25,16 +20,13 @@ WORKDIR /app
 ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0 \
     PORT=3000
-# CVE sweep at build time: the digest-pinned base above can predate the
-# latest Alpine security point releases (libcrypto3/libssl3); `apk upgrade`
-# applies them so the Trivy fixable HIGH/CRITICAL gate stays at zero between
-# base-image republishes. The standalone server invokes Node directly, and
-# keeping npm in the runtime image adds unused package-management code and
-# its transitive attack surface — the pinned base has shipped fixable
-# high/critical CVEs under this exact global npm tree. Leave npm available
-# in deps/builder, but remove it and its command shims from the final image.
-RUN apk upgrade --no-cache \
-    && rm -rf /usr/local/lib/node_modules/npm \
+# The digest-pinned base is intentionally not mutated with `apk upgrade`:
+# image refreshes are explicit and reproducible, while CI's Trivy gate checks
+# that chosen digest. The standalone server invokes Node directly, and keeping
+# npm in the runtime image adds unused package-management code and its
+# transitive attack surface. Leave npm available in deps/builder, but remove
+# it and its command shims from the final image.
+RUN rm -rf /usr/local/lib/node_modules/npm \
     && rm -f /usr/local/bin/npm /usr/local/bin/npx
 RUN addgroup -S -g 10001 nextjs \
     && adduser -S -u 10001 -G nextjs nextjs

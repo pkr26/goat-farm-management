@@ -71,12 +71,14 @@ from ..schemas.common import COMMON_ERROR_RESPONSES
 from ..security import (
     LEGACY_PBKDF2_PREFIX,
     TOTP_CHALLENGE_TTL_SECONDS,
+    DecryptedTotpSecret,
     PasswordWorkCapacityError,
+    TotpSecretUnavailableError,
     _decode_payload_result,
     complete_rejected_login_timing_async,
     decode_access_claims_result,
     decode_refresh_claims,
-    decrypt_totp_secret,
+    decrypt_totp_secret_with_metadata,
     encrypt_totp_secret,
     generate_totp_secret_b32,
     hash_password_async,
@@ -1725,6 +1727,38 @@ TOTP_DISABLE_USER_SCOPE = "totp-disable"
 # Challenge codes are 6 digits: 5 attempts / 5 minutes per account makes
 # exhaustive guessing ~700 years; per-IP composite mirrors login.
 TOTP_CHALLENGE_MAX_ATTEMPTS = 5
+TOTP_SECRET_UNAVAILABLE_DETAIL = (
+    "Two-factor authentication is temporarily unavailable. Contact an administrator."
+)
+
+
+async def _decrypt_totp_secret_or_unavailable(
+    db: AsyncSession,
+    encrypted: bytes,
+    *,
+    user_id: int,
+    operation: str,
+) -> DecryptedTotpSecret:
+    """Read TOTP material or return a deliberately non-diagnostic 503.
+
+    An AEAD authentication failure can mean an interrupted legacy migration,
+    a ciphertext integrity failure, or an operator rotated JWTs before
+    running the rekey job. It must never turn into a 500, and we must not
+    consume the MFA challenge token because a repaired configuration should
+    allow the user to retry it within its normal TTL.
+    """
+    try:
+        return decrypt_totp_secret_with_metadata(encrypted)
+    except TotpSecretUnavailableError:
+        await db.rollback()
+        security_event(
+            "auth.totp.secret_unavailable",
+            "stored TOTP secret could not be authenticated",
+            user_id=user_id,
+            operation=operation,
+        )
+        raise HTTPException(status_code=503, detail=TOTP_SECRET_UNAVAILABLE_DETAIL) from None
+
 
 # Single-use challenge tokens: consumed jtis with their signed expiry, so the
 # cache is bounded by the token TTL, not by attacker volume. Per-process by
@@ -1907,8 +1941,10 @@ async def totp_confirm(
     encrypted = locked.totp_secret_enc
     if encrypted is None:  # unreachable: the PENDING check above plus the pairing CHECK
         raise HTTPException(status_code=409, detail="Start enrollment first.")
-    secret = decrypt_totp_secret(encrypted)
-    matched = verify_totp_code(secret, payload.code, at=utcnow(), last_used_step=None)
+    decrypted = await _decrypt_totp_secret_or_unavailable(
+        db, encrypted, user_id=locked.id, operation="confirm"
+    )
+    matched = verify_totp_code(decrypted.secret, payload.code, at=utcnow(), last_used_step=None)
     if matched is None:
         auth_limiter.record(
             TOTP_CONFIRM_USER_SCOPE,
@@ -1926,6 +1962,8 @@ async def totp_confirm(
         raise HTTPException(status_code=400, detail="That code is not valid right now.")
     locked.totp_state = "ACTIVE"
     locked.totp_last_step = matched
+    if decrypted.needs_rewrap:
+        locked.totp_secret_enc = encrypt_totp_secret(decrypted.secret)
     await db.commit()
     if s.auth_rate_limit_enabled:
         auth_limiter.reset(TOTP_CONFIRM_USER_SCOPE, str(user.id))
@@ -2011,10 +2049,15 @@ async def totp_disable(
                 metrics.record_auth_rate_limit_rejection(TOTP_DISABLE_USER_SCOPE)
                 await db.rollback()
                 raise _too_many_attempts()
-            secret = decrypt_totp_secret(encrypted)
+            decrypted = await _decrypt_totp_secret_or_unavailable(
+                db, encrypted, user_id=locked.id, operation="disable"
+            )
             if (
                 verify_totp_code(
-                    secret, payload.code, at=utcnow(), last_used_step=locked.totp_last_step
+                    decrypted.secret,
+                    payload.code,
+                    at=utcnow(),
+                    last_used_step=locked.totp_last_step,
                 )
                 is None
             ):
@@ -2125,9 +2168,11 @@ async def totp_challenge(
         await db.rollback()
         raise _too_many_attempts()
 
-    secret = decrypt_totp_secret(user.totp_secret_enc)
+    decrypted = await _decrypt_totp_secret_or_unavailable(
+        db, user.totp_secret_enc, user_id=user.id, operation="challenge"
+    )
     matched = verify_totp_code(
-        secret, payload.code, at=utcnow(), last_used_step=user.totp_last_step
+        decrypted.secret, payload.code, at=utcnow(), last_used_step=user.totp_last_step
     )
     if matched is None:
         auth_limiter.record(
@@ -2163,6 +2208,8 @@ async def totp_challenge(
             user_id=user_id,
         )
         raise generic
+    if decrypted.needs_rewrap:
+        user.totp_secret_enc = encrypt_totp_secret(decrypted.secret)
     out = await _issue_tokens(db, user, response)
     await db.commit()
     auth_limiter.reset(TOTP_CHALLENGE_USER_SCOPE, str(user_id))

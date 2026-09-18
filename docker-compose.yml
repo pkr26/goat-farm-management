@@ -1,7 +1,8 @@
-# Optional local/self-hosted stack: Postgres + migration job + API + frontend,
+# Local-development stack: Postgres + migration job + API + frontend,
 # published through one edge proxy so the SPA and the API share an origin. The
-# edge binds loopback by default: a production deployment must place a TLS
-# terminator in front of it rather than publishing its HTTP listener directly.
+# bundled Postgres deliberately has no TLS keys or CA material, so this file
+# refuses GOATFARM_ENVIRONMENT=production. Deploy production against an
+# externally managed, verify-full PostgreSQL endpoint instead (README).
 # Single backend replica on purpose — the auth rate limiter is in-memory and
 # the container CMD hard-codes --workers 1.
 # Credentials come from .env (copy .env.example to .env for local defaults).
@@ -19,6 +20,31 @@ x-default-logging: &default-logging
     max-file: "3"
 
 services:
+  # Compose normally drops a misspelt root-.env knob because only variables
+  # named below are interpolated. Validate that exact file before the
+  # migration job can reach the database, rather than relying on an API
+  # process that would never see the typo.
+  config-guard:
+    build: .
+    command: ["python", "scripts/compose_env_guard.py", "/run/config/compose.env"]
+    restart: "no"
+    read_only: true
+    healthcheck:
+      disable: true
+    network_mode: none
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    mem_limit: 128m
+    cpus: 0.25
+    logging: *default-logging
+    volumes:
+      - type: bind
+        source: ./.env
+        target: /run/config/compose.env
+        read_only: true
+        bind:
+          create_host_path: false
+
   db:
     image: postgres:16@sha256:f1c3376c26f2609ab9f29f71f824103fe2fcd8ee0346485cb6122a4f93df6f94
     restart: unless-stopped
@@ -57,7 +83,15 @@ services:
 
   migrate:
     build: .
-    command: ["alembic", "upgrade", "head"]
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        if [ "$$GOATFARM_ENVIRONMENT" = "production" ]; then
+          echo "The bundled docker-compose PostgreSQL service is development-only and has no authenticated TLS topology. Use the documented external verify-full PostgreSQL production deployment." >&2
+          exit 2
+        fi
+        exec alembic upgrade head
     # One-shot DDL job running as the image's non-root user: no capabilities,
     # no privilege escalation path.
     security_opt: ["no-new-privileges:true"]
@@ -66,6 +100,8 @@ services:
     cpus: 1.0
     logging: *default-logging
     depends_on:
+      config-guard:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
     environment:
@@ -75,8 +111,10 @@ services:
       # Alembic consumes a migration-only settings projection: this enables
       # the production verify-full gate without injecting API cookie/JWT/HMAC
       # configuration into the privileged one-shot container.
-      GOATFARM_ENVIRONMENT: ${GOATFARM_ENVIRONMENT:-development}
-      GOATFARM_DB_SSLMODE: ${GOATFARM_DB_SSLMODE:-disable}
+      # Mandatory interpolation closes the dangerous root-.env typo path:
+      # GOATFARM_ENVIRONMNET=production must not quietly select development.
+      GOATFARM_ENVIRONMENT: '${GOATFARM_ENVIRONMENT:?set GOATFARM_ENVIRONMENT explicitly (development or production)}'
+      GOATFARM_DB_SSLMODE: '${GOATFARM_DB_SSLMODE:?set GOATFARM_DB_SSLMODE explicitly (disable for local development)}'
     networks:
       - goatfarm_data
 
@@ -102,14 +140,11 @@ services:
     environment:
       # This process receives only the DDL-free application identity.
       GOATFARM_DATABASE_URL: '${GOATFARM_DATABASE_URL:?copy .env.example to .env and set the full API URL}'
-      GOATFARM_DB_SSLMODE: ${GOATFARM_DB_SSLMODE:-disable}
-      # Local stack on plain HTTP: stays "development". A real deployment sets
-      # GOATFARM_ENVIRONMENT=production + GOATFARM_COOKIE_SECURE=true +
-      # non-localhost GOATFARM_CORS_ORIGINS + GOATFARM_DB_SSLMODE=verify-full
-      # + GOATFARM_MIN_PASSWORD_LENGTH=12, a stable externally supplied
-      # idempotency HMAC secret, and stable mounted JWT keys
-      # (validated fail-closed at boot).
-      GOATFARM_ENVIRONMENT: ${GOATFARM_ENVIRONMENT:-development}
+      GOATFARM_DB_SSLMODE: '${GOATFARM_DB_SSLMODE:?set GOATFARM_DB_SSLMODE explicitly (disable for local development)}'
+      # This bundled stack is deliberately local-only; the migration job
+      # refuses production because its database is TLS-off. A real deployment
+      # uses the external TLS topology documented in README.
+      GOATFARM_ENVIRONMENT: '${GOATFARM_ENVIRONMENT:?set GOATFARM_ENVIRONMENT explicitly (development or production)}'
       GOATFARM_COOKIE_SECURE: ${GOATFARM_COOKIE_SECURE:-false}
       GOATFARM_CORS_ORIGINS: '${GOATFARM_CORS_ORIGINS:-["http://localhost:3000","http://127.0.0.1:3000"]}'
       # The edge forwards the browser's Host. Next's server-side rewrite still
@@ -123,6 +158,13 @@ services:
       # layer supplied the secret. Production must set a real secret.
       GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET: ${GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET:?set a stable idempotency HMAC secret (required — see .env.example)}
       GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS: '${GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS:-[]}'
+      # Optional in the local legacy-compatible topology. An empty value is
+      # interpreted as unset by Settings; production Compose requires a real
+      # independent key in docker-compose.production.yml.
+      GOATFARM_TOTP_ENCRYPTION_KEY: '${GOATFARM_TOTP_ENCRYPTION_KEY:-}'
+      GOATFARM_TOTP_ENCRYPTION_PREVIOUS_KEYS: '${GOATFARM_TOTP_ENCRYPTION_PREVIOUS_KEYS:-[]}'
+      GOATFARM_MAX_REQUEST_BODY_BYTES: ${GOATFARM_MAX_REQUEST_BODY_BYTES:-1048576}
+      GOATFARM_MAX_REQUEST_TARGET_BYTES: ${GOATFARM_MAX_REQUEST_TARGET_BYTES:-8192}
       # Defaults to exactly the edge container's configurable address (see the
       # `goatfarm_app` network below) — never the whole bridge range, which would
       # also cover other containers and let them spoof X-Forwarded-For. The
@@ -133,6 +175,9 @@ services:
       GOATFARM_TRUSTED_PROXY_HOSTS: ${GOATFARM_TRUSTED_PROXY_HOSTS:-${GOATFARM_EDGE_PROXY_IP:-198.18.243.10}}
       GOATFARM_JWT_PRIVATE_KEY_PATH: /app/keys/jwt_private.pem
       GOATFARM_JWT_PUBLIC_KEY_PATH: /app/keys/jwt_public.pem
+      # Forward the documented verification-only keyring too; deployments
+      # mounting additional public keys can rotate JWTs without a Compose edit.
+      GOATFARM_JWT_PREVIOUS_PUBLIC_KEY_PATHS: '${GOATFARM_JWT_PREVIOUS_PUBLIC_KEY_PATHS:-[]}'
       # Screening's API half runs in this process too: it mints presigned
       # upload/display URLs (SigV4-local, but it needs the S3 credentials)
       # and must pass the same fail-closed config validation as the worker
@@ -181,6 +226,16 @@ services:
     cpus: 1.0
     logging: *default-logging
     stop_grace_period: 40s
+    healthcheck:
+      # Process liveness is insufficient: a bad S3/provider configuration can
+      # leave the Python loop alive while every screening cycle fails. The
+      # worker's atomic heartbeat records a successful cycle (or expected
+      # disabled state), and this probe turns a stale/error state unhealthy.
+      test: ["CMD", "python", "screening_worker_healthcheck.py"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
     depends_on:
       db:
         condition: service_healthy
@@ -188,8 +243,8 @@ services:
         condition: service_completed_successfully
     environment:
       GOATFARM_DATABASE_URL: '${GOATFARM_DATABASE_URL:?copy .env.example to .env and set the full API URL}'
-      GOATFARM_DB_SSLMODE: ${GOATFARM_DB_SSLMODE:-disable}
-      GOATFARM_ENVIRONMENT: ${GOATFARM_ENVIRONMENT:-development}
+      GOATFARM_DB_SSLMODE: '${GOATFARM_DB_SSLMODE:?set GOATFARM_DB_SSLMODE explicitly (disable for local development)}'
+      GOATFARM_ENVIRONMENT: '${GOATFARM_ENVIRONMENT:?set GOATFARM_ENVIRONMENT explicitly (development or production)}'
       GOATFARM_SCREENING_ENABLED: ${GOATFARM_SCREENING_ENABLED:-false}
       GOATFARM_S3_ENDPOINT_URL: ${GOATFARM_S3_ENDPOINT_URL:-}
       GOATFARM_S3_REGION: ${GOATFARM_S3_REGION:-us-east-1}
@@ -212,6 +267,9 @@ services:
       GOATFARM_SCREENING_OPENAI_API_KEY: ${GOATFARM_SCREENING_OPENAI_API_KEY:-}
       GOATFARM_SCREENING_OPENAI_MODEL: ${GOATFARM_SCREENING_OPENAI_MODEL:-gpt-5}
       GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS: ${GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS:-120}
+      GOATFARM_SCREENING_WORKER_HEARTBEAT_PATH: ${GOATFARM_SCREENING_WORKER_HEARTBEAT_PATH:-/tmp/goatfarm-screening-worker.json}
+      GOATFARM_SCREENING_WORKER_HEALTH_MAX_AGE_SECONDS: ${GOATFARM_SCREENING_WORKER_HEALTH_MAX_AGE_SECONDS:-900}
+      GOATFARM_SCREENING_WORKER_MAX_CONSECUTIVE_CYCLE_FAILURES: ${GOATFARM_SCREENING_WORKER_MAX_CONSECUTIVE_CYCLE_FAILURES:-3}
     command: ["python", "-m", "app.worker"]
     networks:
       - goatfarm_data
@@ -221,14 +279,6 @@ services:
       context: ./frontend
       args:
         BACKEND_URL: http://backend:8000
-        # Production-CSP origins for the screening walkthrough's presigned
-        # S3 traffic (browser PUT upload + <img> display). Set both to the
-        # public origin of GOATFARM_S3_ENDPOINT_URL — for AWS S3 proper
-        # (endpoint unset) that is https://<bucket>.s3.<region>.amazonaws.com.
-        # Empty by default: with screening off, or served same-origin behind
-        # a proxy, the CSP stays exactly 'self'/data:.
-        GOATFARM_CSP_CONNECT_ORIGINS: ${GOATFARM_CSP_CONNECT_ORIGINS:-}
-        GOATFARM_CSP_IMG_ORIGINS: ${GOATFARM_CSP_IMG_ORIGINS:-}
     restart: unless-stopped
     # Next standalone server as its own non-root user: no capabilities needed.
     security_opt: ["no-new-privileges:true"]
@@ -267,6 +317,9 @@ services:
       - /var/cache/nginx:size=64m
       # nginx.pid (Alpine symlinks /var/run -> /run).
       - /var/run:size=1m
+      # The validated runtime CSP template is rendered here before nginx
+      # starts. Keeping it on tmpfs preserves the read-only root filesystem.
+      - /etc/nginx/conf.d:size=1m
     mem_limit: 256m
     cpus: 0.5
     logging: *default-logging
@@ -286,41 +339,33 @@ services:
         condition: service_healthy
     configs:
       - source: edge_proxy
-        target: /etc/nginx/conf.d/default.conf
+        target: /edge-proxy.template
+      - source: edge_entrypoint
+        target: /edge-entrypoint.sh
+        mode: 0555
     environment:
       # The edge is deliberately HTTP-only.  In production it must be behind
       # a TLS terminator, whose fixed scheme is propagated below.  Fail before
       # serving if an operator selects production but leaves that assertion at
       # HTTP; a Secure refresh cookie alone cannot protect bearer responses.
-      GOATFARM_ENVIRONMENT: ${GOATFARM_ENVIRONMENT:-development}
+      GOATFARM_ENVIRONMENT: '${GOATFARM_ENVIRONMENT:?set GOATFARM_ENVIRONMENT explicitly (development or production)}'
       GOATFARM_EDGE_PUBLIC_SCHEME: ${GOATFARM_EDGE_PUBLIC_SCHEME:-http}
       # The bind-host guard below must see the same value the ports mapping
       # interpolated; without this entry the in-container default silently
       # reads loopback and the public-bind warning can never fire.
       GOATFARM_EDGE_BIND_HOST: ${GOATFARM_EDGE_BIND_HOST:-127.0.0.1}
-    command:
-      - /bin/sh
-      - -ec
-      - |
-        if [ "$$GOATFARM_ENVIRONMENT" = "production" ] && [ "$$GOATFARM_EDGE_PUBLIC_SCHEME" != "https" ]; then
-          echo "Refusing production edge without an asserted HTTPS terminator (set GOATFARM_EDGE_PUBLIC_SCHEME=https)." >&2
-          exit 2
-        fi
-        case "$${GOATFARM_EDGE_BIND_HOST:-127.0.0.1}" in
-          127.0.0.1|localhost|::1) ;;
-          *)
-            # RT-R-4: a publicly reachable listener must not run with every
-            # production gate (Secure cookies, strict CORS, TLS assertion,
-            # password floor, HMAC secret) switched off. Refuse instead of
-            # warning; GOATFARM_ALLOW_DEV_PUBLIC_BIND=true is the explicit
-            # same-machine-testing opt-out.
-            if [ "$$GOATFARM_ENVIRONMENT" != "production" ] && [ "$${GOATFARM_ALLOW_DEV_PUBLIC_BIND:-false}" != "true" ]; then
-              echo "Refusing to bind the edge to $${GOATFARM_EDGE_BIND_HOST} while GOATFARM_ENVIRONMENT is '$$GOATFARM_ENVIRONMENT': every production gate (Secure cookies, strict CORS, TLS assertion, password floor) would be OFF on a publicly reachable listener. Set GOATFARM_ENVIRONMENT=production behind a TLS terminator, or set GOATFARM_ALLOW_DEV_PUBLIC_BIND=true to override for same-machine testing." >&2
-              exit 2
-            fi
-            ;;
-        esac
-        exec nginx -g 'daemon off;'
+      # Keep every config value substituted by edge-entrypoint.sh in the
+      # container environment. Rendering this directly through Compose would
+      # bypass the runtime syntax validator on a malformed size value.
+      GOATFARM_EDGE_MAX_BODY_SIZE: ${GOATFARM_EDGE_MAX_BODY_SIZE:-1m}
+      # Runtime, validated CSP additions for browser-direct S3 POST/GET
+      # traffic. Generic registry frontend images intentionally do not bake
+      # deployment-specific origins; edge-entrypoint.sh renders these values
+      # into the header after strict validation.
+      GOATFARM_SCREENING_ENABLED: ${GOATFARM_SCREENING_ENABLED:-false}
+      GOATFARM_CSP_CONNECT_ORIGINS: '${GOATFARM_CSP_CONNECT_ORIGINS:-}'
+      GOATFARM_CSP_IMG_ORIGINS: '${GOATFARM_CSP_IMG_ORIGINS:-}'
+    command: ["/bin/sh", "/edge-entrypoint.sh"]
     networks:
       goatfarm_app:
         # Fixed within an operator-selectable subnet so the backend can trust
@@ -336,6 +381,9 @@ services:
 configs:
   edge_proxy:
     # `$$` escapes Compose interpolation; nginx receives single-dollar vars.
+    # The CSP placeholders are rendered only by edge-entrypoint.sh after it
+    # validates the runtime source lists; Compose never splices them into
+    # nginx syntax directly.
     content: |
       # RT-R-1: first-line flood shaping for the unauthenticated password
       # endpoints. The backend's per-IP limiter (10 login attempts / 300 s)
@@ -345,11 +393,11 @@ configs:
       # login/refresh cadence (and refreshes carry no Argon2 cost) while
       # capping an attacker at ~1/6th of the measured rejection throughput.
       # Caveat for the outer-TLS-terminator topology: this edge sees the
-      # terminator's address as $binary_remote_addr, so the zone's 5 r/s is
+      # terminator's address as $$binary_remote_addr, so the zone's 5 r/s is
       # AGGREGATE across all clients in that deployment. The backend's own
       # X-Forwarded-For-keyed limiter remains per-client there; this zone is
       # coarse flood shaping only.
-      limit_req_zone $binary_remote_addr zone=auth_flood:10m rate=5r/s;
+      limit_req_zone $$binary_remote_addr zone=auth_flood:10m rate=5r/s;
       server {
           listen 3000;
           server_name _;
@@ -357,15 +405,15 @@ configs:
           # Preserve the browser's Host: TrustedHostMiddleware validates it and
           # the SPA builds same-origin URLs from it. X-Forwarded-For is what
           # lets the API key its auth rate limits on the real client.
-          # $host discards a non-default public port (notably Compose's :3000),
+          # $$host discards a non-default public port (notably Compose's :3000),
           # making FastAPI's canonical slash redirects point at the wrong
-          # origin. HTTP/1.1+ supplies $http_host from Host/:authority, intact.
+          # origin. HTTP/1.1+ supplies $$http_host from Host/:authority, intact.
           proxy_set_header Host $$http_host;
           proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;
           # Never trust a client-supplied forwarding header. Compose's edge is
           # HTTP locally; a deployment with a trusted TLS terminator pins this
           # operator-controlled value to `https` in the root .env file.
-          proxy_set_header X-Forwarded-Proto ${GOATFARM_EDGE_PUBLIC_SCHEME:-http};
+          proxy_set_header X-Forwarded-Proto __GOATFARM_EDGE_PUBLIC_SCHEME__;
           proxy_http_version 1.1;
           # Reject oversized bodies at the edge rather than inside the
           # application. This knob (nginx size units) and the backend's
@@ -373,12 +421,16 @@ configs:
           # them at the same byte count when you change either. The defaults
           # (1m = 1048576) are equal, and that default correspondence is
           # pinned by test; raising only one still leaves the edge 413ing
-          # bodies the other would accept (INFRA-4, 2026-09-16). Compose
-          # interpolates this value into the config blob at render time.
-          client_max_body_size ${GOATFARM_EDGE_MAX_BODY_SIZE:-1m};
+          # bodies the other would accept (INFRA-4, 2026-09-16). The edge
+          # entrypoint validates and renders this value at startup.
+          client_max_body_size __GOATFARM_EDGE_MAX_BODY_SIZE__;
           # INFRA-7 (2026-09-16): no nginx version disclosure on responses
           # or error pages.
           server_tokens off;
+
+          # Deployment-neutral frontend releases receive their CSP here rather
+          # than at Next build time. `always` protects error responses too.
+          add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: __GOATFARM_CSP_IMG_ORIGINS__; font-src 'self' data:; connect-src 'self' __GOATFARM_CSP_CONNECT_ORIGINS__; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
 
           # nginx resolves a literal upstream name once, at configuration load,
           # and caches that address for the worker's lifetime. Recreating
@@ -407,7 +459,7 @@ configs:
               limit_req_status 429;
               # A variable in proxy_pass disables nginx's automatic URI
               # pass-through, so the original URI must be restated;
-              # $request_uri is the unmodified request target including its
+              # $$request_uri is the unmodified request target including its
               # query string, which is what the literal form sent.
               set $$backend_upstream backend;
               proxy_pass http://$$backend_upstream:8000$$request_uri;
@@ -415,7 +467,7 @@ configs:
           location /api/ {
               # A variable in proxy_pass disables nginx's automatic URI
               # pass-through, so the original URI must be restated;
-              # $request_uri is the unmodified request target including its
+              # $$request_uri is the unmodified request target including its
               # query string, which is what the literal form sent.
               set $$backend_upstream backend;
               proxy_pass http://$$backend_upstream:8000$$request_uri;
@@ -425,6 +477,9 @@ configs:
               proxy_pass http://$$frontend_upstream:3000$$request_uri;
           }
       }
+
+  edge_entrypoint:
+    file: ./docker/edge-entrypoint.sh
 
 networks:
   # RT-R-2: two segments instead of one flat bridge. The edge and frontend

@@ -33,9 +33,7 @@ def upgrade() -> None:
     )
 
     op.add_column("screening_findings", sa.Column("severity", sa.String(10), nullable=True))
-    op.add_column(
-        "screening_findings", sa.Column("reviewed_by_id", sa.Integer(), nullable=True)
-    )
+    op.add_column("screening_findings", sa.Column("reviewed_by_id", sa.Integer(), nullable=True))
     op.add_column("screening_findings", sa.Column("reviewed_at", sa.DateTime(), nullable=True))
     op.add_column("screening_findings", sa.Column("review_note", sa.Text(), nullable=True))
     op.create_check_constraint(

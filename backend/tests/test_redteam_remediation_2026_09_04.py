@@ -689,12 +689,17 @@ async def test_red_l5_task_due_date_band(client: httpx.AsyncClient) -> None:
 
 def test_red_l14_edge_refuses_public_bind_in_development() -> None:
     compose = (REPO_ROOT / "docker-compose.yml").read_text()
+    # The guard itself moved out of the inline Compose command into the
+    # shared edge entrypoint (docker/edge-entrypoint.sh) that renders the
+    # runtime CSP template; it must keep refusing there.
+    entrypoint = (REPO_ROOT / "docker" / "edge-entrypoint.sh").read_text()
     # RT-R-4 hardened the guard from a warning to a refusal (exit 2) unless
     # the operator explicitly opts in for same-machine testing.
-    assert "Refusing to bind the edge to" in compose
-    assert "GOATFARM_ALLOW_DEV_PUBLIC_BIND" in compose
+    assert "Refusing to bind the edge to" in entrypoint
+    assert "GOATFARM_ALLOW_DEV_PUBLIC_BIND" in entrypoint
+    assert "WARNING: the edge is bound to" not in entrypoint
     assert "WARNING: the edge is bound to" not in compose
-    assert "127.0.0.1|localhost|::1) ;;" in compose
+    assert "127.0.0.1|localhost|::1) ;;" in entrypoint
     # Independent-verifier regression: the guard reads the in-container
     # environment, so compose must pass the bind host through — otherwise the
     # refusal can never fire (the guard would always see the loopback default).

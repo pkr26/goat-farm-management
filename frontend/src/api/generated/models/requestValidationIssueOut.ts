@@ -4,12 +4,12 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
-import type { ValidationErrorCtx } from './validationErrorCtx';
 
-export interface ValidationError {
+/**
+ * One safe, client-actionable issue from the custom 422 handler.
+ */
+export interface RequestValidationIssueOut {
+  type: string;
   loc: (string | number)[];
   msg: string;
-  type: string;
-  input?: unknown;
-  ctx?: ValidationErrorCtx;
 }

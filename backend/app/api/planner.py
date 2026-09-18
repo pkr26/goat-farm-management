@@ -95,6 +95,14 @@ def _load_plan_parts(plan: PlannerPlan) -> tuple[list[PlannerTarget], Simulation
                 "the current schema; update or delete it."
             ),
         ) from exc
+    if assumptions.meta.start_year_month != plan.start_year_month:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Stored assumptions for plan {plan.name!r} disagree with its "
+                "start-month anchor; update or delete it."
+            ),
+        )
     if not targets:
         raise HTTPException(
             status_code=422,
@@ -179,6 +187,19 @@ async def _check_name_free(db: DbSession, farm_id: int, name: str, exclude_id: i
 
 def _targets_json(payload_targets: list[PlannerTargetIn]) -> str:
     return json.dumps([target.model_dump() for target in payload_targets])
+
+
+def _assumptions_json_at_anchor(assumptions: SimulationAssumptions, anchor: str) -> str:
+    """Serialize an assumptions document with the plan column's anchor.
+
+    A saved plan has two representations of its start month: the relational
+    column used in list/detail output and the simulation document consumed by
+    DPR generation. Treat the column as authoritative and normalize a deep
+    copy before every write so a caller cannot persist split-brain state.
+    """
+    normalized = assumptions.model_copy(deep=True)
+    normalized.meta.start_year_month = anchor
+    return normalized.model_dump_json()
 
 
 @router.post("/plan")
@@ -299,14 +320,13 @@ async def create_plan(
         await _check_name_free(db, farm.id, name)
         # The plan's anchor column is the anchor of record: bake it into the
         # stored assumptions so the two can never disagree.
-        payload.assumptions.meta.start_year_month = payload.start_year_month
         plan = PlannerPlan(
             farm_id=farm.id,
             name=name,
             notes=payload.notes,
             start_year_month=payload.start_year_month,
             targets=_targets_json(payload.targets),
-            assumptions=payload.assumptions.model_dump_json(),
+            assumptions=_assumptions_json_at_anchor(payload.assumptions, payload.start_year_month),
             created_by_id=user.id,
         )
         db.add(plan)
@@ -379,6 +399,27 @@ async def update_plan(
             status_code=409,
             detail="This plan changed since you opened it; refresh before saving.",
         )
+    # Work out and validate the serialized assumptions before mutating the
+    # ORM row. An assumptions-only PATCH retains the existing authoritative
+    # column anchor; an anchor-only PATCH rewrites the stored document.
+    next_anchor = payload.start_year_month or plan.start_year_month
+    normalized_assumptions: str | None = None
+    if payload.assumptions is not None:
+        normalized_assumptions = _assumptions_json_at_anchor(payload.assumptions, next_anchor)
+    elif payload.start_year_month is not None:
+        plan_name = plan.name  # snapshot before the rollback expires the row
+        try:
+            stored = SimulationAssumptions.model_validate(json.loads(plan.assumptions))
+        except (json.JSONDecodeError, ValidationError) as exc:
+            await db.rollback()
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Stored assumptions for plan {plan_name!r} no longer validate against "
+                    "the current schema; update or delete it."
+                ),
+            ) from exc
+        normalized_assumptions = _assumptions_json_at_anchor(stored, next_anchor)
     changed = False
     if payload.name is not None:
         name = payload.name.strip()
@@ -396,28 +437,9 @@ async def update_plan(
     if payload.targets is not None:
         plan.targets = _targets_json(payload.targets)
         changed = True
-    if payload.assumptions is not None:
-        plan.assumptions = payload.assumptions.model_dump_json()
+    if normalized_assumptions is not None:
+        plan.assumptions = normalized_assumptions
         changed = True
-    if payload.start_year_month is not None:
-        # Keep the anchor column authoritative in the stored document (the
-        # assumptions may have been edited in the same request or not at all).
-        # A stored document that no longer validates must answer 422 like
-        # every other read path, never a bare 500 mid-update.
-        plan_name = plan.name  # snapshot before the rollback expires the row
-        try:
-            stored = SimulationAssumptions.model_validate(json.loads(plan.assumptions))
-        except (json.JSONDecodeError, ValidationError) as exc:
-            await db.rollback()
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"Stored assumptions for plan {plan_name!r} no longer validate against "
-                    "the current schema; update or delete it."
-                ),
-            ) from exc
-        stored.meta.start_year_month = payload.start_year_month
-        plan.assumptions = stored.model_dump_json()
     if changed:
         plan.revision += 1
     try:
@@ -489,8 +511,20 @@ async def plan_dpr(
 
 
 @router.delete("/plans/{plan_id}", status_code=204)
-async def delete_plan(db: DbSession, farm: CurrentFarm, perms: SimManage, plan_id: int) -> Response:
-    plan = await _get_plan(db, farm.id, plan_id)
+async def delete_plan(
+    db: DbSession,
+    farm: CurrentFarm,
+    perms: SimManage,
+    plan_id: int,
+    expected_revision: Annotated[int, Query(ge=1, le=MAX_INT32_ID)],
+) -> Response:
+    """Delete only the exact version the caller reviewed."""
+    plan = await _get_plan(db, farm.id, plan_id, for_update=True)
+    if plan.revision != expected_revision:
+        raise HTTPException(
+            status_code=409,
+            detail="This plan changed since you opened it; refresh before deleting.",
+        )
     await db.delete(plan)
     await db.commit()
     return Response(status_code=204)

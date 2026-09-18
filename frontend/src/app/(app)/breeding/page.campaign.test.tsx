@@ -638,12 +638,11 @@ describe("KiddingPage — campaign kills", () => {
   it("demands a mortality date for a died kid whose field is absent entirely", () => {
     // The dialog always registers the input (""), but the schema accepts
     // programmatic payloads — an omitted field must fail, not crash.
-    const { mortality_reported_at: _m, ...withoutField } = {
+    const withoutField: Record<string, unknown> = {
       tag: "",
       sex: "F" as const,
       birth_weight: 2.5,
       status: "DIED" as const,
-      mortality_reported_at: "",
       colostrum: "unrecorded" as const,
       navel: "unrecorded" as const,
       dam_rejected: false,

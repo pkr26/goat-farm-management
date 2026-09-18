@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState, type ComponentProps } from "react";
 
 import { Input } from "@/components/ui/input";
+import { useLanguage, useT } from "@/lib/i18n";
 
 import { humanize } from "./format-helpers";
 
@@ -58,6 +59,8 @@ type NumberInputProps = Omit<
  *  draft is local while the field is being edited, so external updates
  *  (defaults / scenario loads) still flow through otherwise. */
 export function NumberInput(props: NumberInputProps) {
+  const t = useT();
+  const { language } = useLanguage();
   const {
     value,
     onCommit,
@@ -90,15 +93,17 @@ export function NumberInput(props: NumberInputProps) {
 
   function validate(raw: string): { value?: number | null; error?: string } {
     if (raw === "") {
-      return nullable ? { value: null } : { error: "A value is required." };
+      return nullable ? { value: null } : { error: t("simulation.input.required") };
     }
     const parsed = Number(raw);
-    if (!Number.isFinite(parsed)) return { error: "Enter a valid number." };
-    if (integer && !Number.isInteger(parsed)) return { error: "Enter a whole number." };
+    if (!Number.isFinite(parsed)) return { error: t("simulation.input.validNumber") };
+    if (integer && !Number.isInteger(parsed)) return { error: t("simulation.input.wholeNumber") };
     if (exclusiveMin !== undefined && parsed <= exclusiveMin)
-      return { error: `Must be greater than ${exclusiveMin}.` };
-    if (min !== undefined && parsed < min) return { error: `Must be at least ${min}.` };
-    if (max !== undefined && parsed > max) return { error: `Must be at most ${max}.` };
+      return { error: t("simulation.input.greaterThan", { value: exclusiveMin }) };
+    if (min !== undefined && parsed < min)
+      return { error: t("simulation.input.atLeast", { value: min }) };
+    if (max !== undefined && parsed > max)
+      return { error: t("simulation.input.atMost", { value: max }) };
     return { value: parsed };
   }
 
@@ -120,7 +125,10 @@ export function NumberInput(props: NumberInputProps) {
   // the parent's `invalidFields` set, which gates Run and Save. Re-derive
   // while rendering (React's documented pattern for state that depends on
   // props) rather than in an effect.
-  const boundsKey = `${min}|${max}|${exclusiveMin}|${integer}|${nullable}`;
+  // The displayed validation message belongs to the active language too: a
+  // locale switch while an invalid draft is open must not strand stale English
+  // error copy until the operator edits the field again.
+  const boundsKey = `${min}|${max}|${exclusiveMin}|${integer}|${nullable}|${language}`;
   const [seenBounds, setSeenBounds] = useState(boundsKey);
   if (boundsKey !== seenBounds) {
     setSeenBounds(boundsKey);
@@ -196,6 +204,8 @@ export function NumberArrayInput({
   onCommit: (value: number[]) => void;
   onValidityChange: (valid: boolean) => void;
 }) {
+  const t = useT();
+  const { language } = useLanguage();
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const errorId = `${id}-error`;
@@ -212,29 +222,35 @@ export function NumberArrayInput({
     let message: string | null = null;
     const parsed = tokens.map(Number);
     if (tokens.some((token) => token === "") || parsed.some((n) => !Number.isFinite(n)))
-      message = "Enter only comma-separated numbers.";
+      message = t("simulation.input.commaSeparatedNumbers");
     else if (rule.exactLength !== undefined && parsed.length !== rule.exactLength)
-      message = `Enter exactly ${rule.exactLength} ${rule.itemLabel}.`;
+      message = t("simulation.input.exactlyItems", {
+        count: rule.exactLength,
+        label: rule.itemLabel,
+      });
     else if (rule.maxLength !== undefined && parsed.length > rule.maxLength)
-      message = `Enter at most ${rule.maxLength} ${rule.itemLabel}.`;
+      message = t("simulation.input.atMostItems", {
+        count: rule.maxLength,
+        label: rule.itemLabel,
+      });
     else if (rule.integer && parsed.some((n) => !Number.isInteger(n)))
-      message = `Every ${rule.itemLabel} entry must be a whole number.`;
+      message = t("simulation.input.eachItemWhole", { label: rule.itemLabel });
     else if (
       rule.exclusiveMin !== undefined &&
       parsed.some((n) => n <= rule.exclusiveMin!)
     )
-      message = `Every entry must be greater than ${rule.exclusiveMin}.`;
+      message = t("simulation.input.eachGreaterThan", { value: rule.exclusiveMin });
     else if (rule.min !== undefined && parsed.some((n) => n < rule.min!))
-      message = `Every entry must be at least ${rule.min}.`;
+      message = t("simulation.input.eachAtLeast", { value: rule.min });
     else if (rule.max !== undefined && parsed.some((n) => n > rule.max!))
-      message = `Every entry must be at most ${rule.max}.`;
+      message = t("simulation.input.eachAtMost", { value: rule.max });
     else if (rule.unique && new Set(parsed).size !== parsed.length)
-      message = `${humanize(rule.itemLabel)} must not contain duplicates.`;
+      message = t("simulation.input.noDuplicates", { label: humanize(rule.itemLabel) });
     else if (
       rule.nondecreasing &&
       parsed.some((n, index) => index > 0 && n < parsed[index - 1])
     )
-      message = `${humanize(rule.itemLabel)} must not decrease.`;
+      message = t("simulation.input.nondecreasing", { label: humanize(rule.itemLabel) });
     return { parsed, message };
   }
 
@@ -266,6 +282,7 @@ export function NumberArrayInput({
     rule.unique,
     rule.nondecreasing,
     rule.allowEmpty,
+    language,
   ].join("|");
   const [seenBounds, setSeenBounds] = useState(boundsKey);
   if (boundsKey !== seenBounds) {

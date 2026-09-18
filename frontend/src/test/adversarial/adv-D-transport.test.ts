@@ -32,6 +32,7 @@ describe("ADV D1: idempotency coverage matrix (money/stock-creating POSTs)", () 
     "/api/team/workers",
     "/api/health/events",
     "/api/simulation/scenarios",
+    "/api/planner/plans",
     "/api/feeding/dispense",
     "/api/feeding/mix",
     "/api/feeding/inventory/3/add",

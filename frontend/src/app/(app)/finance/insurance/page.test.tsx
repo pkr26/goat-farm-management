@@ -55,6 +55,9 @@ function makePolicy(overrides: Partial<InsurancePolicyOut> = {}): InsurancePolic
     status: "active",
     notes: null,
     created_at: "2026-01-10T05:30:00Z",
+    claim_date: null,
+    claimed_at: null,
+    claimed_by_id: null,
     ...overrides,
   };
 }
@@ -137,6 +140,59 @@ describe("InsurancePage", () => {
 
     expect(tableScope().getByText("G-011")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "G-011" })).not.toBeInTheDocument();
+  });
+
+  it("discloses immutable premium and attributable claim history on demand", async () => {
+    const user = userEvent.setup();
+    const historyGet = vi.fn();
+    server.use(
+      http.get("/api/finance/insurance/:policyId/history", ({ params }) => {
+        historyGet(params.policyId);
+        return HttpResponse.json({
+          policy: makePolicy({
+            status: "claimed",
+            claim_date: "2026-09-15",
+            claimed_at: "2026-09-15T09:30:00Z",
+            claimed_by_id: 42,
+          }),
+          premiums: [
+            {
+              id: 8,
+              policy_id: 1,
+              premium: 555.25,
+              covered_from: "2026-01-10",
+              covered_until: "2027-01-10",
+              recorded_on: "2026-01-10",
+              recorded_by_id: 7,
+              created_at: "2026-01-10T05:30:00Z",
+            },
+          ],
+        });
+      }),
+    );
+    await renderLoaded();
+
+    // Each rendering mode has its own native disclosure, but neither fetches
+    // audit data until an operator explicitly expands it.
+    expect(historyGet).not.toHaveBeenCalled();
+    const summary = within(rowOf("POL-2026-001")).getByText("Premium & claim history");
+    expect(summary.tagName).toBe("SUMMARY");
+    const disclosure = summary.closest("details");
+    expect(disclosure).not.toBeNull();
+    await user.click(summary);
+
+    await waitFor(() => expect(historyGet).toHaveBeenCalledWith("1"));
+    expect(within(disclosure as HTMLElement).getByText("Premium entries")).toBeInTheDocument();
+    expect(within(disclosure as HTMLElement).getByText("₹555.25")).toBeInTheDocument();
+    expect(
+      within(disclosure as HTMLElement).getByText(/Coverage 10 Jan 2026–10 Jan 2027/),
+    ).toBeInTheDocument();
+    expect(
+      within(disclosure as HTMLElement).getByText(/Recorded 15 Sep 2026 by user #42/),
+    ).toBeInTheDocument();
+    expect(
+      within(disclosure as HTMLElement).getByText(/Recorded 10 Jan 2026 by user #7/),
+    ).toBeInTheDocument();
   });
 
   it("hides the register behind finance.view", async () => {
@@ -265,22 +321,24 @@ describe("InsurancePage", () => {
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     });
 
-    it("refuses to move the horizon backwards", async () => {
+    it("requires the renewal horizon to advance strictly", async () => {
       const user = userEvent.setup();
       await renderLoaded();
       const dialog = await openRenew(user, "POL-2026-001");
 
       const policy = makePolicy();
-      fireEvent.change(within(dialog).getByLabelText(/new renewal date/i), {
-        target: { value: addDays(policy.renewal_date, -1) },
-      });
-      await user.click(within(dialog).getByRole("button", { name: /renew policy/i }));
+      const renewalDate = within(dialog).getByLabelText(/new renewal date/i);
+      expect(renewalDate).toHaveAttribute("min", addDays(policy.renewal_date, 1));
 
-      expect(
-        await within(dialog).findByText(
-          `Cannot be before the current renewal date ${formatDate(policy.renewal_date)}`,
-        ),
-      ).toBeInTheDocument();
+      for (const invalidDate of [policy.renewal_date, addDays(policy.renewal_date, -1)]) {
+        fireEvent.change(renewalDate, { target: { value: invalidDate } });
+        await user.click(within(dialog).getByRole("button", { name: /renew policy/i }));
+        expect(
+          await within(dialog).findByText(
+            `Must be after the current renewal date ${formatDate(policy.renewal_date)}`,
+          ),
+        ).toBeInTheDocument();
+      }
       expect(renewBodies).toHaveLength(0);
     });
   });

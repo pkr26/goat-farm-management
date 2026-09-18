@@ -4,4 +4,4 @@ import asyncio
 
 from . import main
 
-asyncio.run(main())
+raise SystemExit(asyncio.run(main()))

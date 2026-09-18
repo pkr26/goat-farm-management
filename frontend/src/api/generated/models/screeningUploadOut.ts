@@ -4,10 +4,22 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { ScreeningUploadOutUploadFields } from './screeningUploadOutUploadFields';
 
+/**
+ * A constrained browser-to-object-store POST form.
+ *
+ * ``upload_url`` is retained as the transport target for existing clients,
+ * but callers must use ``upload_method`` and append every ``upload_fields``
+ * entry to a ``FormData`` before appending the file as ``file``.  The S3
+ * policy binds the form to this pre-registered image and caps its bytes.
+ */
 export interface ScreeningUploadOut {
   image_id: number;
   s3_key: string;
   upload_url: string;
+  upload_method?: 'POST';
+  upload_fields: ScreeningUploadOutUploadFields;
+  max_upload_bytes: number;
   expires_in_seconds: number;
 }

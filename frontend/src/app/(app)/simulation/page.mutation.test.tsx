@@ -1199,8 +1199,10 @@ describe("SimulationPage mutation hardening: delete flow", () => {
   it("confirms deletion verbatim, then refocuses the scenarios section", async () => {
     const scenarios = [scenarioFixture({ id: 7, name: "Plan B", assumptions: DEFAULTS })];
     let releaseDelete!: () => void;
+    let expectedRevision: string | null = null;
     server.use(
-      http.delete("/api/simulation/scenarios/:scenarioId", ({ params }) => {
+      http.delete("/api/simulation/scenarios/:scenarioId", ({ params, request }) => {
+        expectedRevision = new URL(request.url).searchParams.get("expected_revision");
         const index = scenarios.findIndex((row) => row.id === Number(params.scenarioId));
         if (index >= 0) scenarios.splice(index, 1);
         return new Promise<Response>((resolve) => {
@@ -1228,6 +1230,7 @@ describe("SimulationPage mutation hardening: delete flow", () => {
     await waitFor(() =>
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
     );
+    expect(expectedRevision).toBe("1");
 
     releaseDelete();
     await waitFor(() => {

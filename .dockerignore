@@ -23,6 +23,9 @@ backend/keys
 backend/tests
 backend/scripts/*
 !backend/scripts/healthcheck.py
+!backend/scripts/screening_worker_healthcheck.py
+!backend/scripts/compose_env_guard.py
+!backend/scripts/rekey_totp_secrets.py
 **/__pycache__
 .dockerignore
 docker-compose.yml

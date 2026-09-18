@@ -925,7 +925,6 @@ async def test_event_next_due_far_future_accepted(client: httpx.AsyncClient) -> 
     assert refused.status_code == 422
 
 
-
 async def test_omitted_event_date_validates_followup_against_farm_today(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

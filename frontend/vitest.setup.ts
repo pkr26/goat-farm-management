@@ -3,6 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll } from "vitest";
 
+import { clearIdempotencyRequestState } from "./src/lib/idempotent-request";
 import { server } from "./src/test/msw-server";
 
 /** Minimal Web Storage shim. Node >= 25 ships an experimental host
@@ -73,6 +74,10 @@ beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 
 afterEach(() => {
   cleanup();
+  // A deliberately unresolved mutation must not coalesce an identical
+  // mutation in the next test. Browser navigation does not cross this
+  // boundary, but the shared Vitest realm does.
+  clearIdempotencyRequestState();
   server.resetHandlers();
   // On Node >= 25 an experimental host localStorage can shadow the jsdom
   // realm's — `localStorage` may resolve to a different Storage instance

@@ -51,6 +51,9 @@ function makePolicy(overrides: Partial<InsurancePolicyOut> = {}): InsurancePolic
     status: "active",
     notes: null,
     created_at: "2026-01-10T05:30:00Z",
+    claim_date: null,
+    claimed_at: null,
+    claimed_by_id: null,
     ...overrides,
   };
 }
@@ -96,6 +99,9 @@ describe("InsurancePage mobile card list", () => {
     expect(within(cards).getByText("₹12,000")).toBeInTheDocument();
     expect(within(cards).getByText("₹480")).toBeInTheDocument();
     expect(within(cards).getByText("Active")).toBeInTheDocument();
+    // The audit trail is a native, keyboard-focusable disclosure in both
+    // responsive renderings; it does not turn the compact card into a link.
+    expect(within(cards).getByText("Premium & claim history").tagName).toBe("SUMMARY");
 
     expect(desktopTable()).toHaveClass("min-w-[840px]");
   });

@@ -7,6 +7,7 @@
 import { Info, type LucideIcon } from "lucide-react";
 
 import { StatCard } from "@/components/stat-card";
+import { useT } from "@/lib/i18n";
 
 /** Headline metric: shared StatCard with tabular numerals, plus an optional
  * "explain" button in the hint slot that opens the metric's dialog. */
@@ -23,6 +24,7 @@ export function MetricCard({
   tint?: "default" | "success" | "warning" | "destructive";
   onInfo?: () => void;
 }) {
+  const t = useT();
   return (
     <StatCard
       label={label}
@@ -33,7 +35,7 @@ export function MetricCard({
         onInfo ? (
           <button
             type="button"
-            aria-label={`Explain ${label}`}
+            aria-label={t("simulation.accessibility.explainMetric", { label })}
             onClick={onInfo}
             className="inline-flex size-4 items-center justify-center rounded-full border border-muted-foreground/40 text-muted-foreground hover:bg-accent"
           >
@@ -63,10 +65,11 @@ export function FieldHelpButton({
   label: string;
   onClick: () => void;
 }) {
+  const t = useT();
   return (
     <button
       type="button"
-      title={`What is ${label}?`}
+      title={t("simulation.accessibility.whatIsField", { label })}
       onClick={(event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -77,7 +80,8 @@ export function FieldHelpButton({
       {/* The accessible name is content-based (not an aria-label): an
           aria-label containing the field name collides with getByLabelText
           queries for the input the adjacent <Label> points at. */}
-      <span className="sr-only">Explain {label}</span>?
+      <span className="sr-only">{t("simulation.accessibility.explainField", { label })}</span>
+      ?
     </button>
   );
 }

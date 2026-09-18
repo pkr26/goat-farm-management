@@ -161,7 +161,7 @@ fi
 # mode-0600 PGPASSFILE inside this run's private work directory.
 RAW_DB_URL="${GOATFARM_DATABASE_URL}"
 unset GOATFARM_DATABASE_URL GOATFARM_MIGRATION_DATABASE_URL
-unset PGPASSWORD PGSERVICE PGSERVICEFILE
+unset PGPASSWORD PGSERVICE PGSERVICEFILE PGSSLROOTCERT
 
 install -d -m 0700 "${DEST_DIR}"
 # FD 9 remains open in this shell and every database/encryption child. ``<>``
@@ -352,6 +352,9 @@ if [[ -z "${PG_URL}" || -z "${DB_NAME}" || "${DB_NAME}" == *$'\n'* ]]; then
 fi
 unset DB_METADATA DB_NAME
 export PGPASSFILE PGSSLMODE="${DB_SSLMODE}"
+if [[ -n "${DB_SSLROOTCERT_PATH:-}" ]]; then
+    export PGSSLROOTCERT="${DB_SSLROOTCERT_PATH}"
+fi
 
 TIMESTAMP="$(date -u +%Y-%m-%dT%H-%M-%SZ)"
 if [[ ! "${TIMESTAMP}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z$ ]]; then

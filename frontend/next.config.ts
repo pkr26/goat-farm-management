@@ -1,11 +1,14 @@
 import { fileURLToPath } from "node:url";
 
-import { parseCspExtraOrigins } from "./src/lib/csp-origins";
 import { backendRewrites } from "./src/lib/backend-rewrites";
 
-/** Baseline hardening headers on every response. CSP and HSTS are enforced in
- *  production builds only: Next dev HMR needs 'unsafe-eval' and a policy lax
- *  enough for it would be security theatre. */
+/** Baseline hardening headers on every response. HSTS is production-only.
+ *
+ * The public Compose edge supplies CSP at runtime. A release frontend image
+ * cannot know a deployment's public S3/MinIO origin, and baking one into this
+ * config would make the documented generic registry artifact block direct
+ * screening uploads. The edge validates then renders the exact origin list.
+ */
 const SECURITY_HEADERS = [
   { key: "X-Frame-Options", value: "DENY" },
   { key: "X-Content-Type-Options", value: "nosniff" },
@@ -16,45 +19,15 @@ const SECURITY_HEADERS = [
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
 ];
 
-/** Production Content-Security-Policy. script-src keeps 'unsafe-inline'
- *  because the App Router streams its RSC/hydration payload in inline
- *  <script> tags and Next 16 does not propagate a request-header nonce to
- *  those bootstrap scripts in the standalone server (verified by build +
- *  smoke test during this audit's nonce attempt — a nonce policy would block
- *  hydration outright). Nonce/hash CSP needs deeper framework support; every
- *  other directive here is enforced.
- *
- *  connect-src/img-src additionally accept build-time origins
- *  (GOATFARM_CSP_CONNECT_ORIGINS / GOATFARM_CSP_IMG_ORIGINS) for the
- *  disease-screening walkthrough, whose presigned S3 PUT/GET traffic is
- *  cross-origin in every real deployment — without them the production CSP
- *  blocks the feature end-to-end (2026-09-17 audit, H-4). Empty by default:
- *  the policy is exactly the old one until an operator opts in. */
-const extraConnectOrigins = parseCspExtraOrigins(process.env.GOATFARM_CSP_CONNECT_ORIGINS);
-const extraImgOrigins = parseCspExtraOrigins(process.env.GOATFARM_CSP_IMG_ORIGINS);
-
-const PRODUCTION_CSP = [
-  "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
-  "style-src 'self' 'unsafe-inline'",
-  `img-src 'self' data:${extraImgOrigins.map((o) => ` ${o}`).join("")}`,
-  "font-src 'self' data:",
-  `connect-src 'self'${extraConnectOrigins.map((o) => ` ${o}`).join("")}`,
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  "frame-ancestors 'none'",
-].join("; ");
+const isProd = process.env.NODE_ENV === "production";
 
 const PROD_ONLY_HEADERS = [
-  { key: "Content-Security-Policy", value: PRODUCTION_CSP },
   {
     key: "Strict-Transport-Security",
     value: "max-age=63072000; includeSubDomains",
   },
 ];
 
-const isProd = process.env.NODE_ENV === "production";
 const projectRoot = fileURLToPath(new URL(".", import.meta.url));
 
 const nextConfig = {

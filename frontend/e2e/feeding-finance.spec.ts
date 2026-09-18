@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { createAnimal, pickSelectOption, signIn, uniqueTag } from "./helpers";
+import { createAnimal, monthsAgo, pickSelectOption, signIn, uniqueTag } from "./helpers";
 
 test.describe("feeding and finance", () => {
   test("feeding plan shows the 40/20/40 shift split and records a dispense", async ({

@@ -106,15 +106,15 @@ jobs:
         working-directory: backend
         env:
           GOATFARM_TEST_DB: goatfarm_test
-        # --cov turns the run into a ratchet: a change that drops app-wide
-        # line coverage below the floor fails the build instead of silently
+        # --cov + --cov-branch turn the run into a ratchet: a change that
+        # drops app-wide line/branch coverage below the floor fails the build instead of silently
         # eroding it. The floor itself is single-sourced in pyproject.toml
         # ([tool.coverage.report] fail_under) — pytest-cov reads it there, so
         # a local instrumented run enforces the same gate. It is deliberately
         # modest (the integration suite covers routers/services heavily;
         # seed/lifecycle code drags the aggregate down) — raise it toward the
         # measured value, never above it.
-        run: python -m pytest -q --cov=app --cov-report=term --cov-report=xml
+        run: python -m pytest -q --cov=app --cov-branch --cov-report=term --cov-report=xml
 
       - name: Upload backend coverage report
         # Keep the measured number auditable from CI history — without a

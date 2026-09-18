@@ -620,7 +620,10 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
     setPendingDelete(null);
     const farmScope = captureFarmScope();
     try {
-      const res = await deletePlanMutation.mutateAsync({ planId: plan.id });
+      const res = await deletePlanMutation.mutateAsync({
+        planId: plan.id,
+        params: { expected_revision: plan.revision },
+      });
       if (res.status === 204 && farmScope()) {
         if (openPlan?.id === plan.id) {
           setOpenPlan(null);

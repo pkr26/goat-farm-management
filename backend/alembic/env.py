@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 from app.core.config import get_migration_settings
-from app.db import Base
+from app.db import Base, database_ssl_connect_arg
 from app.models import *  # noqa: F403 — register all tables on Base.metadata
 
 config = context.config
@@ -78,7 +78,7 @@ async def run_migrations_online() -> None:
         configuration,
         prefix="sqlalchemy.",
         connect_args={
-            "ssl": settings.db_sslmode,
+            "ssl": database_ssl_connect_arg(settings),
             "server_settings": {"statement_timeout": str(settings.migration_statement_timeout_ms)},
         },
     )

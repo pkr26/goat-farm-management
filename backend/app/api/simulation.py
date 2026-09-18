@@ -643,9 +643,19 @@ async def update_scenario(
 
 @router.delete("/scenarios/{scenario_id}", status_code=204)
 async def delete_scenario(
-    db: DbSession, farm: CurrentFarm, perms: SimManage, scenario_id: int
+    db: DbSession,
+    farm: CurrentFarm,
+    perms: SimManage,
+    scenario_id: int,
+    expected_revision: Annotated[int, Query(ge=1, le=MAX_INT32_ID)],
 ) -> Response:
-    scenario = await _get_scenario(db, farm.id, scenario_id)
+    """Delete only the exact scenario version the caller reviewed."""
+    scenario = await _get_scenario(db, farm.id, scenario_id, for_update=True)
+    if scenario.revision != expected_revision:
+        raise HTTPException(
+            status_code=409,
+            detail="This scenario changed since you opened it; refresh before deleting.",
+        )
     await db.delete(scenario)
     await db.commit()
     return Response(status_code=204)
