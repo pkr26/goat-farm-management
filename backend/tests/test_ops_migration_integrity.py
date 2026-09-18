@@ -27,8 +27,9 @@ KIDDING_LOCK_ORDER_PARENT = PRESET_ROLE_INTEGRITY
 KIDDING_LOCK_ORDER = "e7f9a1b3c5d8"
 # Autogenerate-drift checks must run at the CURRENT head (backend-core audit
 # wave: task provenance/title keys → updated_at/phenotype/vocabularies →
-# exact weight numerics + index hygiene → kidding parity backfill).
-HEAD = "d0f1a2b3c4d6"
+# exact weight numerics + index hygiene → kidding parity backfill →
+# screening batches → residual numerics/next-due ceiling/jsonb shape).
+HEAD = "c3e5a9f1d7b4"
 LEGACY_LOSS_NOTE = "Legacy pregnancy-loss row; original date and cause were not captured."
 ADMIN_URL = "postgresql://localhost:5432/postgres"
 

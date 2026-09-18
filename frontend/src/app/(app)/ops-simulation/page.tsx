@@ -59,6 +59,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
+import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
@@ -409,6 +410,12 @@ function OpsSimulationPageContent() {
       return;
     }
     await runAction.run(async () => {
+      // L-27 (2026-09-17 audit): the ops run continuation had no farm-scope
+      // fence, unlike planner's onPlan — a farm switch while the run was in
+      // flight painted the old farm's result/ledger into the new farm's page
+      // (and scrolled it), or toasted its failure. Capture before the
+      // mutation; fence both the result painting and the error toast.
+      const farmScope = captureFarmScope();
       try {
         const response = await runMutation.mutateAsync({
           data: {
@@ -431,12 +438,14 @@ function OpsSimulationPageContent() {
           },
         });
         if (response.status !== 200) throw new Error("Unexpected response");
+        if (!farmScope()) return;
         setResult(response.data.result);
         setLedger(response.data.ledger ?? null);
         setSelectedDay(1);
         setLedgerOpen(false);
         window.scrollTo({ top: 0, behavior: "smooth" });
       } catch (err) {
+        if (!farmScope()) return;
         toast.error(errorMessage(err, "The simulation could not run."));
       }
     });

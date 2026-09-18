@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 
+import { parseCspExtraOrigins } from "./src/lib/csp-origins";
 import { backendRewrites } from "./src/lib/backend-rewrites";
 
 /** Baseline hardening headers on every response. CSP and HSTS are enforced in
@@ -21,14 +22,24 @@ const SECURITY_HEADERS = [
  *  those bootstrap scripts in the standalone server (verified by build +
  *  smoke test during this audit's nonce attempt — a nonce policy would block
  *  hydration outright). Nonce/hash CSP needs deeper framework support; every
- *  other directive here is enforced. */
+ *  other directive here is enforced.
+ *
+ *  connect-src/img-src additionally accept build-time origins
+ *  (GOATFARM_CSP_CONNECT_ORIGINS / GOATFARM_CSP_IMG_ORIGINS) for the
+ *  disease-screening walkthrough, whose presigned S3 PUT/GET traffic is
+ *  cross-origin in every real deployment — without them the production CSP
+ *  blocks the feature end-to-end (2026-09-17 audit, H-4). Empty by default:
+ *  the policy is exactly the old one until an operator opts in. */
+const extraConnectOrigins = parseCspExtraOrigins(process.env.GOATFARM_CSP_CONNECT_ORIGINS);
+const extraImgOrigins = parseCspExtraOrigins(process.env.GOATFARM_CSP_IMG_ORIGINS);
+
 const PRODUCTION_CSP = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data:",
+  `img-src 'self' data:${extraImgOrigins.map((o) => ` ${o}`).join("")}`,
   "font-src 'self' data:",
-  "connect-src 'self'",
+  `connect-src 'self'${extraConnectOrigins.map((o) => ` ${o}`).join("")}`,
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",

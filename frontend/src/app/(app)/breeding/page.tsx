@@ -256,6 +256,9 @@ function NewBreedingDialog({
         onOpenChange(false);
         onSaved();
       } catch (err) {
+        // L-26 (2026-09-17 audit): after a farm switch this stale failure must
+        // not paint another farm's form (inline or banner) or toast.
+        if (!stillOwnsFarm()) return;
         // A 422's per-field issues land inline on their inputs (the dialog
         // already renders field-level errors with aria wiring); only issues
         // that match no form field degrade to the banner + toast.
@@ -557,6 +560,9 @@ function UltrasoundDialog({
       onClose();
       onSaved();
     } catch (err) {
+      // L-26 (2026-09-17 audit): after a farm switch this stale failure must
+      // not paint another farm's dialog or toast its error.
+      if (!stillOwnsFarm()) return;
       const message = errorText(err);
       setFormError(message);
       toast.error(message);
@@ -730,6 +736,9 @@ function PregnancyLossDialog({
         onClose();
         onSaved();
       } catch (err) {
+        // L-26 (2026-09-17 audit): after a farm switch this stale failure must
+        // not paint another farm's dialog or toast its error.
+        if (!stillOwnsFarm()) return;
         const message = errorText(err);
         setFormError(message);
         toast.error(message);

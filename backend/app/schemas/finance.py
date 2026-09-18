@@ -130,13 +130,24 @@ class FinanceOut(BaseModel):
     feed_stock_value: float
     # Memo line, not an expense: deaths in the rolling P&L window, valued at
     # the farm's own realized ₹/kg when both weights and a weighed sale
-    # exist. Kept out of the totals — a death books no cash flow.
-    mortality_loss: MortalityMemoOut
+    # exist. Kept out of the totals — a death books no cash flow. Nullable:
+    # the memo's head count and estimated loss are clinical death figures,
+    # which the dashboard convention withholds behind health.view — a
+    # finance.view-only caller receives null, never the memo (None, not a
+    # zeroed memo, so the UI can tell "withheld" from "no deaths").
+    mortality_loss: MortalityMemoOut | None
     pnl: list[PnlRowOut]
 
 
 # Mirrors models.INSURANCE_POLICY_STATUSES exactly.
 InsuranceStatusStr = Literal["active", "renewed", "lapsed", "claimed"]
+
+
+# Mirrors services.finance.MAX_RENEWAL_SPAN_DAYS (5 × 366 days): the wire
+# layer must not import the service layer (services already import schemas),
+# so the bound is restated here. The service re-checks it as the domain
+# backstop for callers that bypass this schema.
+_MAX_POLICY_SPAN_DAYS = 5 * 366
 
 
 class InsurancePolicyIn(StrictInputModel):
@@ -155,9 +166,18 @@ class InsurancePolicyIn(StrictInputModel):
     notes: PostgresText | None = None
 
     @model_validator(mode="after")
-    def _renewal_not_before_start(self) -> "InsurancePolicyIn":
+    def _renewal_horizon_bounds(self) -> "InsurancePolicyIn":
         if self.renewal_date < self.start_date:
             raise ValueError("renewal_date cannot be before start_date")
+        # Same five-year bound as the renewal path (BIZ-3, 2026-09-16):
+        # registration books one non-prorated premium for the whole span, so
+        # longer cover must arrive as successive renewals, not one distant
+        # horizon booked at creation.
+        if (self.renewal_date - self.start_date).days > _MAX_POLICY_SPAN_DAYS:
+            raise ValueError(
+                "renewal_date can cover at most five years after start_date — "
+                "renew successively for longer cover"
+            )
         return self
 
 

@@ -111,12 +111,27 @@ test.describe("feeding and finance", () => {
   test("reports page renders herd summary, breeding performance and mortality", async ({
     page,
   }) => {
-    test.setTimeout(60_000);
+    test.setTimeout(90_000);
     await signIn(page);
+
+    // The shared farm MAY already carry animals from earlier serial specs, but
+    // this spec must not depend on that: create one identifiable animal so
+    // the reports assertions prove POPULATED values, not an empty-farm
+    // skeleton (\d+ alone matches 0 — 2026-09-17 audit L-7).
+    await createAnimal(page, {
+      tag: uniqueTag("E2E-REPORT"),
+      sex: "F",
+      bucket: "FOUNDATION",
+      historicalImportReason: "Reports smoke fixture",
+      dateOfBirth: monthsAgo(18),
+      entryWeightKg: 32,
+      entryWeightDate: monthsAgo(18),
+    });
+
     await page.goto("/reports");
 
     await expect(page.getByRole("heading", { name: "Reports" })).toBeVisible();
-    await expect(page.getByText(/Herd summary \(\d+ active\)/)).toBeVisible();
+    await expect(page.getByText(/Herd summary \([1-9]\d* active\)/)).toBeVisible();
     await expect(page.getByText("Breeding performance")).toBeVisible();
     await expect(page.getByText("Mortality", { exact: true })).toBeVisible();
     await expect(page.getByText("Could not load the reports.")).toHaveCount(0);

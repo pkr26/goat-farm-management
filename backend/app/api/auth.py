@@ -973,9 +973,7 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
         out = await _issue_tokens(db, user, response)
         await db.commit()
         _reset_login_failures(request, payload.email)
-        return LoginOut(
-            access_token=out.access_token, token_type=out.token_type, user=out.user
-        )
+        return LoginOut(access_token=out.access_token, token_type=out.token_type, user=out.user)
     except asyncio.CancelledError:
         if password_work_started and not credential_accepted:
             _record_login_failure(request, payload.email)
@@ -1388,6 +1386,15 @@ async def change_password(
         await revoke_user_sessions(db, locked_user.id)
         out = await _issue_tokens(db, locked_user, response)  # new family, fresh session
         await db.commit()
+        # 2026-09-17 re-audit: a self-service credential change is the single
+        # most security-relevant lifecycle event (every session died), yet it
+        # emitted nothing an operator could alert on. ids only, no PII, same
+        # convention as the TOTP lifecycle events.
+        security_event(
+            "auth.password.changed",
+            "Password changed (all sessions revoked)",
+            user_id=locked_user.id,
+        )
         # Only a completed change proves the caller knew the current password
         # AND consumed no further budget; clear it after the commit.
         _reset_account_password_attempts(*scopes)
@@ -1582,6 +1589,14 @@ async def delete_account(
         locked_user.password_hash = tombstone_password_hash
         locked_user.token_version += 1
         await db.commit()
+        # 2026-09-17 re-audit: deletion is an irreversible identity event and
+        # needs the same operator-visible trail as a password change (ids
+        # only; the tombstoned email is deliberately never logged).
+        security_event(
+            "auth.account.deleted",
+            "Account deleted",
+            user_id=locked_user.id,
+        )
         _reset_account_password_attempts(*scopes)
 
         _delete_refresh_cookie(response)
@@ -1701,6 +1716,12 @@ async def create_farm(
 TOTP_ENROLL_SCOPE = "totp-enroll"
 TOTP_CHALLENGE_USER_SCOPE = "totp-challenge"
 TOTP_CONFIRM_USER_SCOPE = "totp-confirm"
+# 2026-09-17 re-audit: disable's wrong-code path recorded nothing, making the
+# ACTIVE-state code check an unthrottled 6-digit oracle (the aggravator that
+# turned the enroll-overwrite hole into a full factor-stripping chain). It now
+# keeps its own ledger — separate from confirm's so a fat-fingered confirm
+# burst cannot lock out a legitimate disable (and vice versa).
+TOTP_DISABLE_USER_SCOPE = "totp-disable"
 # Challenge codes are 6 digits: 5 attempts / 5 minutes per account makes
 # exhaustive guessing ~700 years; per-IP composite mirrors login.
 TOTP_CHALLENGE_MAX_ATTEMPTS = 5
@@ -1783,6 +1804,12 @@ async def totp_enroll(
     directly; the secret text remains for manual entry."""
     # The password confirmation rolls the session back; snapshot first.
     user_id = user.id
+    # Signed credential generation the request authenticated under — the
+    # rollback inside _confirm_current_password expires the dependency-loaded
+    # ORM object, so the scalar must be captured now, exactly the way
+    # change_password snapshots its `authenticated_token_version` before its
+    # own Argon2 path.
+    authenticated_token_version = user.token_version
     await _confirm_current_password(
         db, request, payload.current_password, user, scope=TOTP_ENROLL_SCOPE
     )
@@ -1793,7 +1820,31 @@ async def totp_enroll(
             .execution_options(populate_existing=True)
             .with_for_update()
         )
-    ).scalar_one()
+    ).scalar_one_or_none()
+    if locked is None:
+        # The account vanished between authentication and this locked reload
+        # (scalar_one would have raised NoResultFound → 500 here).
+        raise HTTPException(status_code=401, detail="Account no longer exists.")
+    # token_version revalidation mirrors change_password: the password was
+    # confirmed against the pre-rollback snapshot, and every genuine credential
+    # mutation bumps token_version under this same User lock — a password
+    # proof that has since gone stale must not mint a fresh PENDING enrollment.
+    if locked.token_version != authenticated_token_version:
+        raise HTTPException(status_code=401, detail="Session is no longer valid")
+    # Password-only proof must never retire an ACTIVE second factor
+    # (2026-09-17 re-audit): re-enrolling over ACTIVE used to silently replace
+    # the enrolled secret, so a phished password alone could swap away a factor
+    # the thief could not satisfy. Disable demands a currently-valid code from
+    # the enrolled secret; route re-enrollers through it first. Re-rolling a
+    # merely PENDING (never confirmed) enrollment stays allowed.
+    if locked.totp_state == "ACTIVE":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Two-factor is already enabled. Disable it (with a current code) "
+                "before starting a new enrollment."
+            ),
+        )
     secret = generate_totp_secret_b32()
     locked.totp_secret_enc = encrypt_totp_secret(secret)
     locked.totp_state = "PENDING"
@@ -1824,7 +1875,11 @@ async def totp_confirm(
             .execution_options(populate_existing=True)
             .with_for_update()
         )
-    ).scalar_one()
+    ).scalar_one_or_none()
+    if locked is None:
+        # Concurrently deleted account: scalar_one would raise NoResultFound
+        # → 500 here (2026-09-17 re-audit).
+        raise HTTPException(status_code=401, detail="Account no longer exists.")
     if locked.totp_state != "PENDING" or locked.totp_secret_enc is None:
         raise HTTPException(status_code=409, detail="Start enrollment first.")
     # Same guess budget as the login challenge: a stolen access token must
@@ -1894,6 +1949,12 @@ async def totp_disable(
     currently-valid code (or, for an unconfirmed PENDING enrollment, the
     password alone — nothing is gating login yet)."""
     user_id = user.id  # _confirm_current_password rolls back and expires `user`
+    # Same guess budget as confirm (2026-09-17 re-audit): the ACTIVE-state code
+    # check below is a 6-digit oracle and its wrong-code path used to record
+    # nothing, so a stolen access token could grind it unthrottled. Both keys
+    # are derived from the pre-rollback user_id snapshot for that reason.
+    s = get_settings()
+    composite_key = f"{_client_key(request)}|{user_id}"
     # The password confirmation cannot hold the row lock (it rolls back so
     # Argon2 never runs inside a transaction), so the state decision must be
     # re-taken under a freshly acquired lock afterwards. Loop until the state
@@ -1909,7 +1970,11 @@ async def totp_disable(
                 .execution_options(populate_existing=True)
                 .with_for_update()
             )
-        ).scalar_one()
+        ).scalar_one_or_none()
+        if locked is None:
+            # Concurrently deleted account: scalar_one would raise
+            # NoResultFound → 500 here (2026-09-17 re-audit).
+            raise HTTPException(status_code=401, detail="Account no longer exists.")
         state = locked.totp_state
         if state is None or locked.totp_secret_enc is None:
             raise HTTPException(status_code=409, detail="Two-factor is not enrolled.")
@@ -1926,6 +1991,26 @@ async def totp_disable(
             encrypted = locked.totp_secret_enc
             if encrypted is None:  # unreachable: checked above + the pairing CHECK
                 raise HTTPException(status_code=409, detail="Two-factor is not enrolled.")
+            # Same is_blocked pre-check pattern as totp_confirm: consult the
+            # ledger before another code ever reaches the verifier.
+            if s.auth_rate_limit_enabled and (
+                auth_limiter.is_blocked(
+                    TOTP_DISABLE_USER_SCOPE,
+                    str(user_id),
+                    TOTP_CHALLENGE_MAX_ATTEMPTS,
+                    s.auth_rate_limit_window_seconds,
+                )
+                or auth_limiter.is_blocked(
+                    TOTP_DISABLE_USER_SCOPE,
+                    composite_key,
+                    TOTP_CHALLENGE_MAX_ATTEMPTS,
+                    s.auth_rate_limit_window_seconds,
+                )
+            ):
+                logger.info("totp disable throttled (user_id=%s)", user_id)
+                metrics.record_auth_rate_limit_rejection(TOTP_DISABLE_USER_SCOPE)
+                await db.rollback()
+                raise _too_many_attempts()
             secret = decrypt_totp_secret(encrypted)
             if (
                 verify_totp_code(
@@ -1933,6 +2018,20 @@ async def totp_disable(
                 )
                 is None
             ):
+                # Mirror confirm's ledger: per-account plus composite keys, so
+                # rotating source addresses cannot reset the budget.
+                auth_limiter.record(
+                    TOTP_DISABLE_USER_SCOPE,
+                    str(user_id),
+                    s.auth_rate_limit_window_seconds,
+                    max_attempts=TOTP_CHALLENGE_MAX_ATTEMPTS,
+                )
+                auth_limiter.record(
+                    TOTP_DISABLE_USER_SCOPE,
+                    composite_key,
+                    s.auth_rate_limit_window_seconds,
+                    max_attempts=TOTP_CHALLENGE_MAX_ATTEMPTS,
+                )
                 await db.rollback()
                 security_event(
                     "auth.totp.disable_failed",
@@ -1944,6 +2043,11 @@ async def totp_disable(
         locked.totp_state = None
         locked.totp_last_step = None
         await db.commit()
+        if s.auth_rate_limit_enabled:
+            # A completed disable proves possession of the current code; clear
+            # its ledger the way a successful confirm does.
+            auth_limiter.reset(TOTP_DISABLE_USER_SCOPE, str(user_id))
+            auth_limiter.reset(TOTP_DISABLE_USER_SCOPE, composite_key)
         security_event(
             "auth.totp.disabled",
             "TOTP second factor removed",

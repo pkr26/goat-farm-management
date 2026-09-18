@@ -809,7 +809,11 @@ async function apiResponseOnce(
     assertAuthSession(responseSessionScope);
     throw new ApiError(
       resp.status,
-      extractDetail(body, resp.statusText, resp.status),
+      // resp.statusText is always "" over HTTP/2 (and for proxies' synthesized
+      // HTML error pages, which also fail the json() parse above) — without
+      // this fallback the alert/toast renders an empty string exactly when
+      // guidance matters most: infrastructure failures (2026-09-17 audit L-21).
+      extractDetail(body, resp.statusText || `Request failed (${resp.status}).`, resp.status),
       // Only 422s carry the per-field array the form mapper consumes.
       resp.status === 422 ? extractValidationIssues(body) : [],
     );

@@ -511,6 +511,32 @@ const en = {
   "health.schedule.viewFor": "View schedule for",
   "health.schedule.pickerTitle": "Choose an animal schedule",
   "health.schedule.view": "View",
+  // ---------- per-animal vaccination schedule page (/health/schedule/[id]) ----------
+  // 2026-09-17 audit (M-12): this page rendered zero t() calls; every visible
+  // string moved under health.schedule.* (the column labels double as the
+  // below-md card captions).
+  "health.schedule.pageTitle": "Vaccination schedule",
+  "health.schedule.pageDescription":
+    "Due dates and boosters from the vaccination templates that apply to this animal.",
+  "health.schedule.loading": "Loading vaccination schedule…",
+  "health.schedule.invalidId": "Invalid animal id.",
+  "health.schedule.loadFailed": "Could not load the vaccination schedule.",
+  "health.schedule.retry": "Retry schedule",
+  "health.schedule.animalLabel": "Animal #{id}",
+  "health.schedule.backToHealth": "Back to health log",
+  "health.schedule.tableTitle": "Vaccines & boosters",
+  "health.schedule.emptyTitle": "No vaccination templates apply to this animal.",
+  "health.schedule.emptyDescription": "Templates are matched on the animal's bucket and age.",
+  "health.schedule.recordEvent": "Record a health event",
+  "health.schedule.statusDone": "Done",
+  "health.schedule.statusUpcoming": "Upcoming",
+  "health.schedule.statusOverdue": "Overdue",
+  "health.schedule.colVaccine": "Vaccine",
+  "health.schedule.colFirstDue": "First dose due",
+  "health.schedule.colBoosterDue": "Booster due",
+  "health.schedule.colLastDone": "Last done",
+  "health.schedule.colNextDue": "Next due",
+  "health.schedule.colStatus": "Status",
   "health.log.title": "Event log",
   "health.log.description": "Every recorded health event, newest scope first.",
   "health.log.emptyTitle": "No health events recorded yet.",
@@ -576,6 +602,23 @@ const en = {
   "animals.phenotypeSaved": "Phenotype saved.",
   "animals.notRecorded": "Not recorded",
   "common.unknown": "Unknown",
+
+  // ---------- animals list page chrome ----------
+  // 2026-09-17 audit (M-12): the list page's header, filter sentinels, search
+  // placeholder and empty states were hardcoded English.
+  "animals.pageTitle": "Animals",
+  "animals.pageDescription":
+    "Your herd at a glance — filter by bucket, sex or status, or search by tag.",
+  "animals.filter.allBuckets": "All buckets",
+  "animals.filter.allStatuses": "All statuses",
+  "animals.filter.bothSexes": "Both sexes",
+  "animals.filter.searchPlaceholder": "Search by tag…",
+  "animals.empty.filteredTitle": "No animals match these filters.",
+  "animals.empty.filteredDescription": "Try clearing the filters.",
+  "animals.empty.clearFilters": "Clear filters",
+  "animals.empty.noneTitle": "No animals yet",
+  "animals.empty.noneDescription": "Add your first animal to start the herd register.",
+  "animals.empty.addAnimal": "Add animal",
 
   // ---------- dashboard advisories ----------
   "dashboard.advisory.bakridHold":
@@ -650,7 +693,9 @@ const en = {
   "screening.stats.pending": "Pending",
   "screening.stats.empty": "No model runs recorded yet.",
   "screening.export.button": "Export dataset",
+  "screening.export.done_one": "Dataset exported ({count} record).",
   "screening.export.done": "Dataset exported ({count} records).",
+  "screening.list.loadFailed": "Could not load the screening photos.",
   "screening.crops.title": "Goats in this photo",
   "screening.crops.goat": "Goat",
   "screening.crops.none": "No goats were detected — the whole photo was screened.",

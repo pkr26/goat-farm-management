@@ -113,6 +113,16 @@ class HealthEvent(Base):
             "withdrawal_until IS NULL OR withdrawal_until <= date + 730",
             name="ck_health_events_withdrawal_within_max",
         ),
+        # Same immutability argument for the schedule side: next_due_date is
+        # the anchor the recurring duty is spawned from, so a mistyped far
+        # future would pin a farm's schedule — and its generated duties —
+        # decades out with no correction path. Ten years dwarfs every seeded
+        # cadence (the longest repeat cycle is annual). Schema/validator twin:
+        # MAX_NEXT_DUE_DAYS in schemas/health.py.
+        CheckConstraint(
+            "next_due_date IS NULL OR next_due_date <= date + 3650",
+            name="ck_health_events_next_due_bounded",
+        ),
         CheckConstraint(
             "suspected_scheduled_disease IS FALSE OR "
             "(disease_target IS NOT NULL AND btrim(disease_target) <> '')",
@@ -270,7 +280,13 @@ class VaccineTemplate(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120))
-    first_dose_age_months: Mapped[float | None]  # null = pregnancy-linked
-    booster_weeks: Mapped[float | None]
-    repeat_months: Mapped[float | None]
+    # Exact numerics (never float8, per the exact-numerics program): the
+    # cadences are converted to due dates with Decimal arithmetic, so a
+    # drifted 3.999999-week booster would land duties on the wrong day.
+    # ``asdecimal=False`` keeps the established float ORM/API contract.
+    first_dose_age_months: Mapped[float | None] = mapped_column(
+        Numeric(8, 2, asdecimal=False)
+    )  # null = pregnancy-linked
+    booster_weeks: Mapped[float | None] = mapped_column(Numeric(8, 2, asdecimal=False))
+    repeat_months: Mapped[float | None] = mapped_column(Numeric(8, 2, asdecimal=False))
     timing_note: Mapped[str | None] = mapped_column(String(255))

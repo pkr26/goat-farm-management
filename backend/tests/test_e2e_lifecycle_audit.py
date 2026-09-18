@@ -528,7 +528,8 @@ async def test_vet_restriction_freezes_everything_until_cleared(client: httpx.As
         json={"doe_id": doe["id"], "buck_id": buck["id"], "breeding_date": iso(today())},
         headers=headers,
     )
-    assert breeding.status_code in {400, 409, 422}, breeding.text
+    assert breeding.status_code == 400, breeding.text
+    assert "not eligible for breeding" in breeding.json()["detail"]
     # sale + cull blocked
     assert (
         await change_status(client, headers, doe["id"], "SOLD", sale_price=5000)
@@ -1284,7 +1285,9 @@ async def test_feeding_plan_and_dispense_follow_the_herd(client: httpx.AsyncClie
             },
             headers=headers,
         )
-        assert over.status_code in {400, 409, 422}, over.text
+        assert over.status_code == 400, over.text
+        # The refusal is the finished-stock fence, not a generic bad request.
+        assert "ready feed" in over.json()["detail"]
 
 
 # ---------------------------------------------------------------------------
@@ -1321,7 +1324,8 @@ async def test_open_pregnancy_check_refuses_skip_until_resolved(
         json={"doe_id": doe["id"], "buck_id": buck["id"], "breeding_date": iso(today())},
         headers=headers,
     )
-    assert rebreed.status_code in {400, 409, 422}, rebreed.text
+    assert rebreed.status_code == 400, rebreed.text
+    assert "not eligible for breeding" in rebreed.json()["detail"]
 
     # …and nothing on the dashboard points at her.
     summary = (await client.get("/api/dashboard", headers=headers)).json()

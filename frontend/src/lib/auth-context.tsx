@@ -447,6 +447,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       !forcedLogout.current &&
       !PUBLIC_PATHS.includes(pathname);
     if (!shouldRedirect) {
+      // The explicit-logout transition has landed once the signed-out user
+      // sits on a public path: release the latch so a later client-side
+      // Back navigation to a protected route redirects to /login again
+      // instead of parking on the app gate's loading skeleton forever
+      // (2026-09-17 audit M-10 — previously only signIn() cleared it).
+      if (!loading && !user && forcedLogout.current && PUBLIC_PATHS.includes(pathname)) {
+        forcedLogout.current = false;
+      }
       signedOutRedirectIntent.current = null;
       return;
     }

@@ -106,7 +106,6 @@ __all__ = [
     "DAYS_PER_MONTH",
     "PRESET_FACTORIES",
     "SYSTEMS",
-    "WOOD_CURVATURE_B",
     "AmortizationRow",
     "AmortizationRowModel",
     "AnimalStartSpec",

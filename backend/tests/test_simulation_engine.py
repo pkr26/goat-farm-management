@@ -1171,6 +1171,75 @@ def test_males_finishing_near_a_festival_are_held_and_sold_in_it() -> None:
     )
 
 
+def test_scheduled_male_grower_sale_prices_held_males_at_their_own_ages() -> None:
+    """Audit repro (festival month 10, hold 2, sale age 9, 15 growers bought
+    at age 6 in month 6, sale of 15 ordered in month 9): a scheduled grower
+    sale that exhausts the chain draws from the festival holding pen, and the
+    fill must price those heads at the pen's own head-weighted average age —
+    the same per-age pricing the festival-month liquidation uses — not at the
+    (younger) chain-average weight, which under-booked the draw by ~21%."""
+    buy = HerdEventAssumptions(
+        month=6, kind="purchase", animal_class="male_grower", count=15, age_months=6
+    )
+    sell = HerdEventAssumptions(month=9, kind="sale", animal_class="male_grower", count=15)
+    a = event_toy([buy, sell], horizon=12)
+    a.growth.sale_age_months = 9
+    a.sales.festival_sale_months = [10]
+    a.sales.festival_hold_months = 2
+    res = run_simulation(a, with_break_even=False)
+    month9 = res.months[8]
+    g = a.growth
+    fill = next(f for f in month9.event_fills if f.kind == "sale")
+    # The whole fill comes from the holding pen (the cohort finished into it
+    # in month 8, two months short of the festival)...
+    assert fill.filled > 0.0
+    assert fill.shortfall == pytest.approx(15.0 - fill.filled)
+    # ...so the per-head price is the age-9 held weight at the month's meat
+    # price — exactly what the festival-month liquidation would have booked.
+    assert fill.price_per_head == pytest.approx(
+        male_weight_at_age(9, g, g.adult_weight_buck_kg) * month9.meat_price_per_kg,
+        rel=1e-9,
+    )
+    # The pre-fix booking priced this draw at the chain mid-class age (7 on
+    # this pinned curve) — materially lighter per head. Pin the direction.
+    assert fill.price_per_head > (
+        male_weight_at_age(7, g, g.adult_weight_buck_kg) * month9.meat_price_per_kg
+    )
+
+    # A MIXED fill (chain stock + held stock) blends the two averages by
+    # heads drawn: 5 growers still in the chain (age 8 at sale time) plus the
+    # 15 held age-9 heads, with grower mortality zeroed so the draw is exact.
+    a2 = event_toy(
+        [
+            buy,
+            HerdEventAssumptions(
+                month=8, kind="purchase", animal_class="male_grower", count=5, age_months=7
+            ),
+            HerdEventAssumptions(month=9, kind="sale", animal_class="male_grower", count=20),
+        ],
+        horizon=12,
+    )
+    a2.growth.sale_age_months = 9
+    a2.mortality.grower = 0.0
+    a2.sales.festival_sale_months = [10]
+    a2.sales.festival_hold_months = 2
+    res2 = run_simulation(a2, with_break_even=False)
+    m9 = res2.months[8]
+    g2 = a2.growth
+    fill2 = next(f for f in m9.event_fills if f.kind == "sale")
+    assert fill2.filled == pytest.approx(20.0)
+    assert fill2.shortfall == pytest.approx(0.0)
+    assert fill2.price_per_head == pytest.approx(
+        (
+            5.0 * male_weight_at_age(8, g2, g2.adult_weight_buck_kg)
+            + 15.0 * male_weight_at_age(9, g2, g2.adult_weight_buck_kg)
+        )
+        / 20.0
+        * m9.meat_price_per_kg,
+        rel=1e-9,
+    )
+
+
 def test_milk_revenue_hand_check() -> None:
     from app.simulation.feed import DAYS_PER_MONTH
 

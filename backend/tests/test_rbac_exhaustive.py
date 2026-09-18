@@ -35,7 +35,7 @@ from fastapi.routing import APIRoute
 from app.deps import current_farm
 from app.main import create_app
 
-from .conftest import login, owner_with_farm
+from .conftest import login_and_rotate, owner_with_farm
 
 # Every route that carries no `require_perm` dependency, with the reason it
 # sits outside the farm RBAC matrix. Adding an entry must be a deliberate act:
@@ -164,7 +164,12 @@ async def _make_zero_perm_worker(client: httpx.AsyncClient, farm_headers: dict) 
         },
         headers=farm_headers,
     )
-    worker_headers = await login(client, "zero@farm.in", "workerpass123")
+    # Rotate through the forced password change: a provisioned worker that
+    # never rotated is fenced off by the must-change-password 403 before any
+    # require_perm logic runs, so every route would answer 403 regardless of
+    # the role — the matrix would pass even with every guard deleted. The
+    # rotated credential makes the permission check the thing under test.
+    worker_headers = await login_and_rotate(client, "zero@farm.in", "workerpass123")
     return worker_headers | {"X-Farm-Id": farm_headers["X-Farm-Id"]}
 
 
@@ -183,6 +188,11 @@ async def test_every_require_perm_route_403s_for_a_zero_permission_worker(
         f"{MIN_GUARDED_ROUTES} — the walker has gone blind, so this test is auditing "
         "far less than it claims"
     )
+    # Routes guarded by ALTERNATIVE permissions (herd-snapshot, calibration)
+    # appear once per declared code; the denial may name any one of them.
+    declared_codes: dict[tuple[str, str], set[str]] = {}
+    for method, path, perm in routes:
+        declared_codes.setdefault((method, path), set()).add(perm)
 
     failures: list[str] = []
     for method, path, perm in routes:
@@ -193,14 +203,24 @@ async def test_every_require_perm_route_403s_for_a_zero_permission_worker(
         if method in {"POST", "PUT", "PATCH"}:
             kwargs["json"] = {}
         resp = await request_method(method, url, **kwargs)
-        # 403 is the correct answer. 422 is acceptable ONLY when the
-        # dependency chain rejects the body before hitting require_perm,
-        # which would be a classification; we treat it as a failure here to
-        # catch it.
-        if resp.status_code != 403:
+        # 403 is the correct answer, and it must be the PERMISSION check's
+        # 403 — the denial detail names a missing code the route actually
+        # declares. Any other 403 (e.g. the must-change-password fence)
+        # means the guard itself was never reached, which is exactly the
+        # regression this matrix exists to catch. 422 is acceptable ONLY
+        # when the dependency chain rejects the body before hitting
+        # require_perm, which would be a classification; we treat it as a
+        # failure here to catch it.
+        detail = str(resp.json().get("detail", "")) if resp.status_code == 403 else ""
+        denied = re.fullmatch(r"Missing permission: (\S+)", detail)
+        if (
+            resp.status_code != 403
+            or denied is None
+            or denied.group(1) not in declared_codes[(method, path)]
+        ):
             failures.append(
                 f"{method} {path} (perm={perm}) → {resp.status_code}"
-                f" (expected 403; body={resp.text[:120]!r})"
+                f" (expected 403 'Missing permission: <declared code>'; body={resp.text[:120]!r})"
             )
 
     assert not failures, "RBAC coverage failures:\n" + "\n".join(failures)

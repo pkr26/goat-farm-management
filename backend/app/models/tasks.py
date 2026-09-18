@@ -113,6 +113,13 @@ class Task(Base):
             "status <> 'PENDING' OR assigned_user_id IS NULL OR assigned_role_id IS NOT NULL",
             name="ck_tasks_user_assignment_has_role",
         ),
+        # jsonb shape guard: a wrong-shape payload fails in PostgreSQL at the
+        # write, not at the next client-side catalog render (the same guard
+        # every other JSONB column carries).
+        CheckConstraint(
+            "jsonb_typeof(title_args) = 'object'",
+            name="ck_tasks_title_args_json_object",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

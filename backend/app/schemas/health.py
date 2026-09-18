@@ -34,6 +34,13 @@ AdministrationRouteStr = Literal["SC", "IM", "IV", "ORAL", "TOPICAL", "INTRANASA
 # 251..MAX_BATCH_COUNT create duties that can never be completed.
 MAX_BULK_BUCKET_TARGETS = 250
 MAX_BULK_HEALTH_TARGETS = MAX_BATCH_COUNT
+# Ceiling for a manually supplied next_due_date, anchored to the event date
+# exactly like MAX_WITHDRAWAL_DAYS. Ten years is far beyond any vaccination or
+# deworming cadence (the longest seeded repeat cycle is annual), yet close
+# enough to catch the mistyped year that would otherwise pin an immutable
+# schedule — and its generated duties — decades into the future. DB twin:
+# ck_health_events_next_due_bounded.
+MAX_NEXT_DUE_DAYS = 3650
 
 
 class MovementRestrictionClearIn(StrictInputModel):
@@ -282,6 +289,19 @@ class HealthEventIn(StrictInputModel):
             # comparison is deliberately deferred to the endpoint.
             if self.date is not None and self.next_due_date <= self.date:
                 raise ValueError("next_due_date must be after the health event date")
+            # The same immutability argument that caps withdrawal_until: a
+            # health event can never be edited, so an unbounded next due date
+            # would schedule duties the farm can never correct or cancel. The
+            # anchor is the event date (or, when omitted, the farm-resolved
+            # date the endpoint re-checks), never "today" — a backdated event
+            # legitimately schedules its next dose from when it happened.
+            if self.date is not None and (self.next_due_date - self.date).days > (
+                MAX_NEXT_DUE_DAYS
+            ):
+                raise ValueError(
+                    f"next_due_date cannot be more than {MAX_NEXT_DUE_DAYS} days "
+                    "after the health event date"
+                )
             if not self.schedule_template_name or not self.next_due_authority:
                 raise ValueError(
                     "next_due_date requires a schedule template and recorded authority"

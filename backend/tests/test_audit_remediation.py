@@ -26,7 +26,7 @@ async def _make_doe(client, headers, tag, dob_days=400, bucket="FOUNDATION", wei
         payload["weight_kg"] = weight
         payload["weight_date"] = (date.today() - timedelta(days=10)).isoformat()
     resp = await client.post("/api/animals", json=payload, headers=headers)
-    assert resp.status_code in (200, 201), resp.text
+    assert resp.status_code == 201, resp.text
     return resp.json()
 
 
@@ -45,7 +45,7 @@ async def _make_buck(client, headers, tag):
         },
         headers=headers,
     )
-    assert resp.status_code in (200, 201), resp.text
+    assert resp.status_code == 201, resp.text
     return resp.json()
 
 
@@ -101,7 +101,7 @@ async def test_meat_sale_window_rejects_a_young_male_kid(client: httpx.AsyncClie
         },
         headers=headers,
     )
-    assert resp.status_code in (200, 201), resp.text
+    assert resp.status_code == 201, resp.text
     kid = resp.json()
     sold = await client.post(
         f"/api/animals/{kid['id']}/status",
@@ -116,7 +116,7 @@ async def test_meat_sale_window_rejects_a_young_male_kid(client: httpx.AsyncClie
         json={"new_status": "CULLED"},
         headers=headers,
     )
-    assert culled.status_code in (200, 409), culled.text
+    assert culled.status_code == 200, culled.text
 
 
 async def test_quarantine_sale_fence(client: httpx.AsyncClient):
@@ -132,7 +132,7 @@ async def test_quarantine_sale_fence(client: httpx.AsyncClient):
         },
         headers=headers,
     )
-    assert resp.status_code in (200, 201), resp.text
+    assert resp.status_code == 201, resp.text
     animal = resp.json()
     sold = await client.post(
         f"/api/animals/{animal['id']}/status",

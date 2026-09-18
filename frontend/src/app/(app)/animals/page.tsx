@@ -131,15 +131,18 @@ const SOURCE_ITEMS: Record<string, string> = {
   [AnimalCreateInSource.BORN]: "Historical born-on-farm import",
   [AnimalCreateInSource.PURCHASED]: "Purchased",
 };
-const sexFilterItems = (language: "en" | "te"): Record<string, string> => ({
-  [ALL]: "Both sexes",
+// 2026-09-17 audit (M-12): the ALL sentinel labels were hardcoded English;
+// the caller passes the localized label (the closed trigger shows it via the
+// `items` map, so it must be translated here too, not just in the menu).
+const sexFilterItems = (language: "en" | "te", allLabel: string): Record<string, string> => ({
+  [ALL]: allLabel,
   ...sexItems(language),
 });
 // Stryker disable next-line ObjectLiteral, StringLiteral: cva resolves variant "default" to the same classes as the fallback, and the sm size only changes padding classes no test observes (duties record-row precedent)
 const ROW_ACTION_CLASSES = buttonVariants({ variant: "default", size: "sm" });
 
-const statusFilterItems = (language: "en" | "te"): Record<string, string> => ({
-  [ALL]: "All statuses",
+const statusFilterItems = (language: "en" | "te", allLabel: string): Record<string, string> => ({
+  [ALL]: allLabel,
   ...Object.fromEntries(
     Object.values(ListAnimalsApiAnimalsGetStatus).map((s) => [
       s,
@@ -978,14 +981,17 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
   /** value → label map for the bucket filter Select root, with the raw
    * code as the value. */
   const { language } = useLanguage();
+  // 2026-09-17 audit (M-12): page chrome (header, filter sentinels, search
+  // placeholder, empty states) renders through the catalog now.
+  const t = useT();
   const bucketFilterItems = useMemo(() => {
     const entries = Object.values(ListAnimalsApiAnimalsGetBucket).map((b) => [
       b,
       enumLabel("bucket", b, language),
     ]);
-    return { [ALL]: "All buckets", ...Object.fromEntries(entries) };
-  }, [language]);
-  const statusItems = statusFilterItems(language);
+    return { [ALL]: t("animals.filter.allBuckets"), ...Object.fromEntries(entries) };
+  }, [language, t]);
+  const statusItems = statusFilterItems(language, t("animals.filter.allStatuses"));
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -1384,8 +1390,8 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Animals"
-        description="Your herd at a glance — filter by bucket, sex or status, or search by tag."
+        title={t("animals.pageTitle")}
+        description={t("animals.pageDescription")}
         actions={
           can("animals.create") && (
             <CreateAnimalDialog
@@ -1405,10 +1411,10 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
           items={bucketFilterItems}
         >
           <SelectTrigger aria-label="Filter animals by bucket">
-            <SelectValue placeholder="All buckets" />
+            <SelectValue placeholder={t("animals.filter.allBuckets")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL}>All buckets</SelectItem>
+            <SelectItem value={ALL}>{t("animals.filter.allBuckets")}</SelectItem>
             {Object.values(ListAnimalsApiAnimalsGetBucket).map((b) => (
               <SelectItem key={b} value={b}>
                 {enumLabel("bucket", b, language)}
@@ -1419,13 +1425,13 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
         <Select
           value={sex}
           onValueChange={(value) => changeFilter("sex", value)}
-          items={sexFilterItems(language)}
+          items={sexFilterItems(language, t("animals.filter.bothSexes"))}
         >
           <SelectTrigger aria-label="Filter animals by sex">
-            <SelectValue placeholder="Both sexes" />
+            <SelectValue placeholder={t("animals.filter.bothSexes")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL}>Both sexes</SelectItem>
+            <SelectItem value={ALL}>{t("animals.filter.bothSexes")}</SelectItem>
             <SelectItem value={ListAnimalsApiAnimalsGetSex.F}>
               {enumLabel("sex", "F", language)}
             </SelectItem>
@@ -1440,10 +1446,10 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
           items={statusItems}
         >
           <SelectTrigger aria-label="Filter animals by status">
-            <SelectValue placeholder="All statuses" />
+            <SelectValue placeholder={t("animals.filter.allStatuses")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL}>All statuses</SelectItem>
+            <SelectItem value={ALL}>{t("animals.filter.allStatuses")}</SelectItem>
             {Object.values(ListAnimalsApiAnimalsGetStatus).map((s) => (
               <SelectItem key={s} value={s}>
                 {statusItems[s]}
@@ -1457,7 +1463,7 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
             type="search"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search by tag…"
+            placeholder={t("animals.filter.searchPlaceholder")}
             aria-label="Search animals by tag"
             maxLength={60}
             className="w-full pl-8 sm:w-56"
@@ -1492,25 +1498,25 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
         filtersActive ? (
           <EmptyState
             icon={SearchX}
-            title="No animals match these filters."
-            description="Try clearing the filters."
+            title={t("animals.empty.filteredTitle")}
+            description={t("animals.empty.filteredDescription")}
           >
             <Button type="button" variant="outline" size="sm" onClick={clearFilters}>
-              Clear filters
+              {t("animals.empty.clearFilters")}
             </Button>
           </EmptyState>
         ) : (
           <EmptyState
             icon={PawPrint}
-            title="No animals yet"
-            description="Add your first animal to start the herd register."
+            title={t("animals.empty.noneTitle")}
+            description={t("animals.empty.noneDescription")}
           >
             {can("animals.create") && (
               <Link
                 href="/animals/new"
                 className={ROW_ACTION_CLASSES}
               >
-                Add animal
+                {t("animals.empty.addAnimal")}
               </Link>
             )}
           </EmptyState>
@@ -1623,6 +1629,9 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
 /** Suspense boundary required because the content reads useSearchParams(). */
 export default function AnimalsPage() {
   const perms = usePermissions();
+  // M-12 (2026-09-17 audit): the gate's label/description mirror the page
+  // header, so they resolve through the same catalog keys.
+  const t = useT();
   return (
     <Suspense
       fallback={
@@ -1635,8 +1644,8 @@ export default function AnimalsPage() {
       <PermissionGate
         perms={perms}
         perm="animals.view"
-        label="Animals"
-        description="Your herd at a glance — filter by bucket, sex or status, or search by tag."
+        label={t("animals.pageTitle")}
+        description={t("animals.pageDescription")}
         cards={1}
         announce
       >

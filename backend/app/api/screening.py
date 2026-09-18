@@ -1,9 +1,12 @@
 """Screening: review queue for the disease-detection photo pipeline.
 
 The worker writes, vets review. Screening is health data, so the
-endpoints ride the existing health permission codes: workers (roles with
-health.view) see the queue, health.manage roles confirm/reject findings
-(the training-label corpus).
+endpoints ride the existing health permission codes: roles with
+health.view read the queue, while every write — walkthrough batches,
+presigned uploads, batch submission and finding verdicts (the
+training-label corpus) — demands health.manage. That keeps the seeded
+read-only Auditor preset out of the write paths without inventing a
+screening-specific permission.
 """
 
 import datetime as dt
@@ -592,10 +595,18 @@ async def create_batch(
     db: DbSession,
     farm: CurrentFarm,
     user: CurrentUser,
-    _perms: VIEW,
+    _perms: MANAGE,
 ) -> ScreeningBatchOut:
     """Start a disease-check walkthrough: photograph every pen, then submit
     the batch for screening."""
+    settings = get_settings()
+    if not settings.screening_enabled:
+        # Same gate as request_upload: a half-open walkthrough (batch minted,
+        # uploads refused) would strand the worker mid-pen.
+        raise HTTPException(
+            status_code=503,
+            detail="Screening storage is not configured on this deployment",
+        )
     batch = ScreeningBatch(farm_id=farm.id, created_by_id=user.id)
     db.add(batch)
     await db.commit()
@@ -634,10 +645,18 @@ async def submit_batch(
     batch_id: int,
     db: DbSession,
     farm: CurrentFarm,
-    _perms: VIEW,
+    _perms: MANAGE,
 ) -> ScreeningBatchOut:
     """Finish a walkthrough ("process them"): locks further uploads and the
     worker screens every photo in the batch as the bytes land."""
+    settings = get_settings()
+    if not settings.screening_enabled:
+        # Same gate as request_upload: submitting into a deployment whose
+        # worker cannot screen would promise progress that never comes.
+        raise HTTPException(
+            status_code=503,
+            detail="Screening storage is not configured on this deployment",
+        )
     if not 1 <= batch_id <= MAX_INT32_ID:
         raise HTTPException(status_code=404, detail="Screening batch not found")
     batch = (
@@ -675,7 +694,7 @@ async def request_upload(
     payload: ScreeningUploadIn,
     db: DbSession,
     farm: CurrentFarm,
-    _perms: VIEW,
+    _perms: MANAGE,
 ) -> ScreeningUploadOut:
     """Mint a presigned PUT for one pen photo.
 

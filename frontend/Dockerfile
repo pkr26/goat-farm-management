@@ -9,6 +9,13 @@ FROM node:24-alpine@sha256:50c8e8ca1d27439048670df5883f32d57cf81cff6233222c893fd
 WORKDIR /app
 ARG BACKEND_URL=http://backend:8000
 ENV BACKEND_URL=${BACKEND_URL}
+# Build-time CSP additions for the cross-origin S3 presigned traffic of the
+# disease-screening walkthrough (see src/lib/csp-origins.ts). Empty default:
+# the production CSP stays exactly 'self'/data: until an operator opts in.
+ARG GOATFARM_CSP_CONNECT_ORIGINS=
+ARG GOATFARM_CSP_IMG_ORIGINS=
+ENV GOATFARM_CSP_CONNECT_ORIGINS=${GOATFARM_CSP_CONNECT_ORIGINS} \
+    GOATFARM_CSP_IMG_ORIGINS=${GOATFARM_CSP_IMG_ORIGINS}
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN corepack enable && pnpm build

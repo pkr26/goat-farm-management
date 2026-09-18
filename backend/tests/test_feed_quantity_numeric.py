@@ -8,7 +8,7 @@ from decimal import Decimal
 
 import asyncpg
 import httpx
-from sqlalchemy import Float, Numeric, text
+from sqlalchemy import Numeric, text
 
 from app.db import get_engine, get_sessionmaker
 from app.models import (
@@ -106,9 +106,15 @@ async def test_feed_quantity_schema_and_models_use_exact_gram_numeric() -> None:
         assert column_type.scale == 3
         assert column_type.asdecimal is False
 
-    # Recipe lines are percentages/ratios, not stock quantities.  Their
-    # existing six-decimal total tolerance must not be truncated to grams.
-    assert isinstance(FeedRecipeLine.kg_per_100kg.property.columns[0].type, Float)
+    # Recipe lines are percentages/ratios, not stock quantities: their
+    # six-decimal tolerance must not be truncated to grams. Decimal-exact
+    # numeric(15,6) (c3e5a9f1d7b4) replaces the old float8 while keeping
+    # that tolerance, instead of the gram scale the stock columns use.
+    recipe_column_type = FeedRecipeLine.kg_per_100kg.property.columns[0].type
+    assert isinstance(recipe_column_type, Numeric)
+    assert recipe_column_type.precision == 15
+    assert recipe_column_type.scale == 6
+    assert recipe_column_type.asdecimal is False
 
 
 async def test_direct_sql_arithmetic_and_api_roundtrip_stay_exact_to_one_gram(

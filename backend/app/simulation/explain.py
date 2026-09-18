@@ -593,10 +593,30 @@ def _litter_expectation_paragraphs(a: SimulationAssumptions, nouns: SpeciesNouns
     table = r.parity_multipliers.litter_size
     maiden = r.litter_size * table[0]
     mature = r.litter_size * table[1] if len(table) > 1 else r.litter_size
+    # The 35-40% twins / 5-13% triplets bands are the Osmanabadi field record
+    # behind a ~1.5+ mature litter. The computed ``mature`` follows the run's
+    # own parity table, so quoting the field bands next to a much lower figure
+    # contradicted the number in the same sentence — derive the wording from
+    # ``mature`` and keep the numeric band only where it is consistent.
+    if mature > 1.5:
+        multiples_lead = (
+            f"Expect multiples at {nouns.parturition}: this breed twins in about "
+            f"35-40% of {nouns.parturition}s and triplets run 5-13%, so the "
+            f"average mature litter is ~{mature:.2f} {nouns.young_plural}."
+        )
+    elif mature >= 1.4:
+        multiples_lead = (
+            f"Expect the occasional twin at {nouns.parturition}: this herd's "
+            f"average mature litter is ~{mature:.2f} {nouns.young_plural} — "
+            "transitional between mostly singles and routine multiples."
+        )
+    else:
+        multiples_lead = (
+            f"{nouns.young_plural.capitalize()} are mostly singles at {nouns.parturition}: "
+            f"the average mature litter is only ~{mature:.2f}."
+        )
     paragraphs = [
-        f"Expect multiples at {nouns.parturition}: this breed twins in about "
-        f"35-40% of {nouns.parturition}s and triplets run 5-13%, so the "
-        f"average mature litter is ~{mature:.2f} {nouns.young_plural}. "
+        f"{multiples_lead} "
         f"First-time {nouns.female_plural} (parity 1) run lighter — about "
         f"{maiden:.2f} on average, mostly singles — so a maiden crop of "
         "singles is normal, not a problem."

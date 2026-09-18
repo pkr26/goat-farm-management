@@ -556,10 +556,14 @@ class BucketMove(Base):
     # Business-effective date of the lifecycle fact. ``moved_at`` remains the
     # immutable audit insertion instant; backdated purchases, kiddings and
     # pregnancy losses must not reset feeding age to the time they were typed.
+    # Deliberately no server_default: the ORM ``today`` default resolves the
+    # farm's IANA timezone, while CURRENT_DATE would stamp the UTC calendar
+    # day — wrong for every farm east of midnight. An out-of-band writer that
+    # omits the business date must fail the NOT NULL loudly, not silently
+    # record the wrong day (the migration twin dropped the old default).
     effective_date: Mapped[date] = mapped_column(
         Date,
         default=today,
-        server_default=text("CURRENT_DATE"),
     )
     reason: Mapped[str | None] = mapped_column(String(255))
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))

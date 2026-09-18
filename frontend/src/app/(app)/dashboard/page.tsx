@@ -55,7 +55,7 @@ import {
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { daysBetween, farmToday, formatDate } from "@/lib/format";
+import { daysBetween, farmToday, formatDate, formatFarmDateTime } from "@/lib/format";
 import { useLanguage, useT } from "@/lib/i18n";
 import { resolveTaskTitle } from "@/lib/task-title";
 import { withReturnTo } from "@/lib/permission-navigation";
@@ -802,7 +802,11 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
                       <Badge variant="secondary">{enumLabel("bucket", r.current_bucket, language)}</Badge>
                     </TableCell>
                     <TableCell>
-                      {r.held_since ? new Date(r.held_since).toLocaleDateString() : "—"}
+                      {/* L-29 (2026-09-17 audit): held_since is a UTC datetime;
+                       * toLocaleDateString rendered it in the browser's locale
+                       * and zone. formatFarmDateTime applies the farm timezone
+                       * and the worker's language (and keeps the "—" for null). */}
+                      {formatFarmDateTime(r.held_since)}
                     </TableCell>
                     <TableCell className="max-w-64 truncate">{r.reason ?? "—"}</TableCell>
                   </TableRow>

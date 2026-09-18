@@ -7645,6 +7645,7 @@
               "anyOf": [
                 {
                   "type": "integer",
+                  "maximum": 2147483647,
                   "minimum": 1
                 },
                 {
@@ -18084,7 +18085,14 @@
             "title": "Feed Stock Value"
           },
           "mortality_loss": {
-            "$ref": "#/components/schemas/MortalityMemoOut"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MortalityMemoOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "pnl": {
             "items": {

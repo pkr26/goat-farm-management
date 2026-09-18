@@ -151,7 +151,8 @@ async def test_ai_methods_refused_for_goats(client: httpx.AsyncClient) -> None:
             },
             headers=headers,
         )
-        assert resp.status_code in {400, 409, 422}, (method, resp.text)
+        assert resp.status_code == 409, (method, resp.text)
+        assert "not part of the goat protocol" in resp.json()["detail"]
 
 
 async def test_buck_covers_at_most_twenty_open_services(client: httpx.AsyncClient) -> None:
@@ -173,8 +174,8 @@ async def test_buck_covers_at_most_twenty_open_services(client: httpx.AsyncClien
         },
         headers=headers,
     )
-    assert refused.status_code in {400, 409}, refused.text
-    assert "20" in refused.json()["detail"] or "ratio" in refused.json()["detail"].lower()
+    assert refused.status_code == 409, refused.text
+    assert "the mating policy caps a buck at" in refused.json()["detail"]
 
 
 # ---------------------------------------------------------------------------

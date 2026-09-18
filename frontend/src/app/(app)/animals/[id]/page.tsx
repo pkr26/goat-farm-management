@@ -967,7 +967,11 @@ function StatusDialog({
                     type="number"
                     step="0.01"
                     min="0"
-                    disabled={saleWeight === undefined || saleWeight === null}
+                    // L-24 (2026-09-17 audit): react-hook-form holds "" once the
+                    // weight box is touched, so the old null/undefined guard
+                    // re-enabled the rate field for an unusable weight. Gate on
+                    // the same positive-number bar the schema applies.
+                    disabled={!saleWeight || Number(saleWeight) <= 0}
                     aria-invalid={Boolean(errors.sale_price_per_kg) || undefined}
                     aria-describedby={
                       errors.sale_price_per_kg ? "status-price-per-kg-error" : "status-price-per-kg-hint"
@@ -1313,6 +1317,18 @@ function ClearRestrictionDialog({
     });
   }
 
+  function openDialog() {
+    // L-25 (2026-09-17 audit): a failed attempt left `error` and
+    // `conflictedVersion` set after close, so reopening showed the previous
+    // failure's alert (and its refresh lock) against a fresh attempt. Reset
+    // the transient state like EditPhenotypeDialog's openDialog does; the
+    // reference is a one-time certificate number, so it does not carry over.
+    setError(null);
+    setConflictedVersion(null);
+    setReference("");
+    setOpen(true);
+  }
+
   return (
     <Dialog
       open={open}
@@ -1326,7 +1342,7 @@ function ClearRestrictionDialog({
         size="sm"
         variant="outline"
         disabled={actionFlight.pending || profileSettling}
-        onClick={() => setOpen(true)}
+        onClick={openDialog}
       >
         Record clearance
       </Button>

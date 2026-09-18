@@ -89,7 +89,7 @@ import {
 import { ApiError, apiFetchText } from "@/lib/api-client";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { farmVocabulary, type FarmVocabulary } from "@/lib/farm-vocabulary";
-import { farmToday, formatMoney } from "@/lib/format";
+import { farmToday, formatFarmDateTime, formatMoney } from "@/lib/format";
 import { useT } from "@/lib/i18n";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
@@ -308,6 +308,13 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       toast.error("The breed preset is still loading — try again in a moment.");
       return;
     }
+    // L-28 (2026-09-17 audit): disarm the auto-defaults latch like onOpenPlan.
+    // A breed-defaults response still in flight would otherwise land after this
+    // handler applied the herd snapshot and silently wipe it back to presets —
+    // after the success toast. Placed after the guard above: that early return
+    // fires while the initial defaults are still pending, and those must keep
+    // their armed delivery.
+    acceptDefaultsRef.current = false;
     const farmScope = captureFarmScope();
     // Stryker disable BlockStatement, BooleanLiteral, ConditionalExpression, StringLiteral, CallExpression: react-query v5 refetch() resolves with an error result instead of rejecting (throwOnError stays false), so this catch is unreachable defense-in-depth; emptying the try falls through to the same suppressed continuation
     try {
@@ -349,6 +356,10 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
   }
 
   async function onCalibrateFromFarm() {
+    // L-28 (2026-09-17 audit): disarm the auto-defaults latch like onOpenPlan,
+    // or a late breed-defaults response wipes the calibration this handler
+    // just applied — after the success toast.
+    acceptDefaultsRef.current = false;
     const farmScope = captureFarmScope();
     // Stryker disable BlockStatement, BooleanLiteral, ConditionalExpression, StringLiteral, CallExpression: react-query v5 refetch() resolves with an error result instead of rejecting (throwOnError stays false), so this catch is unreachable defense-in-depth; emptying the try falls through to the same suppressed continuation
     try {
@@ -1387,7 +1398,10 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <span className="font-medium">{plan.name}</span>
                   <span className="text-xs text-muted-foreground">
-                    Updated {new Date(plan.updated_at).toLocaleDateString()}
+                    {/* L-29 (2026-09-17 audit): updated_at is a UTC datetime;
+                     * render it in the farm timezone and active locale, not the
+                     * browser's. */}
+                    Updated {formatFarmDateTime(plan.updated_at)}
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
@@ -1468,7 +1482,9 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                       .join("; ") || "—"}
                   </TableCell>
                   <TableCell className="max-w-64 truncate">{plan.notes || "—"}</TableCell>
-                  <TableCell>{new Date(plan.updated_at).toLocaleDateString()}</TableCell>
+                  {/* L-29 (2026-09-17 audit): farm timezone + active locale
+                   * instead of the browser locale. */}
+                  <TableCell>{formatFarmDateTime(plan.updated_at)}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
                       <Button variant="outline" size="sm" onClick={() => onOpenPlan(plan)}>

@@ -850,17 +850,43 @@ def _run_core(
                     # ordered grower sale draws them after the chain (and after
                     # the boundary stock when the chain is empty — a sale_age
                     # of 6 leaves the chain empty but the holding pen full).
+                    extra = 0.0
+                    held_avg_kg = 0.0
                     if take < requested and held_males:
                         remaining = requested - take
                         held_total = sum(held_males.values())
                         extra = min(remaining, held_total)
                         if extra > 0.0:
+                            # The draw is pro-rata across the pen's ages, so
+                            # the heads that leave carry the pen's
+                            # head-weighted average weight — the same per-age
+                            # pricing the festival-month liquidation applies
+                            # in step 1 below.
+                            held_avg_kg = (
+                                sum(
+                                    count * male_weight_at_age(age, g, buck_w)
+                                    for age, count in held_males.items()
+                                )
+                                / held_total
+                            )
                             held_factor = 1.0 - extra / held_total
                             held_males = {
                                 age: count * held_factor for age, count in held_males.items()
                             }
                             take += extra
-                    default_price = avg_kg * meat_price
+                    # Price what actually changed hands: the chain/boundary
+                    # draw at the chain-average weight, the held draw at the
+                    # holding pen's own (older, heavier) average. Pricing the
+                    # whole fill at the chain average under-booked an all-held
+                    # draw by the full age gap — ~21% in the audit repro,
+                    # where a mid-chain 21 kg figure priced age-9 heads that
+                    # truly weighed ~26 kg.
+                    if extra > 0.0:
+                        default_price = (
+                            ((take - extra) * avg_kg + extra * held_avg_kg) / take * meat_price
+                        )
+                    else:
+                        default_price = avg_kg * meat_price
                 price = event.price_per_head if event.price_per_head is not None else default_price
                 revenue = take * price
                 if event.animal_class in _EVENT_ADULT_CLASSES:
@@ -995,6 +1021,13 @@ def _run_core(
         # Automatic sire procurement is a pre-service policy. Buying the needed
         # bucks after breeding made an under-supplied flock lose a full cycle
         # even though the same month's accounts said replacement sires arrived.
+        # The headcount carries a deliberate one-month-early conservative
+        # bias: it spans the standing doe herd, not just the does conceiving
+        # this month, so a sire lands no later than — and often a month or a
+        # full cycle before — his first true service month (a settling doe
+        # joins the count the month she graduates, via the month-start shift
+        # at the top of the loop). The rotation restaff in step 6 applies the
+        # same bias and goes one further, counting settling does outright.
         does_now = sum(svc) + sum(open_waiting) + sum(preg) + sum(lact)
         needed_bucks = _ceil_head_ratio(does_now, cull.buck_doe_ratio) if does_now > 0.0 else 0
         if a.herd.auto_purchase_bucks and bucks < needed_bucks:
@@ -1142,6 +1175,13 @@ def _run_core(
             culls_head += cull_pool
             cull_revenue += cull_pool * cull_buck_price * buck_w
             bucks -= cull_pool
+        # Restaff headcount: unlike the step-4 pre-service count above, this
+        # one includes settling does even though they cannot be served until
+        # they graduate — their sire is bought up to a month early. That is
+        # the deliberate conservative bias of the rotation cull: the battery
+        # is culled wholesale here, so a doe graduating next month must never
+        # find it a buck short (an early buck costs one month of upkeep; a
+        # late one costs a whole breeding cycle).
         does_now = sum(svc) + sum(open_waiting) + sum(settling) + sum(preg) + sum(lact)
         needed_bucks = _ceil_head_ratio(does_now, cull.buck_doe_ratio) if does_now > 0.0 else 0
         if a.herd.auto_purchase_bucks and bucks < needed_bucks:
@@ -1856,6 +1896,12 @@ def _run_core(
             debt -= terminal_balance
         return max(debt, 0.0)
 
+    def _operating_principal(row: AnnualPLRow) -> float:
+        principal = row.principal
+        if row.year == horizon_year:
+            principal -= terminal_balance
+        return max(principal, 0.0)
+
     dscr_per_year = []
     for row in annual_pl:
         op_debt = _operating_debt_service(row)
@@ -1868,11 +1914,17 @@ def _run_core(
     # the NABARD average-coverage criterion over the operating repayment
     # period. Same precedent as the balloon exclusion above: measurement,
     # not forgiveness — the interest still sits in debt service, cash flow
-    # and NPV.
+    # and NPV. The filter tests OPERATING principal, mirroring
+    # _operating_debt_service above: the P&L row's ``principal`` carries the
+    # terminal balance added for reporting (see the annual block), so testing
+    # the raw figure re-admitted a fully moratorium interest-only year as a
+    # "repaying" year — its structurally negative ratio was the only value in
+    # avg/min DSCR under a 12/13/12 horizon/term/moratorium combo (avg=min=
+    # -2.00) where this comment already promised None.
     repaying_dscr = [
         value
         for value, row in zip(dscr_per_year, annual_pl, strict=True)
-        if row.debt_service > 0.0 and row.principal > 0.0
+        if row.debt_service > 0.0 and _operating_principal(row) > 0.0
     ]
     # No repaying year inside the horizon (e.g. a 12-month toy under a
     # 12-month moratorium): there is no operating repayment period to

@@ -22,14 +22,14 @@ health suite uses (the farm-local business-date indirection), so no test
 depends on the wall clock.
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import httpx
 import pytest
 from sqlalchemy import select, update
 
 from app.db import get_sessionmaker
-from app.models import Farm, FeedInventory, Task, TaskStatus
+from app.models import Animal, Farm, FeedInventory, Task, TaskStatus
 from app.services.cadence import ensure_cadence_tasks
 from app.utils import utcnow
 
@@ -637,6 +637,18 @@ async def age_farm_creation(farm_id: int, created: date) -> None:
         await db.commit()
 
 
+async def age_animal_introduction(farm_id: int, introduced: date) -> None:
+    """Age the farm's animal rows to their "arrival" (created_at floor), so a
+    backfill test can stand for a farm whose stock predates the test run."""
+    async with get_sessionmaker()() as db:
+        await db.execute(
+            update(Animal)
+            .where(Animal.farm_id == farm_id)
+            .values(created_at=datetime(introduced.year, introduced.month, introduced.day))
+        )
+        await db.commit()
+
+
 async def test_missed_seasonal_round_is_backfilled_late(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -648,6 +660,9 @@ async def test_missed_seasonal_round_is_backfilled_late(
     farm_id = int(headers["X-Farm-Id"])
     freeze_business_date(monkeypatch, date(2026, 9, 14))
     await age_farm_creation(farm_id, date(2025, 1, 1))
+    # The animals stood since 2025 too — the backfill floor is the earliest
+    # animal-introduction fact, not merely farm creation.
+    await age_animal_introduction(farm_id, date(2025, 1, 1))
 
     await run_ensure(farm_id)
     rounds = sorted(
@@ -691,12 +706,14 @@ async def test_backfill_never_precedes_farm_creation(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Rounds older than the farm itself are history, not duties: the floor
-    is the later of one cycle ago and the farm's creation date."""
+    is the later of one cycle ago, the farm's creation date and the first
+    animal's arrival."""
     headers = await owner_with_farm(client)
     await make_animal(client, headers, "C-011")
     farm_id = int(headers["X-Farm-Id"])
     freeze_business_date(monkeypatch, date(2026, 9, 14))
     await age_farm_creation(farm_id, date(2026, 6, 1))
+    await age_animal_introduction(farm_id, date(2026, 6, 1))
 
     await run_ensure(farm_id)
     titles = [t.title for t in await farm_tasks(farm_id) if t.category in ("VACCINE", "DEWORMING")]
@@ -704,6 +721,29 @@ async def test_backfill_never_precedes_farm_creation(
         DEWORM_TITLE_TEMPLATE.format(month="June", year=2026),
         FMD_TITLE_TEMPLATE.format(month="September", year=2026),
     ]
+
+
+async def test_backfill_never_precedes_the_first_animal(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A farm registered months before its first goat arrived must not wake
+    up to a board of "overdue" rounds from the animal-less months: the
+    backfill floor is the farm's earliest animal-introduction fact (first
+    animal row or purchase batch), not merely farm creation."""
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "C-012")
+    farm_id = int(headers["X-Farm-Id"])
+    freeze_business_date(monkeypatch, date(2026, 9, 14))
+    await age_farm_creation(farm_id, date(2026, 1, 1))
+    await age_animal_introduction(farm_id, date(2026, 8, 20))
+
+    await run_ensure(farm_id)
+    rounds = [t for t in await farm_tasks(farm_id) if t.category in ("VACCINE", "DEWORMING")]
+    # Only the current-month September FMD round survives: every January-June
+    # series occurrence ended before the first animal stood on the farm, and
+    # no duty from those months is materialized as overdue.
+    assert [(t.category, t.due_date) for t in rounds] == [("VACCINE", date(2026, 9, 14))]
+    assert all("September 2026" in t.title for t in rounds)
 
 
 async def test_interval_round_forward_window_suppresses_operator_scheduled_round(

@@ -1725,6 +1725,21 @@ def _build_notes(result: DailyOpsResult, run: _DailyOpsRun) -> list[str]:
             if future_buck
             else "No buck in this herd — no does can be served this run."
         )
+        # Male kids are never that replacement sire: the exits model force-sells
+        # every male kid entering the meat window (male_sale_age_months = 8,
+        # below the 12-month sire gate), so the MALE_KIDS -> BREEDING edge of
+        # the legal bucket graph is unreachable in the simulator and a herd
+        # whose only males are kids stays sterile for the whole run. Say the
+        # limitation out loud instead of letting the kids on the board read as
+        # future sires.
+        if not future_buck and any(
+            spec.sex == "M" and spec.bucket == Bucket.MALE_KIDS.value
+            for spec in run.payload.animals
+        ):
+            notes.append(
+                "Home-born males are sold at the meat age; the simulator does not "
+                "retain a kid as a replacement sire."
+            )
     return notes
 
 

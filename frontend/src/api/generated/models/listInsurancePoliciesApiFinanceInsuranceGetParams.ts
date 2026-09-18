@@ -8,6 +8,10 @@ import type { ListInsurancePoliciesApiFinanceInsuranceGetStatus } from './listIn
 
 export type ListInsurancePoliciesApiFinanceInsuranceGetParams = {
 status?: ListInsurancePoliciesApiFinanceInsuranceGetStatus;
+/**
+ * @minimum 1
+ * @maximum 2147483647
+ */
 animal_id?: number | null;
 /**
  * @minimum 1

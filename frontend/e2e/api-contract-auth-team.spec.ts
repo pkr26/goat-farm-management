@@ -198,11 +198,6 @@ async function createFarm(
     location: "E2E API contract pasture",
     timezone: "America/Phoenix",
   };
-  expect(payload).toStrictEqual({
-    name: payload.name,
-    location: "E2E API contract pasture",
-    timezone: "America/Phoenix",
-  });
   const response = await request.post("/api/auth/farms", {
     data: payload,
     // Farm creation requires an Idempotency-Key (RT-M-1).
@@ -256,10 +251,6 @@ test.describe("frontend proxy auth and team API contracts", () => {
       current_password: owner.password,
       new_password: changedPassword,
     };
-    expect(changePayload).toStrictEqual({
-      current_password: owner.password,
-      new_password: changedPassword,
-    });
 
     const changeResponse = await request.post("/api/auth/change-password", {
       data: changePayload,
@@ -342,7 +333,6 @@ test.describe("frontend proxy auth and team API contracts", () => {
     expectIsoTimestamp(exported.owned_farms[0].created_at);
 
     const oldLoginPayload: LoginIn = { email: owner.email, password: owner.password };
-    expect(oldLoginPayload).toStrictEqual({ email: owner.email, password: owner.password });
     const oldLoginResponse = await request.post("/api/auth/login", { data: oldLoginPayload });
     const oldLogin = await jsonResponse<{ detail: string }>(
       oldLoginResponse,
@@ -352,7 +342,6 @@ test.describe("frontend proxy auth and team API contracts", () => {
     expect(oldLogin).toStrictEqual({ detail: "Invalid email or password." });
 
     const newLoginPayload: LoginIn = { email: owner.email, password: changedPassword };
-    expect(newLoginPayload).toStrictEqual({ email: owner.email, password: changedPassword });
     const newLoginResponse = await request.post("/api/auth/login", { data: newLoginPayload });
     const newLogin = await jsonResponse<TokenOut>(newLoginResponse, "/api/auth/login", 200);
     expectTokenOut(newLogin, {
@@ -375,7 +364,6 @@ test.describe("frontend proxy auth and team API contracts", () => {
     expect(farms).toStrictEqual([]);
 
     const deletePayload: AccountDeleteIn = { current_password: user.password };
-    expect(deletePayload).toStrictEqual({ current_password: user.password });
     const deleteResponse = await request.delete("/api/auth/account", {
       data: deletePayload,
       headers: { Authorization: `Bearer ${user.token}` },
@@ -388,7 +376,6 @@ test.describe("frontend proxy auth and team API contracts", () => {
     expect(remainingRefreshCookies).toStrictEqual([]);
 
     const loginPayload: LoginIn = { email: user.email, password: user.password };
-    expect(loginPayload).toStrictEqual({ email: user.email, password: user.password });
     const loginResponse = await request.post("/api/auth/login", { data: loginPayload });
     const login = await jsonResponse<{ detail: string }>(loginResponse, "/api/auth/login", 401);
     expect(login).toStrictEqual({ detail: "Invalid email or password." });
@@ -431,12 +418,6 @@ test.describe("frontend proxy auth and team API contracts", () => {
       name: workerName,
       role_id: cleaner.id,
     };
-    expect(workerPayload).toStrictEqual({
-      email: workerEmail,
-      password: workerPassword,
-      name: workerName,
-      role_id: cleaner.id,
-    });
     const workerResponse = await request.post("/api/team/workers", {
       data: workerPayload,
       headers: { ...headers, "Idempotency-Key": `worker-${workerSuffix}` },
@@ -466,10 +447,6 @@ test.describe("frontend proxy auth and team API contracts", () => {
       email: workerEmail,
       password: workerPassword,
     };
-    expect(originalWorkerLoginPayload).toStrictEqual({
-      email: workerEmail,
-      password: workerPassword,
-    });
     const originalWorkerLoginResponse = await request.post("/api/auth/login", {
       data: originalWorkerLoginPayload,
     });
@@ -486,7 +463,6 @@ test.describe("frontend proxy auth and team API contracts", () => {
 
     const resetPassword = `Reset-${uniqueSuffix()}-pass`;
     const resetPayload: PasswordResetIn = { password: resetPassword };
-    expect(resetPayload).toStrictEqual({ password: resetPassword });
     const resetPath = `/api/team/workers/${worker.id}/reset-password`;
     const resetResponse = await request.post(resetPath, { data: resetPayload, headers });
     const reset = await jsonResponse<MembershipOut>(resetResponse, resetPath, 200);
@@ -510,7 +486,6 @@ test.describe("frontend proxy auth and team API contracts", () => {
     expect(oldWorkerLogin).toStrictEqual({ detail: "Invalid email or password." });
 
     const resetLoginPayload: LoginIn = { email: workerEmail, password: resetPassword };
-    expect(resetLoginPayload).toStrictEqual({ email: workerEmail, password: resetPassword });
     const resetLoginResponse = await request.post("/api/auth/login", {
       data: resetLoginPayload,
     });
@@ -537,11 +512,6 @@ test.describe("frontend proxy auth and team API contracts", () => {
       description: "Created through the frontend proxy",
       permissions: ["dashboard.view", "tasks.view"],
     };
-    expect(createRolePayload).toStrictEqual({
-      name: `API Helper ${roleSuffix}`,
-      description: "Created through the frontend proxy",
-      permissions: ["dashboard.view", "tasks.view"],
-    });
     const createRoleResponse = await request.post("/api/team/roles", {
       data: createRolePayload,
       headers,
@@ -576,12 +546,6 @@ test.describe("frontend proxy auth and team API contracts", () => {
       permissions: ["dashboard.view", "tasks.view", "tasks.complete"],
       expected_revision: createdRole.revision,
     };
-    expect(updateRolePayload).toStrictEqual({
-      name: `Senior API Helper ${roleSuffix}`,
-      description: "Updated and persisted through the frontend proxy",
-      permissions: ["dashboard.view", "tasks.view", "tasks.complete"],
-      expected_revision: 1,
-    });
     const rolePath = `/api/team/roles/${createdRole.id}`;
     const updateRoleResponse = await request.put(rolePath, {
       data: updateRolePayload,

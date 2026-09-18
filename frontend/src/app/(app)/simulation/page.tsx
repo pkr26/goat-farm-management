@@ -823,6 +823,12 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
     every: 2,
     repeat: 6,
   });
+  // 2026-09-17 audit (L-23): the repeat-plan dialog's NumberInputs reported no
+  // validity, so "Generate rows" committed the stale last-valid drafts while
+  // the boxes displayed invalid ones. Dialog-local twin of invalidFields —
+  // deliberately separate, because the shared set gates Run/Save and counts
+  // "highlighted" editor fields, which dialog drafts are not.
+  const [recurrenceInvalid, setRecurrenceInvalid] = useState<Set<string>>(() => new Set());
   const [explanation, setExplanation] = useState<MetricExplanation | null>(null);
   /** The "?" dialog: one assumption term's explanation + unit/range/value. */
   const [fieldExplain, setFieldExplain] = useState<FieldHelpState | null>(null);
@@ -1021,6 +1027,20 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
     // remains unchanged (for example, continued typing in an invalid draft).
     editorContentEpochRef.current += 1;
     setInvalidFields((previous) => {
+      const alreadyValid = !previous.has(key);
+      if (alreadyValid === valid) return previous;
+      const next = new Set(previous);
+      if (valid) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  /** Same bookkeeping for the repeat-plan dialog's local set (L-23): no
+   * editorContentEpochRef bump — the dialog edits no editor content until
+   * rows are actually generated. */
+  function setRecurrenceFieldValidity(key: string, valid: boolean) {
+    setRecurrenceInvalid((previous) => {
       const alreadyValid = !previous.has(key);
       if (alreadyValid === valid) return previous;
       const next = new Set(previous);
@@ -3212,6 +3232,9 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                 max={horizonMonths}
                 integer
                 value={recurrence.month}
+                onValidityChange={(valid) =>
+                  setRecurrenceFieldValidity("month", valid)
+                }
                 onCommit={(n) => setRecurrence((r) => ({ ...r, month: n }))}
               />
             </div>
@@ -3222,6 +3245,9 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                 exclusiveMin={0}
                 max={100_000}
                 value={recurrence.count}
+                onValidityChange={(valid) =>
+                  setRecurrenceFieldValidity("count", valid)
+                }
                 onCommit={(n) => setRecurrence((r) => ({ ...r, count: n }))}
               />
             </div>
@@ -3233,6 +3259,9 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                 max={120}
                 integer
                 value={recurrence.every}
+                onValidityChange={(valid) =>
+                  setRecurrenceFieldValidity("every", valid)
+                }
                 onCommit={(n) => setRecurrence((r) => ({ ...r, every: n }))}
               />
             </div>
@@ -3244,6 +3273,9 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                 max={120}
                 integer
                 value={recurrence.repeat}
+                onValidityChange={(valid) =>
+                  setRecurrenceFieldValidity("repeat", valid)
+                }
                 onCommit={(n) => setRecurrence((r) => ({ ...r, repeat: n }))}
               />
             </div>
@@ -3300,7 +3332,13 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
             <Button variant="outline" onClick={() => setRecurrenceOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={applyRecurrence}>Generate rows</Button>
+            {/* L-23 (2026-09-17 audit): NumberInput commits only valid drafts,
+             * so clicking Generate with an invalid box would commit the stale
+             * last-valid value instead — hold the button until every dialog
+             * input reports valid. */}
+            <Button onClick={applyRecurrence} disabled={recurrenceInvalid.size > 0}>
+              Generate rows
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

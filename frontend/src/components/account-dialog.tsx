@@ -563,12 +563,23 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
           ) : totpEnrollment ? (
             <div className="space-y-2">
               <p className="text-xs text-muted-foreground">{t("totp.enrollLinkHint")}</p>
-              <a
-                className="block break-all rounded bg-muted/60 p-2 font-mono text-xs underline"
-                href={totpEnrollment.otpauth_uri}
-              >
-                {totpEnrollment.otpauth_uri}
-              </a>
+              {totpEnrollment.otpauth_uri.startsWith("otpauth://") ? (
+                <a
+                  className="block break-all rounded bg-muted/60 p-2 font-mono text-xs underline"
+                  href={totpEnrollment.otpauth_uri}
+                >
+                  {totpEnrollment.otpauth_uri}
+                </a>
+              ) : (
+                /* The only API-derived href in the app that never passed
+                 * safeAppPath: the backend contract is otpauth://, so anything
+                 * else is a tampered/compromised response and must render as
+                 * inert text, never as a clickable javascript: link
+                 * (2026-09-17 audit L-19). */}
+                <p className="block break-all rounded bg-muted/60 p-2 font-mono text-xs">
+                  {totpEnrollment.otpauth_uri}
+                </p>
+              )}
               <p className="break-all rounded bg-muted/60 p-2 font-mono text-sm">
                 {totpEnrollment.secret}
               </p>

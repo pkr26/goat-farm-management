@@ -1290,3 +1290,40 @@ def test_no_buck_note_distinguishes_future_sires_from_no_male() -> None:
         )
     )
     assert any("No buck in this herd" in note for note in none.notes)
+
+
+def test_male_kids_are_flagged_as_never_becoming_the_replacement_sire() -> None:
+    """The exits model force-sells every male kid entering the meat window
+    (male_sale_age_months = 8, below the 12-month sire gate), so the
+    MALE_KIDS -> BREEDING edge of the legal bucket graph is unreachable in
+    the simulator: a herd whose only males are kids stays sterile for the
+    whole run. The notes must say so instead of letting the kids read as
+    future sires."""
+    kids_only = run_daily_ops(
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=7,
+            animals=[
+                _doe(),
+                AnimalStartSpec(tag="K1", sex="M", bucket="MALE_KIDS", age_months=7),
+            ],
+            params=_quiet_params(),
+        )
+    )
+    assert any("No buck in this herd" in note for note in kids_only.notes)
+    assert any("does not retain a kid as a replacement sire" in note for note in kids_only.notes)
+    # The limitation note is about the KID pen: a herd with a Foundation
+    # grower (a reachable future sire) keeps the ordinary future-sire note
+    # and carries no kid-retention caveat.
+    with_grower = run_daily_ops(
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=7,
+            animals=[_doe(), AnimalStartSpec(tag="G1", sex="M", bucket="FOUNDATION", age_months=6)],
+            params=_quiet_params(),
+        )
+    )
+    assert any("No buck stood in BREEDING" in note for note in with_grower.notes)
+    assert not any(
+        "does not retain a kid as a replacement sire" in note for note in with_grower.notes
+    )

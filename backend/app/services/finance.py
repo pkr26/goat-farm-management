@@ -200,6 +200,15 @@ async def create_insurance_policy(
         raise ValueError("Policy start date cannot be in the future")
     if renewal_date < start_date:
         raise ValueError("Policy renewal date cannot be before its start date")
+    # BIZ-3 (2026-09-16) creation twin of the renewal-path cap: registration
+    # books ONE non-prorated premium row for the whole start→renewal span, so
+    # a decades-distant renewal_date would buy that cover for a single
+    # premium exactly as an oversized renewal would — the register is
+    # append-only, so the horizon must arrive by successive renewals here too.
+    if (renewal_date - start_date).days > MAX_RENEWAL_SPAN_DAYS:
+        raise ValueError(
+            "A policy can cover at most five years — renew successively for longer cover"
+        )
     policy = InsurancePolicy(
         farm_id=farm.id,
         animal_id=animal_id,
@@ -247,6 +256,12 @@ async def renew_insurance_policy(
     keeps its identity and audit trail instead of being rewritten into a new
     fact.
     """
+    # A claim is the register's documented terminal event (see
+    # claim_insurance_policy) — renewal "re-activates" the row, so without
+    # this guard a renewal resurrected claimed cover into active and reopened
+    # the single-shot claim window. Mirrors the claim path's own guard.
+    if policy.status == INSURANCE_STATUS_CLAIMED:
+        raise ValueError("A claimed policy cannot be renewed; register a new policy")
     await _require_linked_animal_active(db, farm, policy, "renew this policy")
     if renewal_date < policy.renewal_date:
         raise ValueError(

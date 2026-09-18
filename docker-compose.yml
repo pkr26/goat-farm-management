@@ -221,6 +221,14 @@ services:
       context: ./frontend
       args:
         BACKEND_URL: http://backend:8000
+        # Production-CSP origins for the screening walkthrough's presigned
+        # S3 traffic (browser PUT upload + <img> display). Set both to the
+        # public origin of GOATFARM_S3_ENDPOINT_URL — for AWS S3 proper
+        # (endpoint unset) that is https://<bucket>.s3.<region>.amazonaws.com.
+        # Empty by default: with screening off, or served same-origin behind
+        # a proxy, the CSP stays exactly 'self'/data:.
+        GOATFARM_CSP_CONNECT_ORIGINS: ${GOATFARM_CSP_CONNECT_ORIGINS:-}
+        GOATFARM_CSP_IMG_ORIGINS: ${GOATFARM_CSP_IMG_ORIGINS:-}
     restart: unless-stopped
     # Next standalone server as its own non-root user: no capabilities needed.
     security_opt: ["no-new-privileges:true"]

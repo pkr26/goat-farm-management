@@ -26,29 +26,31 @@ import {
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
 import { formatDate } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { permittedAppPath, withReturnTo } from "@/lib/permission-navigation";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 
 /** Status chip: the shared StatusBadge resolves DONE/UPCOMING/OVERDUE to
  *  success/warning/destructive tints; labels are humanized here. */
 function ScheduleStatusBadge({ status }: { status: string }) {
+  const t = useT();
   switch (status) {
     case "DONE":
       return (
         <StatusBadge status={status}>
-          <Syringe aria-hidden="true" /> Done
+          <Syringe aria-hidden="true" /> {t("health.schedule.statusDone")}
         </StatusBadge>
       );
     case "UPCOMING":
       return (
         <StatusBadge status={status}>
-          <CalendarClock aria-hidden="true" /> Upcoming
+          <CalendarClock aria-hidden="true" /> {t("health.schedule.statusUpcoming")}
         </StatusBadge>
       );
     case "OVERDUE":
       return (
         <StatusBadge status={status}>
-          <CalendarClock aria-hidden="true" /> Overdue
+          <CalendarClock aria-hidden="true" /> {t("health.schedule.statusOverdue")}
         </StatusBadge>
       );
     default:
@@ -67,6 +69,9 @@ function dateOrDash(value: string | null): string {
 
 function VaccinationSchedulePageContent({ perms }: { perms: PermissionsState }) {
   const { can } = perms;
+  // 2026-09-17 audit (M-12): this page bypassed the i18n layer entirely —
+  // every visible string now resolves through health.schedule.* keys.
+  const t = useT();
   const allowed = can("health.view");
   const canManage = can("health.manage");
   const canViewAnimals = can("animals.view");
@@ -87,7 +92,7 @@ function VaccinationSchedulePageContent({ perms }: { perms: PermissionsState }) 
     `/health?schedule_animal_id=${encodeURIComponent(params.animalId)}`;
 
   if (!validId) {
-    return <p className="text-sm text-destructive">Invalid animal id.</p>;
+    return <p className="text-sm text-destructive">{t("health.schedule.invalidId")}</p>;
   }
   if (query.isLoading || !payload) {
     if (query.isError) {
@@ -96,10 +101,10 @@ function VaccinationSchedulePageContent({ perms }: { perms: PermissionsState }) 
           <p className="text-sm text-destructive">
             {query.error instanceof ApiError
               ? query.error.detail
-              : "Could not load the vaccination schedule."}
+              : t("health.schedule.loadFailed")}
           </p>
           <Button type="button" variant="outline" onClick={() => void query.refetch()}>
-            Retry schedule
+            {t("health.schedule.retry")}
           </Button>
         </div>
       );
@@ -107,11 +112,11 @@ function VaccinationSchedulePageContent({ perms }: { perms: PermissionsState }) 
     return (
       <div className="space-y-6">
         <PageHeader
-          title="Vaccination schedule"
-          description="Due dates and boosters from the vaccination templates that apply to this animal."
+          title={t("health.schedule.pageTitle")}
+          description={t("health.schedule.pageDescription")}
         />
         <div role="status" aria-live="polite">
-          <span className="sr-only">Loading vaccination schedule…</span>
+          <span className="sr-only">{t("health.schedule.loading")}</span>
           <TableSkeleton rows={6} columns={6} />
         </div>
       </div>
@@ -124,21 +129,21 @@ function VaccinationSchedulePageContent({ perms }: { perms: PermissionsState }) 
       <PageHeader
         title={
           <>
-            Vaccination schedule —{" "}
+            {t("health.schedule.pageTitle")} —{" "}
             {canViewAnimals ? (
               <Link href={`/animals/${payload.animal_id}`} className="text-primary underline">
-                Animal #{payload.animal_id}
+                {t("health.schedule.animalLabel", { id: payload.animal_id })}
               </Link>
             ) : (
-              `Animal #${payload.animal_id}`
+              t("health.schedule.animalLabel", { id: payload.animal_id })
             )}
           </>
         }
-        description="Due dates and boosters from the vaccination templates that apply to this animal."
+        description={t("health.schedule.pageDescription")}
         actions={
           <>
             <Link href={returnTo} className={buttonVariants({ variant: "outline" })}>
-              Back to health log
+              {t("health.schedule.backToHealth")}
             </Link>
             {canManage && (
               <Link
@@ -148,19 +153,19 @@ function VaccinationSchedulePageContent({ perms }: { perms: PermissionsState }) 
                 )}
                 className={buttonVariants()}
               >
-                <Plus aria-hidden="true" /> Add event
+                <Plus aria-hidden="true" /> {t("health.addEvent")}
               </Link>
             )}
           </>
         }
       />
 
-      <DataTableCard title="Vaccines & boosters">
+      <DataTableCard title={t("health.schedule.tableTitle")}>
         {payload.rows.length === 0 ? (
           <EmptyState
             icon={Syringe}
-            title="No vaccination templates apply to this animal."
-            description="Templates are matched on the animal's bucket and age."
+            title={t("health.schedule.emptyTitle")}
+            description={t("health.schedule.emptyDescription")}
           >
             {/* Real deep link: /health/new forwards ?animal_id= to the record
              * dialog on /health, so the CTA carries this animal's context. */}
@@ -172,7 +177,7 @@ function VaccinationSchedulePageContent({ perms }: { perms: PermissionsState }) 
                 )}
                 className={buttonVariants({ size: "sm" })}
               >
-                Record a health event
+                {t("health.schedule.recordEvent")}
               </Link>
             )}
           </EmptyState>
@@ -196,19 +201,19 @@ function VaccinationSchedulePageContent({ perms }: { perms: PermissionsState }) 
                 )}
                 <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
                   <div className="flex items-baseline justify-between gap-2">
-                    <dt className="text-muted-foreground">First dose due</dt>
+                    <dt className="text-muted-foreground">{t("health.schedule.colFirstDue")}</dt>
                     <dd>{dateOrDash(row.first_due)}</dd>
                   </div>
                   <div className="flex items-baseline justify-between gap-2">
-                    <dt className="text-muted-foreground">Booster due</dt>
+                    <dt className="text-muted-foreground">{t("health.schedule.colBoosterDue")}</dt>
                     <dd>{dateOrDash(row.booster_due)}</dd>
                   </div>
                   <div className="flex items-baseline justify-between gap-2">
-                    <dt className="text-muted-foreground">Last done</dt>
+                    <dt className="text-muted-foreground">{t("health.schedule.colLastDone")}</dt>
                     <dd>{dateOrDash(row.last_done)}</dd>
                   </div>
                   <div className="flex items-baseline justify-between gap-2">
-                    <dt className="text-muted-foreground">Next due</dt>
+                    <dt className="text-muted-foreground">{t("health.schedule.colNextDue")}</dt>
                     <dd>{dateOrDash(row.next_due)}</dd>
                   </div>
                 </dl>
@@ -219,12 +224,12 @@ function VaccinationSchedulePageContent({ perms }: { perms: PermissionsState }) 
           <Table className="min-w-[640px]">
             <TableHeader>
               <TableRow>
-                <TableHead>Vaccine</TableHead>
-                <TableHead>First dose due</TableHead>
-                <TableHead>Booster due</TableHead>
-                <TableHead>Last done</TableHead>
-                <TableHead>Next due</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>{t("health.schedule.colVaccine")}</TableHead>
+                <TableHead>{t("health.schedule.colFirstDue")}</TableHead>
+                <TableHead>{t("health.schedule.colBoosterDue")}</TableHead>
+                <TableHead>{t("health.schedule.colLastDone")}</TableHead>
+                <TableHead>{t("health.schedule.colNextDue")}</TableHead>
+                <TableHead>{t("health.schedule.colStatus")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -260,15 +265,18 @@ function VaccinationSchedulePageContent({ perms }: { perms: PermissionsState }) 
 
 export default function VaccinationSchedulePage() {
   const perms = usePermissions();
+  // Same M-12 fix (2026-09-17 audit): the boundary chrome must follow the
+  // worker's language too, not just the loaded content.
+  const t = useT();
   return (
     <Suspense
       fallback={
         <div className="space-y-6" role="status" aria-live="polite">
           <PageHeader
-            title="Vaccination schedule"
-            description="Due dates and boosters from the vaccination templates that apply to this animal."
+            title={t("health.schedule.pageTitle")}
+            description={t("health.schedule.pageDescription")}
           />
-          <span className="sr-only">Loading vaccination schedule…</span>
+          <span className="sr-only">{t("health.schedule.loading")}</span>
           <PageSkeleton cards={1} />
         </div>
       }
@@ -276,8 +284,8 @@ export default function VaccinationSchedulePage() {
       <PermissionGate
         perms={perms}
         perm="health.view"
-        label="Vaccination schedule"
-        description="Due dates and boosters from the vaccination templates that apply to this animal."
+        label={t("health.schedule.pageTitle")}
+        description={t("health.schedule.pageDescription")}
         cards={1}
       >
         <VaccinationSchedulePageContent perms={perms} />

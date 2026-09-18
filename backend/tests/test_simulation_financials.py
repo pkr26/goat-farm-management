@@ -734,6 +734,36 @@ def test_avg_and_min_dscr_are_none_only_without_debt_years() -> None:
     assert m.min_dscr == pytest.approx(min(repaying_dscr))
 
 
+def test_balloon_principals_do_not_re_admit_interest_only_years() -> None:
+    """12/13/12 repro (horizon=12, term=13, moratorium=12): the terminal
+    balance added to the final year's REPORTED principal must not make the
+    repaying-year filter treat a fully moratorium interest-only year as an
+    operating repayment year — its structurally negative ratio entered
+    avg/min DSCR as the only value (avg=min=-2.00) where the documented
+    contract promises None. The filter now mirrors _operating_debt_service
+    and tests operating principal; the balloon itself stays in the P&L."""
+    a = SimulationAssumptions(
+        meta=MetaAssumptions(horizon_months=12),
+        finance=FinanceAssumptions(loan_term_months=13, moratorium_months=12),
+    )
+    res = run_simulation(a, with_break_even=False)
+    final_year = res.annual_pl[-1]
+    # The reporting side is unchanged: the balloon still lands in the final
+    # year's principal and debt service...
+    assert final_year.principal == pytest.approx(res.amortization[11].closing_balance)
+    assert final_year.principal > 0.0
+    assert final_year.debt_service > 0.0
+    # ...but there is no operating repayment inside the horizon (every month
+    # is interest-only under the full moratorium), so both summaries are None
+    # instead of an interest-only number that reads as coverage.
+    assert res.metrics.avg_dscr is None
+    assert res.metrics.min_dscr is None
+    # A normally amortizing run still measures real repaying years.
+    m = run_simulation(SimulationAssumptions(), with_break_even=False).metrics
+    assert m.avg_dscr is not None
+    assert m.min_dscr is not None
+
+
 def test_payback_matches_cumulative_series() -> None:
     a = SimulationAssumptions()
     a.sales.meat_price_per_kg = 700.0  # profitable: payback exists

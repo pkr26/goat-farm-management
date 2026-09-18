@@ -903,6 +903,9 @@ async def test_event_malformed_next_due_date_422(client: httpx.AsyncClient) -> N
 
 
 async def test_event_next_due_far_future_accepted(client: httpx.AsyncClient) -> None:
+    """Far-future is still accepted inside the 3650-day ceiling — a decade of
+    boosters is legitimate scheduling; a century (a mistyped year) is refused
+    on the immutable event (ck_health_events_next_due_bounded, 2026-09-17)."""
     headers = await owner_with_farm(client)
     animal = await make_animal(client, headers)
     events = await record_event(
@@ -910,11 +913,17 @@ async def test_event_next_due_far_future_accepted(client: httpx.AsyncClient) -> 
         headers,
         animal_id=animal["id"],
         type="VACCINE",
-        next_due_date="2099-01-01",
+        next_due_date="2035-01-01",
         schedule_template_name="FMD",
         next_due_authority="Farm veterinarian record",
     )
-    assert events[0]["next_due_date"] == "2099-01-01"
+    assert events[0]["next_due_date"] == "2035-01-01"
+
+    refused = await post_event(
+        client, headers, animal_id=animal["id"], type="VACCINE", next_due_date="2099-01-01"
+    )
+    assert refused.status_code == 422
+
 
 
 async def test_omitted_event_date_validates_followup_against_farm_today(

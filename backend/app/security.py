@@ -898,7 +898,7 @@ def _totp_code_for_step(secret_b32: str, step: int) -> str:
     digest = hmac.new(key, counter, "sha1").digest()
     offset = digest[-1] & 0x0F
     binary = int.from_bytes(digest[offset : offset + 4], "big") & 0x7FFFFFFF
-    return f"{binary % (10 ** TOTP_DIGITS):0{TOTP_DIGITS}d}"
+    return f"{binary % (10**TOTP_DIGITS):0{TOTP_DIGITS}d}"
 
 
 def verify_totp_code(
@@ -917,7 +917,12 @@ def verify_totp_code(
     mark (the highest matched step, so drift backwards cannot re-open an
     older code)."""
     normalized = code.strip().replace(" ", "")
-    if len(normalized) != TOTP_DIGITS or not normalized.isdigit():
+    # str.isdigit() (the pre-2026-09-17 guard) also accepts non-ASCII digits
+    # such as '٥' or '５'. Those pass the length check, then blow up inside
+    # hmac.compare_digest, which tolerates only ASCII str inputs — turning a
+    # malformed guess into a TypeError/500. isascii() AND isdecimal() admits
+    # exactly the ASCII decimals the generator can emit.
+    if len(normalized) != TOTP_DIGITS or not (normalized.isascii() and normalized.isdecimal()):
         return None
     # The app convention is naive-UTC datetimes; .timestamp() would read a
     # naive value as LOCAL time and shift the step by the server's offset.
@@ -935,36 +940,42 @@ def verify_totp_code(
     return matched
 
 
-_totp_aes_key_cache: bytes | None = None
+# (keyring identity, derived key): the cache must never outlive the keyring it
+# was derived from. _get_jwt_keyring() live-reloads when the configured key
+# paths change, and a stale key would keep encrypting new TOTP secrets under
+# the pre-rotation key while decode failures of older rows were misattributed
+# to "rotation" (2026-09-17 audit L-6). Keying on the keyring object itself
+# makes the reload self-invalidating.
+_totp_aes_key_cache: tuple[object, bytes] | None = None
 
 
 def _totp_encryption_key() -> bytes:
     """AES-256 key = HKDF(active JWT private key). Derived, never stored."""
     global _totp_aes_key_cache
-    if _totp_aes_key_cache is None:
-        pem = _get_jwt_keyring().signing_private_key.encode()
-        _totp_aes_key_cache = HKDF(
-            algorithm=hashes.SHA256(),
-            length=32,
-            salt=b"goatfarm-totp-v1",
-            info=b"goatfarm totp secret at rest",
-        ).derive(pem)
-    return _totp_aes_key_cache
+    keyring = _get_jwt_keyring()
+    if _totp_aes_key_cache is None or _totp_aes_key_cache[0] is not keyring:
+        pem = keyring.signing_private_key.encode()
+        _totp_aes_key_cache = (
+            keyring,
+            HKDF(
+                algorithm=hashes.SHA256(),
+                length=32,
+                salt=b"goatfarm-totp-v1",
+                info=b"goatfarm totp secret at rest",
+            ).derive(pem),
+        )
+    return _totp_aes_key_cache[1]
 
 
 def encrypt_totp_secret(secret_b32: str) -> bytes:
     nonce = os.urandom(12)
-    ciphertext = AESGCM(_totp_encryption_key()).encrypt(
-        nonce, secret_b32.encode("ascii"), b"totp"
-    )
+    ciphertext = AESGCM(_totp_encryption_key()).encrypt(nonce, secret_b32.encode("ascii"), b"totp")
     return nonce + ciphertext
 
 
 def decrypt_totp_secret(encrypted: bytes) -> str:
     nonce, ciphertext = encrypted[:12], encrypted[12:]
-    return AESGCM(_totp_encryption_key()).decrypt(nonce, ciphertext, b"totp").decode(
-        "ascii"
-    )
+    return AESGCM(_totp_encryption_key()).decrypt(nonce, ciphertext, b"totp").decode("ascii")
 
 
 def _reset_totp_key_cache_for_tests() -> None:

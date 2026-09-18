@@ -928,9 +928,35 @@ async def calibrate_farm_assumptions(
             .limit(_MAX_HISTORY_ROWS + 1)
         )
     ).all()
+    # The truncation keeps the per-row scan bounded but hides the window's
+    # true first expense: with more than _MAX_HISTORY_ROWS ledger rows the
+    # newest-first window starts mid-history, and min() over the truncated
+    # slice would divide the same truncated totals by even fewer months —
+    # understating every per-month cost (the direction that makes an
+    # unviable project look financeable). One extra indexed scalar probe
+    # recovers the true earliest EXPENSE date over the FULL window; the
+    # per-row aggregation below stays truncated.
+    true_first_expense = (
+        await db.execute(
+            select(func.min(Transaction.date)).where(
+                Transaction.farm_id == farm.id,
+                Transaction.date >= period_start,
+                Transaction.date <= reference_date,
+                Transaction.voided_at.is_(None),
+                Transaction.type == "EXPENSE",
+            )
+        )
+    ).scalar_one()
     if len(transaction_rows) > _MAX_HISTORY_ROWS:
         transaction_rows = transaction_rows[:_MAX_HISTORY_ROWS]
-        warnings.append(f"Cost calibration used the {_MAX_HISTORY_ROWS:,} most recent ledger rows.")
+        span_note = (
+            f" (ledger history actually reaches back to {true_first_expense.isoformat()})"
+            if true_first_expense is not None
+            else ""
+        )
+        warnings.append(
+            f"Cost calibration used the {_MAX_HISTORY_ROWS:,} most recent ledger rows{span_note}."
+        )
     feed_spend: dict[str, float] = defaultdict(float)
     feed_quantity: dict[str, float] = defaultdict(float)
     category_expense: dict[str, float] = defaultdict(float)
@@ -978,14 +1004,10 @@ async def calibrate_farm_assumptions(
     # covers, not by the window the caller happened to ask for. A six-month-old
     # farm queried with the default lookback_months=24 had every recurring cost
     # reported at a quarter of its real level, which is the direction that makes
-    # an unviable project look financeable.
-    expense_dates = [
-        transaction_row.date
-        for transaction_row in transaction_rows
-        if transaction_row.type == "EXPENSE"
-    ]
-    if expense_dates:
-        observed_months = max(1, round(_months_between(min(expense_dates), reference_date)) + 1)
+    # an unviable project look financeable. The span reads the full-window
+    # minimum above, so it stays correct even when the per-row scan truncated.
+    if true_first_expense is not None:
+        observed_months = max(1, round(_months_between(true_first_expense, reference_date)) + 1)
         cost_months = min(lookback_months, observed_months)
     else:
         cost_months = lookback_months

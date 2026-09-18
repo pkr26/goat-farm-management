@@ -583,6 +583,14 @@ async def list_transactions(
             total_expense += total
 
     pnl = await monthly_pnl(db, farm)
+    # The memo's head_count/estimated_loss are clinical death figures: the
+    # dashboard reports withhold DEAD/CULLED outcomes behind health.view, and
+    # the finance summary must not be the side door around that gate.
+    # require_perm returns the caller's FULL permission set, so the
+    # finance.view check that admitted the request already says whether
+    # health.view is held too — a caller without it gets null rather than a
+    # memo whose only two numbers are exactly the withheld figures.
+    mortality = await mortality_memo(db, farm) if "health.view" in perms else None
     return FinanceOut(
         transactions=[_transaction_out(txn) for txn in txns],
         transactions_total=filtered_count,
@@ -591,7 +599,9 @@ async def list_transactions(
         total_income=float(total_income),
         total_expense=float(total_expense),
         feed_stock_value=float(await feed_stock_value(db, farm)),
-        mortality_loss=MortalityMemoOut.model_validate(await mortality_memo(db, farm)),
+        mortality_loss=(
+            MortalityMemoOut.model_validate(mortality) if mortality is not None else None
+        ),
         pnl=[PnlRowOut.model_validate(row) for row in pnl],
     )
 
@@ -777,7 +787,9 @@ async def list_insurance_policies(
     farm: CurrentFarm,
     perms: FinanceView,
     status: InsuranceStatusStr | None = None,
-    animal_id: int | None = Query(default=None, ge=1),
+    # Ids above the int4 PK ceiling cannot exist — 422 at the query gate,
+    # never an asyncpg int32 DataError (500) from the bound filter below.
+    animal_id: int | None = Query(default=None, ge=1, le=MAX_INT32_ID),
     limit: Annotated[int, Query(ge=1, le=200)] = 200,
     offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
 ) -> InsuranceListOut:

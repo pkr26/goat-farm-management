@@ -460,6 +460,29 @@ class Settings(BaseSettings):
             )
         return value.rstrip("/")
 
+    @field_validator("s3_endpoint_url")
+    @classmethod
+    def _https_s3_endpoint_url(cls, value: str | None) -> str | None:
+        """Every screening S3 request carries the SigV4 signature of
+        GOATFARM_S3_SECRET_ACCESS_KEY, and the photo payloads are farm data:
+        a plaintext endpoint broadcast one and exposed the other. The same
+        https-or-loopback rule the model providers already enforce (an
+        explicit endpoint that is neither is a configuration error, not a
+        supported plaintext mode) — 2026-09-17 audit L-5. Unset means AWS S3
+        proper and is unaffected."""
+        if value is None or value == "":
+            return None
+        parsed = urlsplit(value)
+        host = parsed.hostname or ""
+        is_loopback = host in {"localhost", "127.0.0.1", "::1"}
+        if parsed.scheme != "https" and not is_loopback:
+            raise ValueError(
+                f"s3_endpoint_url {value!r} must use https:// (or an explicit "
+                "loopback host) — SigV4 credentials and farm photos must not "
+                "cross the network in plaintext"
+            )
+        return value.rstrip("/")
+
     @field_validator("jwt_issuer", "jwt_audience")
     @classmethod
     def _nonblank_token_binding(cls, value: str) -> str:

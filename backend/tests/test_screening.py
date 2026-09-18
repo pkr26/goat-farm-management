@@ -41,7 +41,12 @@ from app.services.screening.images import (
     crop_image,
     normalize_image,
 )
-from app.services.screening.pipeline import parse_raw_key, run_screening_cycle
+from app.services.screening.pipeline import (
+    ERROR_RETRY_AFTER,
+    MAX_DOWNLOAD_BYTES,
+    parse_raw_key,
+    run_screening_cycle,
+)
 from app.services.screening.providers import (
     AnthropicProvider,
     GateCallResult,
@@ -60,9 +65,13 @@ from app.services.screening.specialists import (
     parse_specialist_response,
     specialist_for_region,
 )
-from app.utils import utcnow
+from app.utils import today, utcnow
 
-from .conftest import owner_with_farm
+from .conftest import owner_with_farm, provisioned_worker_login
+
+# Owner-provisioned worker accounts (see _role_worker_headers) share this
+# first password across the suite; the login helper rotates it immediately.
+WORKER_PW = "workerpass123"
 
 # --------------------------------------------------------------------------
 # Unit: gate JSON contract
@@ -668,6 +677,10 @@ class FakeStorage:
 
     objects: dict[str, bytes] = field(default_factory=dict)
     uploaded: dict[str, bytes] = field(default_factory=dict)
+    # HEAD-probe overrides: lets a test report an oversized object without
+    # materializing 25+ MB of fake bytes in memory.
+    sizes: dict[str, int] = field(default_factory=dict)
+    download_attempts: list[str] = field(default_factory=list)
 
     @property
     def bucket(self) -> str:
@@ -676,7 +689,14 @@ class FakeStorage:
     def list_object_keys(self, prefix: str, max_keys: int) -> list[str]:
         return sorted(k for k in self.objects if k.startswith(prefix + "/"))[:max_keys]
 
+    def object_size(self, key: str) -> int | None:
+        if key in self.sizes:
+            return self.sizes[key]
+        blob = self.objects.get(key)
+        return None if blob is None else len(blob)
+
     def download(self, key: str) -> bytes:
+        self.download_attempts.append(key)
         if key not in self.objects:
             # Mirrors the real client's NoSuchKey → ScreeningObjectMissingError.
             raise ScreeningObjectMissingError(f"object not in bucket yet: {key!r}")
@@ -874,7 +894,9 @@ async def test_provider_failure_records_error_run_and_recovers(
     assert image.error
 
     # The ERROR row ages past ERROR_RETRY_AFTER and is re-claimed: the same
-    # object screens successfully once the provider is healthy again.
+    # object screens successfully once the provider is healthy again. The
+    # backoff keys on the image's updated_at (its last transition), so that
+    # is the timestamp the test must age.
     async with get_sessionmaker()() as db:
         aged_image = (
             await db.execute(select(ScreeningImage).where(ScreeningImage.id == image.id))
@@ -883,6 +905,7 @@ async def test_provider_failure_records_error_run_and_recovers(
             await db.execute(select(ScreeningRun).where(ScreeningRun.id == run.id))
         ).scalar_one()
         aged_image.created_at = aged_image.created_at - dt.timedelta(hours=2)
+        aged_image.updated_at = aged_image.updated_at - dt.timedelta(hours=2)
         aged_run.created_at = aged_run.created_at - dt.timedelta(hours=2)
         await db.commit()
 
@@ -1130,7 +1153,9 @@ async def test_export_endpoint_returns_training_corpus(client: httpx.AsyncClient
     assert default_export.json()["records"][0]["reviewed_at"] is not None
 
 
-async def test_disease_check_walkthrough_end_to_end(client: httpx.AsyncClient) -> None:
+async def test_disease_check_walkthrough_end_to_end(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The full flow: batch → presigned upload → phone PUT → worker screens
     the pre-created PENDING row with its bucket and batch recorded."""
     import app.api.screening as screening_api
@@ -1141,109 +1166,116 @@ async def test_disease_check_walkthrough_end_to_end(client: httpx.AsyncClient) -
     # The API process has screening disabled by default; point its settings
     # getter at a fully configured instance (S3 creds are the presign unit's
     # dummies — signing is offline).
-    original_get_settings = screening_api.get_settings
     enabled_settings = _cycle_settings(crop_detection=False)
-    screening_api.get_settings = lambda: enabled_settings  # type: ignore[assignment]
-    try:
-        batch = await client.post("/api/screening/batches", headers=headers)
-        assert batch.status_code == 201, batch.text
-        batch_id = batch.json()["id"]
+    monkeypatch.setattr(screening_api, "get_settings", lambda: enabled_settings)
+    batch = await client.post("/api/screening/batches", headers=headers)
+    assert batch.status_code == 201, batch.text
+    batch_id = batch.json()["id"]
 
-        upload = await client.post(
-            "/api/screening/uploads",
-            json={
-                "batch_id": batch_id,
-                "bucket": "BREEDING",
-                "file_name": "pen photo 1.jpg",
-                "content_type": "image/jpeg",
-            },
-            headers=headers,
+    upload = await client.post(
+        "/api/screening/uploads",
+        json={
+            "batch_id": batch_id,
+            "bucket": "BREEDING",
+            "file_name": "pen photo 1.jpg",
+            "content_type": "image/jpeg",
+        },
+        headers=headers,
+    )
+    assert upload.status_code == 201, upload.text
+    payload = upload.json()
+    key = payload["s3_key"]
+    # The API dates the key with the business timezone's `today()`, which on
+    # a non-IST host can already be tomorrow relative to the machine clock.
+    assert key.startswith(f"raw/{farm_id}/{today().isoformat()}/BREEDING/")
+    assert payload["upload_url"].startswith("https://")
+
+    # The phone's PUT lands the bytes (here: straight into fake storage).
+    storage = FakeStorage()
+    storage.objects[key] = _jpeg_bytes(2000, 1000)
+
+    async with get_sessionmaker()() as db:
+        summary = await run_screening_cycle(
+            db,
+            enabled_settings,
+            storage,
+            ProviderRotation([CountingProvider(name="fake")]),
         )
-        assert upload.status_code == 201, upload.text
-        payload = upload.json()
-        key = payload["s3_key"]
-        assert key.startswith(f"raw/{farm_id}/{dt.date.today().isoformat()}/BREEDING/")
-        assert payload["upload_url"].startswith("https://")
+    assert (summary.claimed, summary.flagged) == (1, 1)
 
-        # The phone's PUT lands the bytes (here: straight into fake storage).
-        storage = FakeStorage()
-        storage.objects[key] = _jpeg_bytes(2000, 1000)
+    async with get_sessionmaker()() as db:
+        image = (await db.execute(select(ScreeningImage))).scalar_one()
+    assert image.status == "FLAGGED"
+    assert image.bucket == "BREEDING"
+    assert image.batch_id == batch_id
 
-        async with get_sessionmaker()() as db:
-            summary = await run_screening_cycle(
-                db,
-                enabled_settings,
-                storage,
-                ProviderRotation([CountingProvider(name="fake")]),
-            )
-        assert (summary.claimed, summary.flagged) == (1, 1)
-
-        async with get_sessionmaker()() as db:
-            image = (await db.execute(select(ScreeningImage))).scalar_one()
-        assert image.status == "FLAGGED"
-        assert image.bucket == "BREEDING"
-        assert image.batch_id == batch_id
-
-        # Submit the walkthrough after screening already picked it up.
-        submit = await client.post(f"/api/screening/batches/{batch_id}/submit", headers=headers)
-        assert submit.status_code == 200, submit.text
-        assert submit.json()["submitted_at"] is not None
-        assert submit.json()["images_uploaded"] == 1
-        assert submit.json()["images_flagged"] == 1
-        assert submit.json()["buckets"][0]["bucket"] == "BREEDING"
-    finally:
-        screening_api.get_settings = original_get_settings  # type: ignore[assignment]
+    # Submit the walkthrough after screening already picked it up.
+    submit = await client.post(f"/api/screening/batches/{batch_id}/submit", headers=headers)
+    assert submit.status_code == 200, submit.text
+    assert submit.json()["submitted_at"] is not None
+    assert submit.json()["images_uploaded"] == 1
+    assert submit.json()["images_flagged"] == 1
+    assert submit.json()["buckets"][0]["bucket"] == "BREEDING"
 
 
-async def test_upload_without_bytes_stays_pending(client: httpx.AsyncClient) -> None:
+async def test_upload_without_bytes_stays_pending(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A minted URL the phone never uses: the row waits as PENDING, never
     an error, and the cycle moves on."""
     import app.api.screening as screening_api
 
     headers = await owner_with_farm(client, email="pending-upload@farm.in")
 
-    original_get_settings = screening_api.get_settings
     enabled_settings = _cycle_settings(crop_detection=False)
-    screening_api.get_settings = lambda: enabled_settings  # type: ignore[assignment]
-    try:
-        batch = await client.post("/api/screening/batches", headers=headers)
-        batch_id = batch.json()["id"]
-        upload = await client.post(
-            "/api/screening/uploads",
-            json={
-                "batch_id": batch_id,
-                "bucket": "MALE_KIDS",
-                "file_name": "kids.jpg",
-                "content_type": "image/jpeg",
-            },
-            headers=headers,
+    monkeypatch.setattr(screening_api, "get_settings", lambda: enabled_settings)
+    batch = await client.post("/api/screening/batches", headers=headers)
+    batch_id = batch.json()["id"]
+    upload = await client.post(
+        "/api/screening/uploads",
+        json={
+            "batch_id": batch_id,
+            "bucket": "MALE_KIDS",
+            "file_name": "kids.jpg",
+            "content_type": "image/jpeg",
+        },
+        headers=headers,
+    )
+    assert upload.status_code == 201
+    key = upload.json()["s3_key"]
+
+    storage = FakeStorage()  # object never PUT
+    async with get_sessionmaker()() as db:
+        summary = await run_screening_cycle(
+            db,
+            enabled_settings,
+            storage,
+            ProviderRotation([CountingProvider(name="fake")]),
         )
-        assert upload.status_code == 201
-        key = upload.json()["s3_key"]
-
-        storage = FakeStorage()  # object never PUT
-        async with get_sessionmaker()() as db:
-            summary = await run_screening_cycle(
-                db,
-                enabled_settings,
-                storage,
-                ProviderRotation([CountingProvider(name="fake")]),
-            )
-            image = (await db.execute(select(ScreeningImage))).scalar_one()
-        assert summary.claimed == 1
-        assert summary.errors == 0
-        assert image.status == "PENDING"
-        assert any("not uploaded yet" in note for note in summary.notes)
-        assert key not in storage.uploaded
-    finally:
-        screening_api.get_settings = original_get_settings  # type: ignore[assignment]
+        image = (await db.execute(select(ScreeningImage))).scalar_one()
+    assert summary.claimed == 1
+    assert summary.errors == 0
+    assert image.status == "PENDING"
+    assert any("not uploaded yet" in note for note in summary.notes)
+    assert key not in storage.uploaded
 
 
-async def test_batch_rules_and_scoping(client: httpx.AsyncClient) -> None:
+async def test_batch_rules_and_scoping(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import app.api.screening as screening_api
+
     headers = await owner_with_farm(client, email="batch-rules@farm.in")
+
+    # The batch write paths share request_upload's screening_enabled gate,
+    # so the rule checks run against a configured deployment...
+    real_get_settings = screening_api.get_settings
+    enabled_settings = _cycle_settings(crop_detection=False)
+    monkeypatch.setattr(screening_api, "get_settings", lambda: enabled_settings)
 
     # Submitting an empty batch is refused.
     batch = await client.post("/api/screening/batches", headers=headers)
+    assert batch.status_code == 201, batch.text
     batch_id = batch.json()["id"]
     empty_submit = await client.post(f"/api/screening/batches/{batch_id}/submit", headers=headers)
     assert empty_submit.status_code == 409
@@ -1255,18 +1287,24 @@ async def test_batch_rules_and_scoping(client: httpx.AsyncClient) -> None:
     unknown = await client.post("/api/screening/batches/999999999/submit", headers=headers)
     assert unknown.status_code == 404
 
-    # Uploads require screening storage configured (503 when disabled).
-    upload = await client.post(
-        "/api/screening/uploads",
-        json={
-            "batch_id": batch_id,
-            "bucket": "BREEDING",
-            "file_name": "x.jpg",
-            "content_type": "image/jpeg",
-        },
-        headers=headers,
-    )
-    assert upload.status_code == 503
+    # ...and with storage unconfigured every write path, not just uploads,
+    # refuses with 503 instead of half-working.
+    monkeypatch.setattr(screening_api, "get_settings", real_get_settings)
+    for path, payload in (
+        ("/api/screening/batches", None),
+        (f"/api/screening/batches/{batch_id}/submit", None),
+        (
+            "/api/screening/uploads",
+            {
+                "batch_id": batch_id,
+                "bucket": "BREEDING",
+                "file_name": "x.jpg",
+                "content_type": "image/jpeg",
+            },
+        ),
+    ):
+        refused = await client.post(path, json=payload, headers=headers)
+        assert refused.status_code == 503, refused.text
 
 
 async def test_direct_bucket_key_carries_bucket(client: httpx.AsyncClient) -> None:
@@ -1404,14 +1442,19 @@ def test_normalize_rejects_decompression_bomb() -> None:
 
 
 async def test_batch_progress_tolerates_null_bucket_rows(
-    client: httpx.AsyncClient,
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Batch-linked rows always carry a bucket in practice, but a NULL
     bucket (hand-written data, a future writer bug) must not turn the
     batches listing into a 500 — it counts toward the totals with no
     per-pen entry instead."""
+    import app.api.screening as screening_api
+
     headers = await owner_with_farm(client, email="null-bucket@farm.in")
     farm_id = int(headers["X-Farm-Id"])
+    monkeypatch.setattr(
+        screening_api, "get_settings", lambda: _cycle_settings(crop_detection=False)
+    )
     batch = await client.post("/api/screening/batches", headers=headers)
     assert batch.status_code == 201, batch.text
     batch_id = batch.json()["id"]
@@ -1435,3 +1478,193 @@ async def test_batch_progress_tolerates_null_bucket_rows(
     assert row["images_screened"] == 1
     assert row["images_flagged"] == 1
     assert row["buckets"] == []
+
+
+# --------------------------------------------------------------------------
+# Regression: this audit's fixes (write-permission gating, ERROR backoff,
+# download size cap)
+# --------------------------------------------------------------------------
+
+
+async def _role_worker_headers(
+    client: httpx.AsyncClient, owner: dict, code: str, email: str
+) -> dict:
+    """Owner adds a worker wearing preset role ``code``; farm-scoped headers.
+
+    Same shape as test_health_extended.worker_with_role: the seeded preset
+    is the realistic permission bundle (VIEWER = read-only Auditor, VET =
+    health.manage) rather than a hand-built role row.
+    """
+    team = await client.get("/api/team", headers=owner)
+    assert team.status_code == 200, team.text
+    role_id = next(r["id"] for r in team.json()["roles"] if r["code"] == code)
+    created = await client.post(
+        "/api/team/workers",
+        json={"name": "Worker", "email": email, "password": WORKER_PW, "role_id": role_id},
+        headers=owner,
+    )
+    assert created.status_code == 201, created.text
+    headers, _user_id = await provisioned_worker_login(client, email, WORKER_PW)
+    return headers | {"X-Farm-Id": owner["X-Farm-Id"]}
+
+
+async def test_write_endpoints_demand_health_manage_not_view(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The audit's RBAC hole: create_batch / submit_batch / request_upload
+    sat behind health.view — the seeded read-only Auditor preset — so an
+    investor/lender account could mint presigned uploads. All three must
+    demand health.manage (the VET preset), while the queue stays viewable."""
+    import app.api.screening as screening_api
+
+    headers = await owner_with_farm(client, email="rbac-owner@farm.in")
+    # Enabled storage so the manage-role calls prove they got PAST the
+    # permission layer and the 503 gate into real handler outcomes.
+    monkeypatch.setattr(
+        screening_api, "get_settings", lambda: _cycle_settings(crop_detection=False)
+    )
+
+    auditor = await _role_worker_headers(client, headers, "VIEWER", "auditor@farm.in")
+    vet = await _role_worker_headers(client, headers, "VET", "walkthrough-vet@farm.in")
+
+    # Reading the queue stays health.view...
+    listed = await client.get("/api/screening/images", headers=auditor)
+    assert listed.status_code == 200, listed.text
+
+    # ...but every write refuses the read-only preset with 403.
+    assert (await client.post("/api/screening/batches", headers=auditor)).status_code == 403
+    upload_payload = {
+        "bucket": "BREEDING",
+        "file_name": "pen.jpg",
+        "content_type": "image/jpeg",
+    }
+    # A batch id the auditor cannot create; submit must still 403 on the
+    # permission layer before any 404/409 scoping could apply.
+    assert (
+        await client.post("/api/screening/batches/1/submit", headers=auditor)
+    ).status_code == 403
+    assert (
+        await client.post("/api/screening/uploads", json=upload_payload, headers=auditor)
+    ).status_code == 403
+
+    # The health.manage role gets through: 201 on batch and upload, and a
+    # 409 on submitting a photo-less batch — domain rules, not permissions.
+    batch = await client.post("/api/screening/batches", headers=vet)
+    assert batch.status_code == 201, batch.text
+    batch_id = batch.json()["id"]
+    submit = await client.post(f"/api/screening/batches/{batch_id}/submit", headers=vet)
+    assert submit.status_code == 409
+    upload = await client.post(
+        "/api/screening/uploads", json={**upload_payload, "batch_id": batch_id}, headers=vet
+    )
+    assert upload.status_code == 201, upload.text
+
+
+async def test_error_rows_without_runs_back_off_before_retry(
+    client: httpx.AsyncClient,
+) -> None:
+    """The starvation bug this pins: the ERROR retry horizon keyed on the
+    latest GATE run's timestamp, so a row that errored BEFORE any run was
+    written (last_at NULL) matched the predicate on every cycle and kept
+    eating the claim budget. The backoff must ride the image's own
+    updated_at, refreshed on every transition."""
+    headers = await owner_with_farm(client, email="error-backoff@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    today = dt.date.today().isoformat()
+    broken_key = f"raw/{farm_id}/2026-01-01/broken.jpg"
+
+    async with get_sessionmaker()() as db:
+        db.add(
+            ScreeningImage(
+                farm_id=farm_id,
+                s3_bucket="goat-photos",
+                s3_key=broken_key,
+                captured_date=dt.date(2026, 1, 1),
+                status="ERROR",
+                error="download failed before any run was recorded",
+            )
+        )
+        await db.commit()
+
+    storage = FakeStorage()
+    storage.objects[f"raw/{farm_id}/{today}/fresh.jpg"] = _jpeg_bytes(1000, 2000)
+    async with get_sessionmaker()() as db:
+        first = await run_screening_cycle(
+            db, _cycle_settings(), storage, ProviderRotation([CountingProvider(name="fake")])
+        )
+        broken = (
+            await db.execute(select(ScreeningImage).where(ScreeningImage.s3_key == broken_key))
+        ).scalar_one()
+
+    # Fresh ERROR (updated_at = now): NOT claimable within ERROR_RETRY_AFTER.
+    assert utcnow() - broken.updated_at < ERROR_RETRY_AFTER
+    assert first.retried_errors == 0
+    assert first.claimed == 1  # only the fresh photo
+    assert broken.status == "ERROR"
+
+    # Age the row past the horizon on updated_at alone — no run rows exist
+    # to age — and the bytes arrive; the retry now goes through.
+    async with get_sessionmaker()() as db:
+        aged = (
+            await db.execute(select(ScreeningImage).where(ScreeningImage.s3_key == broken_key))
+        ).scalar_one()
+        aged.updated_at = aged.updated_at - dt.timedelta(hours=2)
+        await db.commit()
+
+    # Distinct bytes from fresh.jpg: the duplicate detector must not swallow
+    # the recovered row as identical already-screened content.
+    storage.objects[broken_key] = _jpeg_bytes(900, 2000)
+    async with get_sessionmaker()() as db:
+        second = await run_screening_cycle(
+            db, _cycle_settings(), storage, ProviderRotation([CountingProvider(name="fake")])
+        )
+        recovered = (
+            await db.execute(select(ScreeningImage).where(ScreeningImage.s3_key == broken_key))
+        ).scalar_one()
+
+    assert second.retried_errors == 1
+    assert recovered.status == "HEALTHY"
+    assert recovered.error is None
+
+
+async def test_oversized_object_is_skipped_without_download(
+    client: httpx.AsyncClient,
+) -> None:
+    """The size-cap fix: an object larger than MAX_DOWNLOAD_BYTES is
+    terminally SKIPPED off the HEAD probe — no bytes transferred, no model
+    call — and the claim predicate (PENDING/PROCESSING/ERROR only) can
+    never pick the row up again."""
+    headers = await owner_with_farm(client, email="size-cap@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    today = dt.date.today().isoformat()
+    huge_key = f"raw/{farm_id}/{today}/huge.jpg"
+
+    storage = FakeStorage()
+    # Real bytes stay tiny; the HEAD probe is overridden past the cap so the
+    # test need not allocate 25 MB.
+    storage.objects[huge_key] = _jpeg_bytes(100, 100)
+    storage.sizes[huge_key] = MAX_DOWNLOAD_BYTES + 1
+    provider = CountingProvider(name="fake")
+
+    async with get_sessionmaker()() as db:
+        first = await run_screening_cycle(
+            db, _cycle_settings(), storage, ProviderRotation([provider])
+        )
+        image = (await db.execute(select(ScreeningImage))).scalar_one()
+
+    assert first.claimed == 1
+    assert first.skipped == 1
+    assert first.errors == 0
+    assert image.status == "SKIPPED"
+    assert "25 MB download cap" in (image.error or "")
+    assert str(MAX_DOWNLOAD_BYTES + 1) in (image.error or "")
+    assert storage.download_attempts == []  # refused before any transfer
+    assert huge_key not in storage.uploaded
+    assert provider.calls == 0  # nothing reached a model
+
+    # SKIPPED is terminal for the claim too: a later cycle leaves it alone.
+    async with get_sessionmaker()() as db:
+        second = await run_screening_cycle(
+            db, _cycle_settings(), storage, ProviderRotation([provider])
+        )
+    assert second.claimed == 0

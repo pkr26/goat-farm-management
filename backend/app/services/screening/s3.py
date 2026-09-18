@@ -88,6 +88,25 @@ class ScreeningStorage:
             raise ScreeningStorageError(f"S3 list failed under {prefix!r}: {exc}") from exc
         return collected[:max_keys]
 
+    def object_size(self, key: str) -> int | None:
+        """ContentLength via HEAD, or None when the object is missing.
+
+        A metadata read sizes a download before any byte is transferred,
+        so the pipeline can refuse oversized objects without reading
+        them; other HEAD failures are storage errors like any other.
+        """
+        client = self._ensure_client()
+        try:
+            response = client.head_object(Bucket=self.bucket, Key=key)
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code", "")
+            if code in {"NoSuchKey", "404", "NotFound"}:
+                return None
+            raise ScreeningStorageError(f"S3 head failed for {key!r}: {exc}") from exc
+        except BotoCoreError as exc:
+            raise ScreeningStorageError(f"S3 head failed for {key!r}: {exc}") from exc
+        return int(response["ContentLength"])
+
     def download(self, key: str) -> bytes:
         client = self._ensure_client()
         try:

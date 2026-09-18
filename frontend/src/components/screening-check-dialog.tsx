@@ -64,6 +64,15 @@ export function DiseaseCheckDialog({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Synchronous double-click lock: `disabled={uploading}` only applies after
+  // the re-render, so two events delivered in the same React batch would both
+  // enter uploadPendingPhoto and (with no batch yet) mint two ScreeningBatch
+  // rows — the lazy-mint comment below exists precisely to avoid that (2026-09-17
+  // audit L-20; the account-dialog beginAction pattern).
+  const uploadInFlight = useRef(false);
+  // Bumped on every open: an upload started under a previous walkthrough
+  // session must not credit its photo to the freshly reset one.
+  const walkthroughEpoch = useRef(0);
 
   // A fresh walkthrough starts clean on open. The batch itself is minted
   // lazily on the first successful upload attempt: opening the dialog to
@@ -77,6 +86,11 @@ export function DiseaseCheckDialog({
     setUploadedByBucket({});
     setPendingFile(null);
     setPreviewUrl(null);
+    // A stalled PUT from the closed session can never settle its `finally`
+    // once it times out — but a session closed mid-upload must not leave the
+    // reopened dialog inert with `uploading` stuck true (2026-09-17 audit M-11).
+    setUploading(false);
+    walkthroughEpoch.current += 1;
   }, [open]);
 
   // Revoke object URLs when the preview changes or the dialog closes.
@@ -118,6 +132,10 @@ export function DiseaseCheckDialog({
 
   const uploadPendingPhoto = async () => {
     if (!pendingFile || !selectedBucket) return;
+    if (uploadInFlight.current) return;
+    uploadInFlight.current = true;
+    const epoch = walkthroughEpoch.current;
+    const stillCurrentSession = () => walkthroughEpoch.current === epoch;
     setUploading(true);
     try {
       const activeBatchId = await ensureBatchId();
@@ -131,15 +149,24 @@ export function DiseaseCheckDialog({
       });
       if (result.status !== 201) return;
       // Direct PUT to S3 — the signed content type must be sent verbatim.
+      // Bounded like every api-client request: on flaky mobile data an
+      // unbounded PUT never settles, leaving the dialog's uploading state
+      // wedged until a full page reload (2026-09-17 audit M-11).
       const response = await fetch(result.data.upload_url, {
         method: "PUT",
         body: pendingFile,
         headers: { "Content-Type": pendingFile.type },
+        signal: AbortSignal.timeout(60_000),
       });
       if (!response.ok) {
         toast.error(t("screening.check.uploadFailed"));
         return;
       }
+      // A session closed (and reopened) while this PUT was in flight owns a
+      // fresh walkthrough: the photo belongs to the OLD session's batch, so
+      // neither its counts nor its toasts may touch the new session's state
+      // (2026-09-17 audit L-20).
+      if (!stillCurrentSession()) return;
       setUploadedByBucket((counts) => ({
         ...counts,
         [selectedBucket]: (counts[selectedBucket] ?? 0) + 1,
@@ -148,13 +175,17 @@ export function DiseaseCheckDialog({
       setPreviewUrl(null);
       toast.success(t("screening.check.uploaded"));
     } catch (error) {
+      if (!stillCurrentSession()) return;
       if (error instanceof ApiError && error.status === 409) {
         toast.error(t("screening.check.noBatch"));
       } else {
         toast.error(t("screening.check.uploadFailed"));
       }
     } finally {
-      setUploading(false);
+      uploadInFlight.current = false;
+      if (stillCurrentSession()) {
+        setUploading(false);
+      }
     }
   };
 

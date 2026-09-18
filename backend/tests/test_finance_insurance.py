@@ -26,6 +26,7 @@ from sqlalchemy import update as sa_update
 from app.api.dashboard import INSURANCE_EXPIRING_WINDOW_DAYS
 from app.db import get_sessionmaker
 from app.models import InsurancePolicy, Task, Transaction
+from app.services.finance import MAX_RENEWAL_SPAN_DAYS
 from app.utils import today, utcnow
 
 from .conftest import create_farm, owner_with_farm, register
@@ -144,6 +145,29 @@ async def test_insurance_register_create_list_and_tenant_scoping(
         headers=other,
     )
     assert foreign_renew.status_code == 404
+
+
+# An animal_id above the int4 PK ceiling cannot exist: the query gate must
+# answer 422, never an asyncpg int32 DataError (500) from the bound filter.
+async def test_insurance_list_animal_id_filter_is_int32_bounded(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client, email="ins-qbound@farm.in")
+    animal = await make_animal(client, owner, tag="INS-Q-1")
+    assert (
+        await add_policy(client, owner, policy_number="POL-Q", animal_id=animal["id"])
+    ).status_code == 201
+
+    beyond = await client.get(
+        "/api/finance/insurance",
+        params={"animal_id": 2_147_483_648},
+        headers=owner,
+    )
+    assert beyond.status_code == 422, beyond.text
+    # At the ceiling itself the filter is legal and simply matches nothing.
+    at_cap = await list_policies(client, owner, animal_id=2_147_483_647)
+    assert at_cap.status_code == 200
+    assert at_cap.json()["total"] == 0
 
 
 async def test_insurance_create_validations(client: httpx.AsyncClient) -> None:
@@ -747,6 +771,45 @@ async def test_claim_endpoint_is_terminal_and_single_shot(
     assert too_early.status_code == 422, too_early.text
 
 
+async def test_claimed_policy_cannot_be_renewed_or_reclaimed(
+    client: httpx.AsyncClient,
+) -> None:
+    """A claim is the documented terminal event — renewal "re-activates" the
+    row, so without the guard it resurrected claimed cover into active and
+    reopened the single-shot claim window (claim → renew → claim again)."""
+    owner = await owner_with_farm(client, email="ins-claimed@farm.in")
+    created = await add_policy(client, owner, policy_number="POL-TERM-1")
+    assert created.status_code == 201, created.text
+    policy_id = created.json()["id"]
+
+    claimed = await client.post(
+        f"/api/finance/insurance/{policy_id}/claim",
+        json={"claim_date": iso(today())},
+        headers=owner,
+    )
+    assert claimed.status_code == 200, claimed.text
+
+    # The resurrection attempt is refused with its remedy (a NEW policy), the
+    # same way the claim path refuses its own terminal repeat.
+    resurrect = await client.post(
+        f"/api/finance/insurance/{policy_id}/renew",
+        json={"renewal_date": iso(today() + timedelta(days=400))},
+        headers=owner,
+    )
+    assert resurrect.status_code == 422, resurrect.text
+    assert resurrect.json()["detail"] == "A claimed policy cannot be renewed; register a new policy"
+    # The cycle stays dead at its first step: the row is still terminal, not
+    # re-activated, and a second claim is still the single-shot 409.
+    policies = (await list_policies(client, owner)).json()["policies"]
+    assert next(p for p in policies if p["id"] == policy_id)["status"] == "claimed"
+    reclaim = await client.post(
+        f"/api/finance/insurance/{policy_id}/claim",
+        json={"claim_date": iso(today())},
+        headers=owner,
+    )
+    assert reclaim.status_code == 409, reclaim.text
+
+
 async def test_animal_exit_lapses_active_cover_and_blocks_renewal(
     client: httpx.AsyncClient,
 ) -> None:
@@ -891,6 +954,66 @@ async def test_mortality_memo_stays_unvalued_without_a_weighed_sale(
     assert "unvalued" in memo["basis"]
 
 
+async def test_mortality_memo_withheld_without_health_view(
+    client: httpx.AsyncClient,
+) -> None:
+    """The memo's head_count/estimated_loss are clinical death figures.
+
+    GET /api/dashboard/reports withholds DEAD/CULLED outcomes behind
+    health.view; GET /api/finance must not be the side door around that gate.
+    Withheld means null — never a zeroed memo the UI would render as a
+    factual "no deaths" — while the rest of the summary still renders."""
+    owner = await owner_with_farm(client, email="memo-gate@farm.in")
+    dead = await make_animal(
+        client,
+        owner,
+        tag="M-GATE",
+        sex="F",
+        weight_kg=30.0,
+        weight_date=iso(today() - timedelta(days=5)),
+    )
+    buyer_lot = await make_animal(
+        client,
+        owner,
+        tag="M-GATE-SOLD",
+        sex="M",
+        date_of_birth=iso(today() - timedelta(days=300)),
+    )
+    await change_status(client, owner, dead["id"], "DEAD", mortality_cause_code="PNEUMONIA")
+    await change_status(
+        client,
+        owner,
+        buyer_lot["id"],
+        "SOLD",
+        sale_price=12500.0,
+        sale_weight_kg=25.0,
+        sale_price_per_kg=500.0,
+    )
+
+    # The owner holds every permission, so the memo genuinely renders — or
+    # this test would prove nothing about the gate below.
+    owner_summary = await get_finance(client, owner)
+    assert owner_summary["mortality_loss"]["head_count"] == 1
+    assert owner_summary["mortality_loss"]["estimated_loss"] == "15000.00"
+
+    # A finance.view-only bookkeeper still gets the page, but the memo stays
+    # null: the same 1-death figure the reports endpoint withholds.
+    bookkeeper_role = await custom_role_id(client, owner, "Finance only", ["finance.view"])
+    bookkeeper = await worker_headers(client, owner, bookkeeper_role, "memo-view@farm.in")
+    bookkeeper_summary = await get_finance(client, bookkeeper)
+    assert bookkeeper_summary["mortality_loss"] is None
+    # The summary itself rendered — the gate withheld one memo, not the page.
+    assert bookkeeper_summary["total_income"] == 12500.0
+
+    # The VIEWER preset carries finance.view AND health.view: memo visible.
+    viewer = await worker_headers(
+        client, owner, await preset_role_id(client, owner, "VIEWER"), "memo-health@farm.in"
+    )
+    viewer_summary = await get_finance(client, viewer)
+    assert viewer_summary["mortality_loss"]["head_count"] == 1
+    assert viewer_summary["mortality_loss"]["estimated_loss"] == "15000.00"
+
+
 async def test_renewal_span_is_capped_at_five_years(client: httpx.AsyncClient) -> None:
     """BIZ-3 (2026-09-16): one renewal books one non-prorated premium row —
     a decades-distant horizon must 422 instead of booking 30 years of cover
@@ -922,3 +1045,36 @@ async def test_renewal_span_is_capped_at_five_years(client: httpx.AsyncClient) -
         headers=owner,
     )
     assert inside.status_code == 200, inside.text
+
+
+async def test_registration_span_is_capped_at_five_years(client: httpx.AsyncClient) -> None:
+    """BIZ-3 (2026-09-16) creation twin: registration books ONE non-prorated
+    premium row for the whole start→renewal span, so a decades-distant
+    renewal_date must 422 instead of buying 30 years of cover for a single
+    premium — longer cover arrives as successive renewals, never one
+    registration."""
+    owner = await owner_with_farm(client, email="ins-create-span@farm.in")
+    start = today() - timedelta(days=10)
+
+    # Exactly the cap is a span an insurer would issue in one policy.
+    edge = await add_policy(
+        client,
+        owner,
+        policy_number="POL-SPAN-EDGE",
+        start_date=iso(start),
+        renewal_date=iso(start + timedelta(days=MAX_RENEWAL_SPAN_DAYS)),
+    )
+    assert edge.status_code == 201, edge.text
+
+    # One day past it (and any decades-distant horizon) is refused at both
+    # the wire schema and the domain backstop; the wire speaks first.
+    beyond = await add_policy(
+        client,
+        owner,
+        policy_number="POL-SPAN-BEYOND",
+        start_date=iso(start),
+        renewal_date=iso(start + timedelta(days=MAX_RENEWAL_SPAN_DAYS + 1)),
+    )
+    assert beyond.status_code == 422, beyond.text
+    assert "five years" in str(beyond.json()["detail"])
+    assert (await list_policies(client, owner)).json()["total"] == 1

@@ -24,6 +24,7 @@ from ..models import (
     AnimalStatus,
     Farm,
     FeedInventory,
+    PurchaseBatch,
     Sex,
     Task,
     TaskCategory,
@@ -193,6 +194,36 @@ async def _farm_has_active_animals(db: AsyncSession, farm_id: int) -> bool:
     return probe is not None
 
 
+async def _farm_earliest_introduction(db: AsyncSession, farm_id: int) -> date | None:
+    """Earliest date the farm provably held animals, or ``None`` if it never did.
+
+    One statement, two indexed scalar subqueries (the same sweep pass, no
+    per-round probing): ``min(Animal.created_at)`` over every historical
+    status — a since-sold or dead animal still proves stock stood — and
+    ``min(PurchaseBatch.date)``, because a recorded batch can predate its
+    animal rows when the animals are written asynchronously after the
+    purchase. ``created_at`` is UTC while the sweep decides in the farm's
+    business date; at month-round granularity that sub-day skew is noise.
+    """
+    first_animal_at, first_batch_on = (
+        await db.execute(
+            select(
+                select(func.min(Animal.created_at))
+                .where(Animal.farm_id == farm_id)
+                .scalar_subquery()
+                .label("first_animal"),
+                select(func.min(PurchaseBatch.date))
+                .where(PurchaseBatch.farm_id == farm_id)
+                .scalar_subquery()
+                .label("first_batch"),
+            )
+        )
+    ).one()
+    first_animal_on = first_animal_at.date() if first_animal_at is not None else None
+    candidates = [day for day in (first_animal_on, first_batch_on) if day is not None]
+    return min(candidates) if candidates else None
+
+
 async def _ensure_calendar_rounds(
     db: AsyncSession, farm_id: int, reference: date, backfill_floor: date
 ) -> bool:
@@ -206,9 +237,10 @@ async def _ensure_calendar_rounds(
     A round whose month passed without a sweep visit is not silently dropped:
     the series' latest occurrence is materialized late (due at that month's
     end, so it surfaces as overdue) when it is still inside the backfill
-    window and the farm already existed. Rounds older than that — or from
-    before the farm was created — stay history; one late round per series is
-    ever pending, because the probe finds the late copy on the next load.
+    window and the farm already had animals. Rounds older than that — or from
+    before the farm's first animal was introduced — stay history; one late
+    round per series is ever pending, because the probe finds the late copy
+    on the next load.
     """
     created = False
     for round_month, category, title_key, title_template in _CALENDAR_ROUNDS:
@@ -497,11 +529,20 @@ async def ensure_cadence_tasks(db: AsyncSession, farm: Farm) -> None:
     business_today = today(farm.timezone)
     if not await _farm_has_active_animals(db, farm.id):
         return
-    # A round missed before the farm existed (or beyond one cycle ago) is
-    # history, not a duty: late materialization never reaches past this date.
+    # A round missed before the farm had any animals (or beyond one cycle
+    # ago) is history, not a duty: late materialization never reaches past
+    # this date. The floor is the farm's earliest animal-introduction fact —
+    # first animal row or purchase batch — not merely farm creation: a farm
+    # registered months before its first goat arrived otherwise materialized
+    # every round since registration as "overdue", dosing a herd that never
+    # stood. A farm with no introduction fact at all falls back to creation
+    # (the active-animal gate above makes that path defensive only).
+    creation_day = farm.created_at.date() if farm.created_at is not None else business_today
+    earliest_stock = await _farm_earliest_introduction(db, farm.id)
     backfill_floor = max(
         business_today - timedelta(days=_BACKFALL_MAX_AGE_DAYS),
-        farm.created_at.date() if farm.created_at is not None else business_today,
+        creation_day,
+        earliest_stock if earliest_stock is not None else creation_day,
     )
     created = False
     created |= await _ensure_calendar_rounds(db, farm.id, business_today, backfill_floor)

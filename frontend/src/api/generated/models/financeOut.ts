@@ -16,6 +16,6 @@ export interface FinanceOut {
   total_income: number;
   total_expense: number;
   feed_stock_value: number;
-  mortality_loss: MortalityMemoOut;
+  mortality_loss: MortalityMemoOut | null;
   pnl: PnlRowOut[];
 }

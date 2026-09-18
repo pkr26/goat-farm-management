@@ -66,8 +66,14 @@ class PurchaseBatch(Base):
     # Nullable only for legacy batches that created no animals (there is no
     # historical evidence from which to infer the submitted sex).
     sex: Mapped[str | None] = mapped_column(String(1))
-    avg_age_months: Mapped[float | None]
-    avg_weight_kg: Mapped[float | None]
+    # Exact numerics (never float8, per the exact-numerics program): the
+    # average age seeds each animal's estimated DOB and the average weight
+    # seeds its first weight record, so binary drift would compound into
+    # schedule and ledger facts. ``asdecimal=False`` keeps the established
+    # float ORM/API contract; PostgreSQL stays the authoritative store. Ages
+    # are fractional (6.5 months is a real market fact), hence scale 2.
+    avg_age_months: Mapped[float | None] = mapped_column(Numeric(8, 2, asdecimal=False))
+    avg_weight_kg: Mapped[float | None] = mapped_column(Numeric(8, 2, asdecimal=False))
     total_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(

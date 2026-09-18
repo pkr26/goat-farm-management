@@ -4,7 +4,7 @@ encryption of the shared secret."""
 
 import base64
 import hashlib
-import hmac as hmac_mod
+from collections.abc import Iterator
 from datetime import UTC, datetime
 
 import httpx
@@ -14,6 +14,7 @@ from sqlalchemy import select
 from app.core.config import get_settings
 from app.db import get_sessionmaker
 from app.models import User
+from app.ratelimit import auth_limiter
 from app.security import (
     TOTP_STEP_SECONDS,
     _totp_code_for_step,
@@ -23,6 +24,21 @@ from app.security import (
 )
 
 from .conftest import OWNER_PW, owner_with_farm, register
+
+
+@pytest.fixture(autouse=True)
+def _fresh_totp_rate_limits() -> Iterator[None]:
+    """Drop all auth-limiter state around every test in this module.
+
+    The database truncates per test (RESTART IDENTITY → every test's first
+    user is id 1 again) while the in-memory limiter survives the whole
+    process, so a test that exhausts a TOTP scope for "user 1" would 429 the
+    next test's enroll/confirm before it even starts — the throttle tests
+    here are written to be self-contained, and this keeps them that way
+    regardless of file order. Same clear() hook test_auth_extended uses."""
+    auth_limiter.clear()
+    yield
+    auth_limiter.clear()
 
 
 def _current_code(secret_b32: str, *, drift: int = 0) -> tuple[str, int]:
@@ -72,9 +88,10 @@ async def test_totp_secret_is_encrypted_at_rest(
         assert secret.encode() not in stored  # never plaintext
         assert len(stored) > 12
         assert decrypt_totp_secret(stored) == secret
-        assert hmac_mod.compare_digest(
-            hashlib.sha256(stored).digest(), hashlib.sha256(stored).digest()
-        )
+        # And the ciphertext is not merely a naive hash of the secret either
+        # (the property the previous line's tautological self-comparison
+        # intended to pin — 2026-09-17 audit L-30).
+        assert stored != hashlib.sha256(secret.encode()).digest()
 
 
 async def test_full_totp_login_challenge_flow(client: httpx.AsyncClient) -> None:
@@ -223,6 +240,35 @@ async def test_enroll_requires_the_current_password(client: httpx.AsyncClient) -
     assert body["secret"] and body["otpauth_uri"].startswith("otpauth://totp/Herdly:")
 
 
+async def test_enroll_over_an_active_enrollment_is_refused(
+    client: httpx.AsyncClient,
+) -> None:
+    """2026-09-17 re-audit: enroll used to silently replace an ACTIVE secret
+    with password-only proof — a phished password could retire a second
+    factor the thief could not satisfy. It must now refuse (409) and leave
+    the ACTIVE enrollment fully intact."""
+    headers = await register(client, "totp-nooverwrite@farm.in")
+    secret = await _enroll_and_activate(client, headers)
+    resp = await client.post(
+        "/api/auth/totp/enroll", json={"current_password": OWNER_PW}, headers=headers
+    )
+    assert resp.status_code == 409, resp.text
+    assert "secret" not in resp.json()  # no replacement secret was handed out
+    # The ACTIVE enrollment is untouched: its secret still gates login (the
+    # confirm step consumed the current code, so use the next step's).
+    login = await client.post(
+        "/api/auth/login",
+        json={"email": "totp-nooverwrite@farm.in", "password": OWNER_PW},
+    )
+    assert login.status_code == 200
+    code, _step = _current_code(secret, drift=1)
+    challenge = await client.post(
+        "/api/auth/totp/challenge",
+        json={"mfa_token": login.json()["mfa_token"], "code": code},
+    )
+    assert challenge.status_code == 200, challenge.text
+
+
 async def test_disable_requires_password_and_code_when_active(
     client: httpx.AsyncClient,
 ) -> None:
@@ -322,19 +368,80 @@ async def test_confirm_brute_force_is_throttled(
     secret = enroll.json()["secret"]
     statuses = []
     for _ in range(6):
-        resp = await client.post(
-            "/api/auth/totp/confirm", json={"code": "000000"}, headers=headers
-        )
+        resp = await client.post("/api/auth/totp/confirm", json={"code": "000000"}, headers=headers)
         statuses.append(resp.status_code)
         if resp.status_code == 429:
             break
     assert statuses[-1] == 429, statuses
     # The correct code is locked out too until the window slides.
     code, _step = _current_code(secret, drift=1)
+    locked = await client.post("/api/auth/totp/confirm", json={"code": code}, headers=headers)
+    assert locked.status_code == 429
+
+
+async def test_disable_wrong_code_is_throttled(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """2026-09-17 re-audit: /totp/disable's ACTIVE-state code check recorded
+    nothing on a wrong code — an unthrottled 6-digit oracle for a stolen
+    access token. It now carries the same guess budget as confirm, under its
+    own scope so the two endpoints cannot lock each other out."""
+    monkeypatch.setattr(get_settings(), "auth_rate_limit_enabled", True)
+    from app import ratelimit
+
+    ratelimit.drain_throttle_rejections()  # clear residues from other tests
+    headers = await register(client, "totp-disablethrottle@farm.in")
+    secret = await _enroll_and_activate(client, headers)
+    statuses = []
+    for _ in range(6):
+        resp = await client.post(
+            "/api/auth/totp/disable",
+            json={"current_password": OWNER_PW, "code": "000000"},
+            headers=headers,
+        )
+        statuses.append(resp.status_code)
+        if resp.status_code == 429:
+            break
+    assert statuses[-1] == 429, statuses
+    # The 429 came from the CODE throttle (not the shared password-confirm
+    # budget, whose composite ceiling is far higher and whose scope would
+    # surface as "totp-enroll" here).
+    assert ratelimit.drain_throttle_rejections().get("totp-disable", 0) >= 1
+    # The correct code is locked out too until the window slides.
+    code, _step = _current_code(secret, drift=1)
     locked = await client.post(
-        "/api/auth/totp/confirm", json={"code": code}, headers=headers
+        "/api/auth/totp/disable",
+        json={"current_password": OWNER_PW, "code": code},
+        headers=headers,
     )
     assert locked.status_code == 429
+
+
+async def test_non_ascii_digit_codes_are_rejected_without_a_500(
+    client: httpx.AsyncClient,
+) -> None:
+    """2026-09-17 re-audit: non-ASCII digits ('٥' and friends) pass
+    str.isdigit(), and hmac.compare_digest then raises TypeError on the
+    non-ASCII string — a 500 from a mere malformed guess. The schema's
+    ASCII-only pattern answers 422 at the API edge, and verify_totp_code now
+    rejects non-ASCII digit strings on its own (defense-in-depth for any
+    direct caller)."""
+    headers = await register(client, "totp-nonascii@farm.in")
+    secret = await _enroll_and_activate(client, headers)
+    login = await client.post(
+        "/api/auth/login",
+        json={"email": "totp-nonascii@farm.in", "password": OWNER_PW},
+    )
+    assert login.status_code == 200
+    resp = await client.post(
+        "/api/auth/totp/challenge",
+        json={"mfa_token": login.json()["mfa_token"], "code": "12345٥"},
+    )
+    assert resp.status_code == 422, resp.status_code  # clean rejection, never a 500
+    # Unit level: no TypeError escapes, the comparator simply never runs.
+    now = datetime.now(UTC)
+    for bad in ("12345٥", "١٢٣٤٥٦", "1234٥6"):
+        assert verify_totp_code(secret, bad, at=now, last_used_step=None) is None
 
 
 async def test_wrong_totp_codes_do_not_inflate_the_429_summary(

@@ -3,9 +3,18 @@
  * apiFetch (bearer token, X-Farm-Id, 401→refresh retry).
  *
  * Orval's react-query client types every response as {data, status, headers}
- * and pages unwrap via `query.data?.status === 200 ? query.data.data : …`,
+ * and pages unwrap via `query.data?.status === 200 ? query.data.data : …},
  * so apiFetchEnvelope repackages the parsed body with the response's REAL
  * status (201/204 included) and headers.
+ *
+ * KNOWN ORVAL 8 GAP (2026-09-17 audit L-7): the generator does not emit a
+ * typed parameter for HEADER arguments declared on body routes, so the
+ * generated createFarmApiAuthFarmsPost carries no Idempotency-Key even
+ * though the OpenAPI spec marks it required. The transport below papers
+ * over it: apiFetch's idempotency registry injects the header for exactly
+ * the protected routes (src/lib/idempotent-request.ts). Any consumer using
+ * the generated SDK WITHOUT this mutator must add the header itself or the
+ * backend answers 422. Re-check on orval upgrades.
  */
 
 import { ApiError, apiFetchEnvelope } from "@/lib/api-client";

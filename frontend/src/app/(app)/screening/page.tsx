@@ -148,7 +148,13 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
       anchor.download = `screening-dataset-${new Date().toISOString().slice(0, 10)}.json`;
       anchor.click();
       URL.revokeObjectURL(url);
-      toast.success(t("screening.export.done", { count: result.data.record_count }));
+      // One/many split — "(1 records)" read as a bug in a vet-facing toast
+      // (2026-09-17 audit L-22).
+      toast.success(
+        result.data.record_count === 1
+          ? t("screening.export.done_one", { count: result.data.record_count })
+          : t("screening.export.done", { count: result.data.record_count }),
+      );
     } catch {
       toast.error(t("common.somethingWentWrong"));
     } finally {
@@ -306,6 +312,24 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
           {detailQuery.isPending ? (
             <div role="status" aria-live="polite">
               <TableSkeleton rows={3} columns={3} />
+            </div>
+          ) : detailQuery.isError ? (
+            /* A deep-linked ?image_id= that 403/404s (deleted, rotated out,
+             * another farm's) must surface WHY it is empty and offer a way
+             * back — not a silent blank panel (2026-09-17 audit M-14). */
+            <div role="alert" className="space-y-3">
+              <p className="text-sm text-destructive">
+                {detailQuery.error instanceof ApiError
+                  ? detailQuery.error.detail
+                  : t("common.somethingWentWrong")}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void detailQuery.refetch()}
+              >
+                {t("common.retry")}
+              </Button>
             </div>
           ) : detail ? (
             <div className="grid gap-6 md:grid-cols-2">
@@ -505,8 +529,18 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
             <EmptyState
               icon={Camera}
               title={t("common.somethingWentWrong")}
-              description={t("common.retry")}
-            />
+              description={t("screening.list.loadFailed")}
+            >
+              {/* The failure state needs the retry control its label used to
+               * only describe (2026-09-17 audit M-14). */}
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void listQuery.refetch()}
+              >
+                {t("common.retry")}
+              </Button>
+            </EmptyState>
           ) : rows.length === 0 ? (
             <EmptyState
               icon={Camera}

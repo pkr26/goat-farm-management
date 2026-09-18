@@ -189,7 +189,9 @@ const SOURCE_LABELS: Record<string, string> = {
  * when no weighed sale can price them). */
 function memoDescription(
   feedStock: number,
-  mortality: MortalityMemoOut | undefined,
+  // null = withheld: the memo carries clinical death figures, so the backend
+  // gates it on health.view (2026-09-17) — same sentinel as dashboard/reports.
+  mortality: MortalityMemoOut | null | undefined,
 ): string {
   const parts = [
     `Feed stock on hand ${formatMoney(feedStock)} (memo — not an expense).`,

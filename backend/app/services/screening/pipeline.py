@@ -79,13 +79,23 @@ MAX_LISTED_KEYS_PER_CYCLE = 5_000
 STALE_PROCESSING_AFTER = dt.timedelta(minutes=10)
 
 # Provider blips (timeouts, 5xx) are common; permanent failure is rare.
-# ERROR rows are retried once the last attempt ages past this horizon.
+# ERROR rows are retried once their last transition — updated_at, refreshed
+# by onupdate on every status change — ages past this horizon. Keying on the
+# image row (not the GATE-run audit trail) also backs off rows that errored
+# before any run was recorded; the run-based horizon used to leave those
+# claimable on every cycle, starving the budget of fresh photos.
 ERROR_RETRY_AFTER = dt.timedelta(hours=1)
 
 # Slack on top of the presign expiry before an un-PUT upload row is
 # terminalized: clock skew between the API host (row created_at) and the
 # database, plus a slow final S3 write, must not expire a live upload.
 PENDING_SWEEP_SLACK = dt.timedelta(hours=1)
+
+# Downloads are sized by HEAD before any byte is transferred: an object
+# larger than this is terminally SKIPPED (a misdirected video, a hostile
+# upload) rather than pulled into worker memory. Photos are ~20 MB, so
+# 25 MB keeps every legitimate shot while capping the blast radius.
+MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024
 
 
 def pending_upload_abandoned_after(settings: Settings) -> dt.timedelta:
@@ -95,10 +105,8 @@ def pending_upload_abandoned_after(settings: Settings) -> dt.timedelta:
     it has expired (plus slack) the row is permanently unfulfillable and is
     swept to SKIPPED so it cannot occupy the cycle budget forever.
     """
-    return (
-        dt.timedelta(seconds=settings.screening_presign_expiry_seconds)
-        + PENDING_SWEEP_SLACK
-    )
+    return dt.timedelta(seconds=settings.screening_presign_expiry_seconds) + PENDING_SWEEP_SLACK
+
 
 # raw/<farm_id>/<YYYY-MM-DD>/[<BUCKET>/]<filename> — farm id, capture date
 # and (since the disease-check upload flow) the herd bucket ride the key
@@ -163,6 +171,12 @@ class CycleSummary:
     notes: list[str] = field(default_factory=list)
 
 
+# One bounded expiry batch per statement (mirrors the idempotency purge's
+# batch_size discipline): a backlog of abandoned walkthroughs is retired in
+# chunks instead of one unbounded UPDATE locking the whole cohort.
+_EXPIRED_UPLOAD_BATCH_SIZE = 500
+
+
 async def _expire_abandoned_uploads(
     db: AsyncSession, now: dt.datetime, abandoned_after: dt.timedelta
 ) -> int:
@@ -173,22 +187,44 @@ async def _expire_abandoned_uploads(
     rows sort first, so once they reach ``max_images_per_cycle`` no new
     key is ever claimed again. SKIPPED rows are terminal: the bytes can
     no longer arrive, because the URL that could write them is dead.
+
+    Rows are expired in bounded ``FOR UPDATE SKIP LOCKED`` batches (the
+    pattern of ``purge_expired_idempotency_records``): candidates are
+    materialized and locked before the UPDATE so PostgreSQL cannot
+    re-evaluate a LIMIT mid-statement, concurrent workers' locked rows
+    are skipped instead of blocked on, and the loop drains the backlog
+    one chunk at a time. The caller's claim commit publishes the sweep.
     """
-    result = cast(
-        CursorResult[Any],
-        await db.execute(
-            update(ScreeningImage)
+    expired_total = 0
+    while True:
+        candidates = (
+            select(ScreeningImage.id)
             .where(
                 ScreeningImage.status == ScreeningImageStatus.PENDING.value,
                 ScreeningImage.created_at < now - abandoned_after,
             )
-            .values(
-                status=ScreeningImageStatus.SKIPPED.value,
-                error="presigned upload never arrived (URL expired)",
-            )
-        ),
-    )
-    return int(result.rowcount or 0)
+            .order_by(ScreeningImage.created_at, ScreeningImage.id)
+            .limit(_EXPIRED_UPLOAD_BATCH_SIZE)
+            .with_for_update(skip_locked=True)
+        )
+        candidate_ids = list((await db.execute(candidates)).scalars())
+        if not candidate_ids:
+            return expired_total
+        result = cast(
+            CursorResult[Any],
+            await db.execute(
+                update(ScreeningImage)
+                .where(ScreeningImage.id.in_(candidate_ids))
+                .values(
+                    status=ScreeningImageStatus.SKIPPED.value,
+                    error="presigned upload never arrived (URL expired)",
+                )
+            ),
+        )
+        expired_total += int(result.rowcount or 0)
+        if len(candidate_ids) < _EXPIRED_UPLOAD_BATCH_SIZE:
+            # Short batch: the backlog is drained, no further round-trip.
+            return expired_total
 
 
 async def _claim_retry_rows(
@@ -210,25 +246,18 @@ async def _claim_retry_rows(
     row, because the second one's ``FOR UPDATE SKIP LOCKED`` scan skips
     rows the first still holds and no longer sees the ones it committed.
     A worker that crashes mid-cycle leaves PROCESSING rows that the stale
-    reclaim below picks up.
+    reclaim below picks up. ERROR rows back off on the image's own
+    ``updated_at`` — refreshed on every status transition — so rows that
+    failed before any run row was written are also held back for
+    ``ERROR_RETRY_AFTER`` instead of being retried every cycle.
 
     Returns the claimed rows plus how many of them were ERROR retries.
     """
     retry_horizon = now - ERROR_RETRY_AFTER
     stale_horizon = now - STALE_PROCESSING_AFTER
     pending_horizon = now - abandoned_after
-    latest_run = (
-        select(
-            ScreeningRun.image_id.label("image_id"),
-            func.max(ScreeningRun.created_at).label("last_at"),
-        )
-        .where(ScreeningRun.stage == ScreeningStage.GATE.value)
-        .group_by(ScreeningRun.image_id)
-        .subquery()
-    )
     result = await db.execute(
         select(ScreeningImage)
-        .outerjoin(latest_run, latest_run.c.image_id == ScreeningImage.id)
         .where(
             (
                 (ScreeningImage.status == ScreeningImageStatus.PENDING.value)
@@ -240,19 +269,15 @@ async def _claim_retry_rows(
             )
             | (
                 (ScreeningImage.status == ScreeningImageStatus.ERROR.value)
-                & (latest_run.c.last_at.is_(None) | (latest_run.c.last_at < retry_horizon))
+                & (ScreeningImage.updated_at < retry_horizon)
             )
         )
         .order_by(ScreeningImage.created_at.asc())
         .limit(limit)
-        # Only screening_images rows are locked; the outer-joined subquery
-        # stays unlocked (PostgreSQL forbids locking its nullable side).
         .with_for_update(skip_locked=True, of=ScreeningImage)
     )
     rows = list(result.scalars())
-    error_retries = sum(
-        1 for row in rows if row.status == ScreeningImageStatus.ERROR.value
-    )
+    error_retries = sum(1 for row in rows if row.status == ScreeningImageStatus.ERROR.value)
     for row in rows:
         row.status = ScreeningImageStatus.PROCESSING.value
         row.error = None
@@ -279,6 +304,21 @@ async def run_screening_cycle(
         summary.notes.append(f"listing failed: {exc}")
         return summary
     summary.listed = len(keys)
+    if summary.listed == MAX_LISTED_KEYS_PER_CYCLE:
+        # The listing is capped, not exhaustive: S3 returns keys in
+        # lexicographic order, so every farm sorting after the cap is
+        # invisible this cycle. Surface it to the operator instead of
+        # silently screening a prefix of the backlog (cursoring is the
+        # scale-out; this is the tripwire that says it is needed).
+        summary.notes.append(
+            f"listing hit the {MAX_LISTED_KEYS_PER_CYCLE}-key cap; farms sorting "
+            "after the cap are invisible this cycle"
+        )
+        logger.warning(
+            "screening listing hit the %d-key cap; farms sorting after the cap "
+            "are invisible this cycle",
+            MAX_LISTED_KEYS_PER_CYCLE,
+        )
 
     parsed: dict[str, ParsedRawKey] = {}
     for key in keys:
@@ -376,10 +416,24 @@ async def run_screening_cycle(
             await _process_image(db, settings, storage, rotation, image, summary)
         except Exception as exc:
             logger.exception("screening image %s failed unexpectedly", image.id)
+            # A DB-level failure inside _process_image aborts the
+            # transaction; roll back BEFORE mutating the ORM object, or the
+            # commit below would raise PendingRollbackError and strand every
+            # remaining image of the cycle behind the aborted transaction.
+            await db.rollback()
             image.status = ScreeningImageStatus.ERROR.value
             image.error = f"unexpected pipeline failure: {exc}"
             summary.errors += 1
-        await db.commit()
+        try:
+            await db.commit()
+        except Exception:
+            # The per-image boundary is deliberate: one uncommittable row
+            # (constraint, connection loss) must not take the whole cycle
+            # down. Log, roll back so the next iteration starts clean, and
+            # keep screening — the row stays PROCESSING and the stale-claim
+            # reclaim retries it later.
+            logger.exception("committing screening image %s failed", image.id)
+            await db.rollback()
 
     return summary
 
@@ -696,6 +750,24 @@ async def _process_image(
     image.status = ScreeningImageStatus.PROCESSING.value
     image.error = None
     await db.flush()
+
+    try:
+        size = await asyncio.to_thread(storage.object_size, image.s3_key)
+    except ScreeningStorageError as exc:
+        # The size probe rides the same failure contract as the download.
+        image.status = ScreeningImageStatus.ERROR.value
+        image.error = str(exc)
+        summary.errors += 1
+        return
+    if size is not None and size > MAX_DOWNLOAD_BYTES:
+        # Terminally SKIPPED, never ERROR: the bytes are a fact about the
+        # object, not a transient condition, and the claim predicate only
+        # ever re-reads PENDING/PROCESSING/ERROR rows — so an oversized
+        # object cannot occupy the retry budget either.
+        image.status = ScreeningImageStatus.SKIPPED.value
+        image.error = f"object exceeds 25 MB download cap ({size} bytes)"
+        summary.skipped += 1
+        return
 
     try:
         raw = await asyncio.to_thread(storage.download, image.s3_key)

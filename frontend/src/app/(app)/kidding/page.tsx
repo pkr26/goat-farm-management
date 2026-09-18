@@ -398,6 +398,9 @@ function RecordKiddingDialog({
         onClose();
         onSaved();
       } catch (err) {
+        // L-26 (2026-09-17 audit): after a farm switch this stale failure must
+        // not paint another farm's dialog or toast its error.
+        if (!stillOwnsFarm()) return;
         const message = errorText(err);
         setFormError(message);
         toast.error(message);

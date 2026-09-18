@@ -89,11 +89,21 @@ const policySchema = z
       .positive("Sum insured must be greater than 0")
       .max(MAX_AMOUNT, `Sum insured cannot exceed ${formatMoney(MAX_AMOUNT)}`)
       .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
-    premium: z.coerce
-      .number()
-      .nonnegative("Premium cannot be negative")
-      .max(MAX_AMOUNT, `Premium cannot exceed ${formatMoney(MAX_AMOUNT)}`)
-      .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
+    // Blank must stay distinguishable from a real ₹0: z.coerce.number() maps
+    // a cleared number input ("") to 0, which would silently register the
+    // required premium as ₹0 in the append-only register (2026-09-17 audit
+    // M-13; same hazard the ledger-correction schema documents). The renewal
+    // dialog's deliberate blank-means-keep-current is a different control.
+    premium: z.preprocess(
+      (raw) =>
+        // Stryker disable next-line ConditionalExpression: registered number inputs only ever yield "" or a numeric string — null/undefined never arrive, and the blank arm is the behavior this pin exists for
+        raw === "" || raw === null || raw === undefined ? undefined : Number(raw),
+      z
+        .number({ error: "Premium is required" })
+        .nonnegative("Premium cannot be negative")
+        .max(MAX_AMOUNT, `Premium cannot exceed ${formatMoney(MAX_AMOUNT)}`)
+        .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
+    ),
     start_date: z
       .string()
       .min(1, "Start date is required")

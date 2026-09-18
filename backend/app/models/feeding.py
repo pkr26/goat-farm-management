@@ -51,7 +51,13 @@ class FeedRecipeLine(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     recipe_id: Mapped[int] = mapped_column(ForeignKey("feed_recipes.id"), index=True)
     ingredient: Mapped[str] = mapped_column(String(120))
-    kg_per_100kg: Mapped[float]
+    # Exact numerics (never float8, per the exact-numerics program): ration
+    # maths multiply this proportion by per-head quantities, and binary drift
+    # would leak into every mixed batch. Scale 6 keeps the recipe lines' own
+    # documented tolerance — percent-level ratios must not be truncated to
+    # grams (test_feed_quantity_numeric); ``asdecimal=False`` keeps the
+    # established float ORM contract.
+    kg_per_100kg: Mapped[float] = mapped_column(Numeric(15, 6, asdecimal=False))
     category: Mapped[str] = mapped_column(String(20))  # IngredientCategory enum
 
     recipe: Mapped[FeedRecipe] = relationship(back_populates="lines")

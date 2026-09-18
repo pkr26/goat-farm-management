@@ -1696,8 +1696,11 @@ export default function TasksPage() {
     <Suspense
       fallback={
         <div className="space-y-6" role="status" aria-live="polite">
-          <PageHeader title="Tasks" description="Duties and auto-generated protocol tasks, grouped by when they're due." />
-          <span className="sr-only">Loading tasks…</span>
+          {/* 2026-09-17 audit (M-12): the fallback hardcoded the English page
+           * chrome; the boundary already has `t` in scope, so reuse the exact
+           * keys the loaded header renders. */}
+          <PageHeader title={t("tasks.title")} description={t("tasks.description")} />
+          <span className="sr-only">{t("tasks.loadingTasks")}</span>
           <PageSkeleton cards={2} />
         </div>
       }
