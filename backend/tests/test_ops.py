@@ -32,6 +32,7 @@ import app.core.config as config_module
 import app.db as db_module
 import app.main as main_module
 import app.seed as seed_module
+from app.core import config as config_module
 from app.core.config import (
     DEVELOPMENT_IDEMPOTENCY_HMAC_SECRET,
     PRODUCTION_REFRESH_COOKIE_NAME,
@@ -689,7 +690,64 @@ def test_database_verify_modes_build_a_context_without_asyncpg_home_ca_lookup(
     migration_context = db_module.database_ssl_connect_arg(migration)
     assert isinstance(migration_context, FakeContext)
     assert migration_context.check_hostname is True
-    assert "database_ssl_connect_arg" in (BACKEND_DIR / "alembic" / "env.py").read_text()
+    # Alembic must actually CALL the shared SSL helper, not merely mention it:
+    # walk env.py's AST for a real call (a comment or an import used to
+    # satisfy the old text grep — 2026-09-18 audit L-9).
+    import ast as _ast
+
+    env_tree = _ast.parse((BACKEND_DIR / "alembic" / "env.py").read_text())
+    called_names = {
+        node.func.id
+        for node in _ast.walk(env_tree)
+        if isinstance(node, _ast.Call) and isinstance(node.func, _ast.Name)
+    }
+    assert "database_ssl_connect_arg" in called_names
+
+
+def test_scheme_only_https_urls_fail_fast_at_settings_validation() -> None:
+    """``https://`` (no host) must not pass the boot gate (audit L-10).
+
+    Such a value previously sailed through every https-or-loopback validator
+    and only surfaced as recurring per-request provider/S3 errors, contrary
+    to the config module's fail-fast contract."""
+    from pydantic import ValidationError
+
+    for kwargs in (
+        {"screening_anthropic_base_url": "https://"},
+        {"screening_openai_base_url": "https://:443"},
+        {"s3_endpoint_url": "https://"},
+    ):
+        with pytest.raises(ValidationError, match="must include a host"):
+            Settings(_env_file=None, **kwargs)
+        worker_field = next(iter(kwargs))
+        with pytest.raises(ValidationError, match="must include a host"):
+            ScreeningWorkerSettings(_env_file=None, **{worker_field: kwargs[worker_field]})
+    with pytest.raises(ValidationError, match="must include a host"):
+        config_module.ScreeningRotationProvider(
+            kind="openai_compatible",
+            name="edge",
+            base_url="https://",
+            api_key="k",
+            model="m",
+        )
+    # Real hosts on https (and loopback http) still validate.
+    assert (
+        Settings(_env_file=None, screening_anthropic_base_url="https://api.example.test")
+        .screening_anthropic_base_url
+        == "https://api.example.test"
+    )
+    assert (
+        ScreeningWorkerSettings(
+            _env_file=None, s3_endpoint_url="http://127.0.0.1:9000"
+        ).s3_endpoint_url
+        == "http://127.0.0.1:9000"
+    )
+
+
+def test_empty_previous_totp_keys_env_is_treated_as_no_predecessors() -> None:
+    """Compose's optional interpolation yields ""; that must boot (audit note)."""
+    settings = Settings(_env_file=None, totp_encryption_previous_keys="")
+    assert settings.totp_encryption_previous_keys == []
 
 
 @pytest.mark.parametrize(

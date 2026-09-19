@@ -1171,21 +1171,31 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
     query: { enabled: allowed },
   });
 
+  type DefaultsPayload = Extract<
+    (typeof defaultsQuery)["data"],
+    { status: 200 }
+  >["data"];
+
+  const applyDefaultsToEditor = useCallback((payload: DefaultsPayload) => {
+    setAssumptions(payload);
+    const nextEvents = payload.events ?? [];
+    setEvents(nextEvents);
+    setEventKeys(nextEvents.map(() => `event-${eventKeyCounter.current++}`));
+    setLoadedScenario(null);
+    setCalibration(null);
+    setInvalidFields(new Set());
+    setEditorVersion((version) => version + 1);
+    // Setters and refs are stable; nothing else is captured.
+  }, []);
+
   useEffect(() => {
     if (defaultsQuery.data?.status === 200 && acceptDefaultsRef.current) {
       acceptDefaultsRef.current = false;
       // react-query v5 has no onSuccess: mirror the explicitly requested
       // defaults payload into editable state.
-      setAssumptions(defaultsQuery.data.data);
-      const nextEvents = defaultsQuery.data.data.events ?? [];
-      setEvents(nextEvents);
-      setEventKeys(nextEvents.map(() => `event-${eventKeyCounter.current++}`));
-      setLoadedScenario(null);
-      setCalibration(null);
-      setInvalidFields(new Set());
-      setEditorVersion((version) => version + 1);
+      applyDefaultsToEditor(defaultsQuery.data.data);
     }
-  }, [defaultsQuery.data]);
+  }, [defaultsQuery.data, applyDefaultsToEditor]);
 
   const snapshotQuery = useHerdSnapshotApiSimulationHerdSnapshotGet(
     // The snapshot buckets females by the breed's age-at-first-breeding, so
@@ -3169,7 +3179,18 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                 editorEpochRef.current += 1;
                 acceptDefaultsRef.current = true;
                 if (breed === submittedParams.breed && system === submittedParams.system) {
-                  void defaultsQuery.refetch();
+                  // Apply the refetched payload directly from the result.
+                  // With unchanged breed+system the response is deep-equal
+                  // to the cached one and react-query's structural sharing
+                  // preserves the old object reference, so the data-keyed
+                  // effect above would never re-run and the click would
+                  // silently keep the user's edits.
+                  void defaultsQuery.refetch().then((result) => {
+                    if (result.data?.status === 200 && acceptDefaultsRef.current) {
+                      acceptDefaultsRef.current = false;
+                      applyDefaultsToEditor(result.data.data);
+                    }
+                  });
                 } else {
                   setSubmittedParams({ breed, system });
                 }

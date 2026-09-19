@@ -39,8 +39,10 @@ _S3_DOWNLOAD_DEADLINE_SECONDS = 20
 # request, not just the object payload.  This bounded allowance covers the
 # policy/signature fields, MIME boundaries and a maximal client filename so a
 # file exactly at the advertised object cap remains uploadable.  The worker
-# independently HEADs and stream-caps the object itself at the stricter cap.
-_POST_MULTIPART_OVERHEAD_BYTES = 64 * 1024
+# derives its own HEAD/stream ceiling from this same allowance, so an object
+# the policy accepted is never rejected downstream (the two bounds must move
+# together — see pipeline.MAX_DOWNLOAD_BYTES).
+POST_MULTIPART_OVERHEAD_BYTES = 64 * 1024
 
 
 class ScreeningStorageError(Exception):
@@ -312,7 +314,7 @@ class ScreeningStorage:
                     {"Content-Type": content_type},
                     {"x-amz-meta-screening-token": upload_token},
                     {"success_action_status": "201"},
-                    ["content-length-range", 1, max_bytes + _POST_MULTIPART_OVERHEAD_BYTES],
+                    ["content-length-range", 1, max_bytes + POST_MULTIPART_OVERHEAD_BYTES],
                 ],
                 ExpiresIn=min(
                     self._settings.screening_presign_expiry_seconds,

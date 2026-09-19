@@ -19,6 +19,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import textwrap
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -1686,8 +1687,27 @@ def test_screening_worker_healthcheck_requires_a_fresh_successful_heartbeat(
     write_heartbeat(heartbeat_path, "working")
     screening_worker_healthcheck.main()
 
+    # An error heartbeat inside the worker's own recovery window is healthy:
+    # the loop caught a whole-cycle exception, is retrying at the next poll,
+    # and its consecutive-failure count has not reached the shared threshold
+    # at which the worker exits nonzero. The probe must not race that
+    # decision and restart a worker that was about to recover.
+    write_heartbeat(heartbeat_path, "error", consecutive_failures=1)
+    screening_worker_healthcheck.main()
+
+    write_heartbeat(heartbeat_path, "error", consecutive_failures=3)
+    with pytest.raises(SystemExit, match="persistent cycle failures"):
+        screening_worker_healthcheck.main()
+
+    # A missing or malformed count must never be read as "recovering".
     heartbeat_path.write_text(json.dumps({"status": "error", "updated_at": time.time()}))
-    with pytest.raises(SystemExit, match="unhealthy state"):
+    with pytest.raises(SystemExit, match="malformed failure count"):
+        screening_worker_healthcheck.main()
+
+    heartbeat_path.write_text(
+        json.dumps({"status": "error", "updated_at": time.time(), "consecutive_failures": True})
+    )
+    with pytest.raises(SystemExit, match="malformed failure count"):
         screening_worker_healthcheck.main()
 
     # The stdlib parser accepts NaN despite JSON's grammar. It must not bypass
@@ -1698,6 +1718,43 @@ def test_screening_worker_healthcheck_requires_a_fresh_successful_heartbeat(
 
     monkeypatch.setenv("GOATFARM_SCREENING_ENABLED", "false")
     heartbeat_path.write_text(json.dumps({"status": "disabled", "updated_at": time.time()}))
+    screening_worker_healthcheck.main()
+
+
+def test_screening_worker_healthcheck_fails_on_stale_future_and_missing_heartbeats(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The probe's whole reason to exist over process-liveness: the age gate."""
+    heartbeat_path = tmp_path / "worker-heartbeat.json"
+    monkeypatch.setenv("GOATFARM_SCREENING_WORKER_HEARTBEAT_PATH", str(heartbeat_path))
+    monkeypatch.setenv("GOATFARM_SCREENING_WORKER_HEALTH_MAX_AGE_SECONDS", "60")
+    monkeypatch.setenv("GOATFARM_SCREENING_ENABLED", "true")
+
+    # No file at all: a worker that never wrote a heartbeat is not healthy.
+    with pytest.raises(SystemExit, match="unavailable"):
+        screening_worker_healthcheck.main()
+
+    def rewrite_updated_at(timestamp: float) -> None:
+        payload = json.loads(heartbeat_path.read_text(encoding="utf-8"))
+        payload["updated_at"] = timestamp
+        heartbeat_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    write_heartbeat(heartbeat_path, "ok")
+
+    # Aged past the configured window: stale.
+    rewrite_updated_at(time.time() - 61)
+    with pytest.raises(SystemExit, match="stale"):
+        screening_worker_healthcheck.main()
+
+    # Far future timestamps are rejected too (only ~5s of skew is forgiven).
+    rewrite_updated_at(time.time() + 60)
+    with pytest.raises(SystemExit, match="stale"):
+        screening_worker_healthcheck.main()
+
+    # Just inside the window on both sides passes.
+    rewrite_updated_at(time.time() - 59)
+    screening_worker_healthcheck.main()
+    rewrite_updated_at(time.time() + 4)
     screening_worker_healthcheck.main()
 
 
@@ -1745,7 +1802,7 @@ async def test_screening_worker_renews_heartbeat_during_a_long_cycle(
 
     monkeypatch.setattr(worker, "_working_heartbeat_interval_seconds", lambda _settings: 0.001)
     monkeypatch.setattr(
-        worker, "_publish_heartbeat", lambda _settings, status: heartbeats.append(status)
+        worker, "_publish_heartbeat", lambda _settings, status, **_kwargs: heartbeats.append(status)
     )
     waiter = asyncio.create_task(_await_cycle_with_heartbeats(cycle(), settings, asyncio.Event()))
     await entered.wait()
@@ -1780,7 +1837,7 @@ async def test_screening_worker_cancels_an_active_cycle_on_shutdown(
             raise
         raise AssertionError("the shutdown test cycle should be cancelled")
 
-    monkeypatch.setattr(worker, "_publish_heartbeat", lambda _settings, _status: None)
+    monkeypatch.setattr(worker, "_publish_heartbeat", lambda _settings, _status, **_kwargs: None)
     waiter = asyncio.create_task(_await_cycle_with_heartbeats(cycle(), settings, stop))
     await entered.wait()
     stop.set()
@@ -1845,7 +1902,7 @@ async def test_screening_worker_restarts_after_only_consecutive_cycle_failures(
     monkeypatch.setattr(worker, "run_screening_cycle", cycle)
     monkeypatch.setattr(worker, "_wait_for_stop", skip_wait)
     monkeypatch.setattr(
-        worker, "_publish_heartbeat", lambda _settings, status: heartbeats.append(status)
+        worker, "_publish_heartbeat", lambda _settings, status, **_kwargs: heartbeats.append(status)
     )
 
     assert await worker._run_loop(asyncio.Event(), settings) == 1
@@ -2460,6 +2517,24 @@ def test_compose_production_edge_requires_an_asserted_https_terminator() -> None
     public = _render_compose_network(edge_bind_host="0.0.0.0", public_scheme="https")
     assert public["services"]["edge"]["ports"] == ["0.0.0.0:3000:3000"]
 
+    # Execute the guard, don't just grep for it: production + http must
+    # actually refuse startup with exit 2 even on the loopback bind, while
+    # production + https validates cleanly.
+    refused = _run_edge_config_validation(
+        GOATFARM_ENVIRONMENT="production",
+        GOATFARM_EDGE_PUBLIC_SCHEME="http",
+        GOATFARM_EDGE_BIND_HOST="127.0.0.1",
+    )
+    assert refused.returncode == 2
+    assert "Refusing production edge without an asserted HTTPS terminator" in refused.stderr
+
+    accepted = _run_edge_config_validation(
+        GOATFARM_ENVIRONMENT="production",
+        GOATFARM_EDGE_PUBLIC_SCHEME="https",
+        GOATFARM_EDGE_BIND_HOST="127.0.0.1",
+    )
+    assert accepted.returncode == 0, accepted.stderr
+
 
 def test_edge_auth_flood_zone_is_scoped_and_explicit() -> None:
     """RT-R-1: the nginx auth flood shaping must stay scoped and explicit.
@@ -2512,6 +2587,43 @@ def test_edge_refuses_dev_public_bind_with_escape_hatch() -> None:
     assert "Refusing to bind the edge" in edge_script
     assert "GOATFARM_ALLOW_DEV_PUBLIC_BIND=true" in edge_script
     assert "exit 2" in edge_script
+
+    # Execute the guard rather than only string-matching it: a development
+    # public bind refuses, the documented opt-out validates, and loopback
+    # never trips the refusal.
+    refused = _run_edge_config_validation(GOATFARM_EDGE_BIND_HOST="0.0.0.0")
+    assert refused.returncode == 2
+    assert "Refusing to bind the edge" in refused.stderr
+
+    opted_out = _run_edge_config_validation(
+        GOATFARM_EDGE_BIND_HOST="0.0.0.0",
+        GOATFARM_ALLOW_DEV_PUBLIC_BIND="true",
+    )
+    assert opted_out.returncode == 0, opted_out.stderr
+
+    loopback = _run_edge_config_validation(GOATFARM_EDGE_BIND_HOST="localhost")
+    assert loopback.returncode == 0, loopback.stderr
+
+
+def test_edge_accepts_the_full_pydantic_boolean_vocabulary() -> None:
+    """Any boolean spelling the API and worker boot with must not kill the edge.
+
+    The edge is the single published listener; a stricter local parser (the
+    old hardcoded true/TRUE/yes/YES list) turned a legal deployment value
+    into an exit-2 startup failure (2026-09-18 audit LOW).
+    """
+    origins = {"GOATFARM_CSP_CONNECT_ORIGINS": "https://bucket.example.test",
+               "GOATFARM_CSP_IMG_ORIGINS": "https://bucket.example.test"}
+    for spelling in ("TRUE", "True", "yes", "on", "t", "y", "1"):
+        result = _run_edge_config_validation(GOATFARM_SCREENING_ENABLED=spelling, **origins)
+        assert result.returncode == 0, (spelling, result.stderr)
+    for spelling in ("FALSE", "False", "no", "off", "f", "n", "0"):
+        result = _run_edge_config_validation(GOATFARM_SCREENING_ENABLED=spelling)
+        assert result.returncode == 0, (spelling, result.stderr)
+
+    refused = _run_edge_config_validation(GOATFARM_SCREENING_ENABLED="garbage")
+    assert refused.returncode == 2
+    assert "must be a boolean" in refused.stderr
 
 
 def test_compose_network_override_avoids_collision_without_weakening_proxy_trust() -> None:
@@ -2827,11 +2939,98 @@ def test_compose_env_guard_rejects_names_compose_would_otherwise_drop(tmp_path: 
     assert local["services"]["migrate"]["depends_on"]["config-guard"]["condition"] == (
         "service_completed_successfully"
     )
+    # The guard validates the file Compose actually interpolated whenever the
+    # operator names one via GOATFARM_COMPOSE_ENV_FILE; the default remains
+    # ./.env so plain `docker compose up` is unchanged.
+    assert local["services"]["config-guard"]["volumes"][0]["source"] == (
+        "${GOATFARM_COMPOSE_ENV_FILE:-.env}"
+    )
+
     assert (
         "COPY backend/scripts/compose_env_guard.py ./scripts/compose_env_guard.py"
         in (REPO_ROOT / "Dockerfile").read_text()
     )
     assert "!backend/scripts/compose_env_guard.py" in (REPO_ROOT / ".dockerignore").read_text()
+
+
+def test_compose_env_guard_imports_app_without_an_installed_project(
+    tmp_path: Path,
+) -> None:
+    """The guard must boot in the production image, not only in CI.
+
+    The image installs the locked dependencies but deliberately NOT the
+    project (``uv sync --no-install-project``), and ``python
+    scripts/compose_env_guard.py`` puts the script's directory — never the
+    /app workdir — first on ``sys.path``. Locally and in CI an editable
+    install masks exactly that difference (2026-09-18 audit CRITICAL-1).
+    This test builds a throwaway interpreter environment with every real
+    dependency present but the project absent — the container's import
+    surface — and executes the actual script in it. The negative control
+    (bootstrap neutralized) proves the harness reproduces the container's
+    ``ModuleNotFoundError``.
+    """
+    import sysconfig
+    import venv as venv_module
+
+    guard = REPO_ROOT / "backend" / "scripts" / "compose_env_guard.py"
+    env_file = tmp_path / "valid.env"
+    env_file.write_text("GOATFARM_ENVIRONMENT=production\n")
+
+    simulated = tmp_path / "simvenv"
+    subprocess.run(
+        [sys.executable, "-m", "venv", "--without-pip", str(simulated)],
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+    sim_site_packages = (
+        simulated
+        / "lib"
+        / f"python{sys.version_info.major}.{sys.version_info.minor}"
+        / "site-packages"
+    )
+    real_site_packages = Path(sysconfig.get_paths()["purelib"])
+    for entry in real_site_packages.iterdir():
+        # Mirror every dependency into the simulated image environment —
+        # except the local project install and its editable finder, which
+        # the production image never has.
+        if entry.name.startswith("__editable") or entry.name.startswith("goatfarm_backend"):
+            continue
+        (sim_site_packages / entry.name).symlink_to(entry)
+    sim_python = simulated / "bin" / "python"
+    assert sim_python.exists()
+
+    scrubbed_env = {
+        key: value for key, value in os.environ.items() if key != "PYTHONPATH"
+    }
+
+    result = subprocess.run(
+        [str(sim_python), str(guard), str(env_file)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+        env=scrubbed_env,
+    )
+    assert result.returncode == 0, result.stderr
+
+    # Negative control: the same environment with the bootstrap neutralized
+    # must fail with the exact ModuleNotFoundError the container saw.
+    stripped = tmp_path / "stripped_guard.py"
+    source = guard.read_text(encoding="utf-8")
+    bootstrap = "sys.path.insert(0, str(BACKEND_ROOT))"
+    assert bootstrap in source, "guard lost its sys.path bootstrap"
+    stripped.write_text(source.replace(bootstrap, "pass"), encoding="utf-8")
+    result = subprocess.run(
+        [str(sim_python), str(stripped), str(env_file)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+        env=scrubbed_env,
+    )
+    assert result.returncode == 1
+    assert "No module named 'app'" in result.stderr
 
 
 def _run_edge_config_validation(**overrides: str) -> subprocess.CompletedProcess[str]:

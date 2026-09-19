@@ -441,7 +441,10 @@ async def lapse_policies_for_animal(db: AsyncSession, farm: Farm, animal: Animal
                 .where(
                     InsurancePolicy.farm_id == farm.id,
                     InsurancePolicy.animal_id == animal.id,
-                    InsurancePolicy.status.in_((INSURANCE_STATUS_ACTIVE, "renewed")),
+                    # "renewed" is not a real status value anywhere: renewal
+                    # returns policies to ACTIVE, so this is a plain active-only
+                    # lookup (a stray literal survived here from an old draft).
+                    InsurancePolicy.status == INSURANCE_STATUS_ACTIVE,
                 )
                 .order_by(InsurancePolicy.id)
                 .with_for_update()

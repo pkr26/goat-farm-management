@@ -626,6 +626,13 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
   curl -fsS http://127.0.0.1:3000/readyz        # backend ready (SELECT 1 through the edge)
   ```
 
+  The guard validates the file Compose interpolated: plain `docker compose up`
+  uses `./.env`, and an operator overriding the stack with
+  `docker compose --env-file other.env up` should set
+  `GOATFARM_COMPOSE_ENV_FILE=other.env` inside that same file (exactly as the
+  production template requires) so the preflight checks the env file that
+  actually drove interpolation.
+
   This published-image override is for the local/development Compose topology;
   it intentionally refuses `GOATFARM_ENVIRONMENT=production` because the
   bundled PostgreSQL is TLS-off. Use the external-DB production topology above

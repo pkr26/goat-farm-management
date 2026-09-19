@@ -12,11 +12,20 @@ process remains responsible for validating its own values and secrets.
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from dotenv import dotenv_values
 
-from app.core.config import (
+# This is backend/ when run from a checkout and /app when copied into the
+# production image (where the project is deliberately NOT installed into the
+# venv), so the same command works in either operational context. Without
+# this, running `python scripts/compose_env_guard.py` puts only the script's
+# own directory on sys.path and `import app` fails inside the container.
+BACKEND_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(BACKEND_ROOT))
+
+from app.core.config import (  # noqa: E402
     MigrationSettings,
     ScreeningWorkerSettings,
     Settings,

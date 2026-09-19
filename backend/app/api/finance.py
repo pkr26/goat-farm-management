@@ -1031,8 +1031,14 @@ async def insurance_policy_history(
     db: DbSession,
     farm: CurrentFarm,
     perms: FinanceView,
+    limit: Annotated[int, Query(ge=1, le=200)] = 200,
+    offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
 ) -> InsurancePolicyHistoryOut:
-    """Expose the immutable premium and claim audit trail for one policy."""
+    """Expose the immutable premium and claim audit trail for one policy.
+
+    Premium rows are append-only and every renewal mints one, so the page is
+    bounded exactly like the register/ledger lists; ``total`` carries the
+    full count for honest pagination."""
     if not 1 <= policy_id <= MAX_INT32_ID:
         policy = None
     else:
@@ -1045,15 +1051,19 @@ async def insurance_policy_history(
         ).scalar_one_or_none()
     if policy is None or policy.farm_id != farm.id:
         raise HTTPException(status_code=404, detail="Insurance policy not found")
+    premium_query = select(InsurancePremium).where(
+        InsurancePremium.farm_id == farm.id,
+        InsurancePremium.policy_id == policy.id,
+    )
+    total = (
+        await db.execute(select(func.count()).select_from(premium_query.subquery()))
+    ).scalar_one()
     premiums = list(
         (
             await db.execute(
-                select(InsurancePremium)
-                .where(
-                    InsurancePremium.farm_id == farm.id,
-                    InsurancePremium.policy_id == policy.id,
-                )
-                .order_by(InsurancePremium.recorded_on, InsurancePremium.id)
+                premium_query.order_by(InsurancePremium.recorded_on, InsurancePremium.id)
+                .offset(offset)
+                .limit(limit)
             )
         )
         .scalars()
@@ -1062,6 +1072,7 @@ async def insurance_policy_history(
     return InsurancePolicyHistoryOut(
         policy=_policy_out(policy),
         premiums=[InsurancePremiumOut.model_validate(premium) for premium in premiums],
+        total=total,
     )
 
 

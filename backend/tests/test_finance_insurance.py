@@ -766,6 +766,7 @@ async def test_renewal_books_premium_history_and_pnl_sums_payments(
     assert history_body["policy"]["id"] == policy_id
     assert history_body["policy"]["claim_date"] is None
     assert [entry["premium"] for entry in history_body["premiums"]] == [450.0, 500.0]
+    assert history_body["total"] == 2
     assert all(entry["recorded_on"] == iso(today()) for entry in history_body["premiums"])
     assert all(entry["recorded_by_id"] is not None for entry in history_body["premiums"])
 
@@ -1274,3 +1275,55 @@ async def test_registration_span_is_capped_at_five_years(client: httpx.AsyncClie
     assert beyond.status_code == 422, beyond.text
     assert "five years" in str(beyond.json()["detail"])
     assert (await list_policies(client, owner)).json()["total"] == 1
+
+
+async def test_insurance_history_is_paginated_with_an_honest_total(
+    client: httpx.AsyncClient,
+) -> None:
+    """Premium rows are append-only: the history page must be bounded and
+    ``total`` must report the full count (2026-09-18 audit L-7)."""
+    owner = await owner_with_farm(client, email="ins-page@farm.in")
+    animal = await make_animal(client, owner, tag="INS-P-1")
+    created = await add_policy(client, owner, policy_number="POL-P-1", animal_id=animal["id"])
+    assert created.status_code == 201, created.text
+    policy_id = created.json()["id"]
+
+    # Registration books premium #1; four strictly-forward renewals book
+    # #2..#5 (equal-date replay is a guarded no-op, so each moves the day).
+    for day in range(370, 374):
+        renewed = await client.post(
+            f"/api/finance/insurance/{policy_id}/renew",
+            json={"renewal_date": iso(today() + timedelta(days=day))},
+            headers=owner,
+        )
+        assert renewed.status_code == 200, renewed.text
+
+    base = f"/api/finance/insurance/{policy_id}/history"
+    full = await client.get(base, headers=owner)
+    assert full.status_code == 200, full.text
+    assert len(full.json()["premiums"]) == 5
+    assert full.json()["total"] == 5
+
+    page_one = await client.get(f"{base}?limit=2", headers=owner)
+    assert page_one.status_code == 200, page_one.text
+    body_one = page_one.json()
+    assert body_one["total"] == 5
+    assert [entry["id"] for entry in body_one["premiums"]] == [
+        entry["id"] for entry in full.json()["premiums"][:2]
+    ]
+
+    page_three = await client.get(f"{base}?limit=2&offset=4", headers=owner)
+    assert page_three.status_code == 200, page_three.text
+    assert page_three.json()["total"] == 5
+    assert len(page_three.json()["premiums"]) == 1
+
+    # Past-the-end pages are empty, not errors; ``total`` stays honest.
+    beyond = await client.get(f"{base}?limit=2&offset=50", headers=owner)
+    assert beyond.status_code == 200, beyond.text
+    assert beyond.json()["premiums"] == []
+    assert beyond.json()["total"] == 5
+
+    # The page is bounded exactly like the register/ledger lists.
+    for bad in ("limit=0", "limit=201", "offset=-1", "offset=10001"):
+        rejected = await client.get(f"{base}?{bad}", headers=owner)
+        assert rejected.status_code == 422, (bad, rejected.text)

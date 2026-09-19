@@ -38,8 +38,13 @@ services:
     cpus: 0.25
     logging: *default-logging
     volumes:
+      # Compose interpolates from the file passed to --env-file (default
+      # ./.env). Honoring an explicit GOATFARM_COMPOSE_ENV_FILE there keeps
+      # the guard validating the same file that drove interpolation instead
+      # of silently re-reading ./.env (the production file requires the same
+      # variable; it is allowlisted in NON_APP_ENV_VARS).
       - type: bind
-        source: ./.env
+        source: ${GOATFARM_COMPOSE_ENV_FILE:-.env}
         target: /run/config/compose.env
         read_only: true
         bind:

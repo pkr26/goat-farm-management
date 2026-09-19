@@ -227,10 +227,14 @@ class InsurancePremiumOut(BaseModel):
 
 
 class InsurancePolicyHistoryOut(BaseModel):
-    """A policy plus its append-only payment and claim audit facts."""
+    """A policy plus a page of its append-only payment/claim audit facts.
+
+    ``total`` is the full premium-row count for honest pagination — a
+    long-lived policy with frequent renewals grows without bound."""
 
     policy: InsurancePolicyOut
     premiums: list[InsurancePremiumOut]
+    total: int
 
 
 class InsuranceRenewalIn(StrictInputModel):

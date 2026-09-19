@@ -37,9 +37,18 @@ logger = logging.getLogger("goatfarm.screening-worker")
 _WORKING_HEARTBEAT_MAX_INTERVAL_SECONDS = 60
 
 
-def _publish_heartbeat(settings: ScreeningWorkerSettings, status: HeartbeatStatus) -> None:
+def _publish_heartbeat(
+    settings: ScreeningWorkerSettings,
+    status: HeartbeatStatus,
+    *,
+    consecutive_failures: int = 0,
+) -> None:
     try:
-        write_heartbeat(settings.screening_worker_heartbeat_path, status)
+        write_heartbeat(
+            settings.screening_worker_heartbeat_path,
+            status,
+            consecutive_failures=consecutive_failures,
+        )
     except OSError:
         # Keep the actual worker error visible and let the container probe
         # fail; turning a full filesystem into a crash loop hides the cause.
@@ -163,20 +172,28 @@ async def _run_loop(stop: asyncio.Event, settings: ScreeningWorkerSettings | Non
             _publish_heartbeat(settings, "ok")
             if summary.claimed or summary.notes:
                 logger.info(
-                    "screening cycle: listed=%d claimed=%d healthy=%d flagged=%d "
-                    "skipped=%d errors=%d expired_uploads=%d notes=%s",
-                    summary.listed,
+                    "screening cycle: claimed=%d healthy=%d flagged=%d skipped=%d "
+                    "errors=%d retried_errors=%d retried_flagged=%d "
+                    "expired_uploads=%d notes=%s",
                     summary.claimed,
                     summary.healthy,
                     summary.flagged,
                     summary.skipped,
                     summary.errors,
+                    summary.retried_errors,
+                    summary.retried_flagged,
                     summary.expired_uploads,
                     summary.notes,
                 )
         except Exception:
             consecutive_cycle_failures += 1
-            _publish_heartbeat(settings, "error")
+            # The probe tolerates transient failures inside the worker's own
+            # recovery window (see screening_worker_healthcheck.py): it only
+            # fails the container once this count reaches the configured
+            # limit — the same threshold at which the worker exits nonzero.
+            _publish_heartbeat(
+                settings, "error", consecutive_failures=consecutive_cycle_failures
+            )
             if (
                 consecutive_cycle_failures
                 >= settings.screening_worker_max_consecutive_cycle_failures

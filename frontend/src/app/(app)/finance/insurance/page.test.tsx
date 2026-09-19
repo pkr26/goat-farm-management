@@ -167,6 +167,7 @@ describe("InsurancePage", () => {
               created_at: "2026-01-10T05:30:00Z",
             },
           ],
+          total: 1,
         });
       }),
     );
@@ -183,6 +184,10 @@ describe("InsurancePage", () => {
 
     await waitFor(() => expect(historyGet).toHaveBeenCalledWith("1"));
     expect(within(disclosure as HTMLElement).getByText("Premium entries")).toBeInTheDocument();
+    // The bounded page reports an honest running count of the append-only
+    // premium rows.
+    expect(within(disclosure as HTMLElement).getByText("1 of 1")).toBeInTheDocument();
+    expect(within(disclosure as HTMLElement).queryByText("Load more")).not.toBeInTheDocument();
     expect(within(disclosure as HTMLElement).getByText("₹555.25")).toBeInTheDocument();
     expect(
       within(disclosure as HTMLElement).getByText(/Coverage 10 Jan 2026–10 Jan 2027/),
@@ -342,7 +347,55 @@ describe("InsurancePage", () => {
       expect(renewBodies).toHaveLength(0);
     });
   });
+  it("pages through a long premium history with Load more", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(
+        "/api/finance/insurance/:policyId/history",
+        ({ params, request }) => {
+          const url = new URL(request.url);
+          const offset = Number(url.searchParams.get("offset") ?? 0);
+          const limit = Number(url.searchParams.get("limit") ?? 200);
+          expect(limit).toBeGreaterThan(0);
+          const premium = (index: number) => ({
+            id: 100 + index,
+            policy_id: 1,
+            premium: 100 + index,
+            covered_from: "2026-01-10",
+            covered_until: "2027-01-10",
+            recorded_on: "2026-01-10",
+            recorded_by_id: 7,
+            created_at: "2026-01-10T05:30:00Z",
+          });
+          // Three one-entry pages: the server total is the honest count.
+          return HttpResponse.json({
+            policy: makePolicy(),
+            premiums: offset >= 3 ? [] : [premium(offset)],
+            total: 3,
+          });
+          void params;
+        },
+      ),
+    );
+    await renderLoaded();
+
+    const summary = within(rowOf("POL-2026-001")).getByText("Premium & claim history");
+    await user.click(summary);
+
+    expect(await screen.findByText("₹100")).toBeInTheDocument();
+    expect(screen.getByText("1 of 3")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+    expect(await screen.findByText("₹101")).toBeInTheDocument();
+    expect(screen.getByText("2 of 3")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+    expect(await screen.findByText("₹102")).toBeInTheDocument();
+    expect(screen.getByText("3 of 3")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
+  });
 });
+
 
 describe("InsurancePage — claim action", () => {
   let claimBody: Record<string, unknown> | null;

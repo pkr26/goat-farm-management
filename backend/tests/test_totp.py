@@ -689,3 +689,219 @@ async def test_owner_with_totp_full_app_flow_still_works(
     farm_headers = {"Authorization": f"Bearer {tokens['access_token']}"}
     farms = await client.get("/api/auth/farms", headers=farm_headers)
     assert farms.status_code == 200 and len(farms.json()) == 1
+
+
+
+def _previous_key_ciphertext(secret: str) -> bytes:
+    """A v2 envelope sealed under the predecessor key (needs_rewrap=True)."""
+    from app.core.config import decode_totp_encryption_key
+
+    nonce = b"\x01" * 12
+    key = decode_totp_encryption_key(
+        TEST_TOTP_PREVIOUS_KEY, setting_name="TEST_TOTP_PREVIOUS_KEY"
+    )
+    return TOTP_ENVELOPE_PREFIX + nonce + AESGCM(key).encrypt(
+        nonce, secret.encode("ascii"), security.TOTP_ENVELOPE_AAD
+    )
+
+
+async def test_rekey_script_apply_path_runs_against_the_real_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Execute _rekey() itself — keyset batches, FOR UPDATE, apply commits.
+
+    The mocked-exit-code tests cannot see a regression in transaction
+    scoping, batching, or the apply/dry-run rollback (2026-09-18 audit
+    M-4): this test inserts one row of each vintage into the real test
+    database and runs the script's own coroutine end to end, including a
+    one-row batch size so the apply pass spans multiple locked
+    transactions exactly as an interrupted-and-resumed run would. The
+    app-level key caches are pointed at the same keyring the script uses,
+    because decrypt/encrypt helpers read the app Settings, not the script's
+    get_settings parameter.
+    """
+    from app.core.config import Settings
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "rekey_totp_secrets.py"
+    namespace = runpy.run_path(str(script), run_name="rekey_apply_real_test")
+    # runpy returns a *copy* of the execution globals; the functions keep
+    # the original dict, so patches must target __globals__ directly.
+    rekey_globals = namespace["_rekey"].__globals__
+
+    test_settings = Settings(
+        _env_file=None,
+        totp_encryption_key=TEST_TOTP_KEY,
+        totp_encryption_previous_keys=[TEST_TOTP_PREVIOUS_KEY],
+    )
+    monkeypatch.setitem(rekey_globals, "get_settings", lambda: test_settings)
+    # The crypto helpers resolve the keyring through the app's own cached
+    # Settings: configure the process identically for the test's duration.
+    monkeypatch.setenv("GOATFARM_TOTP_ENCRYPTION_KEY", TEST_TOTP_KEY)
+    monkeypatch.setenv(
+        "GOATFARM_TOTP_ENCRYPTION_PREVIOUS_KEYS", json.dumps([TEST_TOTP_PREVIOUS_KEY])
+    )
+    get_settings.cache_clear()
+    security._reset_totp_key_cache_for_tests()
+
+    secret_legacy = generate_totp_secret_b32()
+    secret_previous = generate_totp_secret_b32()
+    secret_current = generate_totp_secret_b32()
+
+    async with get_sessionmaker()() as db:
+        for email, cipher in (
+            ("rekey-legacy@farm.in", _legacy_ciphertext(secret_legacy)),
+            ("rekey-previous@farm.in", _previous_key_ciphertext(secret_previous)),
+            ("rekey-current@farm.in", encrypt_totp_secret(secret_current)),
+            ("rekey-plain@farm.in", None),
+        ):
+            db.add(
+                User(
+                    email=email,
+                    password_hash="not-a-login-password",
+                    totp_secret_enc=cipher,
+                    totp_state=None if cipher is None else "ACTIVE",
+                )
+            )
+        await db.commit()
+
+    # Dry run: counts the two stale rows, writes nothing.
+    totals = await namespace["_rekey"](apply=False, batch_size=2)
+    assert (totals.scanned, totals.rekeyed, totals.unchanged) == (3, 2, 1)
+    async with get_sessionmaker()() as db:
+        rows = {
+            user.email: user.totp_secret_enc
+            for user in (await db.execute(select(User).order_by(User.id))).scalars()
+            if user.email.startswith("rekey-")
+        }
+    assert decrypt_totp_secret_with_metadata(
+        rows["rekey-legacy@farm.in"]
+    ).needs_rewrap is True
+    assert decrypt_totp_secret_with_metadata(
+        rows["rekey-previous@farm.in"]
+    ).needs_rewrap is True
+    assert decrypt_totp_secret_with_metadata(
+        rows["rekey-current@farm.in"]
+    ).needs_rewrap is False
+
+    # Apply at batch_size=1: three separate locked transactions, resumable
+    # by construction after any interruption between batches.
+    totals = await namespace["_rekey"](apply=True, batch_size=1)
+    assert (totals.scanned, totals.rekeyed, totals.unchanged) == (3, 2, 1)
+    async with get_sessionmaker()() as db:
+        rows = {
+            user.email: user.totp_secret_enc
+            for user in (await db.execute(select(User).order_by(User.id))).scalars()
+            if user.email.startswith("rekey-")
+        }
+    for email, secret in (
+        ("rekey-legacy@farm.in", secret_legacy),
+        ("rekey-previous@farm.in", secret_previous),
+        ("rekey-current@farm.in", secret_current),
+    ):
+        decrypted = decrypt_totp_secret_with_metadata(rows[email])
+        assert decrypted.secret == secret
+        assert decrypted.needs_rewrap is False
+    assert rows["rekey-plain@farm.in"] is None
+
+    # Idempotent rerun: nothing left to do, so a cutover gate sees zeroes.
+    totals = await namespace["_rekey"](apply=False, batch_size=250)
+    assert (totals.scanned, totals.rekeyed, totals.unchanged, totals.unavailable_count) == (
+        3,
+        0,
+        3,
+        0,
+    )
+
+
+async def test_rekey_script_counts_undecryptable_rows_against_the_real_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A genuinely orphaned ciphertext is counted, not crashed on (audit L-5).
+
+    Exercises the real per-row TotpSecretUnavailableError skip inside the
+    real batch loop; the exit-code translation of unavailable>0 is pinned
+    by the mocked-gate test below.
+    """
+    from app.core.config import Settings
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "rekey_totp_secrets.py"
+    namespace = runpy.run_path(str(script), run_name="rekey_unavailable_real_test")
+    rekey_globals = namespace["_rekey"].__globals__
+    test_settings = Settings(
+        _env_file=None,
+        totp_encryption_key=TEST_TOTP_KEY,
+        totp_encryption_previous_keys=[TEST_TOTP_PREVIOUS_KEY],
+    )
+    monkeypatch.setitem(rekey_globals, "get_settings", lambda: test_settings)
+    monkeypatch.setenv("GOATFARM_TOTP_ENCRYPTION_KEY", TEST_TOTP_KEY)
+    monkeypatch.setenv(
+        "GOATFARM_TOTP_ENCRYPTION_PREVIOUS_KEYS", json.dumps([TEST_TOTP_PREVIOUS_KEY])
+    )
+    get_settings.cache_clear()
+    security._reset_totp_key_cache_for_tests()
+
+    # Sealed under a key that is in neither the current slot nor the
+    # predecessor ring: genuinely undecryptable by this deployment.
+    stranger_key = bytes(range(32))
+    nonce = b"\x02" * 12
+    orphan = (
+        security.TOTP_ENVELOPE_PREFIX
+        + nonce
+        + AESGCM(stranger_key).encrypt(
+            nonce, generate_totp_secret_b32().encode("ascii"), security.TOTP_ENVELOPE_AAD
+        )
+    )
+    async with get_sessionmaker()() as db:
+        db.add(
+            User(
+                email="rekey-orphan@farm.in",
+                password_hash="not-a-login-password",
+                totp_secret_enc=orphan,
+                totp_state="ACTIVE",
+            )
+        )
+        await db.commit()
+
+    totals = await namespace["_rekey"](apply=False, batch_size=250)
+    assert totals.scanned == 1
+    assert totals.rekeyed == 0
+    assert totals.unavailable_count == 1
+
+    # The dry run must leave the orphan untouched for investigation, and the
+    # preview must name exactly that row. (All session use stays inside its
+    # own context manager: a session reopened after close would park an
+    # idle transaction that blocks the suite's table cleanup.)
+    async with get_sessionmaker()() as verify_db:
+        orphan_row = (
+            await verify_db.execute(
+                select(User).where(User.email == "rekey-orphan@farm.in")
+            )
+        ).scalar_one()
+    assert totals.unavailable_preview_ids == [orphan_row.id]
+    assert orphan_row.totp_secret_enc == orphan
+
+
+def test_rekey_main_exit_gate_blocks_cutover_when_rows_are_unavailable(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """main() must translate unavailable>0 into exit 2 even with rekeyed=0."""
+    script = Path(__file__).resolve().parents[1] / "scripts" / "rekey_totp_secrets.py"
+    namespace = runpy.run_path(str(script), run_name="rekey_unavailable_gate_test")
+    totals = namespace["RekeyTotals"](scanned=1, rekeyed=0, unchanged=0)
+    totals.record_unavailable(4242)
+
+    def fake_run(coro: Any) -> object:
+        coro.close()
+        return totals
+
+    module_globals = namespace["main"].__globals__
+    monkeypatch.setitem(
+        module_globals, "_parse_args", lambda: SimpleNamespace(apply=False, batch_size=250)
+    )
+    monkeypatch.setitem(module_globals, "asyncio", SimpleNamespace(run=fake_run))
+
+    assert namespace["main"]() == 2
+    captured = capsys.readouterr()
+    assert "unavailable=1" in captured.out
+    assert "4242" in captured.err
+    assert "Do not rotate or retire the active JWT signer" in captured.err

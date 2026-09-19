@@ -216,14 +216,21 @@ export function DiseaseCheckDialog({
       toast.error(t("screening.check.noPhotos"));
       return;
     }
+    const epoch = walkthroughEpoch.current;
     try {
       const result = await submitBatch.mutateAsync({ batchId });
       if (result.status !== 200) return;
+      // The dialog may have been closed (and a new session opened) while the
+      // submit was in flight; the continuation must not toast or fire the
+      // caller's refresh into the new session — same fence the uploads use.
+      if (walkthroughEpoch.current !== epoch) return;
       toast.success(t("screening.check.finished"));
       onOpenChange(false);
       onFinished();
     } catch {
-      toast.error(t("screening.check.noBatch"));
+      if (walkthroughEpoch.current === epoch) {
+        toast.error(t("screening.check.noBatch"));
+      }
     }
   };
 

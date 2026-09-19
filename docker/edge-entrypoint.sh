@@ -16,9 +16,13 @@ fail() {
 }
 
 screening_enabled() {
-  case "${GOATFARM_SCREENING_ENABLED:-false}" in
-    1|true|TRUE|yes|YES|on|ON) return 0 ;;
-    ''|0|false|FALSE|no|NO|off|OFF) return 1 ;;
+  # Accept exactly the boolean spellings pydantic-settings accepts
+  # (case-insensitively), so a value the API and worker boot with cannot
+  # take down the edge — the single published listener.
+  value=$(printf '%s' "${GOATFARM_SCREENING_ENABLED:-false}" | tr '[:upper:]' '[:lower:]')
+  case "$value" in
+    1|true|yes|on|t|y) return 0 ;;
+    ''|0|false|no|off|f|n) return 1 ;;
     *) fail "GOATFARM_SCREENING_ENABLED must be a boolean" ;;
   esac
 }

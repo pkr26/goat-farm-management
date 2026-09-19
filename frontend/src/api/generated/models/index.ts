@@ -159,6 +159,7 @@ export * from './herdSnapshotOut';
 export * from './insuranceClaimIn';
 export * from './insuranceExpiringOut';
 export * from './insuranceListOut';
+export * from './insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetParams';
 export * from './insurancePolicyHistoryOut';
 export * from './insurancePolicyIn';
 export * from './insurancePolicyOut';

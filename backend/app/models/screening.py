@@ -187,6 +187,12 @@ class ScreeningImage(Base):
     # those probes prevents a collection of slow/abandoned phones from
     # monopolizing every screening cycle before the presign expiry sweep.
     next_attempt_at: Mapped[dt.datetime | None] = mapped_column()
+    # Bounded retry budget, incremented by every claim.  Once it reaches the
+    # pipeline's attempt cap the row is terminal and never re-claimed, so a
+    # deterministic failure cannot poll and re-bill providers forever.
+    screening_attempts: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0")
+    )
     created_at: Mapped[dt.datetime] = mapped_column(
         default=utcnow, server_default=text("timezone('UTC', now())")
     )

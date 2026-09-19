@@ -16,7 +16,7 @@ from decimal import Decimal
 from typing import Annotated, Any, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import case, func, select, update
+from sqlalchemy import case, func, literal, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -24,7 +24,6 @@ from sqlalchemy.orm import selectinload
 from ..core.config import get_settings
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
 from ..models import (
-    Farm,
     ScreeningBatch,
     ScreeningCrop,
     ScreeningFinding,
@@ -90,6 +89,25 @@ _IN_FLIGHT_SCREENING_STATUSES = (
     ScreeningImageStatus.PROCESSING.value,
     ScreeningImageStatus.ERROR.value,
 )
+# Advisory-lock namespace for farm-level screening intake serialization.
+# Inserting any farm-scoped child row takes FOR KEY SHARE on that Farm row,
+# so a Farm row lock held across intake checks and batch locks inverts
+# against every animal-first write in other modules and PostgreSQL
+# deadlocks (the identical reasoning that moved simulation.py and
+# planner.py off Farm-row locks). The advisory lock self-conflicts exactly
+# as the row lock did and never conflicts with an FK key-share lock.
+SCREENING_INTAKE_LOCK_NAMESPACE = 4716
+
+
+async def _lock_farm_intake(db: AsyncSession, farm_id: int) -> None:
+    """Serialize farm-level intake checks without locking the Farm row."""
+    await db.execute(
+        select(
+            func.pg_advisory_xact_lock(
+                literal(SCREENING_INTAKE_LOCK_NAMESPACE), literal(farm_id)
+            )
+        )
+    )
 
 
 async def _latest_runs_by_image(
@@ -639,7 +657,7 @@ async def create_batch(
     # Serialize farm-level intake checks with upload/submission mutations.
     # Without this lock, parallel requests can each observe spare capacity
     # and collectively create an unbounded set of open walkthroughs.
-    await db.execute(select(Farm.id).where(Farm.id == farm.id).with_for_update())
+    await _lock_farm_intake(db, farm.id)
     active_batch_after = utcnow() - MAX_OPEN_SCREENING_BATCH_AGE
     open_batches = (
         await db.execute(
@@ -716,7 +734,7 @@ async def submit_batch(
     # an upload racing submit has one serial outcome: either the upload is
     # registered before submission or it is rejected as too late.  There is
     # no gap where a row can commit after the batch has been closed.
-    await db.execute(select(Farm.id).where(Farm.id == farm.id).with_for_update())
+    await _lock_farm_intake(db, farm.id)
     batch = (
         await db.execute(
             select(ScreeningBatch)
@@ -771,7 +789,7 @@ async def request_upload(
     # Use the same lock order as submit_batch.  In particular, do not read
     # submitted_at outside a lock then create a row later: that allowed an
     # upload registration to commit after a concurrent submit closed a batch.
-    await db.execute(select(Farm.id).where(Farm.id == farm.id).with_for_update())
+    await _lock_farm_intake(db, farm.id)
     batch = (
         await db.execute(
             select(ScreeningBatch)

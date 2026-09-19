@@ -11866,7 +11866,7 @@
           "finance"
         ],
         "summary": "Insurance Policy History",
-        "description": "Expose the immutable premium and claim audit trail for one policy.",
+        "description": "Expose the immutable premium and claim audit trail for one policy.\n\nPremium rows are append-only and every renewal mints one, so the page is\nbounded exactly like the register/ledger lists; ``total`` carries the\nfull count for honest pagination.",
         "operationId": "insurance_policy_history_api_finance_insurance__policy_id__history_get",
         "security": [
           {
@@ -11881,6 +11881,30 @@
             "schema": {
               "type": "integer",
               "title": "Policy Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 200,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 10000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
             }
           },
           {
@@ -25977,15 +26001,20 @@
             },
             "type": "array",
             "title": "Premiums"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
           }
         },
         "type": "object",
         "required": [
           "policy",
-          "premiums"
+          "premiums",
+          "total"
         ],
         "title": "InsurancePolicyHistoryOut",
-        "description": "A policy plus its append-only payment and claim audit facts."
+        "description": "A policy plus a page of its append-only payment/claim audit facts.\n\n``total`` is the full premium-row count for honest pagination \u2014 a\nlong-lived policy with frequent renewals grows without bound."
       },
       "InsurancePolicyIn": {
         "properties": {

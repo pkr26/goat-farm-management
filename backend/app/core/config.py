@@ -229,6 +229,30 @@ def _normalize_database_url(value: str, *, sslmode: DbSslMode, setting_name: str
     )
 
 
+# Hosts exempt from the https:// requirement everywhere: local model
+# gateways / S3-compatible stores bound to loopback for development.
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def _https_or_loopback_url(value: str, *, setting: str) -> str:
+    """Reject URLs that are not https:// to a real host (loopback excepted).
+
+    Model credentials and SigV4 secrets ride every one of these URLs, so a
+    plaintext URL must fail at boot. A scheme-only string (``https://`` or
+    ``https://:443``) has no hostname and can never carry those credentials
+    anywhere useful — it previously passed the scheme check and surfaced
+    only as recurring per-request provider/S3 errors. Requiring a host
+    keeps the failure inside this module's fail-fast contract.
+    """
+    parsed = urlsplit(value)
+    host = parsed.hostname or ""
+    if not host:
+        raise ValueError(f"{setting} {value!r} must include a host, not just a scheme")
+    if parsed.scheme != "https" and host not in _LOOPBACK_HOSTS:
+        raise ValueError(f"{setting} {value!r} must use https:// (or an explicit loopback host)")
+    return value.rstrip("/")
+
+
 def _readable_db_root_certificate(value: Path | None) -> Path | None:
     """Validate an optional private-CA bundle before a pool is created.
 
@@ -363,11 +387,7 @@ class ScreeningRotationProvider(BaseModel):
     def _https_base_url(cls, value: str | None) -> str | None:
         if value is None:
             return value
-        host = urlsplit(value).hostname or ""
-        is_loopback = host in {"localhost", "127.0.0.1", "::1"}
-        if urlsplit(value).scheme != "https" and not is_loopback:
-            raise ValueError(f"{value!r} must use https:// (loopback allowed for local gateways)")
-        return value.rstrip("/")
+        return _https_or_loopback_url(value, setting="provider base_url")
 
 
 class ScreeningRuntimeSettings(Protocol):
@@ -408,6 +428,11 @@ class ScreeningRuntimeSettings(Protocol):
     screening_openai_model: str
     screening_provider_rotation: list[ScreeningRotationProvider]
     screening_provider_timeout_seconds: int
+    # PROCESSING rows whose image row has not been touched for this long are
+    # treated as crashed claims and re-claimed (the pipeline touches the row
+    # after every completed stage, so this bounds genuine progress, not just
+    # process liveness — the heartbeat covers that).
+    screening_stale_processing_after_seconds: int
 
 
 def _has_nonblank_secret(value: SecretStr | None) -> bool:
@@ -767,6 +792,12 @@ class Settings(BaseSettings):
     )
     # A gate call that exceeds this is abandoned and retried next cycle.
     screening_provider_timeout_seconds: int = Field(default=120, ge=10, le=600)
+    # A PROCESSING claim whose image row has not been touched for this long
+    # is treated as crashed and re-claimed. The pipeline refreshes the row
+    # after every completed stage (detection, each crop's gate, each finished
+    # crop), so the default comfortably exceeds one worst-case cascade while
+    # staying far below a permanent zombie claim.
+    screening_stale_processing_after_seconds: int = Field(default=1_800, ge=600, le=86_400)
     # Used only by the worker process, but recognized by the API settings so
     # a shared operator .env cannot be rejected as an unknown variable.
     screening_worker_heartbeat_path: Path = DEFAULT_SCREENING_WORKER_HEARTBEAT_PATH
@@ -801,39 +832,21 @@ class Settings(BaseSettings):
     def _https_provider_base_url(cls, value: str) -> str:
         """Model credentials ride every one of these requests; an http://
         base URL would broadcast them to the network path. Loopback
-        exceptions keep local gateways (ollama, LiteLLM) usable in dev."""
-        parsed = urlsplit(value)
-        host = parsed.hostname or ""
-        is_loopback = host in {"localhost", "127.0.0.1", "::1"}
-        if parsed.scheme != "https" and not is_loopback:
-            raise ValueError(
-                f"{value!r} must use https:// (or an explicit loopback host for "
-                "local model gateways)"
-            )
-        return value.rstrip("/")
+        exceptions keep local gateways (ollama, LiteLLM) usable in dev.
+        Shared helper with the worker projection — see
+        ``_https_or_loopback_url``."""
+        return _https_or_loopback_url(value, setting="model provider base URL")
 
     @field_validator("s3_endpoint_url")
     @classmethod
     def _https_s3_endpoint_url(cls, value: str | None) -> str | None:
         """Every screening S3 request carries the SigV4 signature of
         GOATFARM_S3_SECRET_ACCESS_KEY, and the photo payloads are farm data:
-        a plaintext endpoint broadcast one and exposed the other. The same
-        https-or-loopback rule the model providers already enforce (an
-        explicit endpoint that is neither is a configuration error, not a
-        supported plaintext mode) — 2026-09-17 audit L-5. Unset means AWS S3
-        proper and is unaffected."""
+        a plaintext endpoint broadcast one and exposed the other (2026-09-17
+        audit L-5). Unset means AWS S3 proper and is unaffected."""
         if value is None or value == "":
             return None
-        parsed = urlsplit(value)
-        host = parsed.hostname or ""
-        is_loopback = host in {"localhost", "127.0.0.1", "::1"}
-        if parsed.scheme != "https" and not is_loopback:
-            raise ValueError(
-                f"s3_endpoint_url {value!r} must use https:// (or an explicit "
-                "loopback host) — SigV4 credentials and farm photos must not "
-                "cross the network in plaintext"
-            )
-        return value.rstrip("/")
+        return _https_or_loopback_url(value, setting="s3_endpoint_url")
 
     @field_validator("jwt_issuer", "jwt_audience")
     @classmethod
@@ -857,6 +870,15 @@ class Settings(BaseSettings):
         if value is not None:
             decode_totp_encryption_key(value, setting_name="GOATFARM_TOTP_ENCRYPTION_KEY")
         return value
+
+    @field_validator("totp_encryption_previous_keys", mode="before")
+    @classmethod
+    def _empty_previous_keys_are_unset(cls, value: object) -> object:
+        # Compose's optional interpolation yields an empty string for list
+        # settings exactly as it does for the single key; treat only that
+        # exact value as an empty list so ``VAR=`` boots instead of dying
+        # on a JSON parse error. Whitespace remains invalid JSON.
+        return [] if value == "" else value
 
     @field_validator("totp_encryption_previous_keys")
     @classmethod
@@ -1330,6 +1352,12 @@ class ScreeningWorkerSettings(BaseSettings):
         default_factory=list, max_length=8
     )
     screening_provider_timeout_seconds: int = Field(default=120, ge=10, le=600)
+    # A PROCESSING claim whose image row has not been touched for this long
+    # is treated as crashed and re-claimed. The pipeline refreshes the row
+    # after every completed stage (detection, each crop's gate, each finished
+    # crop), so the default comfortably exceeds one worst-case cascade while
+    # staying far below a permanent zombie claim.
+    screening_stale_processing_after_seconds: int = Field(default=1_800, ge=600, le=86_400)
 
     # A local, atomic heartbeat powers the container health check. It carries
     # no customer data and stays inside the worker container's writable /tmp.
@@ -1359,27 +1387,14 @@ class ScreeningWorkerSettings(BaseSettings):
     @field_validator("screening_anthropic_base_url", "screening_openai_base_url")
     @classmethod
     def _https_provider_base_url(cls, value: str) -> str:
-        parsed = urlsplit(value)
-        host = parsed.hostname or ""
-        if parsed.scheme != "https" and host not in {"localhost", "127.0.0.1", "::1"}:
-            raise ValueError(
-                f"{value!r} must use https:// (or an explicit loopback host for "
-                "local model gateways)"
-            )
-        return value.rstrip("/")
+        return _https_or_loopback_url(value, setting="model provider base URL")
 
     @field_validator("s3_endpoint_url")
     @classmethod
     def _https_s3_endpoint_url(cls, value: str | None) -> str | None:
         if value is None or value == "":
             return None
-        parsed = urlsplit(value)
-        host = parsed.hostname or ""
-        if parsed.scheme != "https" and host not in {"localhost", "127.0.0.1", "::1"}:
-            raise ValueError(
-                f"s3_endpoint_url {value!r} must use https:// (or an explicit loopback host)"
-            )
-        return value.rstrip("/")
+        return _https_or_loopback_url(value, setting="s3_endpoint_url")
 
     @model_validator(mode="after")
     def _worker_safety(self) -> ScreeningWorkerSettings:

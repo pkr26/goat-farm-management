@@ -21,7 +21,7 @@ from typing import Any
 import httpx
 import pytest
 from PIL import Image
-from sqlalchemy import select
+from sqlalchemy import update, select
 
 from app.core.config import ScreeningRotationProvider, ScreeningWorkerSettings, Settings
 from app.db import get_sessionmaker
@@ -52,6 +52,7 @@ from app.services.screening.images import (
 from app.services.screening.pipeline import (
     ERROR_RETRY_AFTER,
     MAX_DOWNLOAD_BYTES,
+    MAX_SCREENING_ATTEMPTS,
     cropped_derivative_key,
     normalized_derivative_key,
     parse_raw_key,
@@ -68,6 +69,7 @@ from app.services.screening.providers import (
     gate as run_gate,
 )
 from app.services.screening.rotation import GateExhaustedError, ProviderRotation
+from app.services.screening.s3 import POST_MULTIPART_OVERHEAD_BYTES
 from app.services.screening.s3 import (
     _S3_CONNECT_TIMEOUT_SECONDS,
     _S3_READ_TIMEOUT_SECONDS,
@@ -970,7 +972,6 @@ async def test_full_cycle_screens_flags_and_dedupes(client: httpx.AsyncClient) -
     assert (summary.healthy, summary.flagged) == (1, 1)
     # Only trusted pre-registrations become rows.  Raw malformed/unknown
     # objects are intentionally invisible to the worker's intake path.
-    assert summary.listed == 0
     assert len(images) == 2
     by_key = {image.s3_key: image for image in images}
     wide = by_key[f"raw/{farm_id}/{today}/herd_wide.jpg"]
@@ -1458,7 +1459,11 @@ async def test_flagged_parent_retries_its_errored_crop(client: httpx.AsyncClient
         )
 
     assert summary.claimed == 1
-    assert summary.retried_errors == 1
+    # The reclaimed parent is a FLAGGED row retrying an errored crop, not an
+    # aged ERROR row — the split metric keeps the two retry populations
+    # visible separately in the cycle log.
+    assert summary.retried_errors == 0
+    assert summary.retried_flagged == 1
     assert refreshed.status == "FLAGGED"
     assert [crop.status for crop in crops] == ["FLAGGED", "HEALTHY"]
     assert provider.calls == 1  # only the previously errored crop re-ran
@@ -1618,7 +1623,14 @@ async def test_disease_check_walkthrough_end_to_end(
 
     assert payload["upload_method"] == "POST"
     assert payload["upload_fields"]["Content-Type"] == "image/jpeg"
-    assert payload["max_upload_bytes"] == MAX_DOWNLOAD_BYTES
+    # The advertised client bound is the exact object cap; the worker's own
+    # ceiling deliberately adds the POST policy's multipart-envelope
+    # allowance so an object the policy accepted is never rejected later.
+    assert payload["max_upload_bytes"] == screening_api.MAX_SCREENING_UPLOAD_BYTES
+    assert (
+        MAX_DOWNLOAD_BYTES
+        == screening_api.MAX_SCREENING_UPLOAD_BYTES + POST_MULTIPART_OVERHEAD_BYTES
+    )
 
     # The phone's constrained POST lands the bytes (here: straight into fake
     # storage), including the policy-bound metadata the worker verifies.
@@ -2064,27 +2076,70 @@ async def test_registered_upload_rejects_mismatched_object_metadata(
 
 
 async def test_changed_object_is_requeued_without_decoding(client: httpx.AsyncClient) -> None:
-    """A conditional GET mismatch never reaches Pillow or a model call."""
+    """A conditional GET mismatch never reaches Pillow or a model call.
+
+    Two dispositions, one invariant.  A *tokened* registration (a live
+    presigned form) is a phone still mid-upload or a transient snapshot
+    race: the row stays PENDING and the waiting claim does not consume the
+    retry budget.  A *tokenless* legacy row has no form that could still
+    deliver stable bytes, so a changed object is a storage-level fact: the
+    row records ERROR and keeps consuming the attempt budget until it is
+    terminal — never an infinite requeue loop.
+    """
     headers = await owner_with_farm(client, email="snapshot-race@farm.in")
     farm_id = int(headers["X-Farm-Id"])
-    key = f"raw/{farm_id}/{today().isoformat()}/BREEDING/swap.jpg"
-    storage = FakeStorage(objects={key: _jpeg_bytes(1000, 2000)})
-    storage.changed_before_download.add(key)
+    today_key = f"raw/{farm_id}/{today().isoformat()}/BREEDING/swap.jpg"
+    legacy_key = f"raw/{farm_id}/{today().isoformat()}/BREEDING/legacy.jpg"
+    storage = FakeStorage(
+        objects={
+            today_key: _jpeg_bytes(1000, 2000),
+            legacy_key: _jpeg_bytes(1200, 800),
+        }
+    )
+    storage.changed_before_download.update({today_key, legacy_key})
+    storage.metadata[today_key] = {"screening-token": "a" * 43}
+    storage.content_types[today_key] = "image/jpeg"
     provider = CountingProvider(name="fake")
 
     async with get_sessionmaker()() as db:
-        await _register_fake_objects(db, farm_id, storage)
+        await _register_fake_objects(db, farm_id, storage, keys=[legacy_key])
+        db.add(
+            ScreeningImage(
+                farm_id=farm_id,
+                bucket="BREEDING",
+                s3_bucket=storage.bucket,
+                s3_key=today_key,
+                captured_date=today(),
+                status="PENDING",
+                upload_content_type="image/jpeg",
+                upload_token="a" * 43,
+            )
+        )
+        await db.commit()
         summary = await run_screening_cycle(
             db,
             _cycle_settings(),
             storage,
             ProviderRotation([provider]),
         )
-        image = (await db.execute(select(ScreeningImage))).scalar_one()
+        images = {
+            image.s3_key: image
+            for image in (await db.execute(select(ScreeningImage))).scalars()
+        }
 
-    assert summary.errors == 0
-    assert image.status == "PENDING"
-    assert image.next_attempt_at is not None
+    tokened = images[today_key]
+    legacy = images[legacy_key]
+    assert summary.errors == 1
+    # Tokened: still waiting on a live form — PENDING, backoff set, and the
+    # waiting claim was refunded so slow phones never exhaust the budget.
+    assert tokened.status == "PENDING"
+    assert tokened.next_attempt_at is not None
+    assert tokened.screening_attempts == 0
+    # Tokenless: storage-level ERROR, retried while budget remains.
+    assert legacy.status == "ERROR"
+    assert "unavailable from storage" in (legacy.error or "")
+    assert legacy.screening_attempts == 1
+    # Neither row reached a decoder or a model.
     assert provider.calls == 0
 
 
@@ -2579,7 +2634,7 @@ async def test_oversized_object_is_skipped_without_download(
     assert first.skipped == 1
     assert first.errors == 0
     assert image.status == "SKIPPED"
-    assert "25 MB download cap" in (image.error or "")
+    assert "byte download cap" in (image.error or "")
     assert str(MAX_DOWNLOAD_BYTES + 1) in (image.error or "")
     assert storage.download_attempts == []  # refused before any transfer
     assert huge_key not in storage.uploaded
@@ -2591,3 +2646,330 @@ async def test_oversized_object_is_skipped_without_download(
             db, _cycle_settings(), storage, ProviderRotation([provider])
         )
     assert second.claimed == 0
+
+
+async def _age_error_rows_for_retry() -> None:
+    """Push every ERROR row past the hourly retry backoff."""
+    async with get_sessionmaker()() as db:
+        await db.execute(
+            update(ScreeningImage)
+            .where(ScreeningImage.status == "ERROR")
+            .values(updated_at=utcnow() - ERROR_RETRY_AFTER - dt.timedelta(minutes=1))
+        )
+        await db.commit()
+
+
+async def test_deterministic_failure_exhausts_its_retry_budget(
+    client: httpx.AsyncClient,
+) -> None:
+    """A permanently failing image terminates instead of retrying forever.
+
+    Every claim consumes one attempt; at MAX_SCREENING_ATTEMPTS the row is
+    no longer eligible, and the final error says so (2026-09-18 audit M-2:
+    deterministic failures previously retried hourly forever, re-downloading
+    and re-billing providers on every pass).
+    """
+    headers = await owner_with_farm(client, email="budget-owner@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    key = f"raw/{farm_id}/{today().isoformat()}/BREEDING/poison.jpg"
+    storage = FakeStorage(objects={key: _jpeg_bytes(900, 900)})
+    provider = CountingProvider(name="fake", fail=True)
+
+    async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
+
+    attempts_seen = 0
+    for _ in range(MAX_SCREENING_ATTEMPTS + 2):
+        async with get_sessionmaker()() as db:
+            summary = await run_screening_cycle(
+                db, _cycle_settings(), storage, ProviderRotation([provider])
+            )
+        attempts_seen += summary.claimed
+        await _age_error_rows_for_retry()
+
+    assert attempts_seen == MAX_SCREENING_ATTEMPTS
+    async with get_sessionmaker()() as db:
+        image = (await db.execute(select(ScreeningImage))).scalar_one()
+    assert image.status == "ERROR"
+    assert "terminal after" in (image.error or "")
+    assert str(MAX_SCREENING_ATTEMPTS) in (image.error or "")
+    assert image.screening_attempts == MAX_SCREENING_ATTEMPTS
+    # Exactly one provider call per consumed attempt — nothing beyond it.
+    assert provider.calls == MAX_SCREENING_ATTEMPTS
+
+
+async def test_flagged_row_with_deleted_object_is_not_demoted_to_pending(
+    client: httpx.AsyncClient,
+) -> None:
+    """A reclaimed FLAGGED photo whose object vanished keeps telling the truth.
+
+    Old behavior demoted it to PENDING (hiding the visible flag) and later
+    swept it with a false "presigned upload never arrived" even though bytes
+    had landed and a goat was flagged (2026-09-18 audit M-1). The row now
+    records a storage-level ERROR with its FLAGGED crops intact.
+    """
+    headers = await owner_with_farm(client, email="vanished-flag@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    capture_day = today().isoformat()
+    key = f"raw/{farm_id}/{capture_day}/BREEDING/gone.jpg"
+    aged = utcnow() - ERROR_RETRY_AFTER - dt.timedelta(minutes=1)
+    # No storage object at all: the bucket lifecycle rule deleted it.
+    storage = FakeStorage()
+
+    async with get_sessionmaker()() as db:
+        image = ScreeningImage(
+            farm_id=farm_id,
+            bucket="BREEDING",
+            s3_bucket=storage.bucket,
+            s3_key=key,
+            captured_date=dt.date.fromisoformat(capture_day),
+            status="FLAGGED",
+            sha256="f" * 64,
+            created_at=aged,
+            updated_at=aged,
+        )
+        db.add(image)
+        await db.flush()
+        db.add(
+            ScreeningCrop(
+                farm_id=farm_id,
+                image_id=image.id,
+                crop_index=0,
+                box_x=100,
+                box_y=100,
+                box_w=600,
+                box_h=600,
+                status="FLAGGED",
+            )
+        )
+        db.add(
+            ScreeningCrop(
+                farm_id=farm_id,
+                image_id=image.id,
+                crop_index=1,
+                box_x=700,
+                box_y=100,
+                box_w=250,
+                box_h=600,
+                status="ERROR",
+                error="provider outage",
+            )
+        )
+        await db.commit()
+
+    provider = CountingProvider(name="fake")
+    async with get_sessionmaker()() as db:
+        summary = await run_screening_cycle(
+            db, _cycle_settings(crop_detection=True), storage, ProviderRotation([provider])
+        )
+        refreshed = (await db.execute(select(ScreeningImage))).scalar_one()
+        crops = list(
+            (
+                await db.execute(
+                    select(ScreeningCrop).order_by(ScreeningCrop.crop_index)
+                )
+            ).scalars()
+        )
+
+    assert summary.retried_flagged == 1
+    assert refreshed.status == "ERROR"
+    assert "unavailable from storage" in (refreshed.error or "")
+    # The flagged goat's crop verdict survives the storage failure.
+    assert [crop.status for crop in crops] == ["FLAGGED", "ERROR"]
+    assert provider.calls == 0
+
+
+async def test_reupload_takes_over_the_claim_from_a_stalled_error_owner(
+    client: httpx.AsyncClient,
+) -> None:
+    """A farmer's re-upload of stuck bytes screens instead of being rejected.
+
+    The stalled owner holds the content claim but has produced no result;
+    the new upload takes over the claim and the owner is terminally SKIPPED
+    as superseded (2026-09-18 audit L-4: the re-upload used to be rejected
+    with a message asserting a screening that never happened).
+    """
+    from app.services.screening.images import normalize_image
+
+    headers = await owner_with_farm(client, email="takeover@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    capture_day = today().isoformat()
+    blob = _jpeg_bytes(1200, 600)  # landscape → flagged gate answer is fine
+    stale_key = f"raw/{farm_id}/{capture_day}/BREEDING/stuck.jpg"
+    fresh_key = f"raw/{farm_id}/{capture_day}/BREEDING/retry.jpg"
+    storage = FakeStorage(objects={fresh_key: blob})
+    normalized = normalize_image(blob, 1_568, "image/jpeg")
+    digest = normalized.sha256
+
+    recent = utcnow() - dt.timedelta(minutes=2)
+    async with get_sessionmaker()() as db:
+        stuck = ScreeningImage(
+            farm_id=farm_id,
+            bucket="BREEDING",
+            s3_bucket=storage.bucket,
+            s3_key=stale_key,
+            captured_date=dt.date.fromisoformat(capture_day),
+            status="ERROR",
+            error="provider outage",
+            sha256=digest,
+            created_at=utcnow() - dt.timedelta(hours=2),
+            updated_at=recent,
+        )
+        db.add(stuck)
+        await db.flush()
+        db.add(ScreeningContentClaim(farm_id=farm_id, image_id=stuck.id, sha256=digest))
+        db.add(
+            ScreeningImage(
+                farm_id=farm_id,
+                bucket="BREEDING",
+                s3_bucket=storage.bucket,
+                s3_key=fresh_key,
+                captured_date=dt.date.fromisoformat(capture_day),
+                status="PENDING",
+            )
+        )
+        await db.commit()
+
+    provider = CountingProvider(name="fake")
+    async with get_sessionmaker()() as db:
+        summary = await run_screening_cycle(
+            db, _cycle_settings(), storage, ProviderRotation([provider])
+        )
+        images = {
+            image.s3_key: image
+            for image in (await db.execute(select(ScreeningImage))).scalars()
+        }
+        claim = (
+            await db.execute(select(ScreeningContentClaim))
+        ).scalar_one()
+
+    stuck_row = images[stale_key]
+    fresh_row = images[fresh_key]
+    assert summary.claimed == 1  # only the fresh row was eligible
+    assert fresh_row.status in ("HEALTHY", "FLAGGED")
+    assert stuck_row.status == "SKIPPED"
+    assert "superseded by a newer upload" in (stuck_row.error or "")
+    assert claim.image_id == fresh_row.id
+    # Exactly one image's cascade ran: the takeover row. (A landscape gate
+    # answer continues into the specialist stage, so the exact count is the
+    # cascade's, not the point here.)
+    assert provider.calls >= 1
+
+
+async def test_reupload_while_owner_is_processing_reports_truthful_duplicate(
+    client: httpx.AsyncClient,
+) -> None:
+    """A mid-flight owner means the bytes ARE being screened — say that."""
+    from app.services.screening.images import normalize_image
+
+    headers = await owner_with_farm(client, email="inflight@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    capture_day = today().isoformat()
+    blob = _jpeg_bytes(800, 800)
+    busy_key = f"raw/{farm_id}/{capture_day}/BREEDING/busy.jpg"
+    again_key = f"raw/{farm_id}/{capture_day}/BREEDING/again.jpg"
+    storage = FakeStorage(objects={again_key: blob})
+    digest = normalize_image(blob, 1_568, "image/jpeg").sha256
+
+    async with get_sessionmaker()() as db:
+        busy = ScreeningImage(
+            farm_id=farm_id,
+            bucket="BREEDING",
+            s3_bucket=storage.bucket,
+            s3_key=busy_key,
+            captured_date=dt.date.fromisoformat(capture_day),
+            status="PROCESSING",
+            sha256=digest,
+            created_at=utcnow() - dt.timedelta(minutes=3),
+            updated_at=utcnow(),
+        )
+        db.add(busy)
+        await db.flush()
+        db.add(ScreeningContentClaim(farm_id=farm_id, image_id=busy.id, sha256=digest))
+        db.add(
+            ScreeningImage(
+                farm_id=farm_id,
+                bucket="BREEDING",
+                s3_bucket=storage.bucket,
+                s3_key=again_key,
+                captured_date=dt.date.fromisoformat(capture_day),
+                status="PENDING",
+            )
+        )
+        await db.commit()
+
+    provider = CountingProvider(name="fake")
+    async with get_sessionmaker()() as db:
+        await run_screening_cycle(
+            db, _cycle_settings(), storage, ProviderRotation([provider])
+        )
+        again = (
+            await db.execute(select(ScreeningImage).where(
+                ScreeningImage.s3_key == again_key
+            ))
+        ).scalar_one()
+
+    assert again.status == "SKIPPED"
+    assert "currently being screened" in (again.error or "")
+    assert provider.calls == 0
+
+
+async def test_stale_processing_horizon_is_configurable_and_progress_gated(
+    client: httpx.AsyncClient,
+) -> None:
+    """A 20-minute-old PROCESSING claim: reclaimed at a 10-minute horizon,
+    untouched at the 30-minute default (2026-09-18 audit M-3)."""
+    headers = await owner_with_farm(client, email="stale-horizon@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    capture_day = today().isoformat()
+    key = f"raw/{farm_id}/{capture_day}/BREEDING/slow.jpg"
+    storage = FakeStorage(objects={key: _jpeg_bytes(700, 700)})
+    twenty_minutes_ago = utcnow() - dt.timedelta(minutes=20)
+
+    async with get_sessionmaker()() as db:
+        db.add(
+            ScreeningImage(
+                farm_id=farm_id,
+                bucket="BREEDING",
+                s3_bucket=storage.bucket,
+                s3_key=key,
+                captured_date=dt.date.fromisoformat(capture_day),
+                status="PROCESSING",
+                created_at=twenty_minutes_ago,
+                updated_at=twenty_minutes_ago,
+            )
+        )
+        await db.commit()
+
+    provider = CountingProvider(name="fake")
+    async with get_sessionmaker()() as db:
+        default = await run_screening_cycle(
+            db,
+            _cycle_settings(),
+            storage,
+            ProviderRotation([provider]),
+        )
+    assert default.claimed == 0
+    assert provider.calls == 0
+
+    async with get_sessionmaker()() as db:
+        row = (await db.execute(select(ScreeningImage))).scalar_one()
+        row.status = "PROCESSING"
+        row.updated_at = twenty_minutes_ago
+        await db.commit()
+        tightened = Settings(
+            environment="development",
+            screening_enabled=True,
+            s3_bucket="goat-photos",
+            s3_access_key_id="test-access",
+            s3_secret_access_key="test-secret",
+            screening_provider="anthropic",
+            screening_anthropic_api_key="test-key",
+            screening_crop_detection_enabled=False,
+            screening_stale_processing_after_seconds=600,
+        )
+        reclaimed = await run_screening_cycle(
+            db, tightened, storage, ProviderRotation([provider])
+        )
+    assert reclaimed.claimed == 1
+    assert provider.calls == 1

@@ -81,6 +81,7 @@ import type {
   HerdSnapshotOut,
   InsuranceClaimIn,
   InsuranceListOut,
+  InsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetParams,
   InsurancePolicyHistoryOut,
   InsurancePolicyIn,
   InsurancePolicyOut,
@@ -10839,21 +10840,34 @@ export type insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponseE
 
 export type insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse = (insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponseSuccess | insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponseError)
 
-export const getInsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetUrl = (policyId: number,) => {
+export const getInsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetUrl = (policyId: number,
+    params?: InsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/finance/insurance/${policyId}/history`
+  return stringifiedParams.length > 0 ? `/api/finance/insurance/${policyId}/history?${stringifiedParams}` : `/api/finance/insurance/${policyId}/history`
 }
 
 /**
  * Expose the immutable premium and claim audit trail for one policy.
+ *
+ * Premium rows are append-only and every renewal mints one, so the page is
+ * bounded exactly like the register/ledger lists; ``total`` carries the
+ * full count for honest pagination.
  * @summary Insurance Policy History
  */
-export const insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet = async (policyId: number, options?: Parameters<typeof customInstance>[1]): Promise<insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse> => {
+export const insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet = async (policyId: number,
+    params?: InsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetParams, options?: Parameters<typeof customInstance>[1]): Promise<insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse> => {
 
-  return customInstance<insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse>(getInsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetUrl(policyId),
+  return customInstance<insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetResponse>(getInsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetUrl(policyId,params),
   {
     ...options,
     method: 'GET'
@@ -10866,23 +10880,25 @@ export const insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet = async
 
 
 
-export const getInsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetQueryKey = (policyId: number,) => {
+export const getInsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetQueryKey = (policyId: number,
+    params?: InsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetParams,) => {
     return [
-    `/api/finance/insurance/${policyId}/history`
+    `/api/finance/insurance/${policyId}/history`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getInsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetQueryOptions = <TData = Awaited<ReturnType<typeof insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(policyId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const getInsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetQueryOptions = <TData = Awaited<ReturnType<typeof insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(policyId: number,
+    params?: InsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getInsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetQueryKey(policyId);
+  const queryKey =  queryOptions?.queryKey ?? getInsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetQueryKey(policyId,params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet>>> = ({ signal }) => insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet(policyId, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet>>> = ({ signal }) => insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet(policyId,params, { signal, ...requestOptions });
 
 
 
@@ -10896,7 +10912,8 @@ export type InsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetQueryErro
 
 
 export function useInsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet<TData = Awaited<ReturnType<typeof insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
- policyId: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet>>, TError, TData>> & Pick<
+ policyId: number,
+    params: undefined |  InsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet>>,
           TError,
@@ -10906,7 +10923,8 @@ export function useInsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet<T
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useInsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet<TData = Awaited<ReturnType<typeof insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
- policyId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet>>, TError, TData>> & Pick<
+ policyId: number,
+    params?: InsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet>>,
           TError,
@@ -10916,7 +10934,8 @@ export function useInsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet<T
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useInsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet<TData = Awaited<ReturnType<typeof insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
- policyId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ policyId: number,
+    params?: InsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
@@ -10924,11 +10943,12 @@ export function useInsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet<T
  */
 
 export function useInsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet<TData = Awaited<ReturnType<typeof insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
- policyId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ policyId: number,
+    params?: InsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof insurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
-  const queryOptions = getInsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetQueryOptions(policyId,options)
+  const queryOptions = getInsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGetQueryOptions(policyId,params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

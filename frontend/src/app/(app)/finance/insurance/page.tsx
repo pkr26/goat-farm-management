@@ -20,7 +20,11 @@ import {
   useListInsurancePoliciesApiFinanceInsuranceGet,
   useRenewPolicyApiFinanceInsurancePolicyIdRenewPost,
 } from "@/api/generated/endpoints";
-import type { InsurancePolicyOut } from "@/api/generated/models";
+import type {
+  InsurancePolicyHistoryOut,
+  InsurancePolicyOut,
+  InsurancePremiumOut,
+} from "@/api/generated/models";
 import { AnimalPicker } from "@/components/animal-picker";
 import { FinanceNav } from "@/components/finance-nav";
 import { DataTableCard } from "@/components/data-table-card";
@@ -76,6 +80,8 @@ const MAX_AMOUNT = 1_000_000_000;
 /** Sentinel for "no animal link" (empty string is not a valid item value). */
 const NONE = "none";
 const INSURANCE_PAGE_LIMIT = 50;
+/** Premium history pages inside the disclosure (bounded server-side too). */
+const INSURANCE_HISTORY_PAGE_LIMIT = 20;
 
 /** Mirrors InsurancePolicyIn: identifiers 1–60/1–120, sum insured positive,
  *  premium non-negative, start ≤ today, renewal never before start. */
@@ -611,10 +617,51 @@ function ClaimPolicyDialog({
  * disclosure control without adding a custom button state machine. */
 function PolicyHistoryDisclosure({ policy }: { policy: InsurancePolicyOut }) {
   const [open, setOpen] = useState(false);
-  const history = useInsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet(policy.id, {
-    query: { enabled: open },
-  });
+  // Premium rows are append-only and the server page is bounded; accumulate
+  // pages client-side and offer "Load more" while entries remain.
+  const [offset, setOffset] = useState(0);
+  const [premiums, setPremiums] = useState<InsurancePremiumOut[]>([]);
+  // Render-phase reconciliation (React's documented pattern, same as the
+  // simulation number inputs): closing resets the accumulation, and each
+  // distinct server page is merged exactly once, identified by its payload
+  // object reference — react-query's structural sharing keeps that reference
+  // stable for unchanged content, so refetches never double-append.
+  const [seenOpen, setSeenOpen] = useState(false);
+  const [seenPayload, setSeenPayload] = useState<InsurancePolicyHistoryOut | null>(null);
+
+  const history = useInsurancePolicyHistoryApiFinanceInsurancePolicyIdHistoryGet(
+    policy.id,
+    { limit: INSURANCE_HISTORY_PAGE_LIMIT, offset },
+    {
+      query: {
+        enabled: open,
+        // Keep the previous page visible while the next one loads.
+        placeholderData: (previous) => previous,
+      },
+    },
+  );
   const payload = history.data?.status === 200 ? history.data.data : undefined;
+  const total = payload && typeof payload.total === "number" ? payload.total : null;
+
+  if (seenOpen !== open) {
+    setSeenOpen(open);
+    if (!open) {
+      setPremiums([]);
+      setOffset(0);
+      setSeenPayload(null);
+    }
+  }
+  if (payload !== null && payload !== undefined && payload !== seenPayload) {
+    setSeenPayload(payload);
+    const incoming = payload.premiums;
+    setPremiums((existing) => {
+      if (offset === 0) return incoming;
+      const seenIds = new Set(existing.map((entry) => entry.id));
+      return [...existing, ...incoming.filter((entry) => !seenIds.has(entry.id))];
+    });
+  }
+
+  const moreAvailable = total !== null && premiums.length < total;
 
   return (
     <details
@@ -629,7 +676,7 @@ function PolicyHistoryDisclosure({ policy }: { policy: InsurancePolicyOut }) {
           aria-label={`Premium and claim history for ${policy.policy_number}`}
           className="mt-2 space-y-2"
         >
-          {history.isLoading && (
+          {history.isLoading && premiums.length === 0 && (
             <p role="status" aria-live="polite" className="text-muted-foreground">
               Loading history…
             </p>
@@ -645,12 +692,19 @@ function PolicyHistoryDisclosure({ policy }: { policy: InsurancePolicyOut }) {
           {payload && (
             <>
               <div>
-                <p className="font-medium">Premium entries</p>
-                {payload.premiums.length === 0 ? (
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className="font-medium">Premium entries</p>
+                  {total !== null && (
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {premiums.length} of {total}
+                    </span>
+                  )}
+                </div>
+                {premiums.length === 0 ? (
                   <p className="text-muted-foreground">No premium entries recorded.</p>
                 ) : (
                   <ul className="mt-1 space-y-1" aria-label="Premium entries">
-                    {payload.premiums.map((entry) => (
+                    {premiums.map((entry) => (
                       <li key={entry.id} className="rounded bg-muted/50 p-1.5">
                         <span className="font-medium tabular-nums">{formatMoney(entry.premium)}</span>
                         <span className="text-muted-foreground">
@@ -665,6 +719,18 @@ function PolicyHistoryDisclosure({ policy }: { policy: InsurancePolicyOut }) {
                       </li>
                     ))}
                   </ul>
+                )}
+                {moreAvailable && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="mt-1"
+                    disabled={history.isFetching}
+                    onClick={() => setOffset(premiums.length)}
+                  >
+                    {history.isFetching ? "Loading…" : "Load more"}
+                  </Button>
                 )}
               </div>
               <div>
