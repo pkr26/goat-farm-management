@@ -19,13 +19,22 @@ from pydantic import BaseModel, Field, SecretStr, field_validator, model_validat
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
-# Container workers use Python's secure temporary directory by default. The
-# heartbeat writer itself creates an exclusive 0600 file and atomically
-# replaces this target; operators can still mount and configure a different
-# private path when their runtime requires it.
-DEFAULT_SCREENING_WORKER_HEARTBEAT_PATH = Path(tempfile.gettempdir()) / (
-    "goatfarm-screening-worker.json"
-)
+
+
+def _default_screening_worker_heartbeat_path() -> Path:
+    """Container workers use Python's secure temporary directory by default.
+
+    The heartbeat writer itself creates an exclusive 0600 file and atomically
+    replaces this target; operators can still mount and configure a different
+    private path when their runtime requires it.
+
+    Resolved lazily via ``default_factory``: ``tempfile.gettempdir()`` probes
+    by writing a file, so evaluating it at import time crashes one-shot
+    least-privilege services (the compose ``config-guard`` runs on a
+    read-only root filesystem with no writable temporary directory) before
+    they can do any work.
+    """
+    return Path(tempfile.gettempdir()) / "goatfarm-screening-worker.json"
 
 
 def _dev_key_dir() -> Path:
@@ -800,7 +809,9 @@ class Settings(BaseSettings):
     screening_stale_processing_after_seconds: int = Field(default=1_800, ge=600, le=86_400)
     # Used only by the worker process, but recognized by the API settings so
     # a shared operator .env cannot be rejected as an unknown variable.
-    screening_worker_heartbeat_path: Path = DEFAULT_SCREENING_WORKER_HEARTBEAT_PATH
+    screening_worker_heartbeat_path: Path = Field(
+        default_factory=_default_screening_worker_heartbeat_path
+    )
     screening_worker_health_max_age_seconds: int = Field(default=900, ge=60, le=86_400)
     # A permanently failing worker must eventually exit so the orchestrator
     # can replace it. Individual image/provider errors are recorded by the
@@ -1361,7 +1372,9 @@ class ScreeningWorkerSettings(BaseSettings):
 
     # A local, atomic heartbeat powers the container health check. It carries
     # no customer data and stays inside the worker container's writable /tmp.
-    screening_worker_heartbeat_path: Path = DEFAULT_SCREENING_WORKER_HEARTBEAT_PATH
+    screening_worker_heartbeat_path: Path = Field(
+        default_factory=_default_screening_worker_heartbeat_path
+    )
     screening_worker_health_max_age_seconds: int = Field(default=900, ge=60, le=86_400)
     # After this many unhandled whole-cycle failures, exit nonzero so
     # ``restart: unless-stopped`` replaces a live-but-broken worker. Per-image

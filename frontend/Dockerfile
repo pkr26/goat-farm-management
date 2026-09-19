@@ -37,6 +37,9 @@ EXPOSE 3000
 # Probe the local /healthz route handler (no auth, no backend dependency)
 # instead of /login: a liveness check must not fail while the API is down,
 # and must not pull the full login page just to prove the server is up.
+# 127.0.0.1, not localhost: the standalone server binds IPv4 0.0.0.0, and on
+# musl (node:*-alpine) busybox wget resolves localhost to ::1 first without
+# falling back, so the IPv4-only listener never answers the name form.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
-    CMD wget --quiet --tries=1 --spider http://localhost:3000/healthz || exit 1
+    CMD wget --quiet --tries=1 --spider http://127.0.0.1:3000/healthz || exit 1
 CMD ["node", "server.js"]

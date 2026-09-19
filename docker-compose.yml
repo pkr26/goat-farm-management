@@ -385,107 +385,16 @@ services:
 
 configs:
   edge_proxy:
-    # `$$` escapes Compose interpolation; nginx receives single-dollar vars.
-    # The CSP placeholders are rendered only by edge-entrypoint.sh after it
+    # A file-based config, like the production manifest: file contents are
+    # not Compose-interpolated, so the template carries literal nginx `$`
+    # variables (no `$$` escaping), and read-only services require the
+    # `file` form (Compose rejects inline `content` there). The CSP
+    # placeholders are rendered only by edge-entrypoint.sh after it
     # validates the runtime source lists; Compose never splices them into
     # nginx syntax directly.
-    content: |
-      # RT-R-1: first-line flood shaping for the unauthenticated password
-      # endpoints. The backend's per-IP limiter (10 login attempts / 300 s)
-      # already bounds credential guessing; this zone keeps raw request floods
-      # off the single uvicorn worker before they can occupy its two Argon2
-      # slots. 5 r/s with burst 20 per client address is far above human
-      # login/refresh cadence (and refreshes carry no Argon2 cost) while
-      # capping an attacker at ~1/6th of the measured rejection throughput.
-      # Caveat for the outer-TLS-terminator topology: this edge sees the
-      # terminator's address as $$binary_remote_addr, so the zone's 5 r/s is
-      # AGGREGATE across all clients in that deployment. The backend's own
-      # X-Forwarded-For-keyed limiter remains per-client there; this zone is
-      # coarse flood shaping only.
-      limit_req_zone $$binary_remote_addr zone=auth_flood:10m rate=5r/s;
-      server {
-          listen 3000;
-          server_name _;
-
-          # Preserve the browser's Host: TrustedHostMiddleware validates it and
-          # the SPA builds same-origin URLs from it. X-Forwarded-For is what
-          # lets the API key its auth rate limits on the real client.
-          # $$host discards a non-default public port (notably Compose's :3000),
-          # making FastAPI's canonical slash redirects point at the wrong
-          # origin. HTTP/1.1+ supplies $$http_host from Host/:authority, intact.
-          proxy_set_header Host $$http_host;
-          proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;
-          # Never trust a client-supplied forwarding header. Compose's edge is
-          # HTTP locally; a deployment with a trusted TLS terminator pins this
-          # operator-controlled value to `https` in the root .env file.
-          proxy_set_header X-Forwarded-Proto __GOATFARM_EDGE_PUBLIC_SCHEME__;
-          proxy_http_version 1.1;
-          # Reject oversized bodies at the edge rather than inside the
-          # application. This knob (nginx size units) and the backend's
-          # GOATFARM_MAX_REQUEST_BODY_BYTES (bytes) are independent — keep
-          # them at the same byte count when you change either. The defaults
-          # (1m = 1048576) are equal, and that default correspondence is
-          # pinned by test; raising only one still leaves the edge 413ing
-          # bodies the other would accept (INFRA-4, 2026-09-16). The edge
-          # entrypoint validates and renders this value at startup.
-          client_max_body_size __GOATFARM_EDGE_MAX_BODY_SIZE__;
-          # INFRA-7 (2026-09-16): no nginx version disclosure on responses
-          # or error pages.
-          server_tokens off;
-
-          # Deployment-neutral frontend releases receive their CSP here rather
-          # than at Next build time. `always` protects error responses too.
-          add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: __GOATFARM_CSP_IMG_ORIGINS__; font-src 'self' data:; connect-src 'self' __GOATFARM_CSP_CONNECT_ORIGINS__; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
-
-          # nginx resolves a literal upstream name once, at configuration load,
-          # and caches that address for the worker's lifetime. Recreating
-          # `backend` or `frontend` (any routine redeploy) hands it a new
-          # container IP, and Docker's IPAM does not reissue the freed one — so
-          # the edge, which compose does not recreate alongside its
-          # dependencies, kept proxying to a dead address and 502'd until it
-          # was restarted by hand. Naming Docker's embedded DNS server and
-          # putting the host in a variable forces re-resolution per request.
-          resolver 127.0.0.11 valid=10s ipv6=off;
-
-          # Container-local liveness endpoint for the Compose healthcheck:
-          # answered by nginx itself (no upstream), reachable only from the
-          # container's own loopback. Must sit above `location /` so the SPA
-          # proxy does not shadow it.
-          location = /edge-healthz {
-              allow 127.0.0.1;
-              deny all;
-              access_log off;
-              return 200 "ok\n";
-          }
-
-          location /api/auth/ {
-              # RT-R-1: applies the zone declared above to the auth family.
-              limit_req zone=auth_flood burst=20 nodelay;
-              limit_req_status 429;
-              # A variable in proxy_pass disables nginx's automatic URI
-              # pass-through, so the original URI must be restated;
-              # $$request_uri is the unmodified request target including its
-              # query string, which is what the literal form sent.
-              set $$backend_upstream backend;
-              proxy_pass http://$$backend_upstream:8000$$request_uri;
-          }
-          location /api/ {
-              # A variable in proxy_pass disables nginx's automatic URI
-              # pass-through, so the original URI must be restated;
-              # $$request_uri is the unmodified request target including its
-              # query string, which is what the literal form sent.
-              set $$backend_upstream backend;
-              proxy_pass http://$$backend_upstream:8000$$request_uri;
-          }
-          location / {
-              set $$frontend_upstream frontend;
-              proxy_pass http://$$frontend_upstream:3000$$request_uri;
-          }
-      }
-
+    file: ./docker/edge-proxy.dev.conf.template
   edge_entrypoint:
     file: ./docker/edge-entrypoint.sh
-
 networks:
   # RT-R-2: two segments instead of one flat bridge. The edge and frontend
   # can no longer reach `db:5432`; only the backend (and the migration job)

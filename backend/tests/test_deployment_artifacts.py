@@ -2019,6 +2019,14 @@ def test_frontend_is_a_standalone_node_container() -> None:
     assert "poweredByHeader: false" in config
     assert 'CMD ["node", "server.js"]' in dockerfile
 
+    # The healthcheck must probe the IPv4 loopback literal: the standalone
+    # server binds 0.0.0.0, and on musl (node:*-alpine) busybox wget resolves
+    # "localhost" to ::1 first without falling back, so the name form never
+    # reaches the listener and the container reports unhealthy forever
+    # (found by actually running the compose stack, 2026-09-18).
+    healthcheck = dockerfile[dockerfile.index("HEALTHCHECK") :].splitlines()[1]
+    assert "http://127.0.0.1:3000/healthz" in healthcheck
+
     # npm is required while building, but not by Next's standalone runtime.
     # Shipping the base image's global npm tree needlessly exposed all of its
     # transitive packages to production image vulnerability scans.
@@ -2427,6 +2435,13 @@ def _render_compose_network(
     return yaml.safe_load(compose)
 
 
+def _dev_edge_proxy_template() -> str:
+    """The dev edge proxy config is a file-based (non-interpolated) template,
+    like the production manifest — file contents carry literal nginx `$`
+    variables and bypass Compose interpolation entirely."""
+    return (REPO_ROOT / "docker" / "edge-proxy.dev.conf.template").read_text()
+
+
 def test_compose_publishes_only_one_edge_that_forwards_the_real_client_address() -> None:
     """Next's rewrite proxy never emits X-Forwarded-For, so routing browser
     /api traffic through the SPA container made every client share the Next
@@ -2442,8 +2457,8 @@ def test_compose_publishes_only_one_edge_that_forwards_the_real_client_address()
     edge = services["edge"]
     assert "127.0.0.1:3000:3000" in edge["ports"]
 
-    # `$$` is Compose's escape; nginx receives single-dollar variables.
-    proxy_conf = compose["configs"]["edge_proxy"]["content"].replace("$$", "$")
+    # File-based config: the template carries literal single-dollar variables.
+    proxy_conf = _dev_edge_proxy_template()
     assert "proxy_set_header Host $http_host;" in proxy_conf
     assert "proxy_set_header Host $host;" not in proxy_conf
     assert "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;" in proxy_conf
@@ -2543,8 +2558,7 @@ def test_edge_auth_flood_zone_is_scoped_and_explicit() -> None:
     unauthenticated password endpoints, and answers 429 (nginx's default
     limit_req_status is 503, which clients and dashboards misread).
     """
-    compose = _render_compose_network()
-    proxy_conf = compose["configs"]["edge_proxy"]["content"].replace("$$", "$")
+    proxy_conf = _dev_edge_proxy_template()
 
     assert "limit_req_zone $binary_remote_addr zone=auth_flood:10m rate=5r/s;" in proxy_conf
 
@@ -2612,8 +2626,10 @@ def test_edge_accepts_the_full_pydantic_boolean_vocabulary() -> None:
     old hardcoded true/TRUE/yes/YES list) turned a legal deployment value
     into an exit-2 startup failure (2026-09-18 audit LOW).
     """
-    origins = {"GOATFARM_CSP_CONNECT_ORIGINS": "https://bucket.example.test",
-               "GOATFARM_CSP_IMG_ORIGINS": "https://bucket.example.test"}
+    origins = {
+        "GOATFARM_CSP_CONNECT_ORIGINS": "https://bucket.example.test",
+        "GOATFARM_CSP_IMG_ORIGINS": "https://bucket.example.test",
+    }
     for spelling in ("TRUE", "True", "yes", "on", "t", "y", "1"):
         result = _run_edge_config_validation(GOATFARM_SCREENING_ENABLED=spelling, **origins)
         assert result.returncode == 0, (spelling, result.stderr)
@@ -2662,8 +2678,8 @@ def test_compose_public_scheme_is_static_and_operator_controlled() -> None:
     local = _render_compose_network(public_scheme="http")
     tls_terminated = _render_compose_network(public_scheme="https")
 
-    local_proxy = local["configs"]["edge_proxy"]["content"].replace("$$", "$")
-    tls_proxy = tls_terminated["configs"]["edge_proxy"]["content"].replace("$$", "$")
+    local_proxy = _dev_edge_proxy_template()
+    tls_proxy = local_proxy
     assert "proxy_set_header X-Forwarded-Proto __GOATFARM_EDGE_PUBLIC_SCHEME__;" in local_proxy
     assert "proxy_set_header X-Forwarded-Proto __GOATFARM_EDGE_PUBLIC_SCHEME__;" in tls_proxy
     assert local["services"]["edge"]["environment"]["GOATFARM_EDGE_PUBLIC_SCHEME"] == "http"
@@ -2891,6 +2907,59 @@ def test_production_compose_is_a_standalone_external_tls_topology() -> None:
     assert "config-guard:\n      build: !reset null" in readme
 
 
+def test_compose_pins_capability_hardening_and_db_role_wiring() -> None:
+    """Mutation-audit survivors (2026-09-18): the compose hardening and the
+    API-vs-migration credential split were declared but never asserted.
+
+    Name-level env checks (above) cannot see a value rewiring that points the
+    API's ``GOATFARM_DATABASE_URL`` at the DDL-privileged migration role, and
+    nothing referenced ``cap_drop``/``security_opt`` at all — dropping the
+    production hardening anchor or a dev per-service block passed every test.
+    Pin both: capability sets per service, and the exact interpolation string
+    of every database URL so the roles can never silently cross.
+    """
+    production = yaml.safe_load((REPO_ROOT / "docker-compose.production.yml").read_text())
+    api_env = production["services"]["backend"]["environment"]
+    worker_env = production["services"]["screening-worker"]["environment"]
+    migrate_env = production["services"]["migrate"]["environment"]
+
+    api_url = "${GOATFARM_DATABASE_URL:?set the external DDL-free API PostgreSQL URL}"
+    migration_url = "${GOATFARM_MIGRATION_DATABASE_URL:?set the external DDL-role PostgreSQL URL}"
+    # The long-running API and worker must interpolate the DDL-free role and
+    # must not reference the migration credential in any env value.
+    assert api_env["GOATFARM_DATABASE_URL"] == api_url
+    assert worker_env["GOATFARM_DATABASE_URL"] == api_url
+    for env in (api_env, worker_env):
+        assert "GOATFARM_MIGRATION_DATABASE_URL" not in env
+        assert not any("GOATFARM_MIGRATION_DATABASE_URL" in str(value) for value in env.values())
+    # The one-shot migration job must interpolate the DDL role and must not
+    # receive the API credential.
+    assert migrate_env["GOATFARM_MIGRATION_DATABASE_URL"] == migration_url
+    assert "GOATFARM_DATABASE_URL" not in migrate_env
+
+    # Every production service merges the x-service-hardening anchor: caps
+    # fully dropped, privilege escalation refused. Only edge may add back the
+    # three capabilities nginx needs to drop privileges to its worker user.
+    for name, service in production["services"].items():
+        assert service["cap_drop"] == ["ALL"], name
+        assert service["security_opt"] == ["no-new-privileges:true"], name
+        expected_caps = ["CHOWN", "SETGID", "SETUID"] if name == "edge" else None
+        assert service.get("cap_add") == expected_caps, name
+
+    # The development file declares the same hardening per service. Postgres
+    # additionally needs its documented ownership set; edge only the nginx trio.
+    dev = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text())
+    for name, service in dev["services"].items():
+        assert service["cap_drop"] == ["ALL"], name
+        assert service["security_opt"] == ["no-new-privileges:true"], name
+        if name == "db":
+            assert service["cap_add"] == ["CHOWN", "DAC_OVERRIDE", "FSETID", "SETGID", "SETUID"]
+        elif name == "edge":
+            assert service["cap_add"] == ["CHOWN", "SETGID", "SETUID"]
+        else:
+            assert service.get("cap_add") is None, name
+
+
 def test_compose_env_guard_rejects_names_compose_would_otherwise_drop(tmp_path: Path) -> None:
     """The root deployment file gets a name check before migrations run."""
     guard = REPO_ROOT / "backend" / "scripts" / "compose_env_guard.py"
@@ -3000,9 +3069,7 @@ def test_compose_env_guard_imports_app_without_an_installed_project(
     sim_python = simulated / "bin" / "python"
     assert sim_python.exists()
 
-    scrubbed_env = {
-        key: value for key, value in os.environ.items() if key != "PYTHONPATH"
-    }
+    scrubbed_env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
 
     result = subprocess.run(
         [str(sim_python), str(guard), str(env_file)],
@@ -3122,7 +3189,8 @@ def test_edge_runtime_csp_is_validated_before_the_template_is_rendered(tmp_path:
         "/edge-proxy.template",
         "/edge-entrypoint.sh",
     }
-    proxy = compose["configs"]["edge_proxy"]["content"]
+    assert compose["configs"]["edge_proxy"]["file"] == ("./docker/edge-proxy.dev.conf.template")
+    proxy = _dev_edge_proxy_template()
     assert "__GOATFARM_CSP_CONNECT_ORIGINS__" in proxy
     assert "__GOATFARM_CSP_IMG_ORIGINS__" in proxy
     assert "__GOATFARM_EDGE_PUBLIC_SCHEME__" in proxy
@@ -3130,10 +3198,9 @@ def test_edge_runtime_csp_is_validated_before_the_template_is_rendered(tmp_path:
     assert (
         edge["environment"]["GOATFARM_EDGE_MAX_BODY_SIZE"] == "${GOATFARM_EDGE_MAX_BODY_SIZE:-1m}"
     )
-    # Compose would substitute an unescaped nginx ``$binary_remote_addr`` to
-    # an empty host environment variable. Pin the escape and exercise the
-    # exact template representation nginx receives after Compose unescapes it.
-    assert "limit_req_zone $$binary_remote_addr" in proxy
+    # File-based configs are not Compose-interpolated, so the template pins
+    # the literal nginx variable Compose would otherwise substitute to empty.
+    assert "limit_req_zone $binary_remote_addr" in proxy
 
     template = tmp_path / "edge-proxy.template"
     # The standalone production manifest uses literal nginx variables in a
@@ -3269,8 +3336,9 @@ def test_edge_body_cap_and_version_disclosure_are_pinned() -> None:
     DEFAULTS to the same byte count — the one correspondence that can be
     tested without a live deployment."""
     compose = (REPO_ROOT / "docker-compose.yml").read_text()
-    assert "client_max_body_size __GOATFARM_EDGE_MAX_BODY_SIZE__;" in compose
-    assert "server_tokens off;" in compose
+    edge_template = _dev_edge_proxy_template()
+    assert "client_max_body_size __GOATFARM_EDGE_MAX_BODY_SIZE__;" in edge_template
+    assert "server_tokens off;" in edge_template
     assert "GOATFARM_EDGE_MAX_BODY_SIZE" in (REPO_ROOT / ".env.example").read_text()
 
     nginx_default = re.search(
