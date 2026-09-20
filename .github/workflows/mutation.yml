@@ -17,10 +17,25 @@ concurrency:
 permissions:
   contents: read
 
+# The trend job needs write to append the week's per-domain scores to
+# audit_reports/mutation-trend.json — the file the dated audit bundles and
+# release notes reference for mutation posture ("what did the mutation
+# campaigns say at this release?"). Scoped to this workflow's runs only.
 jobs:
   mutmut:
-    name: mutmut (financial core)
+    name: mutmut (${{ matrix.domain }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # One leg per domain profile in backend/mutmut-configs/ plus the
+      # untouched financial-core default from pyproject.toml. Each leg swaps
+      # its own [tool.mutmut] scope in via scripts/mutmut_domain.py and
+      # reports a per-domain score line (MUTATION_SCORE domain=... score=...),
+      # so the weekly run reports a score per domain instead of one blended
+      # number. Legs are independent; a slow domain never hides another's
+      # results (fail-fast: false).
+      matrix:
+        domain: [financial_core, breeding_kidding, health_feeding, tasks_duties, auth_rbac]
     # Hosted-runner hard cap is 360 minutes. The inner `timeout` (below)
     # expires first so the always()-steps still get to upload partial results.
     timeout-minutes: 350
@@ -83,9 +98,17 @@ jobs:
         # surfaced as a warning annotation on the run — the previous
         # package-wide campaign silently classified 1 of 10,345 mutants and
         # nobody noticed because the job stayed green.
+        # financial_core runs mutmut directly (pyproject default profile);
+        # every other domain leg swaps its fragment in via mutmut_domain.py.
         run: |
           status=0
-          timeout --signal=TERM --kill-after=60 20000 ./.venv/bin/mutmut run --max-children 4 || status=$?
+          if [ "${{ matrix.domain }}" = "financial_core" ]; then
+            timeout --signal=TERM --kill-after=60 20000 ./.venv/bin/mutmut run --max-children 4 || status=$?
+          else
+            ./.venv/bin/python scripts/mutmut_domain.py \
+              --domain "${{ matrix.domain }}" --timeout-seconds 19000 \
+              --max-children 4 || status=$?
+          fi
           echo "mutmut exit code: ${status} (124 = campaign window exhausted)"
           if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then
             echo "::warning::mutmut exited ${status} — the campaign did not complete (baseline failure or config error). Inspect the job log and the results artifact."
@@ -107,24 +130,128 @@ jobs:
             echo "::warning::${survivors} surviving mutants — triage them in the uploaded results artifact."
           fi
           {
-            echo "### Mutation campaign"
+            echo "### Mutation campaign — ${{ matrix.domain }}"
             echo '```'
+            grep '^MUTATION_SCORE' "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
             cat mutmut-results.txt 2>/dev/null || echo "no results available"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Collect score row
+        # One machine-readable line per leg; the trend job below aggregates
+        # them into audit_reports/mutation-trend.json.
+        if: always()
+        working-directory: backend
+        run: |
+          # Re-derive the score from mutmut's stats file so the row does not
+          # depend on the campaign step's stdout surviving.
+          if [ -f mutants/mutmut-stats.json ]; then
+            ./.venv/bin/python - "${{ matrix.domain }}" <<'PY' >> domain-score.txt
+            import json, sys
+            stats = json.load(open("mutants/mutmut-stats.json"))
+            killed = int(stats.get("killed", 0))
+            survived = int(stats.get("survived", 0))
+            timeout = int(stats.get("timeout", 0))
+            suspicious = int(stats.get("suspicious", 0))
+            total = killed + survived + timeout + suspicious
+            score = (killed / total * 100.0) if total else 0.0
+            print(f"{sys.argv[1]} killed={killed} survived={survived} "
+                  f"timeout={timeout} suspicious={suspicious} total={total} score={score:.1f}")
+            PY
+          else
+            echo "${{ matrix.domain }} no-stats" >> domain-score.txt
+          fi
+          cat domain-score.txt
 
       - name: Upload mutmut artifacts
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: mutmut-results
+          name: mutmut-results-${{ matrix.domain }}
           # The .meta files carry the per-mutant verdicts (exit codes) that
           # `mutmut results` reads — without them a partial campaign's
           # classifications cannot be reconstructed or resumed after the
           # runner is recycled.
           path: |
             backend/mutmut-results.txt
+            backend/domain-score.txt
             backend/mutants/mutmut-stats.json
             backend/mutants/**/*.meta
           if-no-files-found: warn
           retention-days: 90
+
+  trend:
+    name: Publish mutation score trend
+    needs: mutmut
+    # Append this week's per-domain scores to audit_reports/mutation-trend.json
+    # so every dated audit bundle and release note can cite the mutation
+    # posture at that point in time. Skips on partial/failed weeks rather than
+    # recording an incomplete row.
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Push the trend commit on top of whatever main has moved to while
+          # the campaign ran; the JSON append is conflict-free by design.
+          ref: ${{ github.event_name == 'schedule' && 'main' || github.ref_name }}
+
+      - name: Download all domain score rows
+        uses: actions/download-artifact@d3f86a106a0bac45b974a6cc818681fe38274446 # v4
+        with:
+          pattern: mutmut-results-*
+          merge-multiple: true
+
+      - uses: actions/setup-python@a26af69be951a213d495a4d3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+
+      - name: Append score rows to the trend file
+        run: |
+          python - <<'PY'
+          import json
+          from datetime import date, datetime, timezone
+          from pathlib import Path
+
+          rows = []
+          for f in Path(".").glob("domain-score.txt"):
+              for line in f.read_text().splitlines():
+                  parts = line.split()
+                  if len(parts) < 2 or parts[1] == "no-stats":
+                      continue
+                  row = {"domain": parts[0]}
+                  for kv in parts[1:]:
+                      key, _, value = kv.partition("=")
+                      row[key] = value
+                  rows.append(row)
+          if not rows:
+              print("no complete domain rows this week — leaving the trend untouched")
+              raise SystemExit(0)
+
+          trend_path = Path("audit_reports/mutation-trend.json")
+          trend = json.loads(trend_path.read_text()) if trend_path.exists() else []
+          trend.append({
+              "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+              "run_id": "${{ github.run_id }}",
+              "domains": rows,
+          })
+          # Keep the file bounded: the trend matters per release, not forever.
+          trend = trend[-104:]
+          trend_path.parent.mkdir(parents=True, exist_ok=True)
+          trend_path.write_text(json.dumps(trend, indent=2) + "\n")
+          print(f"appended {len(rows)} domain rows ({len(trend)} total)")
+          PY
+
+      - name: Commit trend update
+        run: |
+          git config user.name "goatfarm-ci"
+          git config user.email "ci@goatfarm.invalid"
+          git add audit_reports/mutation-trend.json
+          if git diff --cached --quiet; then
+            echo "trend unchanged; nothing to commit"
+            exit 0
+          fi
+          git commit -m "mutation: record weekly per-domain scores (run ${{ github.run_id }}) [skip ci]"
+          git push

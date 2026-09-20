@@ -1,0 +1,35 @@
+# Per-domain mutmut profile: breeding & kidding.
+#
+# The weekly campaign (mutation.yml) copies one of these fragments over
+# [tool.mutmut] in backend/pyproject.toml via scripts/mutmut_domain.py, so
+# every domain reports its OWN score instead of one blended number. The
+# financial-core profile stays the pyproject default and is never overwritten
+# by a domain fragment in the committed tree.
+#
+# Scope: the breeding/kidding service layer plus the shared husbandry
+# helpers (gestation/EKD arithmetic, quarantine protocol, inbreeding fence
+# are all pure functions in these files).
+#
+# Test profile: --mutation-pure keeps the deterministic, DB-free cases from
+# these mixed files (the integration halves run in ci.yml against real
+# PostgreSQL). Workers stay parallel-safe because nothing here touches a
+# database.
+source_paths = ["app"]
+only_mutate = [
+    "app/services/breeding.py",
+    "app/services/kidding.py",
+    "app/models/helpers.py",
+]
+pytest_add_cli_args = ["--mutation-pure"]
+pytest_add_cli_args_test_selection = [
+    "tests/test_breeding_extended.py",
+    "tests/test_breeding_bugs.py",
+    "tests/test_kidding_husbandry.py",
+    "tests/test_unit_bugs.py",
+    "tests/test_logic.py",
+]
+mutate_only_covered_lines = true
+cache_invalidation_files = ["tests/**/*.py"]
+timeout_multiplier = 5.0
+timeout_constant = 1.0
+on_dependency_change = "rerun"

@@ -1,0 +1,27 @@
+# Per-domain mutmut profile: auth & RBAC primitives.
+#
+# Scope: password/JWT/TOTP primitives, the permission catalog and the
+# rate limiter — deliberately NOT the async FastAPI dependencies (deps.py)
+# or routers, which need the integration suite; those are covered by the
+# per-PR surgical tenancy gate (.github/workflows/mutation-pr.yml).
+source_paths = ["app"]
+only_mutate = [
+    "app/security.py",
+    "app/permissions.py",
+    "app/ratelimit.py",
+    "app/audit.py",
+]
+pytest_add_cli_args = ["--mutation-pure"]
+pytest_add_cli_args_test_selection = [
+    "tests/test_auth_extended.py",
+    "tests/test_auth_bugs.py",
+    "tests/test_totp.py",
+    "tests/test_security_hardening.py",
+    "tests/test_password_capacity.py",
+    "tests/test_rbac.py",
+]
+mutate_only_covered_lines = true
+cache_invalidation_files = ["tests/**/*.py"]
+timeout_multiplier = 5.0
+timeout_constant = 1.0
+on_dependency_change = "rerun"
