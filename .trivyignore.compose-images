@@ -14,6 +14,13 @@
 # digests have been republished (Docker Hub tag last_updated) or newer
 # stable tags exist, refresh them, and delete any entry whose CVE no longer
 # appears. Never add entries for images this repository builds itself.
+# The marker below is enforced by
+# backend/scripts/check_trivy_ignore_freshness.py in CI (L-5, 2026-09-20
+# audit): CI fails once it is more than 30 days old, so the acknowledged-CVE
+# debt stays bounded instead of accumulating forever. Update it in the SAME
+# change that refreshes the digests — never on its own.
+#
+# refreshed: 2026-09-14
 #
 # === nginx:1.30-alpine@sha256:dc5069ad14f19660b141b21236140b91656bf89bbc3e2417c70ae650cd66104c (built 2026-09-03, alpine 3.24.1) ===
 # libuuid (util-linux), fixed in alpine 3.24 point release 2.42.3-r0:

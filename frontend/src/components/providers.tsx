@@ -9,7 +9,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/lib/auth-context";
 import { LanguageProvider } from "@/lib/i18n";
 
-export function Providers({ children }: { children: ReactNode }) {
+export function Providers({ children, nonce }: { children: ReactNode; nonce?: string }) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -20,11 +20,15 @@ export function Providers({ children }: { children: ReactNode }) {
   );
   return (
     <QueryClientProvider client={queryClient}>
+      {/* nonce: next-themes' inline no-flash bootstrap must carry the
+       * request's CSP nonce or the policy (src/proxy.ts, M-1 2026-09-20)
+       * blocks it. */}
       <ThemeProvider
         attribute="class"
         defaultTheme="system"
         enableSystem
         disableTransitionOnChange
+        nonce={nonce}
       >
         <AuthProvider>
           <LanguageProvider>

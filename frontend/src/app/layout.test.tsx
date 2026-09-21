@@ -51,6 +51,13 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({}),
 }));
 
+// RootLayout reads the proxy-minted CSP nonce from the request headers
+// (src/proxy.ts, M-1 2026-09-20); jsdom has no request context, so hand it
+// the exact header the real proxy sets.
+vi.mock("next/headers", () => ({
+  headers: async () => new Headers({ "x-nonce": "dGVzdC1ub25jZS0wMTIzNDU2Nzg5" }),
+}));
+
 beforeAll(() => {
   // jsdom has no matchMedia; next-themes' system-theme detection needs it.
   window.matchMedia = vi.fn().mockImplementation((query: string) => ({
@@ -120,11 +127,13 @@ describe("RootLayout", () => {
     );
   });
 
-  it("renders the html/body shell with both font variable classes", () => {
+  it("renders the html/body shell with both font variable classes", async () => {
+    // RootLayout is an async server component (it awaits the request headers
+    // for the CSP nonce): resolve it to its element tree before jsdom render.
     render(
-      <RootLayout>
-        <p>page content</p>
-      </RootLayout>,
+      await RootLayout({
+        children: <p>page content</p>,
+      }),
     );
 
     // React 19 renders <html>/<body> onto the real document singletons, so the
@@ -151,9 +160,9 @@ describe("RootLayout", () => {
 
   it("mounts children inside the app providers", async () => {
     render(
-      <RootLayout>
-        <ProviderProbe />
-      </RootLayout>,
+      await RootLayout({
+        children: <ProviderProbe />,
+      }),
     );
 
     // The probe only renders at all because Providers supplied AuthProvider,

@@ -192,6 +192,14 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    environment:
+      # Per-request nonce CSP (M-1, 2026-09-20): the frontend's proxy.ts reads
+      # these deployment-owned S3/MinIO origins at runtime, so the generic
+      # registry image stays deployment-neutral. Optional here and validated
+      # by the edge entrypoint: a deployment with screening enabled refuses
+      # to boot without them, one without screening stays empty.
+      GOATFARM_CSP_IMG_ORIGINS: '${GOATFARM_CSP_IMG_ORIGINS:-}'
+      GOATFARM_CSP_CONNECT_ORIGINS: '${GOATFARM_CSP_CONNECT_ORIGINS:-}'
     expose: ["3000"]
     networks:
       - goatfarm_app

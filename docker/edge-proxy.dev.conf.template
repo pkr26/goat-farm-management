@@ -41,9 +41,19 @@ server {
     # or error pages.
     server_tokens off;
 
-    # Deployment-neutral frontend releases receive their CSP here rather
-    # than at Next build time. `always` protects error responses too.
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: __GOATFARM_CSP_IMG_ORIGINS__; font-src 'self' data:; connect-src 'self' __GOATFARM_CSP_CONNECT_ORIGINS__; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
+    # Baseline headers for responses THIS server generates (limit_req 429s,
+    # upstream-failure error pages, the health endpoint). Proxied app
+    # responses already carry the identical set from next.config.ts plus the
+    # per-request nonce CSP from the frontend's proxy.ts (M-1, 2026-09-20):
+    # a nonce policy cannot be emitted here because the edge cannot mint and
+    # embed the nonce into the rendered HTML the way the render boundary can.
+    # Deployment S3/MinIO origins reach the frontend container as
+    # GOATFARM_CSP_IMG_ORIGINS / GOATFARM_CSP_CONNECT_ORIGINS env (validated
+    # at edge boot by edge-entrypoint.sh); this template no longer renders
+    # them. No HSTS in development — the local edge is deliberately HTTP.
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+    add_header Referrer-Policy no-referrer always;
 
     # nginx resolves a literal upstream name once, at configuration load,
     # and caches that address for the worker's lifetime. Recreating
@@ -66,7 +76,10 @@ server {
         return 200 "ok\n";
     }
 
-    location /api/auth/ {
+    # No trailing slash (L-1, 2026-09-20 audit): the prefix form matches both
+    # /api/auth and /api/auth/..., so the flood zone cannot be skipped by
+    # dropping the slash on the exact parent path of every credential route.
+    location /api/auth {
         # RT-R-1: applies the zone declared above to the auth family.
         limit_req zone=auth_flood burst=20 nodelay;
         limit_req_status 429;

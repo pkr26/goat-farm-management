@@ -1,11 +1,12 @@
 #!/bin/sh
 # Runtime guard and launcher for the public nginx edge.
 #
-# The frontend image is intentionally deployment-neutral: release images are
-# built once and cannot know a particular farm's public S3/MinIO origin.  CSP
-# therefore belongs at the edge, where Compose supplies the deployment value
-# at startup.  Validate before rendering the nginx template so an accidental
-# value cannot turn into a looser (or syntactically broken) policy.
+# The CSP origin variables below are validated here even though the nonce
+# policy itself now lives in the frontend (src/proxy.ts, M-1 2026-09-20):
+# Compose passes the same values to the frontend container as env, and this
+# listener is the single published entry, so an invalid value must fail the
+# deployment loudly at boot instead of surfacing as a browser-side policy
+# that silently drops the bucket origin.
 
 set -eu
 set -f
@@ -287,13 +288,14 @@ fi
 # Values have been restricted above (no quotes, semicolons, substitutions or
 # sed metacharacters), so replacement cannot alter nginx syntax.  The config
 # is generated into a tmpfs; the Compose-supplied template stays read-only.
+# The CSP origin variables are no longer rendered into the template (the
+# frontend's per-request nonce policy owns CSP now) but remain validated so
+# a bad deployment value still refuses to boot.
 sed \
   -e "s|__GOATFARM_EDGE_PUBLIC_SCHEME__|$public_scheme|g" \
   -e "s|__GOATFARM_EDGE_MAX_BODY_SIZE__|$edge_max_body_size|g" \
   -e "s|__GOATFARM_EDGE_AUTH_RATE__|$edge_auth_rate|g" \
   -e "s|__GOATFARM_EDGE_AUTH_BURST__|$edge_auth_burst|g" \
-  -e "s|__GOATFARM_CSP_CONNECT_ORIGINS__|$connect_sources|g" \
-  -e "s|__GOATFARM_CSP_IMG_ORIGINS__|$image_sources|g" \
   "$template_path" > "$rendered_config_path"
 
 exec nginx -g 'daemon off;'

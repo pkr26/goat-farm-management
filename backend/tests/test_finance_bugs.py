@@ -449,3 +449,29 @@ async def test_legacy_feed_purchase_corrections_and_ambiguity_boundary(
         headers=owner,
     )
     assert notes_only.status_code == 201, notes_only.text
+
+
+async def test_related_animal_helpers_reject_the_full_out_of_band_range(
+    client: httpx.AsyncClient,
+) -> None:
+    """L-8 (2026-09-20 audit): the finance link helpers must mirror the
+    sibling lookups' full int4 band — 1 <= id <= MAX_INT32_ID. A zero,
+    negative, or above-ceiling id resolves to the ordinary 400/409 rejection
+    without ever binding the value into db.get (an asyncpg DataError 500)."""
+
+    from app.api.finance import _locked_source_animal, _resolve_related_animal
+    from app.models import Farm
+    from app.schemas.common import MAX_INT32_ID
+
+    owner = await owner_with_farm(client, email="band-owner@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+    async with get_sessionmaker()() as db:
+        farm = await db.get(Farm, farm_id)
+        assert farm is not None
+        for out_of_band in (0, -1, MAX_INT32_ID + 1, 2**62):
+            with pytest.raises(HTTPException) as exc:
+                await _resolve_related_animal(db, farm, out_of_band)  # type: ignore[arg-type]
+            assert exc.value.status_code == 400
+            with pytest.raises(HTTPException) as exc:
+                await _locked_source_animal(db, farm, out_of_band)
+            assert exc.value.status_code == 409

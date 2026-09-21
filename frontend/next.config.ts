@@ -4,10 +4,13 @@ import { backendRewrites } from "./src/lib/backend-rewrites";
 
 /** Baseline hardening headers on every response. HSTS is production-only.
  *
- * The public Compose edge supplies CSP at runtime. A release frontend image
- * cannot know a deployment's public S3/MinIO origin, and baking one into this
- * config would make the documented generic registry artifact block direct
- * screening uploads. The edge validates then renders the exact origin list.
+ * CSP is NOT here: src/proxy.ts emits a per-request nonce policy (M-1,
+ * 2026-09-20). A nonce must be minted before render so Next.js can stamp it
+ * on its own scripts, which only the proxy/render boundary can do — these
+ * static headers cannot. Deployment S3/MinIO origins reach the proxy as
+ * runtime env (GOATFARM_CSP_IMG_ORIGINS / GOATFARM_CSP_CONNECT_ORIGINS),
+ * keeping the generic registry image deployment-neutral. The edge re-adds
+ * identical baseline headers on its own generated responses.
  */
 const SECURITY_HEADERS = [
   { key: "X-Frame-Options", value: "DENY" },

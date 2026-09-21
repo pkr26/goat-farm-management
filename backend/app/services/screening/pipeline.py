@@ -1162,7 +1162,18 @@ async def _process_image(
             summary.skipped += 1
             return
         object_token = object_info.metadata.get("screening-token")
-        if object_token is None or not hmac.compare_digest(object_token, image.upload_token):
+        # compare_digest raises TypeError for non-ASCII str input, which an
+        # out-of-band bucket writer controls here; that must fall into the
+        # ordinary mismatch verdict instead of escaping as an unexpected
+        # pipeline failure that burns five retry cycles (L-2, 2026-09-20
+        # audit). Encode both sides so any byte value compares cleanly.
+        stored_token_bytes = image.upload_token.encode("utf-8", "surrogatepass")
+        object_token_bytes = (
+            object_token.encode("utf-8", "surrogatepass") if object_token is not None else None
+        )
+        if object_token_bytes is None or not hmac.compare_digest(
+            object_token_bytes, stored_token_bytes
+        ):
             image.status = ScreeningImageStatus.SKIPPED.value
             image.error = "object upload token does not match its pre-registration"
             summary.skipped += 1

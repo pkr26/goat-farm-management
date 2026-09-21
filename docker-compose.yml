@@ -294,6 +294,14 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    environment:
+      # Per-request nonce CSP (M-1, 2026-09-20): the frontend's proxy.ts reads
+      # these deployment-owned S3/MinIO origins at runtime, so the generic
+      # image stays deployment-neutral. The edge entrypoint validates the same
+      # values at boot; enable screening and the guard refuses to start
+      # without them.
+      GOATFARM_CSP_IMG_ORIGINS: '${GOATFARM_CSP_IMG_ORIGINS:-}'
+      GOATFARM_CSP_CONNECT_ORIGINS: '${GOATFARM_CSP_CONNECT_ORIGINS:-}'
     # Not published: the edge below is the single public entry. Browser /api
     # traffic must not transit Next's rewrite, whose proxy never emits
     # X-Forwarded-For (it sets only x-forwarded-host), so the API would see

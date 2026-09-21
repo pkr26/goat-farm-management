@@ -235,7 +235,17 @@ async def get_image(
     # audit).
     storage = storage_for_settings(settings) if settings.screening_enabled else None
     # SigV4 signing only — no network call, safe inside a request.
-    image_url = storage.presign_get(image.normalized_key or image.s3_key) if storage else None
+    # L-3 (2026-09-20 audit): only the worker-produced immutable derivative is
+    # reviewable. The raw upload key stays client-writable until its presigned
+    # POST policy expires, so presigning it for a not-yet-normalized row would
+    # let the vet approve bytes the uploader can still swap — the same reason
+    # the dataset export refuses to emit raw keys. Rows without a derivative
+    # answer image_url=None and the client renders the processing state.
+    image_url = (
+        storage.presign_get(image.normalized_key)
+        if storage and image.normalized_key is not None
+        else None
+    )
 
     detail = ScreeningImageDetailOut.model_validate(image)
     detail.image_url = image_url

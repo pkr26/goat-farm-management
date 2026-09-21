@@ -1,9 +1,10 @@
 /**
  * ADVERSARIAL AUDIT G2/G3 — configuration & secret-exposure attacks (executed).
  *
- * G2  CSP: pin every edge-delivered hardening directive and the runtime
- *     validation contract. Release frontend images are intentionally generic;
- *     the public edge receives the deployment's S3 origin at startup.
+ * G2  CSP: pin the per-request nonce policy delivered by src/proxy.ts (M-1,
+ *     2026-09-20): script-src carries a nonce + 'strict-dynamic' and never
+ *     'unsafe-inline'. Deployment S3 origins arrive as runtime env validated
+ *     at the edge; the templates themselves carry no CSP at all.
  * G3  Secret exposure: scan every shipped source file for token/credential
  *     persistence patterns. The design invariant: the access token lives in
  *     memory only; localStorage carries exactly two keys (the farm selection
@@ -27,6 +28,13 @@ const PRODUCTION_EDGE_TEMPLATE_SOURCE = readFileSync(
   join(SRC_ROOT, "..", "..", "docker", "edge-proxy.production.conf.template"),
   "utf8",
 );
+const DEV_EDGE_TEMPLATE_SOURCE = readFileSync(
+  join(SRC_ROOT, "..", "..", "docker", "edge-proxy.dev.conf.template"),
+  "utf8",
+);
+const PROXY_SOURCE = readFileSync(join(SRC_ROOT, "proxy.ts"), "utf8");
+const CSP_LIB_SOURCE = readFileSync(join(SRC_ROOT, "lib", "csp.ts"), "utf8");
+const ROOT_LAYOUT_SOURCE = readFileSync(join(SRC_ROOT, "app", "layout.tsx"), "utf8");
 
 function allSourceFiles(dir: string): string[] {
   const out: string[] = [];
@@ -49,32 +57,64 @@ describe("ADV G2: Content-Security-Policy hardening directives", () => {
     expect(NEXT_CONFIG_SOURCE).toContain('"Cross-Origin-Resource-Policy"');
     expect(NEXT_CONFIG_SOURCE).toContain('"X-Permitted-Cross-Domain-Policies"');
     // HSTS is appended for production builds only. CSP must never appear here:
-    // build-time headers cannot represent the deployment-specific S3 origin
-    // carried by a generic registry image.
+    // a nonce policy must be minted per request at the render boundary
+    // (src/proxy.ts), which static build-time headers cannot do.
     expect(NEXT_CONFIG_SOURCE).toContain("isProd ? [...SECURITY_HEADERS, ...PROD_ONLY_HEADERS] : SECURITY_HEADERS");
     expect(NEXT_CONFIG_SOURCE).not.toContain('key: "Content-Security-Policy"');
   });
 
-  it("delivers a strict runtime CSP and validates direct-S3 source lists", () => {
-    // Next 16 App Router still needs inline hydration payloads, so the known
-    // bounded carve-out remains. Every other directive is edge-delivered.
-    const edgePolicies = COMPOSE_SOURCE + PRODUCTION_EDGE_TEMPLATE_SOURCE;
-    expect(edgePolicies).toContain("add_header Content-Security-Policy");
-    expect(edgePolicies).toContain("script-src 'self' 'unsafe-inline'");
-    expect(edgePolicies).toContain("object-src 'none'");
-    expect(edgePolicies).toContain("base-uri 'self'");
-    expect(edgePolicies).toContain("form-action 'self'");
-    expect(edgePolicies).toContain("frame-ancestors 'none'");
-    expect(edgePolicies).toContain("connect-src 'self' __GOATFARM_CSP_CONNECT_ORIGINS__");
+  it("delivers a strict per-request nonce CSP and never 'unsafe-inline' scripts", () => {
+    // The policy builder: nonce + strict-dynamic in script-src, with the dev
+    // 'unsafe-eval' (React debug tooling) as the ONLY relaxation. No CODE
+    // line that builds script-src may ever carry the inline escape hatch
+    // (comment lines are excluded from the scan).
+    expect(CSP_LIB_SOURCE).toContain("'strict-dynamic'");
+    expect(CSP_LIB_SOURCE).toContain("'nonce-${nonce}'");
+    const codeLines = CSP_LIB_SOURCE.split("\n").filter((line) => !/^\s*(\*|\/\/|\/\*)/.test(line));
+    for (const line of codeLines) {
+      if (/script/i.test(line)) {
+        expect(line, `script line carries unsafe-inline: ${line}`).not.toContain("'unsafe-inline'");
+      }
+    }
+    expect(CSP_LIB_SOURCE).toContain("'unsafe-eval'");
+    expect(CSP_LIB_SOURCE).toContain("object-src 'none'");
+    expect(CSP_LIB_SOURCE).toContain("base-uri 'self'");
+    expect(CSP_LIB_SOURCE).toContain("form-action 'self'");
+    expect(CSP_LIB_SOURCE).toContain("frame-ancestors 'none'");
     // Camera previews use same-page URL.createObjectURL() values before an
     // image reaches S3, so blob: is a narrowly scoped image-only source.
-    expect(edgePolicies).toContain("img-src 'self' data: blob: __GOATFARM_CSP_IMG_ORIGINS__");
+    expect(CSP_LIB_SOURCE).toContain("img-src 'self' data: blob:");
+    // The proxy wires the nonce onto BOTH the request headers (the signal
+    // Next.js uses to stamp the nonce on its own scripts) and the response.
+    expect(PROXY_SOURCE).toContain('requestHeaders.set("x-nonce", nonce)');
+    expect(PROXY_SOURCE).toContain('requestHeaders.set("Content-Security-Policy"');
+    expect(PROXY_SOURCE).toContain('response.headers.set("Content-Security-Policy"');
+    expect(PROXY_SOURCE).toContain("crypto.randomUUID()");
+    // Nonce rendering needs dynamic pages: the root layout must force it.
+    expect(ROOT_LAYOUT_SOURCE).toContain('export const dynamic = "force-dynamic"');
+  });
+
+  it("routes runtime S3 origins through env and keeps them out of the templates", () => {
+    // The frontend container receives the same validated values the edge
+    // entrypoint checks at boot; the proxy re-validates before a header sees
+    // them.
     expect(COMPOSE_SOURCE).toContain("GOATFARM_CSP_CONNECT_ORIGINS");
     expect(COMPOSE_SOURCE).toContain("GOATFARM_CSP_IMG_ORIGINS");
+    expect(PROXY_SOURCE).toContain("GOATFARM_CSP_IMG_ORIGINS");
+    expect(PROXY_SOURCE).toContain("GOATFARM_CSP_CONNECT_ORIGINS");
     expect(EDGE_ENTRYPOINT_SOURCE).toContain("validate_csp_sources");
     expect(EDGE_ENTRYPOINT_SOURCE).toContain("screening is enabled but");
     expect(EDGE_ENTRYPOINT_SOURCE).toContain("unsafe for an nginx header");
     expect(EDGE_ENTRYPOINT_SOURCE).toContain("edge-proxy.template");
+    // No CSP is emitted by either nginx template (nonce policies cannot be
+    // produced there) and no unsafe-inline escape hatch survives anywhere.
+    const templates = DEV_EDGE_TEMPLATE_SOURCE + PRODUCTION_EDGE_TEMPLATE_SOURCE;
+    expect(templates).not.toContain("Content-Security-Policy");
+    expect(templates).not.toContain("unsafe-inline");
+    // The edge still covers its OWN generated responses (429s, error pages).
+    expect(templates).toContain("add_header X-Content-Type-Options nosniff always;");
+    expect(templates).toContain("add_header Referrer-Policy no-referrer always;");
+    expect(PRODUCTION_EDGE_TEMPLATE_SOURCE).toContain("add_header Strict-Transport-Security");
     expect(NEXT_CONFIG_SOURCE).toContain("max-age=63072000; includeSubDomains");
   });
 

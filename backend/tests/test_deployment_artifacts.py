@@ -2562,16 +2562,20 @@ def test_edge_auth_flood_zone_is_scoped_and_explicit() -> None:
     assert "limit_req_zone $binary_remote_addr zone=auth_flood:10m rate=5r/s;" in proxy_conf
 
     # Extract each location block and require exactly one throttled one.
+    # L-1 (2026-09-20 audit): the location has no trailing slash so the
+    # prefix matches /api/auth itself, not only deeper paths — the exact
+    # parent path of every credential route must sit inside the flood zone.
     locations = re.findall(r"location (\S+) \{", proxy_conf)
-    assert "/api/auth/" in locations
-    auth_block = re.search(r"location /api/auth/ \{(.*?)\n\s*\}", proxy_conf, re.DOTALL)
+    assert "/api/auth" in locations
+    assert "/api/auth/" not in locations
+    auth_block = re.search(r"location /api/auth \{(.*?)\n\s*\}", proxy_conf, re.DOTALL)
     assert auth_block is not None
     assert "limit_req zone=auth_flood burst=20 nodelay;" in auth_block.group(1)
     assert "limit_req_status 429;" in auth_block.group(1)
     # No other location may throttle: shaping the whole API would couple
     # normal traffic to the login-flood budget.
     for name in locations:
-        if name == "/api/auth/":
+        if name == "/api/auth":
             continue
         other_block = re.search(
             rf"location {re.escape(name)} \{{(.*?)\n\s*\}}", proxy_conf, re.DOTALL
@@ -2920,8 +2924,24 @@ def test_production_compose_is_a_standalone_external_tls_topology() -> None:
     assert "map $http_x_forwarded_for $auth_flood_key" in template
     assert "__GOATFARM_EDGE_PUBLIC_SCHEME__" in template
     assert "__GOATFARM_EDGE_MAX_BODY_SIZE__" in template
-    assert "img-src 'self' data: blob: __GOATFARM_CSP_IMG_ORIGINS__" in template
-    assert "connect-src 'self' __GOATFARM_CSP_CONNECT_ORIGINS__" in template
+    # M-1 (2026-09-20 audit): CSP moved to the frontend's per-request nonce
+    # policy (frontend/src/proxy.ts) — a nonce must be minted at the render
+    # boundary so Next.js can stamp it on its own scripts, which the edge
+    # cannot do. The template therefore carries NO CSP header and, with it,
+    # no 'unsafe-inline' script-src escape hatch. Baseline headers cover the
+    # responses nginx itself generates.
+    assert "Content-Security-Policy" not in template
+    assert "__GOATFARM_CSP_" not in template
+    assert "add_header X-Content-Type-Options nosniff always;" in template
+    assert "add_header Referrer-Policy no-referrer always;" in template
+    assert "add_header Strict-Transport-Security" in template
+    # The deployment-owned origins reach the frontend container instead.
+    production_compose = yaml.safe_load(
+        (REPO_ROOT / "docker-compose.production.yml").read_text()
+    )
+    frontend_env = production_compose["services"]["frontend"]["environment"]
+    assert frontend_env["GOATFARM_CSP_IMG_ORIGINS"] == "${GOATFARM_CSP_IMG_ORIGINS:-}"
+    assert frontend_env["GOATFARM_CSP_CONNECT_ORIGINS"] == "${GOATFARM_CSP_CONNECT_ORIGINS:-}"
 
     # A completed one-shot service can be reused by a later ``compose up``
     # even when its bind-mounted dotenv file changed. The runbook must execute
@@ -3214,10 +3234,21 @@ def test_edge_runtime_csp_is_validated_before_the_template_is_rendered(tmp_path:
     }
     assert compose["configs"]["edge_proxy"]["file"] == ("./docker/edge-proxy.dev.conf.template")
     proxy = _dev_edge_proxy_template()
-    assert "__GOATFARM_CSP_CONNECT_ORIGINS__" in proxy
-    assert "__GOATFARM_CSP_IMG_ORIGINS__" in proxy
     assert "__GOATFARM_EDGE_PUBLIC_SCHEME__" in proxy
     assert "__GOATFARM_EDGE_MAX_BODY_SIZE__" in proxy
+    # M-1 (2026-09-20): no CSP at the edge (nonce policy lives in the
+    # frontend proxy) and no unsafe-inline escape hatch anywhere.
+    assert "Content-Security-Policy" not in proxy
+    assert "__GOATFARM_CSP_" not in proxy
+    assert "add_header X-Content-Type-Options nosniff always;" in proxy
+    assert "add_header Referrer-Policy no-referrer always;" in proxy
+    # The dev edge is deliberately HTTP: no HSTS header here.
+    assert "Strict-Transport-Security" not in proxy
+    # The deployment-owned origins reach the frontend container, whose
+    # proxy.ts re-validates them before they enter a response header.
+    frontend_env = compose["services"]["frontend"]["environment"]
+    assert frontend_env["GOATFARM_CSP_IMG_ORIGINS"] == "${GOATFARM_CSP_IMG_ORIGINS:-}"
+    assert frontend_env["GOATFARM_CSP_CONNECT_ORIGINS"] == "${GOATFARM_CSP_CONNECT_ORIGINS:-}"
     assert (
         edge["environment"]["GOATFARM_EDGE_MAX_BODY_SIZE"] == "${GOATFARM_EDGE_MAX_BODY_SIZE:-1m}"
     )
@@ -3268,14 +3299,14 @@ def test_edge_runtime_csp_is_validated_before_the_template_is_rendered(tmp_path:
     assert rendered_result.returncode == 0, rendered_result.stderr
     rendered_text = rendered.read_text()
     assert "__GOATFARM_CSP_" not in rendered_text
-    assert (
-        "img-src 'self' data: blob: https://bucket.s3.example.test https://cdn.example.test"
-        in rendered_text
-    )
-    assert (
-        "connect-src 'self' https://bucket.s3.example.test https://cdn.example.test"
-        in rendered_text
-    )
+    assert "__GOATFARM_EDGE_" not in rendered_text
+    # M-1 (2026-09-20): the rendered config ships no CSP at all (the
+    # frontend's per-request nonce policy owns it) and no unsafe-inline
+    # escape hatch; the edge contributes only the baseline headers for its
+    # own generated responses.
+    assert "Content-Security-Policy" not in rendered_text
+    assert "add_header X-Content-Type-Options nosniff always;" in rendered_text
+    assert "add_header Referrer-Policy no-referrer always;" in rendered_text
     # P2-15: the zone keys on the forwarded client (rightmost X-Forwarded-For
     # entry via the map — the address the trusted terminator appends), not
     # $binary_remote_addr (always the TLS terminator). Defaults render when
@@ -3571,3 +3602,58 @@ def test_restore_runs_the_floor_check_before_touching_the_target_database() -> N
     assert restore_text.index("restore_floor.sh") < restore_text.index(
         "contains user schema objects"
     )
+
+
+def test_trivy_ignore_freshness_gate_enforces_the_refresh_marker(tmp_path: Path) -> None:
+    """L-5 (2026-09-20 audit): the compose-image ignore file must carry a
+    `# refreshed:` marker, CI must run the gate, and the gate must fail on a
+    missing, malformed, future, or stale marker instead of letting
+    acknowledged-CVE debt accumulate indefinitely."""
+
+    gate = REPO_ROOT / "backend" / "scripts" / "check_trivy_ignore_freshness.py"
+    security_workflow = (REPO_ROOT / ".github" / "workflows" / "security.yml").read_text()
+    assert "check_trivy_ignore_freshness.py" in security_workflow
+
+    def run_gate(path: Path, *extra: str, env_age: str | None = None) -> subprocess.CompletedProcess[str]:
+        env = os.environ.copy()
+        if env_age is not None:
+            env["GOATFARM_TRIVY_IGNORE_MAX_AGE_DAYS"] = env_age
+        else:
+            env.pop("GOATFARM_TRIVY_IGNORE_MAX_AGE_DAYS", None)
+        return subprocess.run(
+            [sys.executable, str(gate), "--ignore-file", str(path), *extra],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+            env=env,
+        )
+
+    # The real file passes against its own marker today.
+    assert run_gate(REPO_ROOT / ".trivyignore.compose-images").returncode == 0
+
+    ok = tmp_path / "ok.ignore"
+    ok.write_text("# refreshed: 2026-09-14\nCVE-0000-0000\n")
+    assert run_gate(ok, "--today", "2026-09-20").returncode == 0
+    # Inside the window with an explicit max age.
+    assert run_gate(ok, "--today", "2026-10-01").returncode == 0
+    # Stale beyond the window fails with the runbook in the message.
+    stale = run_gate(ok, "--today", "2026-10-20")
+    assert stale.returncode == 1
+    assert "docker pull" in stale.stderr
+
+    missing = tmp_path / "missing.ignore"
+    missing.write_text("CVE-0000-0000\n")
+    result = run_gate(missing)
+    assert result.returncode == 1
+    assert "refreshed" in result.stderr
+
+    malformed = tmp_path / "malformed.ignore"
+    malformed.write_text("# refreshed: 2026-13-99\n")
+    assert run_gate(malformed).returncode == 1
+
+    future = tmp_path / "future.ignore"
+    future.write_text("# refreshed: 2999-01-01\n")
+    result = run_gate(future)
+    assert result.returncode == 1
+    assert "future" in result.stderr

@@ -1389,6 +1389,48 @@ async def test_provider_failure_records_error_run_and_recovers(
     assert refreshed.status == "FLAGGED"
 
 
+async def test_review_detail_never_presigns_the_mutable_raw_key(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """L-3 (2026-09-20 audit): the review detail view used to presign the
+    RAW upload key for rows without a worker-produced derivative. The raw key
+    stays client-writable until the presigned POST policy expires, so the vet
+    could approve bytes the uploader could still swap — the exact reason the
+    dataset export refuses raw keys. Un-normalized rows must answer
+    image_url=None instead."""
+    import app.api.screening as screening_api
+
+    headers = await owner_with_farm(client, email="raw-presign@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+
+    enabled_settings = _cycle_settings(crop_detection=False)
+    monkeypatch.setattr(screening_api, "get_settings", lambda: enabled_settings)
+    batch = await client.post("/api/screening/batches", headers=headers)
+    assert batch.status_code == 201, batch.text
+    upload = await client.post(
+        "/api/screening/uploads",
+        json={
+            "batch_id": batch.json()["id"],
+            "bucket": "BREEDING",
+            "file_name": "pending.jpg",
+            "content_type": "image/jpeg",
+            "file_size": 1024,
+        },
+        headers=headers,
+    )
+    assert upload.status_code == 201, upload.text
+    image_id = upload.json()["image_id"]
+    raw_key = upload.json()["s3_key"]
+
+    detail = await client.get(f"/api/screening/images/{image_id}", headers=headers)
+    assert detail.status_code == 200, detail.text
+    body = detail.json()
+    assert body["s3_key"] == raw_key
+    # PENDING row, no normalized derivative: no URL at all — never the raw
+    # key, which remains client-writable until its upload policy expires.
+    assert body["image_url"] is None
+
+
 async def test_review_api_lists_scopes_and_reviews(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client, email="api-owner@farm.in")
     farm_id = int(headers["X-Farm-Id"])
@@ -2191,6 +2233,55 @@ async def test_registered_upload_rejects_mismatched_object_metadata(
     assert summary.skipped == 1
     assert image.status == "SKIPPED"
     assert "token" in (image.error or "")
+    assert storage.download_attempts == []
+    assert provider.calls == 0
+
+
+async def test_non_ascii_object_token_is_a_mismatch_not_a_crash(
+    client: httpx.AsyncClient,
+) -> None:
+    """L-2 (2026-09-20 audit): hmac.compare_digest raises TypeError for
+    non-ASCII str, so an out-of-band bucket writer putting non-ASCII bytes in
+    the screening-token metadata used to escape as an unexpected pipeline
+    failure — burning five download/attempt cycles with hourly retries
+    before a terminal ERROR. The verdict must be the ordinary first-probe
+    SKIPPED mismatch, with no download and no retry churn."""
+    headers = await owner_with_farm(client, email="token-unicode@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    key = f"raw/{farm_id}/{today().isoformat()}/BREEDING/unicode.jpg"
+    storage = FakeStorage(objects={key: _jpeg_bytes(1000, 2000)})
+    storage.content_types[key] = "image/jpeg"
+    # Non-ASCII token bytes: the exact input that raised TypeError before.
+    storage.metadata[key] = {"screening-token": "не-ascii-токен" * 3}
+    provider = CountingProvider(name="fake")
+
+    async with get_sessionmaker()() as db:
+        db.add(
+            ScreeningImage(
+                farm_id=farm_id,
+                bucket="BREEDING",
+                s3_bucket=storage.bucket,
+                s3_key=key,
+                upload_content_type="image/jpeg",
+                upload_token="x" * 32,
+                captured_date=today(),
+                status="PENDING",
+            )
+        )
+        await db.commit()
+        summary = await run_screening_cycle(
+            db,
+            _cycle_settings(),
+            storage,
+            ProviderRotation([provider]),
+        )
+        image = (await db.execute(select(ScreeningImage))).scalar_one()
+
+    assert summary.skipped == 1
+    assert summary.errors == 0
+    assert image.status == "SKIPPED"
+    assert "token" in (image.error or "")
+    assert "unexpected pipeline failure" not in (image.error or "")
     assert storage.download_attempts == []
     assert provider.calls == 0
 
