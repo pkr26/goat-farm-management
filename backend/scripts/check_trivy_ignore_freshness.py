@@ -49,7 +49,9 @@ def main() -> int:
     parser.add_argument(
         "--max-age-days",
         type=int,
-        default=int(__import__("os").environ.get("GOATFARM_TRIVY_IGNORE_MAX_AGE_DAYS", DEFAULT_MAX_AGE_DAYS)),
+        default=int(
+            __import__("os").environ.get("GOATFARM_TRIVY_IGNORE_MAX_AGE_DAYS", DEFAULT_MAX_AGE_DAYS)
+        ),
         help="maximum age of the refreshed marker before CI fails",
     )
     parser.add_argument(

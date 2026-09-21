@@ -1401,7 +1401,6 @@ async def test_review_detail_never_presigns_the_mutable_raw_key(
     import app.api.screening as screening_api
 
     headers = await owner_with_farm(client, email="raw-presign@farm.in")
-    farm_id = int(headers["X-Farm-Id"])
 
     enabled_settings = _cycle_settings(crop_detection=False)
     monkeypatch.setattr(screening_api, "get_settings", lambda: enabled_settings)

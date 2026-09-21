@@ -2936,9 +2936,7 @@ def test_production_compose_is_a_standalone_external_tls_topology() -> None:
     assert "add_header Referrer-Policy no-referrer always;" in template
     assert "add_header Strict-Transport-Security" in template
     # The deployment-owned origins reach the frontend container instead.
-    production_compose = yaml.safe_load(
-        (REPO_ROOT / "docker-compose.production.yml").read_text()
-    )
+    production_compose = yaml.safe_load((REPO_ROOT / "docker-compose.production.yml").read_text())
     frontend_env = production_compose["services"]["frontend"]["environment"]
     assert frontend_env["GOATFARM_CSP_IMG_ORIGINS"] == "${GOATFARM_CSP_IMG_ORIGINS:-}"
     assert frontend_env["GOATFARM_CSP_CONNECT_ORIGINS"] == "${GOATFARM_CSP_CONNECT_ORIGINS:-}"
@@ -3614,7 +3612,9 @@ def test_trivy_ignore_freshness_gate_enforces_the_refresh_marker(tmp_path: Path)
     security_workflow = (REPO_ROOT / ".github" / "workflows" / "security.yml").read_text()
     assert "check_trivy_ignore_freshness.py" in security_workflow
 
-    def run_gate(path: Path, *extra: str, env_age: str | None = None) -> subprocess.CompletedProcess[str]:
+    def run_gate(
+        path: Path, *extra: str, env_age: str | None = None
+    ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         if env_age is not None:
             env["GOATFARM_TRIVY_IGNORE_MAX_AGE_DAYS"] = env_age
