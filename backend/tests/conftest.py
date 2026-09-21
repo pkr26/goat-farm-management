@@ -43,33 +43,6 @@ from app.seed import seed_reference_data  # noqa: E402
 OWNER_PW = "ownerpass123"
 
 
-def pytest_addoption(parser: pytest.Parser) -> None:
-    parser.addoption(
-        "--mutation-pure",
-        action="store_true",
-        default=False,
-        help="run only deterministic tests that do not require PostgreSQL",
-    )
-
-
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Keep mutmut's per-mutant test runs isolated from integration fixtures.
-
-    The regular suite remains unchanged. The mutation profile selects files
-    with substantial synchronous unit coverage; any async integration cases in
-    those mixed files are excluded before fixtures run.
-    """
-    if not config.getoption("--mutation-pure"):
-        return
-    integration_items = [
-        item for item in items if asyncio.iscoroutinefunction(getattr(item, "obj", None))
-    ]
-    if not integration_items:
-        return
-    items[:] = [item for item in items if item not in integration_items]
-    config.hook.pytest_deselected(items=integration_items)
-
-
 def _admin_sql(sql: str) -> None:
     async def run() -> None:
         conn = await asyncpg.connect(ADMIN_URL)
@@ -83,9 +56,6 @@ def _admin_sql(sql: str) -> None:
 
 @pytest.fixture(scope="session", autouse=True)
 def _database(request: pytest.FixtureRequest):
-    if request.config.getoption("--mutation-pure"):
-        yield
-        return
     _admin_sql(f'DROP DATABASE IF EXISTS "{TEST_DB}" WITH (FORCE)')
     _admin_sql(f'CREATE DATABASE "{TEST_DB}"')
     # Invoke alembic via the current interpreter so this works both under
@@ -115,9 +85,6 @@ def _database(request: pytest.FixtureRequest):
 
 @pytest.fixture(autouse=True)
 async def _clean_tables(request: pytest.FixtureRequest):
-    if request.config.getoption("--mutation-pure"):
-        yield
-        return
     yield
     _ROTATED_EMAILS.clear()
     tables = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)

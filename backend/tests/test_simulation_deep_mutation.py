@@ -1,12 +1,11 @@
 """Deep mutation-hardening tests for the simulation package.
 
-Every test here kills specific mutmut survivors from the 2026-09 campaign
+Every test here kills specific mutants from the 2026-09 mutation campaign
 (7,622 mutants; the survivors clustered in boundary comparisons, list-init
 values, preset literals, strict-zip guards and vocabulary plumbing). The
-file is registered in ``[tool.mutmut].pytest_add_cli_args_test_selection``
-and is entirely synchronous/DB-free so it runs inside the ``--mutation-pure``
-profile. Golden values are derived independently of the implementation
-(hand-computed or from the published calibration notes in the presets).
+file is entirely synchronous/DB-free. Golden values are derived independently
+of the implementation (hand-computed or from the published calibration notes
+in the presets).
 """
 
 import math

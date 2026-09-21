@@ -35,7 +35,6 @@ backend first — the refresh cookie stays first-party that way.
 | `pnpm lint`       | ESLint                                               |
 | `pnpm test`       | Vitest (jsdom + MSW), co-located `*.test.ts(x)`      |
 | `pnpm test:coverage` | Vitest with V8 text, JSON, and HTML coverage       |
-| `pnpm test:mutation` | Incremental Stryker mutation testing with Vitest — runs all four shards (`test:mutation:app1`/`app2`/`components`/`lib`) |
 | `pnpm e2e`        | Playwright suite in `e2e/`                           |
 | `pnpm orval`      | Regenerate `src/api/generated/` from the contract    |
 

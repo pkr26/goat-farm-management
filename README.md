@@ -268,8 +268,7 @@ cd backend
 ./.venv/bin/python -m pytest            # 3,400+ tests, real PostgreSQL (goatfarm_test)
 ./.venv/bin/ruff format --check . && ./.venv/bin/ruff check .
 ./.venv/bin/python -m mypy --strict app  # strict-green: 0 errors; keep it that way
-./.venv/bin/mutmut run --max-children 4 # deterministic, DB-free simulation profile
-./.venv/bin/mutmut results
+./.venv/bin/python scripts/export_openapi.py   # regenerate shared/openapi.json
 ./.venv/bin/python scripts/export_openapi.py   # regenerate shared/openapi.json
 
 # Frontend
@@ -280,49 +279,6 @@ pnpm exec playwright test   # browser/proxy e2e suite across 18 specs (fresh use
                      # provisioned per run by e2e/global-setup.ts; serial workers)
 pnpm build           # strict typecheck + production build
 ```
-
-The mutation profile deliberately selects deterministic simulation tests and
-uses `--mutation-pure` to deselect PostgreSQL integration cases. Do not run
-parallel mutation workers against the shared integration-test database; use a
-unique database and one child if a future campaign targets DB-backed services.
-Because the profile mutates only covered lines, archive or remove the generated
-`backend/mutants/` cache after editing mutation-target source code and before an
-authoritative run. Mutmut 3.7 can otherwise reuse stale line-coverage mappings;
-test-only changes are invalidated by the configured test-file dependency hash.
-
-**Mutation-score scope (read before quoting a number).** The mutmut campaign
-mutates **only the math-critical financial core** — `app/simulation/engine.py`,
-`finance.py`, `montecarlo.py`, `market.py`, `assumptions.py`, and
-`app/schemas/simulation.py` (~4,800 of the simulation package's ~10,200 lines;
-6 of the backend `app` tree's 99 Python files) — and runs only the deterministic
-simulation suites against each mutant (`only_mutate` and
-`pytest_add_cli_args_test_selection` in `backend/pyproject.toml`). The earlier
-package-wide scope (`app/simulation/*.py`) generated 10,345 mutants, of which
-no campaign ever classified more than a handful; the narrowed core is what the
-weekly job can actually finish. A headline
-like "90% kill rate" is a statement about that financial core, not the
-planners, explain/daily-ops modules, routers, services, security, or data
-layer; those are covered by the deterministic unit suites and the
-integration suite over real PostgreSQL instead. The same applies to frontend
-Stryker deltas quoted from targeted campaigns — the last full-repo snapshot
-is the authoritative aggregate, and targeted post-remediation reports carry
-live survivors by construction.
-
-Mutation testing runs as a **weekly scheduled campaign**
-(`.github/workflows/mutation.yml`, Mondays) that never gates PRs: it runs the
-deterministic profile, then uploads `mutmut results` and the campaign stats
-JSON as artifacts, cutting itself off after ~5.5 hours with whatever partial
-results exist. Per-survivor triage is a manual follow-up from those artifacts —
-the workflow reports, it does not block.
-
-The frontend mirrors that posture on Tuesdays
-(`.github/workflows/frontend-mutation.yml`): the four Stryker shards
-(`app1`, `app2`, `components`, `lib` — the lib glob includes
-`auth-context.tsx` and `i18n/index.tsx`) run on the same non-gating
-schedule, each shard's score is appended to `audit_reports/mutation-trend.json`
-by the trend job, and the HTML reports land as 90-day artifacts. Threshold
-breaches surface as workflow warnings, not failures. Run shards locally with
-`pnpm test:mutation:<shard>` (or all four via `pnpm test:mutation`).
 
 The API contract flows one way: backend routes/schemas →
 `shared/openapi.json` → Orval-generated TanStack Query hooks
@@ -343,9 +299,8 @@ against the real frontend, API, and PostgreSQL; and builds both application
 containers. A separate pinned-action security workflow runs CodeQL,
 full-history secret scanning, produces SPDX SBOMs for the backend, frontend,
 and deployed Compose infrastructure images, and fails on error/high CodeQL or
-fixable high/critical image vulnerabilities. A weekly scheduled mutation
-campaign (`.github/workflows/mutation.yml`) covers the financial core (see
-above), and pushing a `v*` tag triggers `.github/workflows/release.yml`, which
+fixable high/critical image vulnerabilities. Pushing a `v*` tag triggers
+`.github/workflows/release.yml`, which
 builds both images for `linux/amd64` and `linux/arm64`, runs the
 per-architecture Trivy fixable-HIGH/CRITICAL gate **before anything is
 published**, pushes

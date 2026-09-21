@@ -11,11 +11,6 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:mutation": "pnpm run /^test:mutation:/",
-    "test:mutation:app1": "stryker run stryker.app1.config.mjs",
-    "test:mutation:app2": "stryker run stryker.app2.config.mjs",
-    "test:mutation:components": "stryker run stryker.components.config.mjs",
-    "test:mutation:lib": "stryker run stryker.lib.config.mjs",
     "test:watch": "vitest",
     "orval": "orval --config orval.config.ts",
     "e2e": "playwright test"
@@ -40,8 +35,6 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
-    "@stryker-mutator/core": "10.0.0",
-    "@stryker-mutator/vitest-runner": "10.0.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.2",

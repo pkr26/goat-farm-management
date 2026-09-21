@@ -39,7 +39,6 @@ dev = [
     "httpx==0.28.1",
     "ruff==0.16.1",
     "mypy==2.3.0",
-    "mutmut==3.7.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -110,52 +109,3 @@ branch = true
 # one point below the measured branch figure so ordinary fluctuation does
 # not fail CI while a real regression still trips the floor.
 fail_under = 85
-
-[tool.mutmut]
-source_paths = ["app"]
-# Scope deliberately narrowed to the math-critical financial core: the
-# projection engine, finance/NPV math, Monte Carlo, market pricing, the
-# assumption builder, and the simulation request/response schemas (~4,800 of
-# the simulation package's ~10,200 lines). The previous package-wide scope
-# (`app/simulation/*.py`) generated 10,345 mutants — far more than a campaign
-# could classify — so almost all were never tested. The rest of the package
-# (planners, explain, daily ops, snapshot) stays covered by the deterministic
-# unit suites and the PostgreSQL integration suite instead of mutation.
-only_mutate = [
-    "app/simulation/engine.py",
-    "app/simulation/finance.py",
-    "app/simulation/montecarlo.py",
-    "app/simulation/market.py",
-    "app/simulation/assumptions.py",
-    "app/schemas/simulation.py",
-]
-# Mutation workers run only deterministic, database-free tests. This keeps the
-# inner loop fast and avoids parallel workers racing over the integration
-# suite's shared throwaway PostgreSQL database.
-pytest_add_cli_args = ["--mutation-pure"]
-pytest_add_cli_args_test_selection = [
-    "tests/test_simulation_advanced.py",
-    "tests/test_simulation_deep_mutation.py",
-    "tests/test_simulation_engine.py",
-    "tests/test_simulation_explain.py",
-    "tests/test_simulation_finance_mutation.py",
-    "tests/test_simulation_financials.py",
-    # The planner/daily-ops files are no longer mutation targets themselves,
-    # but their (sync, DB-free) suites drive the engine, finance and market
-    # code through real call graphs, so they stay selected as killers.
-    "tests/test_simulation_planner.py",
-    "tests/test_backward_planner.py",
-    "tests/test_daily_ops.py",
-]
-mutate_only_covered_lines = true
-# mutmut excludes Python files from its generic dependency hash. Explicitly
-# track the mutation harness so changed assertions cannot reuse stale verdicts.
-cache_invalidation_files = ["tests/**/*.py"]
-# The selected profile is deterministic and DB-free. Five times the measured
-# relevant-test duration leaves ample scheduling headroom while classifying
-# mutation-induced infinite loops promptly (mutmut's default is 15x).
-timeout_multiplier = 5.0
-timeout_constant = 1.0
-# Lock/config/fixture changes can alter every mutant verdict. Prefer a slower
-# sound rerun to silently reusing results produced under a different harness.
-on_dependency_change = "rerun"
