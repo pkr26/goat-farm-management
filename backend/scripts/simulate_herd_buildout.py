@@ -27,7 +27,7 @@ byte-for-byte. Run from the repo root:
 
     backend/.venv/bin/python backend/scripts/simulate_herd_buildout.py [out-dir]
 
-Default out-dir: audit_reports/2026-09-15/e2e_herd_buildout
+Default out-dir: scratch/e2e_herd_buildout (gitignored)
 """
 
 import csv
@@ -1519,7 +1519,7 @@ def _readme_checklist_section(
 
 
 def main() -> None:
-    default_out = REPO_ROOT / "audit_reports" / "2026-09-15" / "e2e_herd_buildout"
+    default_out = REPO_ROOT / "scratch" / "e2e_herd_buildout"
     out_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else default_out
     out_dir.mkdir(parents=True, exist_ok=True)
 

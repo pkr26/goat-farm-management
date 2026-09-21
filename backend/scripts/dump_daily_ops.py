@@ -8,9 +8,8 @@ Run from the repo root:
 
     backend/.venv/bin/python backend/scripts/dump_daily_ops.py [out-dir]
 
-Default out-dir: audit_reports/2026-09-03/daily_ops — pinned to the commit
-date (not <today>) so regeneration is byte-stable across days; pass an
-explicit out-dir to write elsewhere.
+Default out-dir: scratch/daily_ops (gitignored); pass an explicit out-dir
+to write elsewhere.
 """
 
 import sys
@@ -98,7 +97,7 @@ SCENARIOS: dict[str, DailyOpsInput] = {
 
 
 def main() -> None:
-    default_out = REPO_ROOT / "audit_reports" / "2026-09-03" / "daily_ops"
+    default_out = REPO_ROOT / "scratch" / "daily_ops"
     out_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else default_out
     out_dir.mkdir(parents=True, exist_ok=True)
     for name, payload in SCENARIOS.items():
