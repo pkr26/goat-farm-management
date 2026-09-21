@@ -151,7 +151,9 @@ def test_meat_price_for_month_eid_gate_never_fires_on_zero_eid() -> None:
     sales = SalesAssumptions(eid_month=1, eid_price_uplift=0.25)
     sales.annual_livestock_price_growth_rate = 0.0
     sales.monthly_meat_price_multipliers = [1.0] * 12
-    sales.festival_sale_months = []
+    # Unset (None) is the legacy branch's only reachable spelling now that an
+    # explicit [] disables every festival (P3, 2026-09-20 audit).
+    sales.festival_sale_months = None
     base = sales.meat_price_per_kg
     # simulation_month 1 with start January (calendar month 1) is Eid.
     assert meat_price_for_month(
@@ -561,7 +563,7 @@ def test_active_festival_months_three_sources() -> None:
     assert _active_festival_months(a) == [3, 7]
     # Legacy recurring Gregorian month: every calendar match, 1-based, both
     # end months included.
-    a.sales.festival_sale_months = []
+    a.sales.festival_sale_months = None
     a.sales.eid_month = 1
     a.meta.start_year_month = "2026-01"
     a.meta.horizon_months = 13
@@ -828,7 +830,10 @@ def test_eid_calendar_pricing_columns() -> None:
     a = toy_assumptions()
     a.meta.horizon_months = 24
     a.meta.start_year_month = "2026-01"
-    a.sales.festival_sale_months = []  # the preset default would override eid
+    # Eid lands in calendar March: with a 2026-01 start that is simulation
+    # months 3 and 15 (the legacy Gregorian fallback is unreachable through
+    # run_simulation since [] now disables outright — P3, 2026-09-20).
+    a.sales.festival_sale_months = [3, 15]
     a.sales.eid_month = 3
     a.sales.eid_price_uplift = 0.25
     base = a.sales.meat_price_per_kg

@@ -7,6 +7,7 @@ import { server } from "@/test/msw-server";
 import { createTestQueryClient, renderWithProviders } from "@/test/render";
 
 import AnimalsPage from "./page";
+import { settle } from "@/test/settle";
 
 const nav = vi.hoisted(() => {
   const state = {
@@ -393,7 +394,7 @@ describe("AnimalsPage finite pagination", () => {
     expect(screen.queryByText("G-001")).not.toBeInTheDocument();
     // The unchanged-search debounce also runs after a filter edit. It must
     // preserve the filter navigation's fence instead of clearing it.
-    await new Promise((resolve) => window.setTimeout(resolve, 350));
+    await settle(350);
     expect(screen.getByText("Loading animals…")).toBeInTheDocument();
     expect(screen.queryByText("G-001")).not.toBeInTheDocument();
   });
@@ -406,7 +407,7 @@ describe("AnimalsPage finite pagination", () => {
     // On mount q and the URL's q are both empty. Treating that equality as a
     // real replacement strands the screen behind the loading fence because
     // Next has no distinct URL commit to deliver.
-    await new Promise((resolve) => window.setTimeout(resolve, 350));
+    await settle(350);
     expect(screen.getAllByText("G-001")[0]).toBeInTheDocument();
     expect(screen.queryByText("Loading animals…")).not.toBeInTheDocument();
     expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
@@ -443,7 +444,7 @@ describe("AnimalsPage finite pagination", () => {
 
     // B is fresh in cache and is no longer fetching. C is nevertheless still
     // pending, so exposing B's rows here would make stale navigation clickable.
-    await new Promise((resolve) => window.setTimeout(resolve, 75));
+    await settle(75);
     expect(screen.getByText("Loading animals…")).toBeInTheDocument();
     expect(screen.queryByText("G-001")).not.toBeInTheDocument();
   });
@@ -521,7 +522,7 @@ describe("AnimalsPage finite pagination", () => {
     expect(screen.getAllByText("G-001")[0]).toBeInTheDocument();
     expect(screen.queryByText("Loading animals…")).not.toBeInTheDocument();
     expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
-    await new Promise((resolve) => window.setTimeout(resolve, 350));
+    await settle(350);
     expect(screen.getAllByText("G-001")[0]).toBeInTheDocument();
     expect(screen.queryByText("Loading animals…")).not.toBeInTheDocument();
     expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();

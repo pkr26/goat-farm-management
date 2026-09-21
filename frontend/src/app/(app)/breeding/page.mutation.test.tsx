@@ -22,6 +22,7 @@ import { farmToday } from "@/lib/format";
 
 import BreedingPage, { breedingSchema } from "./page";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
+import { settle } from "@/test/settle";
 
 const { navState, toastMock } = vi.hoisted(() => ({
   navState: { search: "" },
@@ -70,6 +71,7 @@ function makeAnimal(overrides: Partial<AnimalOut>): AnimalOut {
     birth_weight: null,
     current_bucket: "BREEDING",
     status: "ACTIVE",
+    status_notes: null,
     status_date: null,
     sale_price: null,
     sale_weight_kg: null,
@@ -256,28 +258,15 @@ describe("BreedingPage mutation hardening", () => {
 
   // ---------- method switch: labels, fields, gates ----------
 
-  it("renders the three method options with their species hints", async () => {
+  it("renders only the natural method (AI is not part of the goat protocol)", async () => {
     const { dialog } = await openNewDialog();
     const group = within(dialog).getByRole("radiogroup", { name: "Breeding method" });
     expect(within(group).getByRole("radio", { name: /Natural/ })).toBeChecked();
-    expect(within(group).getByRole("radio", { name: /Conventional semen/ })).not.toBeChecked();
-    expect(within(group).getByRole("radio", { name: /90% female kids/ })).not.toBeChecked();
+    // The backend rejects AI/AI_SEXED writes unconditionally (409), so the
+    // dialog must not offer them (2026-09-20 audit P1-9).
+    expect(within(group).queryByRole("radio", { name: /Conventional semen/ })).not.toBeInTheDocument();
+    expect(within(group).queryByRole("radio", { name: /90% female kids/ })).not.toBeInTheDocument();
     expect(within(group).getByText("Herd buck")).toBeInTheDocument();
-    expect(within(group).getByText("Conventional semen")).toBeInTheDocument();
-    expect(within(group).getByText("~90% female kids")).toBeInTheDocument();
-  });
-
-  it("hides the buck picker and shows the optional semen-sire field for AI", async () => {
-    const { user, dialog } = await openNewDialog();
-    await user.click(within(dialog).getByRole("radio", { name: /Conventional semen/ }));
-
-    expect(within(dialog).queryByRole("combobox", { name: "Buck \*" })).not.toBeInTheDocument();
-    const sireInput = within(dialog).getByLabelText(/Semen buck \(optional\)/);
-    expect(sireInput).toHaveAttribute("placeholder", "Buck name / straw code");
-    expect(
-      within(dialog).getByText("The sire named on the straw used for this doe."),
-    ).toBeInTheDocument();
-    expect(within(dialog).queryByText(/for a natural service/)).not.toBeInTheDocument();
   });
 
   it("keeps the buck requirement to natural service only", async () => {
@@ -289,67 +278,20 @@ describe("BreedingPage mutation hardening", () => {
       await within(dialog).findByText("Select a buck for a natural service"),
     ).toBeInTheDocument();
     expect(breedingPostBody).toBeNull();
-
-    // …but the same form is submittable the moment the method switches to AI.
-    await user.click(within(dialog).getByRole("radio", { name: /Conventional semen/ }));
-    await user.click(within(dialog).getByRole("button", { name: "Save breeding" }));
-
-    await waitFor(() => expect(breedingPostBody).not.toBeNull());
   });
 
-  it("posts an AI breeding with the method and a null semen sire, and no buck id", async () => {
-    const { user, dialog } = await openNewDialog();
-    await pickDoe(user, dialog);
-    await user.click(within(dialog).getByRole("radio", { name: /Conventional semen/ }));
-    await user.click(within(dialog).getByRole("button", { name: "Save breeding" }));
-
-    await waitFor(() => expect(breedingPostBody).not.toBeNull());
-    expect(breedingPostBody).toEqual({
-      doe_id: 10,
-      method: "AI",
-      semen_sire_name: null,
-      breeding_date: TODAY,
-    });
-    expect("buck_id" in breedingPostBody!).toBe(false);
-  });
-
-  it("posts a sexed-AI breeding with the trimmed semen-sire name", async () => {
-    const { user, dialog } = await openNewDialog();
-    await pickDoe(user, dialog);
-    await user.click(within(dialog).getByRole("radio", { name: /90% female kids/ }));
-    await user.type(within(dialog).getByLabelText(/Semen buck \(optional\)/), "  Fleet  ");
-    await user.click(within(dialog).getByRole("button", { name: "Save breeding" }));
-
-    await waitFor(() => expect(breedingPostBody).not.toBeNull());
-    expect(breedingPostBody).toEqual({
-      doe_id: 10,
-      method: "AI_SEXED",
-      semen_sire_name: "Fleet",
-      breeding_date: TODAY,
-    });
-  });
-
-  it("keeps the no-eligible-buck gate to natural service", async () => {
+  it("keeps the no-eligible-buck gate: save stays disabled with a visible reason", async () => {
     listPayload.candidate_availability = {
       eligible_doe_count: 1,
       eligible_buck_count: 0,
     };
-    const { user, dialog } = await openNewDialog();
+    const { dialog } = await openNewDialog();
 
     const save = within(dialog).getByRole("button", { name: "Save breeding" });
     expect(save).toBeDisabled();
     expect(
       await within(dialog).findByText(/No eligible bucks are available/),
     ).toBeInTheDocument();
-
-    await pickDoe(user, dialog);
-    await user.click(within(dialog).getByRole("radio", { name: /90% female kids/ }));
-    expect(within(dialog).queryByText(/No eligible bucks are available/)).not.toBeInTheDocument();
-    expect(save).toBeEnabled();
-
-    await user.click(save);
-    await waitFor(() => expect(breedingPostBody).not.toBeNull());
-    expect("buck_id" in breedingPostBody!).toBe(false);
   });
 
   it("rejects a breeding date whose typed shape is not YYYY-MM-DD", async () => {
@@ -418,7 +360,7 @@ describe("BreedingPage mutation hardening", () => {
     server.use(
       http.get("/api/breeding/99", async () => {
         detailCalls += 1;
-        await new Promise((resolve) => setTimeout(resolve, 300));
+        await settle(300);
         return HttpResponse.json(makeRecord({ id: 99, breeding_date: "2026-06-01" }));
       }),
     );
@@ -492,7 +434,7 @@ describe("BreedingPage mutation hardening", () => {
     server.use(
       http.get("/api/breeding", async () => {
         calls += 1;
-        if (calls > 1) await new Promise((resolve) => setTimeout(resolve, 150));
+        if (calls > 1) await settle(150);
         return HttpResponse.json(listPayload);
       }),
     );
@@ -579,19 +521,31 @@ describe("BreedingPage mutation hardening", () => {
 
   // ---------- round 2: remaining mutation survivors ----------
 
-  it("measures the semen-sire length cap after trimming", async () => {
+  it("measures the semen-sire length cap after trimming (schema level)", () => {
     // 120 visible characters plus trailing spaces: the schema's trim must run
-    // before max(120) accepts it (and the payload posts the trimmed name).
-    const { user, dialog } = await openNewDialog();
-    await pickDoe(user, dialog);
-    await user.click(within(dialog).getByRole("radio", { name: /Conventional semen/ }));
-    fireEvent.change(within(dialog).getByLabelText(/Semen buck \(optional\)/), {
-      target: { value: "F".repeat(120) + "   " },
+    // before max(120) accepts it. The AI radios are gone from the dialog (the
+    // goat protocol rejects the write server-side), so the wire field's
+    // trimming is pinned here against the exported schema instead.
+    const schema = breedingSchema(farmVocabulary);
+    const ok = schema.safeParse({
+      doe_id: "10",
+      buck_id: "",
+      method: "AI",
+      breeding_date: farmToday(),
+      semen_sire_name: "F".repeat(120) + "   ",
     });
-    await user.click(within(dialog).getByRole("button", { name: "Save breeding" }));
-
-    await waitFor(() => expect(breedingPostBody).not.toBeNull());
-    expect(breedingPostBody).toMatchObject({ semen_sire_name: "F".repeat(120) });
+    expect(ok.success).toBe(true);
+    if (ok.success) {
+      expect(ok.data.semen_sire_name).toBe("F".repeat(120));
+    }
+    const over = schema.safeParse({
+      doe_id: "10",
+      buck_id: "",
+      method: "AI",
+      breeding_date: farmToday(),
+      semen_sire_name: "F".repeat(121),
+    });
+    expect(over.success).toBe(false);
   });
 
   it("titles the doe and buck candidate-picker dialogs", async () => {

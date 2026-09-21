@@ -17,6 +17,7 @@ import { permissionsHandler, server, TEST_USER } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
 import TeamPage from "./page";
+import { settle } from "@/test/settle";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
@@ -361,7 +362,7 @@ describe("TeamPage workers table", () => {
 
     await act(async () => {
       releaseStatus();
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await settle(0);
     });
     await waitFor(() => expect(reset).toBeEnabled());
   });
@@ -833,7 +834,7 @@ describe("TeamPage add-worker dialog", () => {
     (submit as HTMLButtonElement).disabled = false;
     submit.click();
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await settle(20);
     });
     expect(postCalls).toBe(0);
 
@@ -1018,7 +1019,7 @@ describe("TeamPage reset-password dialog", () => {
     (submit as HTMLButtonElement).disabled = false;
     submit.click();
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await settle(20);
     });
     expect(resetCalls).toBe(0);
 
@@ -1115,7 +1116,7 @@ describe("TeamPage role cards", () => {
     // Even an imperative click (bypassing the disabled attribute) must not
     // open the confirmation — the destructive flow stays unreachable.
     fireEvent.click(presetDelete);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settle(50);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
@@ -1607,7 +1608,7 @@ describe("TeamPage role create/edit dialogs (owner holds all permissions)", () =
 
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("role name is reserved");
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await settle(20);
     });
     expect(getCalls).toBe(1);
     expect(screen.getByRole("dialog", { name: "Edit role: Night Watch" })).toBe(dialog);
@@ -1658,7 +1659,7 @@ describe("TeamPage role create/edit dialogs (owner holds all permissions)", () =
     (submit as HTMLButtonElement).disabled = false;
     submit.click();
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await settle(20);
     });
     expect(postBody).toBeNull();
 
@@ -1762,7 +1763,7 @@ describe("TeamPage global team-snapshot authority", () => {
     });
     await refreshStarted;
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await settle(20);
     });
 
     expect(roleCalls).toBe(0);

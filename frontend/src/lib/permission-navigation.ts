@@ -39,6 +39,10 @@ const APP_ROUTE_PERMISSIONS = [
   { path: "/breeding", permission: "breeding.view" },
   { path: "/kidding", permission: "kidding.view" },
   { path: "/health", permission: "health.view" },
+  // The screening review queue rides the health permission family: without
+  // this entry a returnTo of /screening failed route resolution and was
+  // silently dropped (wave-5 note, 2026-09-20 audit).
+  { path: "/screening", permission: "health.view" },
   { path: "/feeding", permission: "feeding.view" },
   { path: "/purchases", permission: "purchases.view" },
   { path: "/tasks", permission: "tasks.view" },

@@ -51,16 +51,28 @@ const STATUS_TONES: Record<string, StatusTone> = {
   OVERDUE: "destructive",
   FAILED: "destructive",
   DEAD: "destructive",
+  // Screening run status: an errored cascade is adverse (the photo was not
+  // screened and needs attention/retry), not a neutral unknown — a neutral
+  // chip hid failed runs next to their flagged siblings (wave-5, 2026-09-20
+  // audit).
+  ERROR: "destructive",
+  // Vet review verdicts (the finding-level counterparts of CONFIRMED_/
+  // REJECTED_OUTCOMES): a confirmed disease finding is adverse.
+  CONFIRMED: "destructive",
+  // Movement-restriction episode actions: a PLACED hold needs attention; a
+  // CLEARED hold is a completed protocol step.
+  PLACED: "warning",
+  CLEARED: "success",
   // Kid deaths and aborted pregnancies are adverse events like their
   // siblings (STILLBORN/FAILED), not neutral transitions.
   DIED: "destructive",
   ABORTED: "destructive",
   // A caesarean delivery is as adverse as a difficult one.
   CAESAREAN: "destructive",
-  // Insurance register lifecycle: renewal is a completed money event; a
-  // lapsed policy is cover that has ended (attention, not disaster — the
-  // dashboard stops nagging it); a claim is the terminal settlement.
-  RENEWED: "success",
+  // Insurance register lifecycle: "renewed" was never a real status value
+  // (renewal keeps a policy ACTIVE — removed with cad1e2f3a4b5); a lapsed
+  // policy is cover that has ended (attention, not disaster — the dashboard
+  // stops nagging it); a claim is the terminal settlement.
   LAPSED: "warning",
   CLAIMED: "info",
 };

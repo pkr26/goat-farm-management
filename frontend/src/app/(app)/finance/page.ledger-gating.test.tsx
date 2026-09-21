@@ -111,7 +111,7 @@ function parkRequest() {
 
 async function renderLoaded() {
   renderWithProviders(<FinancePage />);
-  expect(await screen.findByText("Total income")).toBeInTheDocument();
+  expect(await screen.findByText("Total income (all time)")).toBeInTheDocument();
 }
 
 /** The ledger table, addressed by a header only it renders. */
@@ -364,10 +364,10 @@ describe("FinancePage permission gate", () => {
       screen.getByText("Income, expenses and monthly profit & loss for the farm."),
     ).toBeInTheDocument();
     expect(screen.queryByText("You don't have access to this page.")).not.toBeInTheDocument();
-    expect(screen.queryByText("Total income")).not.toBeInTheDocument();
+    expect(screen.queryByText("Total income (all time)")).not.toBeInTheDocument();
 
     release();
-    expect(await screen.findByText("Total income")).toBeInTheDocument();
+    expect(await screen.findByText("Total income (all time)")).toBeInTheDocument();
   });
 });
 

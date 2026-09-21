@@ -17,7 +17,7 @@ describe("farmVocabulary — goat farm", () => {
     expect(v.parturitionCap).toBe("Kidding");
     expect(v.parturitionPast).toBe("kidded");
     expect(v.dueLabel).toBe("Kidding due");
-    expect(v.breedingGateCopy).toContain("A doe must be at least 10 months old and 22 kg");
+    expect(v.breedingGateCopy).toContain("A doe must be at least 12 months old and 22 kg");
     expect(v.defaultBreed).toBe("Osmanabadi");
     expect(v.tagPrefix).toBe("G");
   });
@@ -25,7 +25,7 @@ describe("farmVocabulary — goat farm", () => {
   it("mirrors the backend goat breeding gates and species facts", () => {
     const v = farmVocabulary;
     expect(v.breedingEntry).toEqual({
-      female: { minMonths: 10, minWeightKg: 22 },
+      female: { minMonths: 12, minWeightKg: 22 },
       male: { minMonths: 12, minWeightKg: 25 },
     });
     expect(v.facts).toEqual({
@@ -33,6 +33,7 @@ describe("farmVocabulary — goat farm", () => {
       pregnancyCheckDays: 32,
       weaningDays: 60,
       youngStayWithDam: true,
+      minBreedingAgeMonths: 12,
       maxLitterSize: 4,
       maxWeightKg: 150,
       birthWeightKg: { min: 0.5, max: 8 },

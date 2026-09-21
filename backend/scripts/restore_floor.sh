@@ -73,6 +73,7 @@ RESTORE_ALLOWED_REVISIONS=(
     "b7e8f9a0c1d2"
     "f7a9c1e3b5d7"
     "b9c0d1e2f3a4"
+    "cad1e2f3a4b5"
 )
 
 revision="${1:-}"

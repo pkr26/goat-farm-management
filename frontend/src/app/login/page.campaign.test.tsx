@@ -13,6 +13,7 @@ import { server, TEST_FARMS } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
 import LoginPage from "./page";
+import { settle } from "@/test/settle";
 
 const { pushMock, navState, sessionEpochShift } = vi.hoisted(() => ({
   pushMock: vi.fn(),
@@ -104,7 +105,7 @@ describe("LoginPage — campaign kills", () => {
       releasePermissions();
     });
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await settle(20);
     });
     expect(pushMock).not.toHaveBeenCalled();
   });

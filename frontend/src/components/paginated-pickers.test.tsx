@@ -33,6 +33,7 @@ function animal(id: number): AnimalOut {
     birth_weight: null,
     current_bucket: "GROWER_FEMALE" as AnimalOutCurrentBucket,
     status: "ACTIVE",
+    status_notes: null,
     status_date: null,
     sale_price: null,
     sale_weight_kg: null,

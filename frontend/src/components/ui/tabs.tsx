@@ -14,6 +14,11 @@ function Tabs({
     <TabsPrimitive.Root
       data-slot="tabs"
       data-orientation={orientation}
+      // Forward the destructured orientation to the primitive too: pulling it
+      // out for the data attribute without passing it on silently dropped it
+      // (keyboard arrow-key direction never switched for vertical tabs —
+      // stock-shadcn inherited; P3, 2026-09-20 audit).
+      orientation={orientation}
       className={cn(
         "group/tabs flex gap-2 data-horizontal:flex-col",
         className

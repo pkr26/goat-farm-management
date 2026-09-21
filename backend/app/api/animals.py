@@ -383,6 +383,14 @@ async def create_animal(
             detail="Only the farm owner may import historical animal lifecycle data",
         )
     managed_purchase = payload.source == "PURCHASED" and not historical_import_reason
+    # Every branch that books money, not just the managed cascade: the
+    # historical-import path (owner-only) also books a real ANIMAL_PURCHASE
+    # transaction when a price is supplied, and an auto-generated tag gives a
+    # keyless network retry no natural key to deduplicate on — it would
+    # create a second animal and a second expense (2026-09-20 audit P2-1).
+    books_money = managed_purchase or (
+        payload.source == "PURCHASED" and payload.purchase_price is not None
+    )
     if managed_purchase:
         # The managed-purchase cascade books procurement (batch + quarantine
         # schedule + ANIMAL_PURCHASE expense) — writes that otherwise require
@@ -397,6 +405,7 @@ async def create_animal(
                     "Use a historical import or ask the owner."
                 ),
             )
+    if books_money:
         # Money-booking mutation with no natural key: the Idempotency-Key is
         # mandatory here for the same reason it is on /api/purchases/new —
         # a keyless retry would double-book the expense (RT-C-4).

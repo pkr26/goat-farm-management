@@ -20,6 +20,7 @@ from .assumptions import (
     MIN_FODDER_YIELD_T,
     RiskVariable,
     SimulationAssumptions,
+    min_feasible_sale_age,
 )
 from .engine import _run_core
 from .results import MonteCarloResult, PercentileBand, SensitivityItem
@@ -478,7 +479,12 @@ def run_monte_carlo(a: SimulationAssumptions) -> MonteCarloResult:
         npv_p5_ci=npv_p5_ci,
         npv_p50_ci=npv_p50_ci,
         npv_p95_ci=npv_p95_ci,
-        prob_npv_negative_se=math.sqrt(prob_negative * (1.0 - prob_negative) / runs),
+        # A single run has no sampling distribution: the analytic SE would be
+        # a misleading hard 0.0, not "no uncertainty" — the documented None
+        # contract (P3, 2026-09-20 audit).
+        prob_npv_negative_se=(
+            math.sqrt(prob_negative * (1.0 - prob_negative) / runs) if runs > 1 else None
+        ),
         minimum_cash_p5=percentile(minimum_cash, 0.05),
         minimum_cash_p50=percentile(minimum_cash, 0.50),
         minimum_cash_p5_ci=minimum_cash_p5_ci,
@@ -618,7 +624,14 @@ def run_sensitivity(a: SimulationAssumptions) -> list[SensitivityItem]:
             "sale_age_months",
             lambda v: float(v.growth.sale_age_months),
             _months_label,
-            lambda v: setattr(v.growth, "sale_age_months", max(6, v.growth.sale_age_months - 2)),
+            # Lowering the sale age below the youngest male-grower event's
+            # arrival age + 1 would fail scenario re-validation on a valid
+            # baseline (P1-5); clamp the low side to the feasibility floor.
+            lambda v: setattr(
+                v.growth,
+                "sale_age_months",
+                max(min_feasible_sale_age(v), v.growth.sale_age_months - 2),
+            ),
             lambda v: setattr(v.growth, "sale_age_months", min(24, v.growth.sale_age_months + 2)),
         ),
         _SensitivityCase(

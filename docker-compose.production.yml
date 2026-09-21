@@ -232,6 +232,12 @@ services:
       GOATFARM_EDGE_PUBLIC_SCHEME: https
       GOATFARM_EDGE_BIND_HOST: 127.0.0.1
       GOATFARM_EDGE_MAX_BODY_SIZE: ${GOATFARM_EDGE_MAX_BODY_SIZE:-1m}
+      # Auth flood-zone shaping (2026-09-20 audit P2-15): the zone keys on
+      # the rightmost X-Forwarded-For entry the trusted terminator appends;
+      # the rate/burst are operator-tunable per deployment and validated by
+      # edge-entrypoint.sh before rendering.
+      GOATFARM_EDGE_AUTH_RATE: ${GOATFARM_EDGE_AUTH_RATE:-5r/s}
+      GOATFARM_EDGE_AUTH_BURST: ${GOATFARM_EDGE_AUTH_BURST:-20}
       GOATFARM_SCREENING_ENABLED: ${GOATFARM_SCREENING_ENABLED:-false}
       GOATFARM_CSP_CONNECT_ORIGINS: '${GOATFARM_CSP_CONNECT_ORIGINS:-}'
       GOATFARM_CSP_IMG_ORIGINS: '${GOATFARM_CSP_IMG_ORIGINS:-}'

@@ -409,6 +409,23 @@ def _ceil_head_ratio(heads: float, heads_per_unit: int) -> int:
     return math.ceil(ratio)
 
 
+def labour_units_for(adult_females: float, family_labour: bool, heads_per_worker: int) -> float:
+    """Paid attendant units the engine books for ``adult_females`` does.
+
+    Attendants come in HALF units (ceil(2 x does / threshold) / 2, floored at
+    half a unit for any non-empty flock); family labour and an empty flock
+    book zero cash labour.  The calibration splitter must divide the ledger's
+    whole labour bill by the SAME unit count the engine multiplies by, or the
+    modelled bill drifts from the actual one by the ratio of the two bases
+    (2026-09-20 audit P2-4).
+    """
+    if adult_females <= 0:
+        return 0.0
+    if family_labour:
+        return 0.0
+    return max(0.5, _ceil_head_ratio(2.0 * adult_females, heads_per_worker) / 2.0)
+
+
 def _run_core(
     a: SimulationAssumptions,
     shock_path: MonthlyShockPath | None = None,
@@ -1045,8 +1062,14 @@ def _run_core(
         # conceives at the parity-weighted rate.
         ready_total = sum(svc)
         # Pre-service breeding-pool size, for proportional doe-age-ledger
-        # scaling when repeat breeders are culled below.
-        breeding_pool_before = ready_total + sum(open_waiting) + sum(settling) + sum(preg)
+        # scaling when repeat breeders are culled below. The denominator must
+        # span every live doe (lactating does included — they rejoin the
+        # service pool after weaning): omitting sum(lact) over-deflated the
+        # age ledger on every repeat-breeder cull and under-fired ~4% of
+        # max-age culls at defaults (2026-09-20 audit P2-5).
+        breeding_pool_before = (
+            ready_total + sum(open_waiting) + sum(settling) + sum(preg) + sum(lact)
+        )
         service_capacity = bucks * cull.buck_doe_ratio
         served_total = min(ready_total, service_capacity)
         base_conception = min(
@@ -1407,22 +1430,16 @@ def _run_core(
         # kids and growers add fractionally to workload. Charging the full
         # threshold per standing head tripled the flagship 50+2 unit's labour
         # bill and made the default preset a guaranteed-rejection model.
-        # Attendants come in HALF units (ceil(2 x does / threshold) / 2,
-        # floored at half a unit for any non-empty flock): a 3-doe hobby
-        # flock books a half-time attendant at ₹7,000/month, not a full
-        # ₹14,000 hire — the old whole-labourer floor made small flocks
-        # uninsurable-on-paper. With
-        # ``costs.family_labour`` the cash line is zero (the family works the
-        # flock); the narrative report discloses the market wage forgone.
-        if all_does_now <= 0:
-            labour_units = 0.0
-        elif costs.family_labour:
-            labour_units = 0.0
-        else:
-            labour_units = max(
-                0.5,
-                _ceil_head_ratio(2.0 * all_does_now, costs.labour_per_head_threshold) / 2.0,
-            )
+        # Attendants come in HALF units: a 3-doe hobby flock books a
+        # half-time attendant at ₹7,000/month, not a full ₹14,000 hire —
+        # the old whole-labourer floor made small flocks uninsurable-on-
+        # paper. With ``costs.family_labour`` the cash line is zero (the
+        # family works the flock); the narrative report discloses the
+        # market wage forgone. labour_units_for is the shared basis the
+        # ledger calibration splits by.
+        labour_units = labour_units_for(
+            all_does_now, bool(costs.family_labour), costs.labour_per_head_threshold
+        )
         labour_cost = labour_units * costs.labour_per_month * operating_cost_growth
         young_value_kg = (
             sum(f_count * weight_at_age(age, g, doe_w) for age, f_count in enumerate(f_kid))

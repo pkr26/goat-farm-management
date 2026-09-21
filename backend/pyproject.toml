@@ -105,7 +105,11 @@ branch = true
 # (the flag --cov-fail-under would override, not complement, this value).
 # Keep it at or below the measured app-wide coverage on main — raise it as
 # coverage improves, never above the measured value.
-fail_under = 75
+# Ratcheted from the measured ~94% app-wide / ~86% branch coverage on main
+# (2026-09-20 audit P3: 75 never bit after coverage climbed past 90). Kept
+# one point below the measured branch figure so ordinary fluctuation does
+# not fail CI while a real regression still trips the floor.
+fail_under = 85
 
 [tool.mutmut]
 source_paths = ["app"]

@@ -363,6 +363,11 @@ services:
       # container environment. Rendering this directly through Compose would
       # bypass the runtime syntax validator on a malformed size value.
       GOATFARM_EDGE_MAX_BODY_SIZE: ${GOATFARM_EDGE_MAX_BODY_SIZE:-1m}
+      # Auth flood-zone shaping (2026-09-20 audit P2-15): the rate/burst the
+      # edge applies to /api/auth/*, grammar-validated by edge-entrypoint.sh
+      # before rendering.
+      GOATFARM_EDGE_AUTH_RATE: ${GOATFARM_EDGE_AUTH_RATE:-5r/s}
+      GOATFARM_EDGE_AUTH_BURST: ${GOATFARM_EDGE_AUTH_BURST:-20}
       # Runtime, validated CSP additions for browser-direct S3 POST/GET
       # traffic. Generic registry frontend images intentionally do not bake
       # deployment-specific origins; edge-entrypoint.sh renders these values

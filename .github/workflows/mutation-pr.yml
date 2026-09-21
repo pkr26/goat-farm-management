@@ -70,7 +70,7 @@ jobs:
         run: |
           python -m pip install --no-cache-dir uv==0.12.1
           uv lock --check
-          uv sync --frozen --extra dev
+          uv sync --locked --extra dev
 
       - name: Determine PR base
         id: base

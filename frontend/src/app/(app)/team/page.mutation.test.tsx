@@ -16,6 +16,7 @@ import { ALL_PERMISSIONS, permissionsHandler, server, TEST_USER } from "@/test/m
 import { renderWithProviders } from "@/test/render";
 
 import TeamPage from "./page";
+import { settle } from "@/test/settle";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
@@ -280,7 +281,7 @@ describe("TeamPage mutation hardening — reset password gating", () => {
 
     fireEvent.click(reset);
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      await settle(30);
     });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
@@ -624,7 +625,7 @@ describe("TeamPage mutation hardening — RBAC row and page gates", () => {
 
     fireEvent.click(addWorker);
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await settle(20);
     });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 

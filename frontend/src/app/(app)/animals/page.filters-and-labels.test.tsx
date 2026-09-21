@@ -23,6 +23,7 @@ import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
 import AnimalsPage from "./page";
+import { settle } from "@/test/settle";
 
 const nav = vi.hoisted(() => {
   const state = {
@@ -257,7 +258,7 @@ describe("AnimalsPage create dialog guards", () => {
     expect(within(dialog).queryByText(/BREEDING imports require/)).not.toBeInTheDocument();
     await pickOption(user, within(dialog).getByLabelText("Bucket *"), "Breeding");
     expect(within(dialog).getByText(/BREEDING imports require/)).toHaveTextContent(
-      "BREEDING imports require a doe of at least 10 months and 22 kg.",
+      "BREEDING imports require a doe of at least 12 months and 22 kg.",
     );
 
     await pickOption(user, within(dialog).getByLabelText("Sex *"), "Male");
@@ -485,7 +486,7 @@ describe("AnimalsPage navigation fence", () => {
     // Let the debounce fire: the URL already describes the search box, so it
     // must not issue a replacement (which would reset the page to one).
     await act(async () => {
-      await new Promise((resolve) => window.setTimeout(resolve, 400));
+      await settle(400);
     });
 
     expect(nav.replace).not.toHaveBeenCalled();

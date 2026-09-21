@@ -15,6 +15,7 @@ export interface HealthBulkTargetPreviewOut {
   task_id: number | null;
   target_animal_ids: number[];
   target_animals: AnimalIdentityOut[];
+  target_animal_ages_months?: (number | null)[];
   target_count: number;
   max_targets?: number;
 }

@@ -31,7 +31,10 @@ KIDDING_LOCK_ORDER = "e7f9a1b3c5d8"
 # screening batches → residual numerics/next-due ceiling/jsonb shape →
 # screening upload hardening + finance/planner integrity merge → durable
 # screening-content claims).
-HEAD = "b9c0d1e2f3a4"
+# Must track the chain head; the 2026-09-20 vocabulary cleanup revision
+# (cad1e2f3a4b5) made the previous pinned head stale, breaking every
+# upgrade-HEAD + alembic-check assertion in this suite.
+HEAD = "cad1e2f3a4b5"
 SCREENING_CONTENT_CLAIMS_PARENT = "b7e8f9a0c1d2"
 SCREENING_CONTENT_CLAIMS = "f7a9c1e3b5d7"
 LEGACY_LOSS_NOTE = "Legacy pregnancy-loss row; original date and cause were not captured."

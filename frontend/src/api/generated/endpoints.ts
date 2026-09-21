@@ -17364,7 +17364,9 @@ export const getExportDatasetApiScreeningExportGetUrl = (params?: ExportDatasetA
 /**
  * The fine-tuning corpus: findings with image/crop references and the
  * vet verdict that makes each label trustworthy. Defaults to every
- * reviewed finding; pass vet_status=ALL to include the pending queue.
+ * finding INCLUDING the pending review queue (each record carries
+ * ``vet_status`` so consumers can filter); pass vet_status=CONFIRMED or
+ * REJECTED for reviewed-only exports.
  * @summary Export Dataset
  */
 export const exportDatasetApiScreeningExportGet = async (params?: ExportDatasetApiScreeningExportGetParams, options?: Parameters<typeof customInstance>[1]): Promise<exportDatasetApiScreeningExportGetResponse> => {

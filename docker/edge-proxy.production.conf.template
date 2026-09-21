@@ -2,7 +2,24 @@
 # value substituted below is validated; unlike the local Compose-inline
 # template, this file deliberately contains literal nginx $variables.
 
-limit_req_zone $binary_remote_addr zone=auth_flood:10m rate=5r/s;
+# P2-15 (2026-09-20 audit): the mandated production topology terminates TLS
+# in front of this edge, so $binary_remote_addr is ALWAYS the terminator's
+# single loopback address — keying the auth zone on it put every user of
+# /api/auth/* into one shared bucket (a cheap fleet-wide auth DoS, and
+# self-DoS at shift-start bursts). The terminator owns the forwarded chain
+# and APPENDS the connecting address to X-Forwarded-For, so the RIGHTMOST
+# entry is the real client as the trusted terminator saw it. Key on that:
+# entries a client injects can only land to the LEFT of the appended hop, so
+# unlike the first entry (which a client controls wholesale) the last entry
+# cannot be rotated to mint fresh buckets or pinned onto a victim. This is
+# the same right-to-left trust walk the backend's ProxyHeadersMiddleware
+# applies to the identical header. A missing/empty header (direct loopback
+# health probe) falls back to the socket address.
+map $http_x_forwarded_for $auth_flood_key {
+    default $binary_remote_addr;
+    ~^(?:.*,)?[ \t]*(?<client_addr>[^, \t]+)[ \t]*$ $client_addr;
+}
+limit_req_zone $auth_flood_key zone=auth_flood:10m rate=__GOATFARM_EDGE_AUTH_RATE__;
 
 server {
     listen 3000;
@@ -30,7 +47,7 @@ server {
     }
 
     location /api/auth/ {
-        limit_req zone=auth_flood burst=20 nodelay;
+        limit_req zone=auth_flood burst=__GOATFARM_EDGE_AUTH_BURST__ nodelay;
         limit_req_status 429;
         set $backend_upstream backend;
         proxy_pass http://$backend_upstream:8000$request_uri;

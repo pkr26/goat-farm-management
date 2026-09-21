@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .gate import GateParseError, _extract_json_object
+from .gate import GateParseError, _extract_json_object, answer_list
 
 DETECT_PROMPT_VERSION = "detect-26.09.1"
 
@@ -87,10 +87,16 @@ def parse_detection_response(text: str, max_goats: int) -> list[DetectionBox]:
     """
     try:
         raw = json.loads(_extract_json_object(text))
+        # A null/missing "goats" (e.g. {"goats": null} — a plausible "no
+        # goats" phrasing) parses as "nothing found"; a present-but-non-list
+        # value (scalar/object) surfaces as DetectionParseError so the
+        # rotation's fallback chain tries the next provider — a raw TypeError
+        # here would instead detonate the per-image handler.
+        items = answer_list(raw, "goats")
     except (ValueError, GateParseError) as exc:
         raise DetectionParseError(f"no valid JSON in detection answer: {exc}") from exc
     boxes: list[DetectionBox] = []
-    for item in raw.get("goats", [])[:MAX_DETECTED_GOATS]:
+    for item in items[:MAX_DETECTED_GOATS]:
         try:
             goat = _DetectedGoat.model_validate(item)
         except ValueError:

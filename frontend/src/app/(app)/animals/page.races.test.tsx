@@ -26,6 +26,7 @@ import { server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
 import AnimalsPage from "./page";
+import { settle } from "@/test/settle";
 
 const nav = vi.hoisted(() => {
   const state = { search: "" };
@@ -133,7 +134,7 @@ describe("AnimalsPage — typing while the page clamp navigates", () => {
     // 300ms search debounce run, so what we assert is the settled state rather
     // than an intermediate render.
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 600));
+      await settle(600);
     });
 
     // The load-bearing assertion: committing a URL that does not describe the
@@ -235,7 +236,7 @@ describe("AnimalsPage — rows stay inert until a dispatched URL commits", () =>
     // one pending navigation is recorded.
     await user.type(search, "G77");
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 450));
+      await settle(450);
     });
     expect(screen.getByText("Loading animals…")).toBeInTheDocument();
 
@@ -250,7 +251,7 @@ describe("AnimalsPage — rows stay inert until a dispatched URL commits", () =>
     releaseCommits();
 
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 600));
+      await settle(600);
     });
     // The guard dropped: rows are interactive content again, not a spinner.
     expect(screen.queryByText("Loading animals…")).not.toBeInTheDocument();

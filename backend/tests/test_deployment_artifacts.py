@@ -19,7 +19,6 @@ import shutil
 import signal
 import subprocess
 import sys
-import textwrap
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -2878,6 +2877,10 @@ def test_production_compose_is_a_standalone_external_tls_topology() -> None:
     assert edge["ports"] == ["127.0.0.1:3000:3000"]
     assert edge["environment"]["GOATFARM_EDGE_PUBLIC_SCHEME"] == "https"
     assert edge["environment"]["GOATFARM_ENVIRONMENT"] == "production"
+    # P2-15: operator-tunable auth flood shaping reaches the production edge
+    # through the same validated entrypoint rendering as every other knob.
+    assert edge["environment"]["GOATFARM_EDGE_AUTH_RATE"] == "${GOATFARM_EDGE_AUTH_RATE:-5r/s}"
+    assert edge["environment"]["GOATFARM_EDGE_AUTH_BURST"] == "${GOATFARM_EDGE_AUTH_BURST:-20}"
     assert edge["networks"]["goatfarm_app"]["ipv4_address"] == (
         "${GOATFARM_EDGE_PROXY_IP:?set an unused IP inside GOATFARM_DOCKER_SUBNET}"
     )
@@ -2893,7 +2896,28 @@ def test_production_compose_is_a_standalone_external_tls_topology() -> None:
         "./docker/edge-proxy.production.conf.template"
     )
     template = (REPO_ROOT / "docker" / "edge-proxy.production.conf.template").read_text()
-    assert "limit_req_zone $binary_remote_addr" in template
+    # P2-15: the production topology's only ingress is the TLS terminator,
+    # so the zone keys on the forwarded client via the map — keying on
+    # $binary_remote_addr aggregated every user into one shared auth bucket.
+    # The map captures the RIGHTMOST X-Forwarded-For entry: the terminator
+    # appends the real client address, so a client can only inject entries
+    # to its LEFT — keying on the first entry let an attacker rotate fresh
+    # buckets or pin a victim's IP. The rate/burst are entrypoint-substituted
+    # operator knobs, not hardcoded literals.
+    assert (
+        "limit_req_zone $auth_flood_key zone=auth_flood:10m rate=__GOATFARM_EDGE_AUTH_RATE__;"
+        in template
+    )
+    assert "burst=__GOATFARM_EDGE_AUTH_BURST__ nodelay;" in template
+    map_block = re.search(
+        r"map \$http_x_forwarded_for \$auth_flood_key \{(.*?)\}", template, re.DOTALL
+    )
+    assert map_block is not None
+    assert "default $binary_remote_addr;" in map_block.group(1)
+    # Rightmost entry: an optional "everything up to the last comma," prefix
+    # before the captured token — never the bare first-capture form.
+    assert "~^(?:.*,)?[ \\t]*(?<client_addr>[^, \\t]+)[ \\t]*$ $client_addr;" in map_block.group(1)
+    assert "map $http_x_forwarded_for $auth_flood_key" in template
     assert "__GOATFARM_EDGE_PUBLIC_SCHEME__" in template
     assert "__GOATFARM_EDGE_MAX_BODY_SIZE__" in template
     assert "img-src 'self' data: blob: __GOATFARM_CSP_IMG_ORIGINS__" in template
@@ -3039,7 +3063,6 @@ def test_compose_env_guard_imports_app_without_an_installed_project(
     ``ModuleNotFoundError``.
     """
     import sysconfig
-    import venv as venv_module
 
     guard = REPO_ROOT / "backend" / "scripts" / "compose_env_guard.py"
     env_file = tmp_path / "valid.env"
@@ -3198,6 +3221,11 @@ def test_edge_runtime_csp_is_validated_before_the_template_is_rendered(tmp_path:
     assert (
         edge["environment"]["GOATFARM_EDGE_MAX_BODY_SIZE"] == "${GOATFARM_EDGE_MAX_BODY_SIZE:-1m}"
     )
+    # P2-15: the rate/burst knobs ride the same validated entrypoint path —
+    # without the env entries an operator's .env override could never reach
+    # the edge container.
+    assert edge["environment"]["GOATFARM_EDGE_AUTH_RATE"] == "${GOATFARM_EDGE_AUTH_RATE:-5r/s}"
+    assert edge["environment"]["GOATFARM_EDGE_AUTH_BURST"] == "${GOATFARM_EDGE_AUTH_BURST:-20}"
     # File-based configs are not Compose-interpolated, so the template pins
     # the literal nginx variable Compose would otherwise substitute to empty.
     assert "limit_req_zone $binary_remote_addr" in proxy
@@ -3206,7 +3234,8 @@ def test_edge_runtime_csp_is_validated_before_the_template_is_rendered(tmp_path:
     # The standalone production manifest uses literal nginx variables in a
     # file config, so exercise the exact runtime-rendered template too.
     production_template = (REPO_ROOT / "docker" / "edge-proxy.production.conf.template").read_text()
-    assert "limit_req_zone $binary_remote_addr" in production_template
+    assert "limit_req_zone $auth_flood_key" in production_template
+    assert "map $http_x_forwarded_for $auth_flood_key" in production_template
     template.write_text(production_template)
     rendered = tmp_path / "default.conf"
     fake_bin = tmp_path / "bin"
@@ -3247,9 +3276,63 @@ def test_edge_runtime_csp_is_validated_before_the_template_is_rendered(tmp_path:
         "connect-src 'self' https://bucket.s3.example.test https://cdn.example.test"
         in rendered_text
     )
-    assert "limit_req_zone $binary_remote_addr zone=auth_flood:10m rate=5r/s;" in rendered_text
+    # P2-15: the zone keys on the forwarded client (rightmost X-Forwarded-For
+    # entry via the map — the address the trusted terminator appends), not
+    # $binary_remote_addr (always the TLS terminator). Defaults render when
+    # the operator sets no rate knobs.
+    assert "limit_req_zone $auth_flood_key zone=auth_flood:10m rate=5r/s;" in rendered_text
+    assert "map $http_x_forwarded_for $auth_flood_key" in rendered_text
+    assert "burst=20 nodelay;" in rendered_text
     assert "proxy_set_header X-Forwarded-Proto http;" in rendered_text
     assert "client_max_body_size 2m;" in rendered_text
+
+    # The rate/burst are operator-tunable through the same validated
+    # rendering path (P2-15): a custom rate/burst renders verbatim, and a
+    # malformed rate refuses at the entrypoint (exit 2) instead of reaching
+    # nginx's boot.
+    custom_env = dict(render_env)
+    custom_env["GOATFARM_EDGE_AUTH_RATE"] = "10r/m"
+    custom_env["GOATFARM_EDGE_AUTH_BURST"] = "44"
+    custom_rendered = tmp_path / "custom-default.conf"
+    custom_env["EDGE_RENDERED_CONFIG_PATH"] = str(custom_rendered)
+    custom_result = subprocess.run(
+        ["/bin/sh", str(script)],
+        env=custom_env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    assert custom_result.returncode == 0, custom_result.stderr
+    custom_text = custom_rendered.read_text()
+    assert "rate=10r/m;" in custom_text
+    assert "burst=44 nodelay;" in custom_text
+
+    for bad_rate in ("5r/ss", "5 r/s", "r/s", "0r/s", "5r/s;"):
+        bad_env = dict(render_env)
+        bad_env["GOATFARM_EDGE_AUTH_RATE"] = bad_rate
+        bad_result = subprocess.run(
+            ["/bin/sh", str(script)],
+            env=bad_env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+        assert bad_result.returncode == 2, (bad_rate, bad_result.stdout, bad_result.stderr)
+        assert "GOATFARM_EDGE_AUTH_RATE" in bad_result.stderr
+    bad_burst_env = dict(render_env)
+    bad_burst_env["GOATFARM_EDGE_AUTH_BURST"] = "20;"
+    bad_burst_result = subprocess.run(
+        ["/bin/sh", str(script)],
+        env=bad_burst_env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    assert bad_burst_result.returncode == 2, bad_burst_result.stderr
+    assert "GOATFARM_EDGE_AUTH_BURST" in bad_burst_result.stderr
 
     # Local Compose carries the same unrendered template content, except it
     # escapes nginx variables with ``$$``. Render it through the exact same

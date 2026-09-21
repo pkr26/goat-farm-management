@@ -15,6 +15,7 @@ import { describe, expect, it, vi } from "vitest";
 import { RemotePicker, type RemotePickerLoadArgs } from "@/components/remote-picker";
 import { Label } from "@/components/ui/label";
 import { createTestQueryClient } from "@/test/render";
+import { settle } from "@/test/settle";
 
 type PickerProps = ComponentProps<typeof RemotePicker>;
 
@@ -64,7 +65,7 @@ function renderStatefulPicker(overrides: Partial<PickerProps> = {}) {
 /** Lets pending macrotasks (the disabled watcher's close timer) run. */
 async function flushTimers() {
   await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    await settle(5);
   });
 }
 

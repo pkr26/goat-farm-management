@@ -11,6 +11,7 @@ import { server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
 import BucketsPage from "./page";
+import { settle } from "@/test/settle";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
@@ -43,7 +44,7 @@ describe("BucketsPage — campaign kills", () => {
     expect(
       await screen.findByText("You don't have access to this page."),
     ).toBeInTheDocument();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settle(50);
     expect(boardRequests).toBe(0);
   });
 });

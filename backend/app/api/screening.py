@@ -61,7 +61,7 @@ from ..schemas.screening import (
     ScreeningUploadIn,
     ScreeningUploadOut,
 )
-from ..services.screening import ScreeningStorage, ScreeningStorageError
+from ..services.screening import ScreeningStorageError, storage_for_settings
 from ..utils import today, utcnow
 
 router = APIRouter(prefix="/api/screening", tags=["screening"], responses=COMMON_ERROR_RESPONSES)
@@ -103,9 +103,7 @@ async def _lock_farm_intake(db: AsyncSession, farm_id: int) -> None:
     """Serialize farm-level intake checks without locking the Farm row."""
     await db.execute(
         select(
-            func.pg_advisory_xact_lock(
-                literal(SCREENING_INTAKE_LOCK_NAMESPACE), literal(farm_id)
-            )
+            func.pg_advisory_xact_lock(literal(SCREENING_INTAKE_LOCK_NAMESPACE), literal(farm_id))
         )
     )
 
@@ -231,7 +229,11 @@ async def get_image(
         raise HTTPException(status_code=404, detail="Screening image not found")
 
     settings = get_settings()
-    storage = ScreeningStorage(settings) if settings.screening_enabled else None
+    # Process-wide storage instance: constructing ScreeningStorage per
+    # request minted a fresh boto3 client (and TLS/session setup) on every
+    # detail view and upload registration for nothing (P3, 2026-09-20
+    # audit).
+    storage = storage_for_settings(settings) if settings.screening_enabled else None
     # SigV4 signing only — no network call, safe inside a request.
     image_url = storage.presign_get(image.normalized_key or image.s3_key) if storage else None
 
@@ -481,7 +483,9 @@ async def export_dataset(
 ) -> ScreeningDatasetExportOut:
     """The fine-tuning corpus: findings with image/crop references and the
     vet verdict that makes each label trustworthy. Defaults to every
-    reviewed finding; pass vet_status=ALL to include the pending queue."""
+    finding INCLUDING the pending review queue (each record carries
+    ``vet_status`` so consumers can filter); pass vet_status=CONFIRMED or
+    REJECTED for reviewed-only exports."""
     filters = [ScreeningFinding.farm_id == farm.id]
     if vet_status != "ALL":
         filters.append(ScreeningFinding.status == vet_status)
@@ -872,7 +876,7 @@ async def request_upload(
     # back rather than leaving a row whose form was never handed to a client.
     await db.flush()
     try:
-        upload = ScreeningStorage(settings).presign_post(
+        upload = storage_for_settings(settings).presign_post(
             key,
             content_type=payload.content_type,
             upload_token=upload_token,

@@ -17,6 +17,7 @@ import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { TEST_ACCESS_TOKEN, TEST_USER, server } from "@/test/msw-server";
 import { createTestQueryClient, renderWithProviders } from "@/test/render";
 import { QueryClientProvider } from "@tanstack/react-query";
+import { settle } from "@/test/settle";
 
 const { pushMock, replaceMock, navState } = vi.hoisted(() => ({
   pushMock: vi.fn(),
@@ -436,7 +437,7 @@ describe("AuthProvider actions", () => {
     // this synthetic never-response parked would poison later tests instead.
     await act(async () => {
       releaseLogout();
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await settle(0);
     });
   });
 

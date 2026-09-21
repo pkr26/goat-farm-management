@@ -22,6 +22,7 @@ import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
 import { makeDutySchema, default as TasksPage } from "./page";
+import { settle } from "@/test/settle";
 
 const nav = vi.hoisted(() => ({
   state: { search: "" },
@@ -388,7 +389,7 @@ describe("TasksPage — campaign kills", () => {
     act(() => setCurrentFarmId("77"));
     await act(async () => {
       rejectRelease();
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await settle(50);
     });
     expect(toastMocks.success).not.toHaveBeenCalled();
     expect(toastMocks.error).not.toHaveBeenCalled();
@@ -445,7 +446,7 @@ describe("TasksPage — campaign kills", () => {
     act(() => setCurrentFarmId("77"));
     await act(async () => {
       releaseAction();
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await settle(50);
     });
     expect(toastMocks.success).not.toHaveBeenCalled();
     expect(toastMocks.error).not.toHaveBeenCalled();
@@ -530,7 +531,7 @@ describe("TasksPage — campaign kills", () => {
     act(() => setCurrentFarmId("77"));
     await act(async () => {
       rejectFail();
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await settle(50);
     });
     expect(toastMocks.success).not.toHaveBeenCalled();
     expect(toastMocks.error).not.toHaveBeenCalled();
@@ -721,12 +722,12 @@ describe("TasksPage — campaign kills, second wave", () => {
     );
     renderWithProviders(<TasksPage />);
     await loadedBoard(1);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settle(50);
     expect(teamGets).toBe(0);
 
     await userEvent.click(screen.getByRole("tab", { name: /completed/i }));
     await screen.findByText("No completed tasks.");
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await settle(300);
     expect(teamGets).toBe(0);
   });
 
@@ -1269,7 +1270,7 @@ describe("TasksPage dialogs — campaign kills", () => {
     await waitFor(() => expect(rejectComplete).toBeDefined());
     await act(async () => {
       rejectComplete();
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await settle(50);
     });
     expect(
       await within(screen.getByRole("dialog")).findByText(/Review the duty, then try again\./),
@@ -1432,7 +1433,7 @@ describe("TasksPage create dialog — campaign kills", () => {
     act(() => setCurrentFarmId("77"));
     await act(async () => {
       failCreate();
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await settle(50);
     });
     expect(toastMocks.error).not.toHaveBeenCalled();
     expect(toastMocks.success).not.toHaveBeenCalled();

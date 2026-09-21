@@ -961,6 +961,14 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
   const fetchedPrefillRecord =
     prefillRecordQuery.data?.status === 200 ? prefillRecordQuery.data.data : undefined;
   const requestedRecord = pagedPrefillRecord ?? fetchedPrefillRecord;
+  // A 404 from the pregnancy endpoint IS the stale-link case: the record was
+  // resolved to another outcome or removed, so no explainer record can ever
+  // load. Treating it as a load error produced a destructive banner whose
+  // Retry could never succeed (2026-09-20 audit P2-19).
+  const deepLinkNotFound =
+    prefillRecordQuery.isError &&
+    prefillRecordQuery.error instanceof ApiError &&
+    prefillRecordQuery.error.status === 404;
   const deepLinkedRecord =
     canManage &&
     dismissedPrefillId !== requestedBreedingId &&
@@ -977,8 +985,9 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
     // Stryker disable next-line ConditionalExpression: same layered-guard argument via requestedRecord
     requestedBreedingId !== null &&
     dismissedPrefillId !== requestedBreedingId &&
-    requestedRecord !== undefined &&
-    (requestedRecord.outcome !== "CONFIRMED_PREGNANT" || requestedRecord.has_kidding);
+    (deepLinkNotFound ||
+      (requestedRecord !== undefined &&
+        (requestedRecord.outcome !== "CONFIRMED_PREGNANT" || requestedRecord.has_kidding)));
 
   useEffect(() => {
     // Scope dismissal to one continuous URL intent. Query-only navigation can
@@ -1094,12 +1103,14 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
         </p>
       )}
 
-      {staleDeepLink && requestedRecord && (
+      {staleDeepLink && (
         <div role="status" className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-muted-foreground">
-            {requestedRecord.has_kidding
-              ? `Pregnancy #${requestedBreedingId} already has a ${vocabulary.parturition} recorded.`
-              : `Pregnancy #${requestedBreedingId} is no longer confirmed pregnant — no ${vocabulary.parturition} to record.`}
+            {deepLinkNotFound
+              ? `Pregnancy #${requestedBreedingId} is no longer available — it was resolved, recorded, or removed. There is nothing to record here.`
+              : requestedRecord?.has_kidding
+                ? `Pregnancy #${requestedBreedingId} already has a ${vocabulary.parturition} recorded.`
+                : `Pregnancy #${requestedBreedingId} is no longer confirmed pregnant — no ${vocabulary.parturition} to record.`}
           </span>
           <Button
             type="button"
@@ -1112,7 +1123,7 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
         </div>
       )}
 
-      {prefillRecordQuery.isError && (
+      {prefillRecordQuery.isError && !deepLinkNotFound && (
         <div className="flex flex-wrap items-center gap-2" role="alert">
           <span className="text-sm text-destructive">
             {prefillRecordQuery.error instanceof ApiError

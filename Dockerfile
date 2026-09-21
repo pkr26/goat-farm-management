@@ -42,8 +42,11 @@ COPY backend/pyproject.toml backend/uv.lock ./
 # `pip install .` resolves pyproject ranges and ignores uv.lock. Install the
 # pinned uv client, then require the committed lock (including artifact
 # hashes) without development tools or the not-yet-copied local project.
+# `--no-cache` keeps uv's wheel cache out of this layer — the venv already
+# holds every installed wheel, so the cache shipped every wheel twice
+# (~90 MB+ of dead image weight; P3, 2026-09-20 audit).
 RUN pip install --no-cache-dir uv==0.12.1 \
-    && uv sync --frozen --no-dev --no-install-project \
+    && uv sync --locked --no-dev --no-install-project --no-cache \
     && groupadd --system --gid 10001 goatfarm \
     && useradd --system --uid 10001 --gid goatfarm goatfarm \
     && install -d -o goatfarm -g goatfarm -m 0700 /app/keys

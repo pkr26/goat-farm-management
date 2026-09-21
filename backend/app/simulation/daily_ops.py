@@ -1184,6 +1184,12 @@ class _DailyOpsRun:
                 continue
             doe.bred_day = day
             doe.assigned_buck = buck.tag
+            # A starter that arrived mid-pregnancy carries a start-gestation
+            # milestone_floor so passed milestones do not retro-fire; every
+            # later pregnancy must start from a clean slate or her whole
+            # breeding life suppresses PREGNANCY_LATE/DELIVERY/vaccine
+            # milestones that predate her arrival (2026-09-20 audit P1-4).
+            doe.milestone_floor = -1
             doe.moved_to_late = False
             doe.vaccine_primary_done = False
             doe.vaccine_booster_done = False
@@ -1283,9 +1289,16 @@ class _DailyOpsRun:
 
     def _weaning_and_postpartum(self, day: int) -> None:
         for animal in sorted(self._active(), key=lambda a: a.tag):
-            if animal.sex != "F" or animal.bucket != Bucket.RECOVERY.value:
+            if animal.bucket != Bucket.RECOVERY.value:
                 continue
-            if animal.kidding_day is not None and animal.kids_with_dam:
+            # Dams and postpartum does are female-only, but DEPENDENT KIDS
+            # may be male (a starter buck kid housed with its dam is exactly
+            # what dependent_kid describes). Filtering the whole loop on
+            # sex == "F" stranded male starter kids in RECOVERY for life —
+            # no feed line after the creep window and kid mortality hazard
+            # forever (2026-09-20 audit P2-6) — so each branch guards its
+            # own precondition instead.
+            if animal.sex == "F" and animal.kidding_day is not None and animal.kids_with_dam:
                 if day >= animal.kidding_day + _PROFILE.weaning_days:
                     self._record(
                         day,
@@ -1316,7 +1329,11 @@ class _DailyOpsRun:
                         "weaning",
                         "Kids weaned",
                     )
-            elif animal.postpartum_due_day is not None and day >= animal.postpartum_due_day:
+            elif (
+                animal.sex == "F"
+                and animal.postpartum_due_day is not None
+                and day >= animal.postpartum_due_day
+            ):
                 self._record(
                     day,
                     TIME_DUTIES,

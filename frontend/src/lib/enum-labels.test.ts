@@ -73,7 +73,6 @@ describe("enumLabel", () => {
 
   it("labels the insurance register lifecycle", () => {
     expect(enumLabel("insuranceStatus", "active")).toBe("Active");
-    expect(enumLabel("insuranceStatus", "renewed")).toBe("Renewed");
     expect(enumLabel("insuranceStatus", "lapsed")).toBe("Lapsed");
     expect(enumLabel("insuranceStatus", "claimed")).toBe("Claimed");
   });

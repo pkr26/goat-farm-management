@@ -485,7 +485,12 @@ describe("SimulationPage", () => {
     await user.click(screen.getByRole("button", { name: "Compare selected" }));
     await waitFor(() => expect(releaseCompare).toBeTypeOf("function"));
     const adHocRun = screen.getByRole("button", { name: "Run simulation" });
-    const planOneRow = screen.getByText("Plan 1").closest("tr") as HTMLElement;
+    // The removable compare chip also renders "Plan 1" (P2-20); match the
+    // table row specifically.
+    const planOneRow = screen
+      .getAllByText("Plan 1")
+      .map((node) => node.closest("tr"))
+      .find(Boolean) as HTMLElement;
     const savedRun = within(planOneRow).getByRole("button", { name: "Run" });
     expect(adHocRun).toBeDisabled();
     expect(savedRun).toBeDisabled();
@@ -696,7 +701,7 @@ describe("SimulationPage", () => {
     expect(screen.getByRole("button", { name: "Compare selected" })).toBeEnabled();
 
     await user.click(screen.getByRole("button", { name: "Previous" }));
-    expect(await screen.findByText("Plan 1")).toBeInTheDocument();
+    expect((await screen.findAllByText("Plan 1")).length).toBeGreaterThan(0);
     expect(screen.getByLabelText("Compare Plan 1")).toBeChecked();
   });
 
@@ -732,7 +737,7 @@ describe("SimulationPage", () => {
     expect(
       await screen.findByText("Showing 1–20 of 20 saved scenarios"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Plan 1")).toBeInTheDocument();
+    expect(screen.getAllByText("Plan 1").length).toBeGreaterThan(0);
     expect(screen.queryByText("Plan 21")).not.toBeInTheDocument();
   });
 

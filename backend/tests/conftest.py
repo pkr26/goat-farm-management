@@ -122,6 +122,10 @@ async def _clean_tables(request: pytest.FixtureRequest):
     _ROTATED_EMAILS.clear()
     tables = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
     async with get_sessionmaker()() as db:
+        # Bound the wait instead of hanging the whole suite: a leaked lock
+        # from a crashed test used to block TRUNCATE forever (P3,
+        # 2026-09-20 audit) — 5s then a loud error beats an indefinite hang.
+        await db.execute(text("SET lock_timeout = '5s'"))
         await db.execute(text(f"TRUNCATE TABLE {tables} RESTART IDENTITY CASCADE"))
         await seed_reference_data(db)
         await db.commit()

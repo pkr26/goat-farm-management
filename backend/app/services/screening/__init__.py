@@ -62,6 +62,7 @@ from .s3 import (
     ScreeningStorage,
     ScreeningStorageError,
     get_screening_storage,
+    storage_for_settings,
 )
 from .specialists import (
     DISEASE_VOCABULARY,
@@ -132,4 +133,5 @@ __all__ = [
     "run_specialist",
     "specialist_for_region",
     "specialist_prompt",
+    "storage_for_settings",
 ]

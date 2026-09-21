@@ -19,6 +19,7 @@ import { renderWithProviders } from "@/test/render";
 import { addDays, farmToday, setActiveFarmTimezone } from "@/lib/format";
 
 import AnimalsPage from "./page";
+import { settle } from "@/test/settle";
 
 const nav = vi.hoisted(() => ({ searchParams: new URLSearchParams() }));
 
@@ -802,7 +803,7 @@ describe("AnimalsPage extended", () => {
       setDate(within(dialog).getByLabelText("Entry weight (kg)"), "24");
       await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
       expect(
-        await within(dialog).findByText(/doe must be at least 10 months old/),
+        await within(dialog).findByText(/doe must be at least 12 months old/),
       ).toBeInTheDocument();
       expect(postCalls).toBe(0);
     });
@@ -844,14 +845,14 @@ describe("AnimalsPage extended", () => {
         "Exact breeding boundary fixture",
       );
       await pickOption(user, within(dialog).getAllByRole("combobox")[2], "Breeding");
-      setDate(within(dialog).getByLabelText(/date of birth/i), calendarMonthsAgo(10));
+      setDate(within(dialog).getByLabelText(/date of birth/i), calendarMonthsAgo(12));
       setDate(within(dialog).getByLabelText("Entry weight (kg)"), "22");
       await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
 
       await waitFor(() => expect(postCalls).toBe(1));
       expect(postBody).toMatchObject({
         current_bucket: "BREEDING",
-        date_of_birth: calendarMonthsAgo(10),
+        date_of_birth: calendarMonthsAgo(12),
         weight_kg: 22,
       });
     });
@@ -872,12 +873,12 @@ describe("AnimalsPage extended", () => {
       await pickOption(user, within(dialog).getAllByRole("combobox")[2], "Breeding");
       setDate(
         within(dialog).getByLabelText(/date of birth/i),
-        addDays(calendarMonthsAgo(10), 1),
+        addDays(calendarMonthsAgo(12), 1),
       );
       setDate(within(dialog).getByLabelText("Entry weight (kg)"), "22");
       await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
 
-      expect(await within(dialog).findByText(/doe must be at least 10 months old/))
+      expect(await within(dialog).findByText(/doe must be at least 12 months old/))
         .toBeInTheDocument();
       expect(postCalls).toBe(0);
     });
@@ -991,7 +992,7 @@ describe("AnimalsPage extended", () => {
 
       act(() => setCurrentFarmId("99"));
       release();
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await settle(100);
       expect(toastMock.success).not.toHaveBeenCalledWith("Animal added.");
       expect(screen.getByRole("dialog")).toBeInTheDocument();
 

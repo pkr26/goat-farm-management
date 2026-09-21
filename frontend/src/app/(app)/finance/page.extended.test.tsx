@@ -152,7 +152,7 @@ function financeHandler(payload: Record<string, unknown>) {
 
 async function renderLoaded() {
   renderWithProviders(<FinancePage />);
-  expect(await screen.findByText("Total income")).toBeInTheDocument();
+  expect(await screen.findByText("Total income (all time)")).toBeInTheDocument();
 }
 
 /** Ledger/P&L rows also render in below-md card lists (md:hidden) inside the
@@ -181,9 +181,9 @@ describe("FinancePage totals and P&L", () => {
     await renderLoaded();
 
     // StatCard renders value directly below its label.
-    const incomeLabel = screen.getByText("Total income");
+    const incomeLabel = screen.getByText("Total income (all time)");
     expect(incomeLabel.nextElementSibling).toHaveTextContent("₹1,50,000");
-    const expenseLabel = screen.getByText("Total expense");
+    const expenseLabel = screen.getByText("Total expense (all time)");
     expect(expenseLabel.nextElementSibling).toHaveTextContent("₹90,000");
     const netLabel = screen.getByText("Net (all time)");
     expect(netLabel.nextElementSibling).toHaveTextContent("₹60,000");
@@ -501,7 +501,7 @@ describe("FinancePage RBAC and errors", () => {
   it("hides New transaction for a finance.view-only user", async () => {
     server.use(permissionsHandler(["finance.view"]), financeHandler(PAYLOAD));
     renderWithProviders(<FinancePage />);
-    expect(await screen.findByText("Total income")).toBeInTheDocument();
+    expect(await screen.findByText("Total income (all time)")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "New transaction" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Correct" })).not.toBeInTheDocument();
   });
@@ -555,7 +555,7 @@ describe("FinancePage RBAC and errors", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("ledger temporarily unavailable");
     fail = false;
     await user.click(screen.getByRole("button", { name: "Retry finance" }));
-    expect(await screen.findByText("Total income")).toBeInTheDocument();
+    expect(await screen.findByText("Total income (all time)")).toBeInTheDocument();
     expect(calls).toBe(2);
   });
 });
@@ -1176,7 +1176,7 @@ describe("FinancePage — mortality memo", () => {
   it("omits the mortality sentence entirely when the window had no deaths", async () => {
     server.use(financeHandler({ transactions: [], pnl: [] }));
     renderWithProviders(<FinancePage />);
-    await screen.findByText("Total income");
+    await screen.findByText("Total income (all time)");
     expect(screen.queryByText(/death/i)).not.toBeInTheDocument();
   });
 });

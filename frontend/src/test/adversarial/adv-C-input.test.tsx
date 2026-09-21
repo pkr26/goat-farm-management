@@ -21,6 +21,7 @@ import FinancePage from "@/app/(app)/finance/page";
 import { StatusBadge } from "@/components/status-badge";
 import { renderWithProviders } from "@/test/render";
 import { server } from "@/test/msw-server";
+import { settle } from "@/test/settle";
 
 const { toastMock } = vi.hoisted(() => ({
   toastMock: { success: vi.fn(), error: vi.fn() },
@@ -163,7 +164,7 @@ describe("ADV C2: overlong animal name is a SILENT block (expected to CONFIRM M-
     await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
 
     // Give any would-be request a moment to fire.
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    await settle(150);
     expect(creates).toBe(0);
     await waitFor(() =>
       expect(within(dialog).getAllByRole("alert").length).toBeGreaterThan(0),

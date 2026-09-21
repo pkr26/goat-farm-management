@@ -24,6 +24,7 @@ import {
   apiFetch,
   authSessionEpochValue,
   refreshSession,
+  refreshSessionDetailed,
   setAccessToken,
   setCurrentFarmId,
   setOnAuthFailure,
@@ -35,6 +36,9 @@ import { setActiveFarmTimezone } from "@/lib/format";
 // schema drift breaks tsc here instead of silently diverging.
 export type SessionUser = UserOut;
 export type FarmEntry = FarmOut;
+
+// Bootstrap retry budget for TRANSIENT refresh failures only.
+const BOOTSTRAP_REFRESH_ATTEMPTS = 3;
 
 export interface AuthState {
   user: SessionUser | null;
@@ -114,6 +118,8 @@ function providerUnmountedError(): Error {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
+  // Mirrors `user` for the cross-tab storage listener without effect churn.
+  const userRef = useRef<SessionUser | null>(null);
   const [farms, setFarms] = useState<FarmEntry[]>([]);
   const farmsRef = useRef<FarmEntry[]>([]);
   const [farmId, setFarmIdState] = useState<number | null>(null);
@@ -156,6 +162,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   } | null>(null);
 
   // Stryker disable ArrayDeclaration: a constant string dep never changes, so the effect still runs exactly once
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+
   useEffect(() => {
     // React Strict Mode rehearses cleanup/setup without discarding refs.
     mounted.current = true;
@@ -416,12 +426,61 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return setOnAuthFailure(handleAuthFailure);
   }, [clearSession, router]);
 
+  // Cross-tab sync (P3, 2026-09-20 audit): localStorage storage events fire
+  // only in OTHER tabs, which is exactly the audience — a farm switch or a
+  // sign-out in one tab previously left every other tab on the stale farm
+  // (its next write targeted the previous tenant) or on a dead session.
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== FARM_STORAGE_KEY) return;
+      if (event.newValue === null) {
+        // Another tab tore its session down (clearSession removes the key):
+        // mirror the forced-logout cleanup here instead of letting requests
+        // 401 one by one against a revoked family.
+        if (userRef.current === null) return;
+        if (forcedLogout.current) return;
+        forcedLogout.current = true;
+        clearSession();
+        router.replace("/login");
+        return;
+      }
+      const stored = Number(event.newValue);
+      if (
+        Number.isSafeInteger(stored) &&
+        stored > 0 &&
+        stored !== farmIdRef.current &&
+        farmsRef.current.some((farm) => farm.id === stored)
+      ) {
+        selectFarm(stored);
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [clearSession, router, selectFarm]);
+
   useEffect(() => {
     if (initialRefreshStarted.current) return;
     initialRefreshStarted.current = true;
     (async () => {
       try {
-        const body = await refreshSession();
+        // "unavailable" (5xx/408/429/network/non-JSON) is NOT the server
+        // saying the session is over — collapsing it into the signed-out
+        // path let one transient blip at tab-open sign the operator out of a
+        // perfectly valid session (P3, 2026-09-20 audit). Retry those with a
+        // short backoff; only an authoritative "rejected" (or an exhausted
+        // retry budget) may land in the signed-out redirect.
+        let body: Awaited<ReturnType<typeof refreshSession>> = null;
+        for (let attempt = 0; attempt < BOOTSTRAP_REFRESH_ATTEMPTS; attempt += 1) {
+          const outcome = await refreshSessionDetailed();
+          if (outcome.kind === "session") {
+            body = outcome.body;
+            break;
+          }
+          if (outcome.kind === "rejected") break;
+          if (attempt < BOOTSTRAP_REFRESH_ATTEMPTS - 1) {
+            await new Promise((resolve) => window.setTimeout(resolve, 750));
+          }
+        }
         // Stryker disable next-line ConditionalExpression, LogicalOperator: the false variant is regression-covered by the session-restore tests; the true variant is equivalent (a null body deref crashes into the same catch as skipping)
         if (body && mounted.current) {
           // A farms failure here must not revoke the refresh family this call
@@ -430,7 +489,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           await establishSession(body.access_token, body.user, false);
         }
       } catch {
-        // Refresh failed (network error or non-JSON body): stay signed out.
+        // Refresh threw (client-side transport error): stay signed out.
         // loading settles in finally and the redirect effect sends /login.
       } finally {
         // setState after unmount is a React no-op; no mounted re-check needed.

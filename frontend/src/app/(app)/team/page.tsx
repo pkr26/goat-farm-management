@@ -127,8 +127,9 @@ const PERMISSION_DEPENDENCIES: Record<string, string> = {
   "health.manage": "health.view",
   "purchases.manage": "purchases.view",
   "feeding.manage": "feeding.view",
-  "milk.manage": "milk.view",
-  "milk.quality": "milk.manage",
+  // milk.manage/milk.quality left the server vocabulary with the goat-only
+  // simplification; the dead entries are gone so nobody re-wires a role to a
+  // permission no endpoint checks (P3, 2026-09-20 audit).
   "tasks.create": "tasks.view",
   "tasks.complete": "tasks.view",
   "tasks.verify": "tasks.view",

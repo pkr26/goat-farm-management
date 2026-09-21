@@ -16,6 +16,7 @@ import { permissionsHandler, server } from "@/test/msw-server";
 import { createTestQueryClient, renderWithProviders } from "@/test/render";
 
 import SimulationPage from "./page";
+import { settle } from "@/test/settle";
 
 const toastMocks = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
 vi.mock("sonner", () => ({ toast: toastMocks }));
@@ -822,7 +823,7 @@ describe("SimulationPage herd events", () => {
       // correctly disarmed; an immediate assertion can observe the old editor
       // even when a mutant has wrongly re-armed defaults acceptance.
       await act(async () => {
-        await new Promise((resolve) => window.setTimeout(resolve, 50));
+        await settle(50);
       });
     }
 

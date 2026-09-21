@@ -86,7 +86,7 @@ async def test_create_farm_whitespace_only_name_rejected(client: httpx.AsyncClie
     and rejects with 400."""
     headers = await register(client, "wsf@farm.in")
     resp = await client.post("/api/auth/farms", json={"name": "   "}, headers=headers)
-    assert resp.status_code in (400, 422), resp.status_code
+    assert resp.status_code == 400, resp.status_code
 
 
 # FIXED — regression test

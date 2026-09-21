@@ -259,6 +259,15 @@ def _https_or_loopback_url(value: str, *, setting: str) -> str:
         raise ValueError(f"{setting} {value!r} must include a host, not just a scheme")
     if parsed.scheme != "https" and host not in _LOOPBACK_HOSTS:
         raise ValueError(f"{setting} {value!r} must use https:// (or an explicit loopback host)")
+    try:
+        # urlsplit defers port parsing to this property; an out-of-range or
+        # non-numeric port ("https://host:99999") raises here, not at split.
+        # Reading it converts a boot-clean-but-broken URL into a boot failure
+        # (2026-09-20 audit P2-12 — sibling validators already read .port).
+        _port: int | None = parsed.port
+    except ValueError as exc:
+        raise ValueError(f"{setting} {value!r} has an invalid port: {exc}") from exc
+    del _port  # read for validation only
     return value.rstrip("/")
 
 
@@ -512,6 +521,23 @@ def _screening_configuration_problems(settings: ScreeningRuntimeSettings) -> lis
             settings.screening_openai_api_key
         ):
             missing.append("GOATFARM_SCREENING_OPENAI_API_KEY")
+    # The stale-claim horizon must cover one worst-case silent window:
+    # detection chain + one crop's gate chain + specialists + cross-check ≈
+    # (2 × providers + 6) provider timeouts.  A horizon shorter than that
+    # lets a second worker stale-reclaim a live row mid-cascade — duplicate
+    # runs, duplicate findings, double provider billing (2026-09-20 audit
+    # P2-10).  Leased row locks narrow the window but only this invariant
+    # removes the legal-but-pathological configurations outright.
+    provider_count = max(1, len(settings.screening_provider_rotation))
+    worst_cascade_seconds = (2 * provider_count + 6) * settings.screening_provider_timeout_seconds
+    if settings.screening_stale_processing_after_seconds < worst_cascade_seconds:
+        missing.append(
+            f"GOATFARM_SCREENING_STALE_PROCESSING_AFTER_SECONDS="
+            f"{settings.screening_stale_processing_after_seconds}s is shorter than one "
+            f"worst-case cascade ({worst_cascade_seconds}s for {provider_count} "
+            f"provider(s) at {settings.screening_provider_timeout_seconds}s timeout) — "
+            "raise the horizon or lower the timeout/rotation"
+        )
     return missing
 
 

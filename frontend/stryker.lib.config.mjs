@@ -8,11 +8,14 @@ const config = {
     related: true,
   },
   mutate: [
-    "src/lib/**/*.ts",
-    "src/hooks/**/*.ts",
+    // *.{ts,tsx}, not just *.ts: auth-context.tsx and i18n/index.tsx are the
+    // session/i18n core — a .ts-only glob silently excluded them from the
+    // score this shard appeared to cover (2026-09-20 audit P1-11).
+    "src/lib/**/*.{ts,tsx}",
+    "src/hooks/**/*.{ts,tsx}",
     "src/api/custom-instance.ts",
-    "!src/lib/**/*.test.ts",
-    "!src/hooks/**/*.test.ts",
+    "!src/lib/**/*.test.{ts,tsx}",
+    "!src/hooks/**/*.test.{ts,tsx}",
   ],
   reporters: ["clear-text", "json"],
   jsonReporter: { fileName: "reports/mutation/lib.json" },

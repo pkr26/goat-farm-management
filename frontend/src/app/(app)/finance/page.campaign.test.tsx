@@ -20,6 +20,7 @@ vi.mock("sonner", () => ({ toast: toastMocks }));
 
 import FinancePage from "./page";
 import PurchasesPage from "@/app/(app)/purchases/page";
+import { settle } from "@/test/settle";
 
 const replaceMock = vi.fn();
 let urlParams = new URLSearchParams();
@@ -103,7 +104,7 @@ describe("FinancePage — campaign kills", () => {
   it("never forwards a malformed month param to the API", async () => {
     urlParams = new URLSearchParams("month=garbage");
     renderWithProviders(<FinancePage />);
-    expect(await screen.findByText("Total income")).toBeInTheDocument();
+    expect(await screen.findByText("Total income (all time)")).toBeInTheDocument();
     await waitFor(() => expect(lastParams.get("month")).toBeNull());
   });
 
@@ -120,7 +121,7 @@ describe("FinancePage — campaign kills", () => {
       ),
     );
     renderWithProviders(<FinancePage />);
-    await screen.findByText("Total income");
+    await screen.findByText("Total income (all time)");
 
     const jan = formatDate("2026-01-05");
     const feb = formatDate("2026-02-05");
@@ -143,7 +144,7 @@ describe("FinancePage — campaign kills", () => {
 
   it("accepts a canonical month change and rejects near-miss shapes", async () => {
     renderWithProviders(<FinancePage />);
-    await screen.findByText("Total income");
+    await screen.findByText("Total income (all time)");
     const monthInput = screen.getByLabelText("Filter by month");
 
     fireEvent.change(monthInput, { target: { value: "2026-03" } });
@@ -159,7 +160,7 @@ describe("FinancePage — campaign kills", () => {
   it("clears all ledger filters from the URL in one write", async () => {
     urlParams = new URLSearchParams("month=2026-03&type=INCOME&category=ANIMAL_SALE");
     renderWithProviders(<FinancePage />);
-    await screen.findByText("Total income");
+    await screen.findByText("Total income (all time)");
 
     await userEvent.click(screen.getByRole("button", { name: /^Clear$/ }));
     await waitFor(() => expect(replaceMock).toHaveBeenCalled());
@@ -179,7 +180,7 @@ describe("FinancePage — campaign kills", () => {
     );
     const user = userEvent.setup();
     renderWithProviders(<FinancePage />);
-    await screen.findByText("Total income");
+    await screen.findByText("Total income (all time)");
 
     await screen.findByText("Transactions");
     await user.click(ledgerScope().getByRole("button", { name: "Correct" }));
@@ -222,7 +223,7 @@ describe("FinancePage — campaign kills", () => {
     server.use(permissionsHandler(["finance.view", "finance.manage"]));
     const user = userEvent.setup();
     renderWithProviders(<FinancePage />);
-    await screen.findByText("Total income");
+    await screen.findByText("Total income (all time)");
 
     await screen.findByText("Transactions");
     await user.click(ledgerScope().getByRole("button", { name: "Correct" }));
@@ -246,7 +247,7 @@ describe("FinancePage — campaign kills", () => {
     );
     const user = userEvent.setup();
     renderWithProviders(<FinancePage />);
-    await screen.findByText("Total income");
+    await screen.findByText("Total income (all time)");
 
     // Success path: resolve after the farm changed → silent.
     await screen.findByText("Transactions");
@@ -262,7 +263,7 @@ describe("FinancePage — campaign kills", () => {
     act(() => setCurrentFarmId("77"));
     await act(async () => {
       releaseCorrection();
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await settle(50);
     });
     expect(toastMocks.success).not.toHaveBeenCalled();
     // The success continuation was suppressed, so the dialog is still open.
@@ -275,7 +276,7 @@ describe("FinancePage — campaign kills", () => {
     failCorrection = undefined as unknown as () => void;
     await act(async () => {
       setCurrentFarmId("1");
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await settle(20);
     });
     await screen.findByText("Transactions");
     await user.click(ledgerScope().getByRole("button", { name: "Correct" }));
@@ -290,7 +291,7 @@ describe("FinancePage — campaign kills", () => {
     act(() => setCurrentFarmId("77"));
     await act(async () => {
       failCorrection();
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await settle(50);
     });
     expect(toastMocks.error).not.toHaveBeenCalled();
   });
@@ -298,7 +299,7 @@ describe("FinancePage — campaign kills", () => {
   it("labels enum options in the filter selects and the add dialog", async () => {
     const user = userEvent.setup();
     renderWithProviders(<FinancePage />);
-    await screen.findByText("Total income");
+    await screen.findByText("Total income (all time)");
 
     await user.click(screen.getByRole("combobox", { name: "Filter transactions by type" }));
     expect(await screen.findByRole("option", { name: "Income" })).toBeInTheDocument();
@@ -325,7 +326,7 @@ describe("FinancePage — campaign kills", () => {
     );
     const user = userEvent.setup();
     renderWithProviders(<FinancePage />);
-    await screen.findByText("Total income");
+    await screen.findByText("Total income (all time)");
 
     await user.click(screen.getByRole("button", { name: "New transaction" }));
     const dialog = await screen.findByRole("dialog", { name: "New transaction" });
@@ -340,7 +341,7 @@ describe("FinancePage — campaign kills", () => {
     // Escape while the write is out: the reopened dialog must keep new input.
     await act(async () => {
       releaseAdd();
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      await settle(30);
     });
     await waitFor(() =>
       expect(toastMocks.success).toHaveBeenCalledWith("Transaction saved."),
@@ -363,7 +364,7 @@ describe("FinancePage — campaign kills", () => {
     );
     const user = userEvent.setup();
     renderWithProviders(<FinancePage />);
-    await screen.findByText("Total income");
+    await screen.findByText("Total income (all time)");
 
     await user.click(screen.getByRole("button", { name: "New transaction" }));
     let dialog = await screen.findByRole("dialog", { name: "New transaction" });
@@ -397,7 +398,7 @@ describe("FinancePage — campaign kills", () => {
     );
     const user = userEvent.setup();
     renderWithProviders(<FinancePage />);
-    await screen.findByText("Total income");
+    await screen.findByText("Total income (all time)");
     expect(screen.queryByText("Could not refresh — showing the last loaded data.")).toBeNull();
 
     await screen.findByText("Transactions");
@@ -437,7 +438,7 @@ describe("FinancePage — campaign kills", () => {
     );
     const user = userEvent.setup();
     renderWithProviders(<FinancePage />);
-    await screen.findByText("Total income");
+    await screen.findByText("Total income (all time)");
 
     await user.click(screen.getByRole("button", { name: "New transaction" }));
     const dialog = await screen.findByRole("dialog", { name: "New transaction" });
@@ -449,7 +450,7 @@ describe("FinancePage — campaign kills", () => {
     act(() => setCurrentFarmId("77"));
     await act(async () => {
       settleAdd(false);
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await settle(50);
     });
     expect(toastMocks.success).not.toHaveBeenCalled();
     expect(toastMocks.error).not.toHaveBeenCalled();
@@ -458,7 +459,7 @@ describe("FinancePage — campaign kills", () => {
   it("closes the correction dialog through its Cancel control", async () => {
     const user = userEvent.setup();
     renderWithProviders(<FinancePage />);
-    await screen.findByText("Total income");
+    await screen.findByText("Total income (all time)");
 
     await screen.findByText("Transactions");
     await user.click(ledgerScope().getByRole("button", { name: "Correct" }));
@@ -555,7 +556,7 @@ describe("PurchasesPage — campaign kills", () => {
 
     await act(async () => {
       releaseCreate();
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      await settle(30);
     });
     await waitFor(() =>
       expect(toastMocks.success).toHaveBeenCalledWith("Purchase batch created."),
@@ -600,7 +601,7 @@ describe("PurchasesPage — campaign kills", () => {
     act(() => setCurrentFarmId("77"));
     await act(async () => {
       releaseCreate();
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await settle(50);
     });
     expect(toastMocks.success).not.toHaveBeenCalled();
     // The suppressed continuation must not have closed the dialog either.
@@ -634,7 +635,7 @@ describe("PurchasesPage — campaign kills", () => {
     toastMocks.error.mockClear();
     await act(async () => {
       failCreate();
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await settle(50);
     });
     expect(toastMocks.error).not.toHaveBeenCalled();
 

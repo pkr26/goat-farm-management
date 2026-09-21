@@ -15,6 +15,59 @@ permissions:
   contents: read
 
 jobs:
+  migration-immutability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Applied Alembic revisions are immutable
+        # An in-place edit of an already-shipped revision desynchronizes
+        # every database that already applied it — c8f1d3a5e709's first
+        # variant silently rewrote ledger rows on databases that had not yet
+        # migrated, and databases that HAD migrated were left with no record
+        # of the change (2026-09-20 audit P2-14). New migrations are
+        # additions; modifying/renaming/deleting an existing
+        # backend/alembic/versions/*.py must ship as a NEW revision instead.
+        #
+        # The one sanctioned exception: a defect INSIDE an applied revision's
+        # own DDL (a child-wipe ordering that FK-aborts, a guarded UPDATE a
+        # later trigger rejects) can never be pre-empted by a later revision —
+        # the broken statement runs before any successor gets a turn, so the
+        # correction must edit the revision itself. Both DB populations stay
+        # safe because alembic runs each revision transactionally (a database
+        # that aborted sits at the prior revision and re-runs the fixed file;
+        # a database that succeeded had no matching rows, making the added
+        # statements no-ops). The allowlist is deliberately explicit, per file
+        # and per incident, so the gate stays closed to everything else.
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            range="${{ github.event.pull_request.base.sha }}..HEAD"
+          else
+            range="HEAD~1..HEAD"
+          fi
+          # 2026-09-20 audit P1-6 (bd201c1cdc1b: wipe feed lines/finished
+          # stock before recipes) and P2-13 (b5d7f9a1c3e5: detach ORF-linked
+          # health_events before the template delete, behind the trigger).
+          sanctioned="backend/alembic/versions/bd201c1cdc1b_goat_only_simplification.py backend/alembic/versions/b5d7f9a1c3e5_backfill_species_reference_data.py"
+          touched="$(git diff --name-only --diff-filter=MDR "$range" -- 'backend/alembic/versions/' || true)"
+          unexpected=""
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            case " $sanctioned " in
+              *" $file "*) echo "::notice::Sanctioned in-place correction (2026-09-20 audit P1-6/P2-13): $file" ;;
+              *) unexpected="${unexpected}${file}"$'\n' ;;
+            esac
+          done <<< "$touched"
+          if [ -n "$unexpected" ]; then
+            echo "::error::Modified or deleted applied-migration files (ship corrections as NEW revisions):"
+            printf '%s' "$unexpected"
+            exit 1
+          fi
+          echo "no unsanctioned applied revision was modified — immutability holds"
+
   backend:
     runs-on: ubuntu-latest
     # pytest drives a real PostgreSQL and is the only slow step here — every
@@ -67,7 +120,7 @@ jobs:
           # be silently dropped here and in the production image. --check fails
           # the build instead.
           uv lock --check
-          uv sync --frozen --extra dev
+          uv sync --locked --extra dev
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Ruff format check
@@ -273,7 +326,7 @@ jobs:
           # be silently dropped here and in the production image. --check fails
           # the build instead.
           uv lock --check
-          uv sync --frozen --extra dev
+          uv sync --locked --extra dev
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Apply migrations

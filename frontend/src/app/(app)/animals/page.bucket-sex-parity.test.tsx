@@ -17,6 +17,7 @@ import { server } from "@/test/msw-server";
 import { createTestQueryClient, renderWithProviders } from "@/test/render";
 
 import AnimalsPage from "./page";
+import { settle } from "@/test/settle";
 
 const nav = vi.hoisted(() => {
   const state = { search: "" };
@@ -283,19 +284,19 @@ describe("AnimalsPage page steps dispatched in one render pass", () => {
       queries: { retry: false, refetchOnWindowFocus: false, staleTime: 60_000 },
       mutations: { retry: false },
     });
-    nav.state.search = "bucket=FEMALE_KIDS&page=20002";
+    nav.state.search = "bucket=FEMALE_KIDS&page=202";
     const user = userEvent.setup();
     const view = renderWithProviders(<AnimalsPage />, queryClient);
-    await screen.findByText("Showing 1000001–1000050 of 1100000 animals");
+    await screen.findByText("Showing 10001–10050 of 1100000 animals");
 
     // Warm the FEMALE_KIDS page-20002 rows and then leave that filter behind,
     // so the cancellation below settles from cache rather than a refetch and
     // the fence is the only thing that could still hide the list.
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    await screen.findByText("Showing 1000051–1000100 of 1100000 animals");
-    nav.state.search = "page=20002";
+    await screen.findByText("Showing 10051–10100 of 1100000 animals");
+    nav.state.search = "page=202";
     view.rerender(<AnimalsPage />);
-    await screen.findByText("Showing 1000001–1000050 of 1100000 animals");
+    await screen.findByText("Showing 10001–10050 of 1100000 animals");
     nav.push.mockClear();
     nav.replace.mockClear();
 
@@ -314,23 +315,23 @@ describe("AnimalsPage page steps dispatched in one render pass", () => {
     // leave a second history entry behind.
     expect(nav.replace.mock.calls.map(([url]) => url)).toEqual([
       "/animals?bucket=FEMALE_KIDS",
-      "/animals?page=20002",
+      "/animals?page=202",
     ]);
     expect(nav.push).not.toHaveBeenCalled();
-    expect(nav.state.search).toBe("page=20002");
+    expect(nav.state.search).toBe("page=202");
 
     // Dropping the superseded registry and lowering the fence are both part of
     // the cancellation: no later commit arrives to repair either one.
     expect(
-      screen.getByText("Showing 1000051–1000100 of 1100000 animals"),
+      screen.getByText("Showing 10051–10100 of 1100000 animals"),
     ).toBeInTheDocument();
     // The tag is rendered by both the mobile card list and the table.
-    expect(screen.getAllByText("G-1000051")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("G-10051")[0]).toBeInTheDocument();
     expect(screen.queryByText("Loading animals…")).not.toBeInTheDocument();
     expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
-    await new Promise((resolve) => window.setTimeout(resolve, 350));
+    await settle(350);
     expect(screen.queryByText("Loading animals…")).not.toBeInTheDocument();
     expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
-    expect(screen.getAllByText("G-1000051")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("G-10051")[0]).toBeInTheDocument();
   });
 });

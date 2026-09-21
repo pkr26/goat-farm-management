@@ -421,7 +421,8 @@ describe("HealthPage copy and error wiring", () => {
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(
       "Could not review the bulk target set.",
     );
-    expect(toast.error).toHaveBeenCalledWith("Could not review the bulk target set.");
+    // Inline only (single failure surface — P3, 2026-09-20 audit).
+    expect(toast.error).not.toHaveBeenCalled();
     expect(postBody).toBeNull();
   });
 

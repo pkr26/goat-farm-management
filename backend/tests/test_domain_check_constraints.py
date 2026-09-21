@@ -291,10 +291,7 @@ _VOCABULARY_CONSTRAINT_SQL: dict[tuple[str, str], str] = {
     (
         "animals",
         "ck_animals_birth_type",
-    ): (
-        "birth_type IS NULL OR birth_type IN "
-        "('SINGLE', 'TWIN', 'TRIPLET', 'QUADRUPLET', 'MULTIPLET')"
-    ),
+    ): ("birth_type IS NULL OR birth_type IN ('SINGLE', 'TWIN', 'TRIPLET', 'QUADRUPLET')"),
     ("animals", "ck_animals_source"): "source IN ('BORN', 'PURCHASED')",
     ("animals", "ck_animals_current_bucket"): f"current_bucket IN ({_BUCKETS_SQL})",
     ("animals", "ck_animals_status"): "status IN ('ACTIVE', 'SOLD', 'DEAD', 'CULLED')",

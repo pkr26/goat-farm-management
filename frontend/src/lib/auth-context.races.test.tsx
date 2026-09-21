@@ -32,6 +32,7 @@ import { setAccessToken, setCurrentFarmId } from "@/lib/api-client";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { TEST_FARMS, server } from "@/test/msw-server";
 import { createTestQueryClient, renderWithProviders } from "@/test/render";
+import { settle } from "@/test/settle";
 
 const { pushMock, replaceMock } = vi.hoisted(() => ({
   pushMock: vi.fn(),
@@ -175,7 +176,7 @@ describe("AuthProvider bootstrap racing a sign-in", () => {
 
     await act(async () => {
       bootstrap.release();
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await settle(0);
     });
   });
 
@@ -194,7 +195,7 @@ describe("AuthProvider bootstrap racing a sign-in", () => {
     // no longer owns.
     await act(async () => {
       bootstrap.release();
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await settle(50);
     });
 
     expect(screen.getByTestId("user")).toHaveTextContent("worker@goatfarm.test");
@@ -460,7 +461,7 @@ describe("AuthProvider stale async completions", () => {
 
     await act(async () => {
       releaseFirst();
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await settle(0);
     });
     expect(screen.getByTestId("farms")).toHaveTextContent("3");
   });
@@ -1028,7 +1029,7 @@ describe("AuthProvider stale async completions", () => {
 
     await act(async () => {
       releaseFarms();
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await settle(20);
     });
     expect(rendered.queryClient.getQueryData(["new-tree-data"])).toEqual({
       safe: true,
@@ -1151,7 +1152,7 @@ describe("AuthProvider stale async completions", () => {
 
     await act(async () => {
       releaseFirst();
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await settle(0);
     });
     await waitFor(() => expect(logoutCalls).toBe(2));
   });

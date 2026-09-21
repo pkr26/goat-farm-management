@@ -183,6 +183,24 @@ class ScreeningStorage:
         client = self._ensure_client()
         try:
             response = client.head_object(Bucket=self.bucket, Key=key)
+            metadata = {
+                str(metadata_key).lower(): str(metadata_value)
+                for metadata_key, metadata_value in cast(
+                    dict[str, object], response.get("Metadata") or {}
+                ).items()
+            }
+            content_type = response.get("ContentType")
+            # ContentLength lives inside the error wrapper: an incompatible
+            # S3 implementation answering without it must surface as this
+            # module's ScreeningStorageError, not a raw KeyError that
+            # crashes the worker cycle (P3, 2026-09-20 audit).
+            info = ScreeningObjectInfo(
+                size=int(response["ContentLength"]),
+                etag=cast(str | None, response.get("ETag")),
+                version_id=cast(str | None, response.get("VersionId")),
+                content_type=cast(str | None, content_type),
+                metadata=metadata,
+            )
         except ClientError as exc:
             code = exc.response.get("Error", {}).get("Code", "")
             if code in {"NoSuchKey", "404", "NotFound"}:
@@ -190,20 +208,11 @@ class ScreeningStorage:
             raise ScreeningStorageError(f"S3 head failed for {key!r}: {exc}") from exc
         except BotoCoreError as exc:
             raise ScreeningStorageError(f"S3 head failed for {key!r}: {exc}") from exc
-        metadata = {
-            str(metadata_key).lower(): str(metadata_value)
-            for metadata_key, metadata_value in cast(
-                dict[str, object], response.get("Metadata") or {}
-            ).items()
-        }
-        content_type = response.get("ContentType")
-        return ScreeningObjectInfo(
-            size=int(response["ContentLength"]),
-            etag=cast(str | None, response.get("ETag")),
-            version_id=cast(str | None, response.get("VersionId")),
-            content_type=cast(str | None, content_type),
-            metadata=metadata,
-        )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ScreeningStorageError(
+                f"S3 head returned unusable metadata for {key!r}: {exc!r}"
+            ) from exc
+        return info
 
     def object_size(self, key: str) -> int | None:
         """Compatibility helper for callers interested only in size."""
@@ -348,4 +357,28 @@ def get_screening_storage() -> ScreeningStorage:
     """Process-wide storage instance (the worker and each API replica)."""
     from ...core.config import get_settings
 
-    return ScreeningStorage(get_settings())
+    return storage_for_settings(get_settings())
+
+
+# One boto3 client per Settings object, not per request: Settings itself is
+# lru-cached in production (one instance per process), while tests inject
+# their own instances through the API's get_settings seam — each gets its
+# own storage exactly once instead of minting a client on every call
+# (P3, 2026-09-20 audit). Settings is unhashable, so the cache is keyed on
+# id() with the object retained in the value (ids cannot be reused while
+# the reference lives) and bounded FIFO so a long test session does not
+# accumulate every injected settings instance.
+_STORAGE_CACHE_LIMIT = 32
+_STORAGE_BY_SETTINGS: dict[int, tuple[ScreeningRuntimeSettings, ScreeningStorage]] = {}
+
+
+def storage_for_settings(settings: ScreeningRuntimeSettings) -> ScreeningStorage:
+    """The storage instance bound to one Settings object (see above)."""
+    entry = _STORAGE_BY_SETTINGS.get(id(settings))
+    if entry is not None and entry[0] is settings:
+        return entry[1]
+    storage = ScreeningStorage(settings)
+    _STORAGE_BY_SETTINGS[id(settings)] = (settings, storage)
+    while len(_STORAGE_BY_SETTINGS) > _STORAGE_CACHE_LIMIT:
+        _STORAGE_BY_SETTINGS.pop(next(iter(_STORAGE_BY_SETTINGS)))
+    return storage

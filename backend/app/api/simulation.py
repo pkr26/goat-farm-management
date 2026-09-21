@@ -202,6 +202,29 @@ def _run(
     return result
 
 
+def _run_validated(
+    assumptions: SimulationAssumptions,
+    monte_carlo: bool,
+    sensitivity: bool,
+    optimization: bool,
+    nouns: SpeciesNouns = GOAT_NOUNS,
+) -> SimulationResult:
+    """``_run`` with re-validation failures surfaced as 422, not 500.
+
+    Sensitivity/optimization mutate a valid scenario (sale age, doe count)
+    and re-validate each variant; the mutators clamp to feasible values, but
+    an exotic combination that still trips a cross-validator must fail as an
+    input problem, never an unhandled ValidationError (P1-5's escape path).
+    """
+    try:
+        return _run(assumptions, monte_carlo, sensitivity, optimization, nouns)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"These inputs are not simulable across the requested analysis: {exc}",
+        ) from exc
+
+
 async def _run_offloaded(
     assumptions: SimulationAssumptions,
     monte_carlo: bool,
@@ -210,7 +233,9 @@ async def _run_offloaded(
     nouns: SpeciesNouns = GOAT_NOUNS,
 ) -> SimulationResult:
     """Offload one standard run (see ``_offload`` for the machinery)."""
-    return await _offload(lambda: _run(assumptions, monte_carlo, sensitivity, optimization, nouns))
+    return await _offload(
+        lambda: _run_validated(assumptions, monte_carlo, sensitivity, optimization, nouns)
+    )
 
 
 # One run per farm and per user, plus a process-wide ceiling. This prevents a
@@ -221,7 +246,10 @@ async def _run_offloaded(
 # above so tests that reach for them via this module keep working.
 
 _BREAK_EVEN_PASSES = 52  # npv_at(0), npv_at(schema ceiling) + 50 bisection steps
-_SENSITIVITY_PASSES = 17  # base + 8 parameters x (low, high)
+# base + 9 parameters x (low, high) — the comment said "8 parameters"
+# while the runner has carried nine cases (sale_age_months included) for a
+# while; the budget under-counted by two passes (P3, 2026-09-20 audit).
+_SENSITIVITY_PASSES = 19
 
 
 def _run_cost(

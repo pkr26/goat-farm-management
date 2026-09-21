@@ -60,6 +60,28 @@ class ProviderRotation:
             return None
         return self._providers[(on.toordinal() + 1) % len(self._providers)]
 
+    def cross_checker_for(
+        self, on: dt.date, served_by: str, failed_providers: tuple[str, ...] = ()
+    ) -> VisionProvider | None:
+        """The flagged-image second opinion, skipping unusable providers.
+
+        ``secondary_for`` blindly picks primary+1 by date, so in a 3-provider
+        rotation whose primary failed (fallback B served the gate) the
+        "cross-checker" was B itself and the second opinion was silently
+        skipped (P3, 2026-09-20 audit). This variant walks the rotation from
+        the day's primary and returns the first provider that neither served
+        the gate nor already failed it; None when every provider is excluded
+        or only one is configured.
+        """
+        if len(self._providers) < 2:
+            return None
+        excluded = {served_by, *failed_providers}
+        for step in range(1, len(self._providers)):
+            candidate = self._providers[(on.toordinal() + step) % len(self._providers)]
+            if candidate.name not in excluded:
+                return candidate
+        return None
+
     def fallbacks_for(self, primary: VisionProvider) -> list[VisionProvider]:
         """Every other provider, rotation order preserved, starting after
         the primary — the queue a failing primary drains through."""

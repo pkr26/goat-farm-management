@@ -36,13 +36,23 @@ PurchasesManage = Annotated[set[str], Depends(require_perm("purchases.manage"))]
 
 async def _batch_out(db: AsyncSession, batches: Sequence[PurchaseBatch]) -> list[PurchaseBatchOut]:
     """ORM batches → schema, enriched with animals-created and open-task counts
-    (batched aggregate queries, not per-row lazy loads)."""
+    (batched aggregate queries, not per-row lazy loads).
+
+    The farm predicate on both aggregates is defense-in-depth — the composite
+    ``(farm_id, id)`` FKs already make cross-farm batch ids unmatchable, but
+    the health twin of this helper carries the explicit predicate and this
+    one must not be the one place that relies on the FK alone.
+    """
     if not batches:
         return []
     ids = [batch.id for batch in batches]
+    farm_ids = {batch.farm_id for batch in batches}
     animal_rows = await db.execute(
         select(Animal.purchase_batch_id, func.count())
-        .where(Animal.purchase_batch_id.in_(ids))
+        .where(
+            Animal.purchase_batch_id.in_(ids),
+            Animal.farm_id.in_(farm_ids),
+        )
         .group_by(Animal.purchase_batch_id)
     )
     animals_created: dict[int | None, int] = {}
@@ -50,7 +60,11 @@ async def _batch_out(db: AsyncSession, batches: Sequence[PurchaseBatch]) -> list
         animals_created[batch_id] = n
     task_rows = await db.execute(
         select(Task.purchase_batch_id, func.count())
-        .where(Task.purchase_batch_id.in_(ids), Task.status == TaskStatus.PENDING.value)
+        .where(
+            Task.purchase_batch_id.in_(ids),
+            Task.farm_id.in_(farm_ids),
+            Task.status == TaskStatus.PENDING.value,
+        )
         .group_by(Task.purchase_batch_id)
     )
     open_tasks: dict[int | None, int] = {}

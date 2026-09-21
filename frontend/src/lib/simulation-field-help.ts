@@ -146,7 +146,7 @@ const FIELD_HELP: Record<string, (v: FarmVocabulary) => FieldHelp> = {
     body: "Share of births that are female under natural service (~0.5).",
   }),
   "reproduction.age_at_first_breeding_months": () => ({
-    body: `Age at which a home-grown female is first served (and the age at which surplus females are sold). ~10 months/22 kg for goats.`,
+    body: `Age at which a home-grown female is first served (and the age at which surplus females are sold). ~12 months/22 kg for goats (the species profile's first-service floor; the model default is 12).`,
   }),
   "reproduction.stillbirth_rate": () => ({
     body: "Share of births born dead — lost before any meat value accrues.",
@@ -191,7 +191,7 @@ const FIELD_HELP: Record<string, (v: FarmVocabulary) => FieldHelp> = {
     body: `Mature live weight of an adult ${v.femaleAdult} — drives feed intake, cull revenue and stock value. ~33 kg Osmanabadi.`,
   }),
   "growth.adult_weight_buck_kg": (v) => ({
-    body: `Mature live weight of an adult ${v.maleAdult}. ~42 kg Osmanabadi.`,
+    body: `Mature live weight of an adult ${v.maleAdult}. ~35 kg Osmanabadi (the model default; NBAGR descriptors 33.5-36 kg).`,
   }),
   "growth.weight_by_age_months": () => ({
     body: `Exactly 13 comma-separated live weights (kg) at ages 0–12 months — the growth curve every young-animal weight is read from. Must not decrease with age, and age 0 must equal the birth weight. After month 12 the curve approaches the adult weight linearly.`,
@@ -377,7 +377,7 @@ const FIELD_HELP: Record<string, (v: FarmVocabulary) => FieldHelp> = {
     body: "Monthly wage per worker (₹). The number of workers scales with herd size per the threshold below.",
   }),
   "costs.labour_per_head_threshold": () => ({
-    body: `Head per worker: one labourer is hired per this many animals. ~50 for a stall-fed goat unit. Very large values mean labour never scales with the herd.`,
+    body: "Does per worker: attendants scale with the adult breeding-doe pool. ~60 for a stall-fed goat unit (the model default; TNAU/NABARD norm is one worker per ~50 does with progeny). Very large values mean labour never scales with the herd.",
   }),
   "costs.insurance_pct_stock_value_annual": () => ({
     body: "Annual livestock insurance premium as a fraction of herd value (0.04 = 4%/yr). Charged on the current stock value every month.",

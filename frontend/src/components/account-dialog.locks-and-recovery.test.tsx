@@ -76,7 +76,7 @@ async function fillPasswordChange(
 }
 
 /** Lets an already-queued microtask chain (validation, a settled fetch) run. */
-async function settle() {
+async function settleAct() {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
@@ -178,7 +178,7 @@ describe("AccountDialog branches", () => {
     const form = within(dialog).getByRole("form", { name: "Change password" });
     expect(fireEvent.submit(form)).toBe(false);
 
-    await settle();
+    await settleAct();
     expect(mocks.mutateAsync).not.toHaveBeenCalled();
   });
 

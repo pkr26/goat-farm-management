@@ -16,6 +16,7 @@ import { server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
 import { eventSchema, default as HealthPage } from "./page";
+import { settle } from "@/test/settle";
 
 const toastMocks = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock("sonner", () => ({ toast: toastMocks }));
@@ -230,7 +231,7 @@ describe("HealthPage event log offset — campaign kills", () => {
   it("never leaves the first page for an on-range list", async () => {
     renderWithProviders(<HealthPage />);
     await waitFor(() => expect(eventOffsets.length).toBeGreaterThan(0));
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await settle(100);
     // A default (offset 0) view of a long list must not re-home itself.
     expect(eventOffsets.every((offset) => offset === 0)).toBe(true);
   });
@@ -447,9 +448,9 @@ describe("HealthPage dialog — campaign kills", () => {
     expect(
       await within(dialog).findByText("First problem.; Second problem.", { exact: false }),
     ).toBeInTheDocument();
-    await waitFor(() =>
-      expect(toastMocks.error).toHaveBeenCalledWith("First problem.; Second problem."),
-    );
+    // Inline only: the banner inside the open dialog is the single failure
+    // surface (P3, 2026-09-20 audit — no duplicate toast).
+    expect(toastMocks.error).not.toHaveBeenCalled();
   });
 
   it("opens the Advanced section when a 422 lands on a compliance field", async () => {
@@ -517,8 +518,9 @@ describe("HealthPage dialog — campaign kills", () => {
     ).toBeInTheDocument();
 
     // Attaching a duty must drop that stale preview back to review state.
-    // The herd-level duty carries no scope of its own, so the batch scope
-    // (and its selection) survives the attach.
+    // The herd-level duty's only sanctioned scope is the whole bucket
+    // (P1-8), so attaching it re-scopes the form there and drops the batch
+    // selection with the preview.
     await pickOption(
       user,
       within(dialog).getByRole("combobox", { name: /Linked duty/ }),
@@ -527,25 +529,29 @@ describe("HealthPage dialog — campaign kills", () => {
     expect(
       await within(dialog).findByRole("button", { name: "Review target animals" }),
     ).toBeInTheDocument();
+    expect(within(dialog).getByRole("radio", { name: /whole bucket/i })).toBeChecked();
+    expect(within(dialog).getByRole("radio", { name: /batch/i })).toBeDisabled();
 
-    // Review again with the duty attached, then unlink it: same reset, and
-    // the scope-less duty means the batch scope is still there to observe it.
-    await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
-    expect(
-      await within(dialog).findByRole("button", { name: /Confirm for 2\s+animals/ }),
-    ).toBeInTheDocument();
+    // Unlink the duty: same preview reset, and the form returns to its
+    // default single-animal scope.
     await pickOption(
       user,
       within(dialog).getByRole("combobox", { name: /Linked duty/ }),
       /none/,
     );
     expect(
-      await within(dialog).findByRole("button", { name: "Review target animals" }),
+      await within(dialog).findByRole("button", { name: "Save event" }),
     ).toBeInTheDocument();
 
-    // Retargeting the batch through its picker must clear the preview via
+    // Retargeting a bulk scope through its picker must clear the preview via
     // the same helper — this path has no other clear (no duty attached, no
     // scope change), so a stale preview would keep announcing "Confirm".
+    await user.click(within(dialog).getByRole("radio", { name: /batch/i }));
+    await pickOption(
+      user,
+      within(dialog).getByRole("combobox", { name: "Purchase batch *" }),
+      /2/,
+    );
     await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
     expect(
       await within(dialog).findByRole("button", { name: /Confirm for 2\s+animals/ }),

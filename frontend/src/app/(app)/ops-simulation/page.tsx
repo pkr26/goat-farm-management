@@ -363,6 +363,10 @@ function OpsSimulationPageContent() {
 
   // ----- Results
   const [result, setResult] = useState<DailyOpsResult | null>(null);
+  // Inputs snapshot the CURRENT result was produced from; null with no
+  // result. A mismatch means the rows on screen no longer describe the run
+  // above them (P3, 2026-09-20 audit: no stale flag existed).
+  const [resultInputsSignature, setResultInputsSignature] = useState<string | null>(null);
   const [ledger, setLedger] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState(1);
   // The ledger can be megabytes of text: it mounts only when opened.
@@ -390,9 +394,48 @@ function OpsSimulationPageContent() {
           errors.push(`${label}: bred days ago must be a whole number 0–${MAX_BRED_DAYS}.`);
         }
       }
+      // Coherence mirrors of the server's DailyOpsInput._check_herd (P3,
+      // 2026-09-20 audit: the 422s arrived only after submit). Structural
+      // rules only — the gestation-day windows stay server-side where the
+      // species profile lives.
+      if (row.bucket === "MALE_KIDS" && row.sex !== "M") {
+        errors.push(`${label}: only males may start in MALE_KIDS.`);
+      }
+      if (
+        (row.bucket === "PREGNANCY_EARLY" ||
+          row.bucket === "PREGNANCY_LATE" ||
+          row.bucket === "DELIVERY") &&
+        row.sex !== "F"
+      ) {
+        errors.push(`${label}: pregnancy buckets are doe-only.`);
+      }
+      if (
+        (row.bucket === "PREGNANCY_EARLY" ||
+          row.bucket === "PREGNANCY_LATE" ||
+          row.bucket === "DELIVERY") &&
+        row.bredDaysAgo.trim() === ""
+      ) {
+        errors.push(`${label}: ${row.bucket.toLowerCase()} needs bred days ago.`);
+      }
+      if (row.bucket === "QUARANTINE" && row.daysInBucket > 44) {
+        errors.push(
+          `${label}: quarantine releases at protocol day 45; days in bucket cannot exceed 44.`,
+        );
+      }
+      if (row.bredDaysAgo.trim() !== "" && row.sex !== "F") {
+        errors.push(`${label}: bred days ago applies to does only.`);
+      }
     }
     return errors;
   }, [rows]);
+
+  const inputsSignature = useMemo(
+    () =>
+      JSON.stringify([startDate, horizonDays, seed, includeLedger, rows]),
+    [startDate, horizonDays, seed, includeLedger, rows],
+  );
+  const resultStale =
+    result !== null && resultInputsSignature !== null && resultInputsSignature !== inputsSignature;
 
   function updateRow(key: string, patch: Partial<HerdRow>) {
     setRows((current) =>
@@ -439,6 +482,7 @@ function OpsSimulationPageContent() {
         });
         if (response.status !== 200) throw new Error("Unexpected response");
         if (!farmScope()) return;
+        setResultInputsSignature(inputsSignature);
         setResult(response.data.result);
         setLedger(response.data.ledger ?? null);
         setSelectedDay(1);
@@ -479,6 +523,17 @@ function OpsSimulationPageContent() {
         title="Ops Simulation"
         description={`Replay the farm one day at a time — one building per bucket, feed mixed and delivered in three shifts, pens cleaned twice daily, and every ${vocabulary.young} move verified against the legal lifecycle.`}
       />
+
+      {resultStale && (
+        <p
+          role="status"
+          className="rounded-lg border border-warning/40 bg-warning-tint/60 px-3 py-2 text-sm text-warning-tint-foreground"
+        >
+          The starting herd or run settings changed after this simulation —
+          the figures below describe the previous inputs. Run again for the
+          current ones.
+        </p>
+      )}
 
       {result && (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

@@ -3,6 +3,10 @@
  * password with an mfa_token instead of a session, the page asks for the
  * 6-digit code, exchanges both at /api/auth/totp/challenge, and only then
  * signs in. A wrong code keeps the challenge step with an inline error.
+ * Backing out must also drop any partial code draft: react-hook-form keeps
+ * it, and a stale value would fail zod invisibly on the next password
+ * submit (the totp error only renders on the code step) — a silent
+ * sign-in no-op (2026-09-20 audit P1-10).
  */
 
 import { screen, waitFor } from "@testing-library/react";
@@ -142,5 +146,78 @@ describe("LoginPage TOTP challenge step", () => {
     await user.click(screen.getByRole("button", { name: /back/i }));
     expect(screen.queryByLabelText(/authenticator code/i)).toBeNull();
     expect(screen.getByLabelText(/password/i)).toBeTruthy();
+  });
+
+  // 2026-09-20 audit P1-10: the draft left in the code box used to survive
+  // Back in react-hook-form's state, so the next password submit failed the
+  // 6-digit regex invisibly (the totp error only renders on the code step)
+  // and never reached POST /api/auth/login. The Back handler must drop it.
+  describe("backing out with a stale code draft (2026-09-20 audit P1-10)", () => {
+    /** Every password attempt answers with a fresh mfa challenge; the bodies
+     * prove the login POST actually fired. */
+    function installMfaLoginCounting() {
+      const bodies: Array<{ email: string; password: string }> = [];
+      server.use(
+        http.post("/api/auth/login", async ({ request }) => {
+          bodies.push((await request.json()) as { email: string; password: string });
+          return HttpResponse.json({
+            mfa_token: "challenge-token",
+            access_token: null,
+            user: null,
+          });
+        }),
+      );
+      return bodies;
+    }
+
+    async function reachChallengeStep(
+      user: ReturnType<typeof userEvent.setup>,
+    ): Promise<HTMLElement> {
+      await user.type(screen.getByLabelText(/email/i), "demo@goatfarm.in");
+      await user.type(screen.getByLabelText(/password/i), "demo1234");
+      await user.click(screen.getByRole("button", { name: /sign in/i }));
+      return await screen.findByLabelText(/authenticator code/i);
+    }
+
+    it("re-posts the password after backing out of a partial code draft", async () => {
+      const loginBodies = installMfaLoginCounting();
+      const user = userEvent.setup();
+      renderWithProviders(<LoginPage />);
+
+      const codeInput = await reachChallengeStep(user);
+      await user.type(codeInput, "123");
+      await user.click(screen.getByRole("button", { name: /back/i }));
+      expect(screen.getByLabelText(/password/i)).toBeTruthy();
+
+      await user.click(screen.getByRole("button", { name: /sign in/i }));
+
+      // Not a silent no-op: the password really posts again, and the fresh
+      // challenge step starts from an empty code box, not the abandoned draft.
+      await waitFor(() => expect(loginBodies).toHaveLength(2));
+      expect(loginBodies[1]).toEqual({
+        email: "demo@goatfarm.in",
+        password: "demo1234",
+      });
+      expect(await screen.findByLabelText(/authenticator code/i)).toHaveValue("");
+    });
+
+    it("re-posts the password after backing out of a code box cleared to empty", async () => {
+      const loginBodies = installMfaLoginCounting();
+      const user = userEvent.setup();
+      renderWithProviders(<LoginPage />);
+
+      const codeInput = await reachChallengeStep(user);
+      await user.type(codeInput, "12345");
+      await user.clear(codeInput);
+      await user.click(screen.getByRole("button", { name: /back/i }));
+
+      await user.click(screen.getByRole("button", { name: /sign in/i }));
+
+      await waitFor(() => expect(loginBodies).toHaveLength(2));
+      expect(loginBodies[1]).toEqual({
+        email: "demo@goatfarm.in",
+        password: "demo1234",
+      });
+    });
   });
 });

@@ -12,6 +12,7 @@ import math
 import threading
 from datetime import date, timedelta
 from decimal import Decimal
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -159,7 +160,9 @@ async def make_historical_animal(
             "weight_date": date.today().isoformat(),
             "historical_import_reason": "Simulation calibration integration fixture",
         },
-        headers=headers,
+        # The priced create books money and needs the key (P2-1, 2026-09-20
+        # audit).
+        headers={**headers, "Idempotency-Key": f"calibration-fixture-{uuid4()}"},
     )
     assert resp.status_code == 201, resp.text
     return resp.json()
@@ -1762,19 +1765,65 @@ async def test_adult_weight_below_yearling_curve_is_422(client: httpx.AsyncClien
     assert resp.status_code == 422, resp.text
 
 
+def test_run_validated_maps_value_errors_to_a_clean_422() -> None:
+    """P1-5's escape path (2026-09-20 audit): sensitivity and optimization
+    mutate a valid scenario and re-validate every variant, so a ValueError
+    escaping the analysis (pydantic's ValidationError subclasses it) is an
+    INPUT problem and must leave the API as a 422 — never an unhandled 500.
+    Driven deterministically with an incoherent document that only trips the
+    engine's re-validation (programmatic mutation bypasses field validators):
+    0.85 loan + 0.50 subsidy > 1."""
+    bad = SimulationAssumptions()
+    bad.finance.subsidy_fraction = 0.5
+    with pytest.raises(HTTPException) as exc_info:
+        simulation_api._run_validated(bad, monte_carlo=False, sensitivity=True, optimization=True)
+    assert exc_info.value.status_code == 422
+    assert "not simulable" in exc_info.value.detail
+
+
+def test_run_validated_completes_the_sale_age_boundary_analysis() -> None:
+    """The same analysis pair over the P1-5 boundary scenario itself — a
+    male-grower purchase arriving at 8 months with sale_age_months=9 — must
+    complete through the API's validated entry instead of raising."""
+    from app.simulation import MetaAssumptions
+    from app.simulation.assumptions import GrowthAssumptions, HerdEventAssumptions
+
+    boundary = SimulationAssumptions(
+        meta=MetaAssumptions(horizon_months=24),
+        growth=GrowthAssumptions(sale_age_months=9),
+        events=[
+            HerdEventAssumptions(
+                month=20, kind="purchase", animal_class="male_grower", count=5, age_months=8
+            )
+        ],
+    )
+    result = simulation_api._run_validated(
+        boundary, monte_carlo=False, sensitivity=True, optimization=True
+    )
+    assert result.sensitivity is not None and len(result.sensitivity) == 9
+    assert result.optimization is not None and result.optimization.evaluated_candidates >= 1
+
+
 async def test_farm_calibration_labour_is_a_per_labourer_wage_not_the_farm_total(
     client: httpx.AsyncClient,
 ) -> None:
-    """The engine charges ``labourers * costs.labour_per_month``, so calibration
-    must store a per-head-of-staff wage. Writing the farm's whole monthly bill
-    into that field made the engine re-multiply it by the labourer count — a
-    4x overstatement on a 300-head farm, invisible in fixtures small enough to
-    imply a single labourer."""
+    """The engine charges ``labour_units_for(does, ...) *
+    costs.labour_per_month`` — attendants in HALF units (ceil(2 x does /
+    threshold) / 2) — so calibration must store a per-head-of-staff wage on
+    that same basis. Writing the farm's whole monthly bill into the field made
+    the engine re-multiply it by the labourer count; and splitting the bill
+    across WHOLE attendants halved the modelled bill of every flock the engine
+    books at half units (P2-4, 2026-09-20 audit). 30 does at the 60-doe
+    threshold imply HALF an attendant on the engine's basis while
+    whole-attendant math would say 1.0 — exactly the count where the two bases
+    diverge (the old 160-doe fixture passed coincidentally: 3.0 both ways)."""
+    from app.simulation.engine import labour_units_for
+
     headers = await owner_with_farm(client)
     farm_id = int(headers["X-Farm-Id"])
 
-    # Enough active head that the default threshold (75/labourer) implies > 1.
-    head_count = 160
+    # Fewer does than the per-labourer threshold: a fractional attendant.
+    head_count = 30
     async with get_sessionmaker()() as db:
         db.add_all(
             [
@@ -1810,13 +1859,72 @@ async def test_farm_calibration_labour_is_a_per_labourer_wage_not_the_farm_total
     assumptions = body["assumptions"]
 
     threshold = assumptions["costs"]["labour_per_head_threshold"]
-    labourers = max(1, math.ceil(head_count / threshold))
-    assert labourers > 1, "fixture must imply more than one labourer to be meaningful"
+    labour_units = labour_units_for(head_count, family_labour=False, heads_per_worker=threshold)
+    # The engine's half-attendant basis: max(0.5, ceil(2 x does / threshold) / 2).
+    assert labour_units == 0.5, "fixture must imply a FRACTIONAL attendant to discriminate"
+    # ...and it must genuinely differ from the whole-attendant basis the test
+    # used to assert (max(1, ceil(does / threshold)) == 1.0 here).
+    assert labour_units != max(1, math.ceil(head_count / threshold))
 
     per_labourer = assumptions["costs"]["labour_per_month"]
-    # The round trip the engine performs must reproduce the farm's real bill.
-    assert per_labourer * labourers == pytest.approx(90_000.0)
-    assert per_labourer == pytest.approx(90_000.0 / labourers)
+    # The round trip the engine performs must reproduce the farm's real bill:
+    # 0.5 attendant x 180,000 == the 90,000 actually spent this month.
+    assert per_labourer == pytest.approx(90_000.0 / labour_units)
+    assert per_labourer * labour_units == pytest.approx(90_000.0)
 
     evidence = {item["path"]: item for item in body["evidence"]}
-    assert "labourer" in evidence["costs.labour_per_month"]["method"]
+    assert "0.5 attendant unit" in evidence["costs.labour_per_month"]["method"]
+    assert "attendant unit" in evidence["costs.labour_per_month"]["method"]
+
+
+async def test_farm_calibration_labour_with_zero_attendant_units_preserves_the_wage(
+    client: httpx.AsyncClient,
+) -> None:
+    """P2-4's zero-unit evidence path: with no adult females (or family labour)
+    the engine books ZERO paid attendants, so no per-attendant wage can be
+    inferred from the farm's bill. The configured wage must survive with an
+    explicit note — not be zeroed, and not divided by zero."""
+    from app.simulation.engine import labour_units_for
+
+    # The engine's basis itself: family labour and an empty flock book 0.0.
+    assert labour_units_for(30, family_labour=True, heads_per_worker=60) == 0.0
+    assert labour_units_for(0, family_labour=False, heads_per_worker=60) == 0.0
+
+    headers = await owner_with_farm(client, email="zero-attendant@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    async with get_sessionmaker()() as db:
+        # A buck-only farm: counts["does"] == 0 -> zero implied attendants.
+        db.add(
+            Animal(
+                farm_id=farm_id,
+                tag_number="B-ONLY",
+                sex="M",
+                status="ACTIVE",
+                source="PURCHASED",
+                current_bucket="BREEDING",
+                date_of_birth=date.today() - timedelta(days=800),
+                purchase_date=date.today() - timedelta(days=400),
+            )
+        )
+        db.add(
+            Transaction(
+                farm_id=farm_id,
+                date=date.today(),
+                type="EXPENSE",
+                category="LABOUR",
+                amount=Decimal("90000.00"),
+            )
+        )
+        await db.commit()
+
+    resp = await client.get(
+        "/api/simulation/calibration", params={"lookback_months": 6}, headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    # The configured wage is preserved (the preset default), not zeroed.
+    assert body["assumptions"]["costs"]["labour_per_month"] == pytest.approx(14_000.0)
+    evidence = {item["path"]: item for item in body["evidence"]}
+    method = evidence["costs.labour_per_month"]["method"]
+    assert "NOT spread onto a per-attendant wage" in method
+    assert "implies 0 paid attendant units" in method

@@ -139,6 +139,25 @@ def parse_gate_response(text: str) -> GateResponse:
         raise GateParseError(f"model answer violated the gate contract: {exc}") from exc
 
 
+def answer_list(raw: object, key: str) -> list[object]:
+    """Extract a list-typed field from a parsed model answer.
+
+    Providers answer ``{"goats": null}`` / ``{"conditions": null}`` (a very
+    plausible LLM phrasing of "nothing found"): a null, missing or otherwise
+    empty field parses as an empty list.  A *present but non-list* value
+    (scalar/object) raises GateParseError — which the downstream parsers
+    convert into *their* ParseError, the exception the rotation's fallback
+    chain catches — instead of letting a raw ``TypeError``/``AttributeError``
+    detonate the generic per-image handler and strand the row.
+    """
+    if not isinstance(raw, dict):
+        raise GateParseError(f"model answer is a {type(raw).__name__}, not a JSON object")
+    value = raw.get(key) or []
+    if not isinstance(value, list):
+        raise GateParseError(f"model answer field {key!r} is a {type(value).__name__}, not a list")
+    return value
+
+
 class GateInstruction(NamedTuple):
     """What every provider sends: one system prompt, one image."""
 

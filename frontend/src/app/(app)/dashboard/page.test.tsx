@@ -88,6 +88,7 @@ function makeAnimal(overrides: Partial<AnimalOut>): AnimalOut {
     birth_weight: 2.4,
     current_bucket: "RESTING",
     status: "ACTIVE",
+    status_notes: null,
     status_date: null,
     sale_price: null,
     sale_weight_kg: null,

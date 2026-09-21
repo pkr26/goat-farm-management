@@ -1745,6 +1745,104 @@ async def test_clearing_a_mortality_hold_keeps_the_authority_notification_date(
     assert body["authority_notified_at"] == notified_on.isoformat()
 
 
+async def test_clearing_a_mortality_hold_keeps_the_date_after_an_earlier_notified_episode(
+    client: httpx.AsyncClient,
+) -> None:
+    """The P2-2 interleave (2026-09-20 audit): the mortality path writes no
+    HealthEvent, so animal.authority_notified_at is the only copy of that
+    episode's statutory notification date.
+
+    The guard may null the column only when THIS episode's PLACED action cites
+    a HealthEvent that carries the date. The old animal-lifetime probe ("any
+    HealthEvent ever notified") let an earlier, event-backed episode satisfy
+    the guard while clearing a later event-less mortality hold — destroying
+    the mortality episode's only copy. This test would pass under the fixed
+    code and fail under that probe: the animal HAS a notifying event in her
+    history when the mortality hold is cleared."""
+    owner = await owner_with_farm(client)
+    animal = await make_animal(client, owner, tag="NOTIFY-INTER-1")
+
+    # Episode one: event-backed, restricted AND authority-notified, then
+    # cleared — leaving a notifying HealthEvent in the animal's history.
+    episode_one_notified = today() - timedelta(days=5)
+    await record_event(
+        client,
+        owner,
+        scope="animal",
+        animal_id=animal["id"],
+        type="TREATMENT",
+        disease_target="Anthrax",
+        suspected_scheduled_disease=True,
+        authority_notified_at=episode_one_notified.isoformat(),
+    )
+    cleared_one = await client.post(
+        f"/api/health/restrictions/{animal['id']}/clear",
+        json={
+            "clearance_reference": "AHD first-episode clearance",
+            "expected_restriction_version": 1,
+        },
+        headers=owner,
+    )
+    assert cleared_one.status_code == 204, cleared_one.text
+    # The animal column legitimately resets here: episode one's HealthEvent
+    # holds its own date, cited via the PLACED action's health_event_id.
+    profile = await client.get(f"/api/animals/{animal['id']}", headers=owner)
+    assert profile.status_code == 200, profile.text
+    assert profile.json()["animal"]["authority_notified_at"] is None
+
+    # Episode two: the mortality hold — placed with animal.authority_notified_at
+    # set and NO backing HealthEvent.
+    notified_on = today()
+    dead = await client.post(
+        f"/api/animals/{animal['id']}/status",
+        json={
+            "new_status": "DEAD",
+            "mortality_cause": "Sudden death",
+            "suspected_scheduled_disease": True,
+            "suspected_disease": "Anthrax",
+            "authority_notified_at": notified_on.isoformat(),
+        },
+        headers=owner,
+    )
+    assert dead.status_code == 200, dead.text
+    assert dead.json()["restriction_version"] == 2
+    assert dead.json()["authority_notified_at"] == notified_on.isoformat()
+    history = await client.get(f"/api/health/restrictions/{animal['id']}", headers=owner)
+    assert history.status_code == 200, history.text
+    placed_two = next(
+        row
+        for row in history.json()["actions"]
+        if row["restriction_version"] == 2 and row["action"] == "PLACED"
+    )
+    assert placed_two["health_event_id"] is None
+    # The whole ledger holds exactly the one episode-one event: nothing new
+    # was written to carry episode two's date.
+    ledger = await client.get("/api/health/events", headers=owner)
+    assert ledger.status_code == 200, ledger.text
+    assert ledger.json()["total"] == 1
+    assert ledger.json()["events"][0]["authority_notified_at"] == (episode_one_notified.isoformat())
+
+    cleared_two = await client.post(
+        f"/api/health/restrictions/{animal['id']}/clear",
+        json={
+            "clearance_reference": "AHD mortality clearance",
+            "expected_restriction_version": 2,
+        },
+        headers=owner,
+    )
+    assert cleared_two.status_code == 204, cleared_two.text
+
+    after = await client.get(f"/api/animals/{animal['id']}", headers=owner)
+    assert after.status_code == 200, after.text
+    body = after.json()["animal"]
+    assert body["movement_restricted"] is False
+    assert body["suspected_scheduled_disease"] is False
+    assert body["suspected_disease"] is None
+    # Episode one's notifying event must not license erasing episode two's
+    # date: the mortality hold's only copy survives its clearance.
+    assert body["authority_notified_at"] == notified_on.isoformat()
+
+
 def test_combined_et_hs_round_maps_to_both_component_templates() -> None:
     """The cadence engine's combined pre-monsoon round administers two
     vaccines: either component's template may record it, nothing else."""

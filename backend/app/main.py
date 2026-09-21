@@ -163,16 +163,20 @@ class _RequestIdFilter(logging.Filter):
 
 
 def _configure_logging() -> None:
-    """INFO-level root logging with the request ID in every line. No-op when
-    a harness (uvicorn's log config, pytest) already installed handlers —
-    except the filter, which is harmless on any handler."""
+    """Request ID in every log line; installs an INFO handler only when a
+    harness (uvicorn's log config, pytest) installed none.
+
+    An existing handler set owns the level: forcing root INFO overrode
+    pytest's WARNING capture and operator-configured uvicorn log levels,
+    contradicting the old "no-op" promise (P3, 2026-09-20 audit). The
+    request-ID filter is still added to whatever handlers exist.
+    """
     root = logging.getLogger()
     if not root.handlers:
         logging.basicConfig(
             level=logging.INFO,
             format="%(asctime)s %(levelname)s %(name)s [%(request_id)s] %(message)s",
         )
-    root.setLevel(logging.INFO)
     for handler in root.handlers:
         if not any(isinstance(f, _RequestIdFilter) for f in handler.filters):
             handler.addFilter(_RequestIdFilter())
@@ -570,6 +574,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             inactive_animal_task_cleanup_task,
             deleted_membership_cleanup_task,
             cadence_materialization_task,
+            throttle_summary_task,
         ):
             with suppress(asyncio.CancelledError):
                 await cleanup_task
@@ -786,7 +791,6 @@ def create_app() -> FastAPI:
     app.add_exception_handler(RequestValidationError, request_validation_handler)
     app.add_exception_handler(PasswordWorkCapacityError, password_capacity_handler)
     app.add_exception_handler(Exception, unhandled_exception_handler)
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
     app.add_middleware(
         RequestBodyLimitMiddleware,
         max_bytes=settings.max_request_body_bytes,
@@ -808,6 +812,13 @@ def create_app() -> FastAPI:
         # with the default (trust nothing) a client can spoof the header but
         # it is ignored, so it can't steer the auth rate limiter.
         app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=trusted)
+    # Added last = outermost (add_middleware prepends). Innermost, CORS's
+    # short-circuited preflight responses skipped Host validation entirely —
+    # a fingerprinting oracle on which hosts the app accepts (P3,
+    # 2026-09-20 audit). Outermost, every request — preflight or not — is
+    # Host-checked first; nothing inside sees a request for a host the app
+    # does not serve.
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 
     def _route_template(request: Request) -> str:
         """Route *template* for metrics/labels (bounded), not the raw path."""

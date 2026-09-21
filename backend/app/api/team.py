@@ -737,13 +737,12 @@ async def _guard_farm_capacity(
         raise HTTPException(status_code=409, detail=reason)
 
 
-def _clean_permissions(
-    raw: list[str], allowed: set[str], *, preserve: set[str] | None = None
-) -> list[str]:
+def _clean_permissions(raw: list[str], allowed: set[str], *, preserve: set[str]) -> list[str]:
     """Apply only permissions the editor controls, preserving the rest."""
-    chosen = ({code for code in raw if code in ALL_PERMISSIONS} & allowed) | (
-        (preserve or set()) - allowed
-    )
+    # ``preserve`` is the role's existing grant set and is always supplied;
+    # the old ``or set()`` fallback decided nothing for any input (an empty
+    # set joins identically) — removed as dead code (2026-09-20 audit P3).
+    chosen = ({code for code in raw if code in ALL_PERMISSIONS} & allowed) | (preserve - allowed)
     for action, required_view in PERMISSION_DEPENDENCIES.items():
         if action in chosen and required_view not in chosen:
             raise HTTPException(
@@ -961,6 +960,20 @@ async def _create_worker_after_idempotency_gate(
             await db.flush()
         except IntegrityError:  # defensive external-writer race
             raise HTTPException(status_code=400, detail=CANT_ADD_TO_TEAM) from None
+        # The security event rides inside the mutation so an idempotent REPLAY
+        # of a committed creation does not log a second "provisioned" event
+        # for the one worker that exists (P3, 2026-09-20 audit).
+        _audit_event(
+            "team.worker.create",
+            farm_id=farm.id,
+            actor_id=user.id,
+            summary="provisioned worker account with must-change credential",
+            targets={
+                "membership_id": membership.id,
+                "user_id": worker.id,
+                "role_id": role.id,
+            },
+        )
         return MembershipOut(
             id=membership.id,
             user_id=worker.id,
@@ -989,17 +1002,6 @@ async def _create_worker_after_idempotency_gate(
         success_status=201,
         response_type=MembershipOut,
         mutate=mutate,
-    )
-    _audit_event(
-        "team.worker.create",
-        farm_id=farm.id,
-        actor_id=user.id,
-        summary="provisioned worker account with must-change credential",
-        targets={
-            "membership_id": created.id,
-            "user_id": created.user_id,
-            "role_id": created.role_id,
-        },
     )
     return created
 
@@ -1223,7 +1225,7 @@ async def create_role(
         code=None,
         name=name,
         description=(payload.description or "").strip() or None,
-        permissions=json.dumps(_clean_permissions(payload.permissions, perms)),
+        permissions=json.dumps(_clean_permissions(payload.permissions, perms, preserve=set())),
     )
     db.add(role)
     try:

@@ -13,5 +13,4 @@ export const AnimalOutBirthType = {
   TWIN: 'TWIN',
   TRIPLET: 'TRIPLET',
   QUADRUPLET: 'QUADRUPLET',
-  MULTIPLET: 'MULTIPLET',
 } as const;

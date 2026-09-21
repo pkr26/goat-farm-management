@@ -17,4 +17,10 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - **Navigation**: sidebar groups live in `NAV_GROUPS` in `src/app/(app)/layout.tsx`; new routes need an entry there with their permission key.
 - **Icons**: `lucide-react` only — no emoji in UI.
 - **Numbers**: right-align numeric table columns and use `tabular-nums` for figures.
+- **Semantic test hooks over utility classes**: when a component's styling
+  encodes STATE (done/destructive/tone), also emit a semantic attribute
+  (`data-done`, `data-tone`, …) and write tests against THAT — assertions on
+  Tailwind utilities (`line-through`, `bg-warning-tint`, …) break on every
+  restyle (2026-09-20 audit P3). Existing class-coupled assertions are being
+  migrated opportunistically; do not add new ones.
 - **Fonts**: Inter (sans) + JetBrains Mono via `next/font` in `src/app/layout.tsx`; mapped to `--font-sans`/`--font-mono` tokens. Noto Sans Telugu is loaded alongside and swapped into the sans/heading stacks under `html:lang(te)` (Inter/Fraunces carry no Telugu glyphs).

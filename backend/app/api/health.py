@@ -3,6 +3,7 @@ batch), per-animal vaccination schedule from seeded templates.
 
 Port of v1 app/routers/health.py."""
 
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -407,19 +408,36 @@ async def clear_movement_restriction(
     # suspected_scheduled_disease) places the hold with health_event_id=None
     # and writes no HealthEvent at all, so the animal column is the ONLY copy
     # of a statutorily mandated notification date. Nulling it there destroyed
-    # the record irrecoverably, health events being immutable. Clear it only
-    # once the audit trail genuinely holds it.
-    notification_is_recorded_elsewhere = (
+    # the record irrecoverably, health events being immutable. The probe must
+    # be scoped to THIS episode's PLACED action: an animal-lifetime probe
+    # ("any HealthEvent ever notified") let an earlier, event-backed episode
+    # satisfy the guard and destroy a later mortality episode's only copy
+    # (2026-09-20 audit P2-2).
+    placed_health_event_id = (
         await db.execute(
-            select(HealthEvent.id)
+            select(MovementRestrictionAction.health_event_id)
             .where(
-                HealthEvent.farm_id == farm.id,
-                HealthEvent.animal_id == animal.id,
-                HealthEvent.authority_notified_at.is_not(None),
+                MovementRestrictionAction.farm_id == farm.id,
+                MovementRestrictionAction.animal_id == animal.id,
+                MovementRestrictionAction.restriction_version == animal.restriction_version,
+                MovementRestrictionAction.action == "PLACED",
             )
             .limit(1)
         )
-    ).scalar_one_or_none() is not None
+    ).scalar_one_or_none()
+    notification_is_recorded_elsewhere = (
+        placed_health_event_id is not None
+        and (
+            await db.execute(
+                select(HealthEvent.id).where(
+                    HealthEvent.farm_id == farm.id,
+                    HealthEvent.id == placed_health_event_id,
+                    HealthEvent.authority_notified_at.is_not(None),
+                )
+            )
+        ).scalar_one_or_none()
+        is not None
+    )
     if notification_is_recorded_elsewhere:
         animal.authority_notified_at = None
     await db.commit()
@@ -458,7 +476,9 @@ async def _bulk_target_snapshot(
     db: DbSession,
     farm_id: int,
     target: HealthBulkTargetIn,
-) -> tuple[list[int], list[AnimalIdentityOut]]:
+    *,
+    reference_date: date | None = None,
+) -> tuple[list[int], list[AnimalIdentityOut], list[int | None]]:
     target_limit = MAX_BULK_BUCKET_TARGETS if target.scope == "bucket" else MAX_BULK_HEALTH_TARGETS
     filters: list[ColumnElement[bool]] = [
         Animal.farm_id == farm_id,
@@ -505,15 +525,14 @@ async def _bulk_target_snapshot(
                 raise HTTPException(
                     status_code=422, detail="Health preview scope must match the linked batch"
                 )
+    # Full entities (the age computation needs effective_dob): scalars(), or
+    # each row is a one-column Row whose attribute access raises KeyError.
     rows = list(
         (
             await db.execute(
-                select(Animal.id, Animal.tag_number, Animal.name)
-                .where(*filters)
-                .order_by(Animal.id)
-                .limit(target_limit + 1)
+                select(Animal).where(*filters).order_by(Animal.id).limit(target_limit + 1)
             )
-        ).all()
+        ).scalars()
     )
     if not rows:
         raise HTTPException(status_code=400, detail="No active animals match the given scope")
@@ -526,9 +545,16 @@ async def _bulk_target_snapshot(
             ),
         )
     ids = [int(row.id) for row in rows]
-    return ids, [
-        AnimalIdentityOut(id=row.id, tag_number=row.tag_number, name=row.name) for row in rows
-    ]
+    when = reference_date or today()
+    ages = [animal.age_months_on(when) for animal in rows]
+    return (
+        ids,
+        [
+            AnimalIdentityOut(id=animal.id, tag_number=animal.tag_number, name=animal.name)
+            for animal in rows
+        ],
+        ages,
+    )
 
 
 @router.post("/events/preview")
@@ -539,7 +565,9 @@ async def preview_bulk_event_targets(
     _perms: MANAGE,
 ) -> HealthBulkTargetPreviewOut:
     """Return the exact, bounded active-animal snapshot a bulk write must present."""
-    ids, identities = await _bulk_target_snapshot(db, farm.id, payload)
+    ids, identities, ages = await _bulk_target_snapshot(
+        db, farm.id, payload, reference_date=today(farm.timezone)
+    )
     return HealthBulkTargetPreviewOut(
         scope=payload.scope,
         bucket=payload.bucket,
@@ -547,6 +575,7 @@ async def preview_bulk_event_targets(
         task_id=payload.task_id,
         target_animal_ids=ids,
         target_animals=identities,
+        target_animal_ages_months=ages,
         target_count=len(ids),
         max_targets=(
             MAX_BULK_BUCKET_TARGETS if payload.scope == "bucket" else MAX_BULK_HEALTH_TARGETS
@@ -798,6 +827,16 @@ async def _record_event_mutation(
     if payload.next_due_date is not None and payload.next_due_date <= event_date:
         raise HTTPException(
             status_code=422, detail="next_due_date must be after the health event date"
+        )
+    if payload.next_due_date is not None and (payload.next_due_date - event_date).days > 3650:
+        # Same re-check-after-farm-date-resolution pattern as withdrawal_until:
+        # the schema-level pair checks only ran when the client supplied an
+        # explicit event date, so a far next_due_date against the defaulted
+        # business date used to reach ck_health_events_next_due_horizon and
+        # surface as a raw IntegrityError 500 (P3, 2026-09-20 audit).
+        raise HTTPException(
+            status_code=422,
+            detail="next_due_date cannot be more than 10 years after the health event date",
         )
     if payload.product_expires_on is not None and payload.product_expires_on < event_date:
         raise HTTPException(

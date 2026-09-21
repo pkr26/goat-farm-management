@@ -49,7 +49,11 @@ def today(timezone_name: str = DEFAULT_BUSINESS_TIMEZONE) -> date:
     """
     try:
         zone = ZoneInfo(timezone_name)
-    except ZoneInfoNotFoundError:
+    except (ZoneInfoNotFoundError, ValueError):
+        # ValueError covers malformed keys (empty string, traversal-like
+        # paths): a corrupt farm.timezone must fall back like an unknown
+        # one instead of 500ing every request the farm makes (P3,
+        # 2026-09-20 audit).
         zone = ZoneInfo(DEFAULT_BUSINESS_TIMEZONE)
     return datetime.now(zone).date()
 
@@ -62,7 +66,7 @@ def business_date(value: datetime, timezone_name: str = DEFAULT_BUSINESS_TIMEZON
     """
     try:
         zone = ZoneInfo(timezone_name)
-    except ZoneInfoNotFoundError:
+    except (ZoneInfoNotFoundError, ValueError):
         zone = ZoneInfo(DEFAULT_BUSINESS_TIMEZONE)
     aware = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
     return aware.astimezone(zone).date()

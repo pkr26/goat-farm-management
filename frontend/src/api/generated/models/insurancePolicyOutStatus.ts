@@ -10,7 +10,6 @@ export type InsurancePolicyOutStatus = typeof InsurancePolicyOutStatus[keyof typ
 
 export const InsurancePolicyOutStatus = {
   active: 'active',
-  renewed: 'renewed',
   lapsed: 'lapsed',
   claimed: 'claimed',
 } as const;

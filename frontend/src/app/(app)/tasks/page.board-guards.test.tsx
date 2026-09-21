@@ -229,7 +229,7 @@ function dueBand(row: HTMLElement, iso: string): HTMLElement {
 }
 
 /** Lets pending macrotasks (the deferred navigation bridge) run. */
-async function settle(ms = 30) {
+async function settleAct(ms = 30) {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, ms));
   });
@@ -324,7 +324,7 @@ describe("TasksPage branch guards", () => {
       expect(
         screen.getByRole("navigation", { name: "today tasks pagination" }),
       ).toHaveTextContent("Showing 51–100 of 137 today tasks");
-      await settle();
+      await settleAct();
       expect(nav.replace).not.toHaveBeenCalled();
     });
 
@@ -335,7 +335,7 @@ describe("TasksPage branch guards", () => {
       await waitFor(() => expect(nav.replace).toHaveBeenCalledWith("/tasks?tab=today&from=dashboard"));
       // The mocked router never publishes the new params, so every later render
       // recomputes the same target: it must not be replaced over and over.
-      await settle();
+      await settleAct();
       expect(nav.replace).toHaveBeenCalledTimes(1);
     });
 
@@ -356,21 +356,21 @@ describe("TasksPage branch guards", () => {
       await renderLoaded();
 
       expect(tableScope().getByText("Morning feed count")).toBeInTheDocument();
-      await settle();
+      await settleAct();
       expect(nav.replace).not.toHaveBeenCalled();
     });
 
     it("does not push a duplicate history entry at the offset ceiling", async () => {
-      nav.state.search = "tab=today&today_offset=1000000";
+      nav.state.search = "tab=today&today_offset=10000";
       payload.today_total = 2_000_000;
       const user = userEvent.setup();
       await renderLoaded();
 
       const pager = screen.getByRole("navigation", { name: "today tasks pagination" });
-      expect(pager).toHaveTextContent("Showing 1000001–1000050 of 2000000 today tasks");
+      expect(pager).toHaveTextContent("Showing 10001–10050 of 2000000 today tasks");
 
       await user.click(within(pager).getByRole("button", { name: "Next" }));
-      await settle();
+      await settleAct();
       expect(nav.push).not.toHaveBeenCalled();
       expect(nav.replace).not.toHaveBeenCalled();
       expect(seenParams).toHaveLength(1);
@@ -418,7 +418,7 @@ describe("TasksPage branch guards", () => {
         rerender(<TasksPage />);
       });
       await waitFor(() => expect(nav.replace).toHaveBeenCalled());
-      await settle();
+      await settleAct();
       expect(nav.replace.mock.calls.map((call) => call[0])).toEqual(["/tasks?tab=today"]);
     });
   });

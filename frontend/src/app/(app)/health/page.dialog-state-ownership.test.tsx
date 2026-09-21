@@ -175,7 +175,7 @@ function requestGate() {
 
 /** Lets a released response settle through react-query into the effect that
  *  reads it, the way the real network callback would. */
-async function settle() {
+async function settleAct() {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
@@ -516,7 +516,7 @@ describe("HealthPage dialog state ownership", () => {
         within(dialog).queryByRole("button", { name: "Retry linked duties" }),
       ).not.toBeInTheDocument(),
     );
-    await settle();
+    await settleAct();
 
     expect(within(dialog).getByRole("combobox", { name: "Type" })).toHaveTextContent(
       "Treatment",
@@ -563,7 +563,7 @@ describe("HealthPage dialog state ownership", () => {
     // The duty picker appears only once the exact lookup has landed, so this
     // is the commit in which the resolution was decided.
     const dutySelect = await within(dialog).findByLabelText("Linked duty (completes it)");
-    await settle();
+    await settleAct();
 
     // The operator chose the bucket scope over the duty's animal.
     expect(within(dialog).getByRole("radio", { name: "Whole bucket" })).toBeChecked();
@@ -575,7 +575,7 @@ describe("HealthPage dialog state ownership", () => {
     await pickOption(user, within(dialog).getByRole("combobox", { name: "Type" }), "Treatment");
     tabsFail = false;
     await user.click(within(dialog).getByRole("button", { name: "Retry linked duties" }));
-    await settle();
+    await settleAct();
 
     await waitFor(() =>
       expect(
@@ -601,8 +601,8 @@ describe("HealthPage dialog state ownership", () => {
     );
 
     await user.click(saveButton(dialog));
-    await settle();
-    await settle();
+    await settleAct();
+    await settleAct();
 
     expect(postBody).toBeNull();
     expect(within(dialog).getByLabelText("Linked duty (completes it)")).toHaveTextContent(
@@ -756,7 +756,8 @@ describe("HealthPage dialog state ownership", () => {
     const { user, dialog } = await openBatchReview();
     await user.click(within(dialog).getByRole("button", { name: "Confirm for 2 animals" }));
     await within(dialog).findByText(/Batch is under audit\./);
-    expect(toast.error).toHaveBeenCalledWith("Batch is under audit.");
+    // Inline only (single failure surface — P3, 2026-09-20 audit).
+    expect(toast.error).not.toHaveBeenCalled();
 
     await pickOption(
       user,
@@ -798,7 +799,8 @@ describe("HealthPage dialog state ownership", () => {
 
     await user.click(reviewButton(dialog));
     await within(dialog).findByText(/Batch is under audit\./);
-    expect(toast.error).toHaveBeenCalledWith("Batch is under audit.");
+    // Inline only (single failure surface — P3, 2026-09-20 audit).
+    expect(toast.error).not.toHaveBeenCalled();
 
     previewFails = false;
     await user.click(reviewButton(dialog));
@@ -823,7 +825,8 @@ describe("HealthPage dialog state ownership", () => {
     await user.click(saveButton(dialog));
 
     await within(dialog).findByText(/Animal is already treated today\./);
-    expect(toast.error).toHaveBeenCalledWith("Animal is already treated today.");
+    // Inline only (single failure surface — P3, 2026-09-20 audit).
+    expect(toast.error).not.toHaveBeenCalled();
     expect(within(dialog).getByRole("button", { name: "Retry save" })).toBeInTheDocument();
 
     await pickOption(user, animalPicker, /G-004/);
@@ -894,7 +897,13 @@ describe("HealthPage dialog state ownership", () => {
 
     const reopened = await screen.findByRole("dialog", { name: "Add health event" });
     expect(failedSaveNotice(reopened)).toBeNull();
-    expect(within(reopened).getByRole("button", { name: "Save event" })).toBeInTheDocument();
+    // The herd-level duty deep link keeps its duty and lands on the
+    // whole-bucket scope (P1-8), so the submit button reads the bulk
+    // review label, not "Save event".
+    expect(within(reopened).getByRole("radio", { name: /whole bucket/i })).toBeChecked();
+    expect(
+      within(reopened).getByRole("button", { name: /review target/i }),
+    ).toBeInTheDocument();
   });
 
   it("clears the target requirement when the scope leaves and comes back", async () => {
@@ -965,7 +974,7 @@ describe("HealthPage dialog state ownership", () => {
 
     write.release();
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Health event recorded."));
-    await settle();
+    await settleAct();
 
     expect(pushMock).toHaveBeenCalledTimes(1);
   });
@@ -991,7 +1000,7 @@ describe("HealthPage dialog state ownership", () => {
     view.unmount();
     write.release();
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Health event recorded."));
-    await settle();
+    await settleAct();
 
     // The event is confirmed and the caches refreshed, but this page no longer
     // exists: its deep-link cleanup would navigate whatever replaced it.

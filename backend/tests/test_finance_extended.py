@@ -14,6 +14,7 @@ missing/malformed X-Farm-Id, 404 for an unknown farm, 403 for a non-member.
 """
 
 from datetime import date, timedelta
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -137,7 +138,12 @@ async def make_animal(
         payload.setdefault("weight_date", dob)
     if payload["source"] == "PURCHASED":
         payload.setdefault("historical_import_reason", "Existing-herd test fixture")
-    resp = await client.post("/api/animals", json=payload, headers=headers)
+    # A create carrying a purchase price books money, so the endpoint
+    # requires an Idempotency-Key for it (P2-1, 2026-09-20 audit); a fresh
+    # key per call unless the caller pinned one for replay assertions.
+    keyed = {**headers}
+    keyed.setdefault("Idempotency-Key", f"test-{uuid4()}")
+    resp = await client.post("/api/animals", json=payload, headers=keyed)
     assert resp.status_code == 201, resp.text
     return resp.json()
 

@@ -48,6 +48,42 @@ def upgrade() -> None:
            AND repeat_months = 36
         """
     )
+    # Farms that already recorded ORF vaccinations hold FK references to the
+    # template row (health_events.schedule_template_id, linked by
+    # d7e8f9a0b1c2's backfill); deleting the template first aborted the
+    # upgrade with a raw 23503. Detach the references before the delete —
+    # the event rows keep every recorded fact; only the schedule-source link
+    # retires with its template (2026-09-20 audit P2-13).
+    #
+    # d7e8f9a0b1c2 (re-created by e3f4a5b6c7d9) guards the very column this
+    # UPDATE clears: trg_health_event_schedule_template_id_immutable raises
+    # 23514 on any change to schedule_template_id, so the detach itself would
+    # abort the upgrade on exactly the databases it exists to fix. Drop the
+    # trigger around the one-shot migration UPDATE and re-create it — the
+    # same pattern e3f4a5b6c7d9 uses for its own schedule-link repairs. The
+    # guard function is never dropped, so the re-create needs no DDL of its
+    # own; if the trigger is somehow absent (manually repaired database) the
+    # IF EXISTS makes this a no-op either way.
+    op.execute(
+        "DROP TRIGGER IF EXISTS trg_health_event_schedule_template_id_immutable ON health_events"
+    )
+    op.execute(
+        """
+        UPDATE health_events AS event
+           SET schedule_template_id = NULL
+          FROM vaccine_templates AS template
+         WHERE event.schedule_template_id = template.id
+           AND template.farm_type = 'GOAT'
+           AND template.name = 'ORF'
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_health_event_schedule_template_id_immutable
+        BEFORE UPDATE OF schedule_template_id ON health_events
+        FOR EACH ROW EXECUTE FUNCTION guard_health_event_schedule_template_id()
+        """
+    )
     op.execute("DELETE FROM vaccine_templates WHERE farm_type = 'GOAT' AND name = 'ORF'")
     op.execute(
         """

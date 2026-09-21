@@ -353,15 +353,15 @@ function NewBreedingDialog({
                 aria-label="Breeding method"
                 className="grid gap-2 sm:grid-cols-3"
               >
+                {/* AI / AI_SEXED are part of the wire contract (legacy
+                    records render them) but the goat protocol rejects the
+                    write unconditionally (services/breeding: "AI and
+                    sexed-semen services are not part of the goat protocol",
+                    409). Offering the radios only produced guaranteed
+                    failures after the operator filled the form. */}
                 {(
                   [
                     ["NATURAL", enumLabel("method", "NATURAL", language), `Herd ${vocabulary.maleAdult}`],
-                    ["AI", enumLabel("method", "AI", language), "Conventional semen"],
-                    [
-                      "AI_SEXED",
-                      enumLabel("method", "AI_SEXED", language),
-                      `~90% female ${vocabulary.youngPlural}`,
-                    ],
                   ] as const
                 ).map(([value, title, hint]) => (
                   <label
@@ -381,6 +381,10 @@ function NewBreedingDialog({
                   </label>
                 ))}
               </div>
+              <p className="text-xs text-muted-foreground">
+                Natural cover with a herd {vocabulary.maleAdult} is the only supported method — AI
+                is not part of the protocol.
+              </p>
             </div>
             {method === "NATURAL" ? (
               <div className="space-y-1.5">

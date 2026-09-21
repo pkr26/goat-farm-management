@@ -105,8 +105,12 @@ describe("AuthProvider bootstrap — refresh failure handling", () => {
 
     renderWithProviders(<Probe />);
 
-    await waitFor(() =>
-      expect(screen.getByTestId("loading")).toHaveTextContent("false"),
+    // A transient refresh outcome is retried with a short backoff before the
+    // bootstrap gives up (P3, 2026-09-20): budget the settle wait for the
+    // retry window instead of the old single-shot latency.
+    await waitFor(
+      () => expect(screen.getByTestId("loading")).toHaveTextContent("false"),
+      { timeout: 5000 },
     );
     expect(screen.getByTestId("user")).toHaveTextContent("none");
     // The redirect is a separate effect that fires the render AFTER loading
@@ -128,8 +132,10 @@ describe("AuthProvider bootstrap — refresh failure handling", () => {
 
     renderWithProviders(<Probe />);
 
-    await waitFor(() =>
-      expect(screen.getByTestId("loading")).toHaveTextContent("false"),
+    // Budget the retry window (see the network-error test above).
+    await waitFor(
+      () => expect(screen.getByTestId("loading")).toHaveTextContent("false"),
+      { timeout: 5000 },
     );
     expect(screen.getByTestId("user")).toHaveTextContent("none");
     await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));

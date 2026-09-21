@@ -59,6 +59,7 @@ const ANIMAL: AnimalOut = {
   birth_weight: null,
   current_bucket: "LACTATING" as AnimalOutCurrentBucket,
   status: "ACTIVE",
+  status_notes: null,
   status_date: null,
   sale_price: null,
   sale_weight_kg: null,

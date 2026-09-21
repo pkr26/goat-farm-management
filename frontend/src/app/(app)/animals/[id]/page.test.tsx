@@ -20,6 +20,7 @@ import { renderWithProviders } from "@/test/render";
 import { addDays, farmToday } from "@/lib/format";
 
 import AnimalProfilePage from "./page";
+import { settle } from "@/test/settle";
 
 const nav = vi.hoisted(() => ({ id: "1", search: "" }));
 
@@ -1099,7 +1100,7 @@ describe("AnimalProfilePage", () => {
       // ordinary pointer interaction.
       confirm.removeAttribute("disabled");
       fireEvent.click(confirm);
-      await new Promise((resolve) => window.setTimeout(resolve, 75));
+      await settle(75);
       expect(clearanceBodies).toHaveLength(0);
 
       await finishRefresh();
@@ -1366,7 +1367,7 @@ describe("AnimalProfilePage", () => {
       // still the final safety boundary for scripted events and stale queued
       // submissions that were validated before the refetch began.
       fireEvent.submit(dialog.querySelector("form") as HTMLFormElement);
-      await new Promise((resolve) => window.setTimeout(resolve, 75));
+      await settle(75);
       expect(weightBodies).toHaveLength(0);
 
       await finishRefresh();
@@ -1529,7 +1530,7 @@ describe("AnimalProfilePage", () => {
       expect(dialog.querySelector("fieldset")).toBeDisabled();
 
       fireEvent.submit(dialog.querySelector("form") as HTMLFormElement);
-      await new Promise((resolve) => window.setTimeout(resolve, 75));
+      await settle(75);
       expect(moveBodies).toHaveLength(0);
 
       await finishRefresh();
@@ -1613,6 +1614,7 @@ describe("AnimalProfilePage", () => {
         mortality_cause: null,
         mortality_cause_code: null,
         disposal_method: null,
+        estimated_dob: null,
         necropsy_done: false,
         necropsy_findings: null,
         mortality_reported_at: null,
@@ -1642,6 +1644,7 @@ describe("AnimalProfilePage", () => {
         mortality_cause: null,
         mortality_cause_code: null,
         disposal_method: null,
+        estimated_dob: null,
         necropsy_done: false,
         necropsy_findings: null,
         mortality_reported_at: null,
@@ -1754,6 +1757,7 @@ describe("AnimalProfilePage", () => {
         mortality_cause: null,
         mortality_cause_code: null,
         disposal_method: null,
+        estimated_dob: null,
         necropsy_done: false,
         necropsy_findings: null,
         mortality_reported_at: null,
@@ -1820,6 +1824,7 @@ describe("AnimalProfilePage", () => {
         mortality_cause: "Sudden fever",
         mortality_cause_code: null,
         disposal_method: null,
+        estimated_dob: null,
         necropsy_done: false,
         necropsy_findings: null,
         mortality_reported_at: "2026-08-07",
@@ -2046,7 +2051,7 @@ describe("AnimalProfilePage", () => {
       expect(dialog.querySelector("fieldset")).toBeDisabled();
 
       fireEvent.submit(dialog.querySelector("form") as HTMLFormElement);
-      await new Promise((resolve) => window.setTimeout(resolve, 75));
+      await settle(75);
       expect(statusBodies).toHaveLength(0);
 
       await finishRefresh();

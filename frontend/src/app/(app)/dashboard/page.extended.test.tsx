@@ -520,7 +520,11 @@ describe("DashboardPage — withheld sections vs. real counts", () => {
     expect(screen.queryByText(/Showing 2 of 9 move suggestions/)).not.toBeInTheDocument();
   });
 
-  it("names the breeding register in the cull banner only with breeding.view", async () => {
+  it("fails the cull banner closed without breeding.view even if the payload leaks a count", async () => {
+    // P3 (2026-09-20 audit): the banner used to trust the payload sentinel
+    // alone, so a dashboard response that forgot to null cull_candidates_total
+    // leaked breeding facts to a viewer without breeding.view. The section
+    // now ORs the permission like every other gated section.
     server.use(
       permissionsHandler(["dashboard.view", "animals.view"]),
       dashboardHandler(
@@ -535,8 +539,8 @@ describe("DashboardPage — withheld sections vs. real counts", () => {
     await screen.findByRole("heading", { name: /— Dashboard/ });
 
     expect(
-      screen.getByText("2 cull candidate(s) — flagged in breeding records"),
-    ).toBeInTheDocument();
+      screen.queryByText(/cull candidate\(s\)/),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("link", { name: "see breeding page" }),
     ).not.toBeInTheDocument();

@@ -21,6 +21,7 @@ import { server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
 import RegisterPage from "./page";
+import { settle } from "@/test/settle";
 
 const { pushMock } = vi.hoisted(() => ({ pushMock: vi.fn() }));
 
@@ -476,7 +477,7 @@ describe("RegisterPage", () => {
       rendered.rerender(<p>navigated away</p>);
       await act(async () => {
         releaseRegister();
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await settle(50);
       });
 
       // The late token must not be installed behind the operator's back.
@@ -518,7 +519,7 @@ describe("RegisterPage", () => {
       rendered.rerender(<p>navigated away</p>);
       await act(async () => {
         releaseFarms();
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await settle(50);
       });
 
       // Router pushes are global: yanking a departed page's destination in
@@ -620,7 +621,7 @@ describe("RegisterPage", () => {
 
       rendered.unmount();
       releaseRegister();
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await settle(50);
 
       expect(pushMock).not.toHaveBeenCalled();
     });

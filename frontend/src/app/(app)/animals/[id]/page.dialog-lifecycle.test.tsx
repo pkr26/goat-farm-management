@@ -17,6 +17,7 @@ import { server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
 import AnimalProfilePage from "./page";
+import { settle } from "@/test/settle";
 
 const nav = vi.hoisted(() => ({ id: "1", search: "" }));
 
@@ -336,7 +337,7 @@ describe("AnimalProfilePage behaviour", () => {
       setInput(reference, "   ");
       expect(confirm).toBeDisabled();
       await user.click(confirm);
-      await new Promise((resolve) => window.setTimeout(resolve, 75));
+      await settle(75);
       expect(clearanceBodies).toHaveLength(0);
       expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
 

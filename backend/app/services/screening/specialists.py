@@ -15,7 +15,7 @@ from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .gate import GateParseError, _extract_json_object  # shared tolerance
+from .gate import GateParseError, _extract_json_object, answer_list  # shared tolerance
 from .providers import ProviderAnswer, ProviderResponseError, VisionProvider
 
 MAX_SPECIALIST_CONDITIONS = 5
@@ -160,11 +160,17 @@ def parse_specialist_response(text: str, kind: SpecialistKind) -> SpecialistResp
     codes become OTHER with the original guess kept in the note."""
     try:
         raw = json.loads(_extract_json_object(text))
+        # {"conditions": null} is a plausible "nothing visible" answer and
+        # parses as empty; a non-object answer or a present-but-non-list
+        # value becomes SpecialistParseError, which run_specialist maps to
+        # ProviderResponseError so the image row follows its normal
+        # error/retry path instead of crashing the cycle.
+        items = answer_list(raw, "conditions")
     except (ValueError, GateParseError) as exc:
         raise SpecialistParseError(f"no valid JSON in specialist answer: {exc}") from exc
     vocabulary = DISEASE_VOCABULARY[kind]
     conditions: list[SpecialistCondition] = []
-    for item in raw.get("conditions", [])[:MAX_SPECIALIST_CONDITIONS]:
+    for item in items[:MAX_SPECIALIST_CONDITIONS]:
         try:
             condition = SpecialistCondition.model_validate(item)
         except ValueError:

@@ -40,7 +40,6 @@ const SIMPLE_LABELS: Record<string, Record<string, string>> = {
     TWIN: "Twin",
     TRIPLET: "Triplet",
     QUADRUPLET: "Quadruplet",
-    MULTIPLET: "Multiplet",
   },
   eventType: {
     VACCINE: "Vaccination",
@@ -85,6 +84,9 @@ const SIMPLE_LABELS: Record<string, Record<string, string>> = {
     REBREED: "Re-breed",
     BUCK_ROTATION: "Buck rotation",
     INSURANCE: "Insurance",
+    // Daily trough round (cadence-generated): missing here leaked the raw
+    // English enum into the Telugu UI (P3, 2026-09-20 audit).
+    WATER: "Water trough",
   },
   // Coded mortality causes (animals.mortality_cause_code). The three
   // *_SUSPECTED entries are the notifiable-disease watches; the label says
@@ -138,7 +140,6 @@ const SIMPLE_LABELS: Record<string, Record<string, string>> = {
   // sibling kind.
   insuranceStatus: {
     ACTIVE: "Active",
-    RENEWED: "Renewed",
     LAPSED: "Lapsed",
     CLAIMED: "Claimed",
   },
@@ -159,9 +160,13 @@ const BUCKET_LABELS: Record<string, string> = {
 };
 
 /**
- * Telugu labels. Every enum kind carries a full map so worker-facing pages
- * never leak English codes; anything still missing falls back to the English
- * label (never the raw code), matching the i18n catalog's fallback contract.
+ * Telugu labels. Worker-facing kinds carry a full map so their pages never
+ * leak English codes; anything still missing falls back to the English
+ * label (never the raw code), matching the i18n catalog's fallback
+ * contract. Honesty note (P3, 2026-09-20 audit): this completeness is NOT
+ * mechanically pinned for every vocabulary — mortality causes, the five
+ * screening vocabularies and role preset codes rely on the fallback chain,
+ * so treat an untested kind as English-fallback, not Telugu-complete.
  */
 const TE_LABELS: { [K in EnumKind]?: Record<string, string> } = {
   sex: { M: "మగ", F: "ఆడ" },
@@ -186,7 +191,6 @@ const TE_LABELS: { [K in EnumKind]?: Record<string, string> } = {
     TWIN: "కవలలు",
     TRIPLET: "ముగ్గురు",
     QUADRUPLET: "నలుగురు",
-    MULTIPLET: "బహుళం",
   },
   eventType: {
     VACCINE: "టీకా",
@@ -231,6 +235,7 @@ const TE_LABELS: { [K in EnumKind]?: Record<string, string> } = {
     REBREED: "తిరిగి సంతానం",
     BUCK_ROTATION: "మగ మేక మార్పు",
     INSURANCE: "భీమా",
+    WATER: "నీటి తొట్టె",
   },
   mortalityCause: {
     PNEUMONIA: "న్యుమోనియా",
@@ -276,7 +281,6 @@ const TE_LABELS: { [K in EnumKind]?: Record<string, string> } = {
   },
   insuranceStatus: {
     ACTIVE: "అమలులో",
-    RENEWED: "నవీకరించబడింది",
     LAPSED: "రద్దైంది",
     CLAIMED: "పరిహారం అయింది",
   },

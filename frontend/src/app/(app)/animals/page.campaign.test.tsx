@@ -16,6 +16,7 @@ import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
+import { settle } from "@/test/settle";
 import {
   completedMonths,
   createAnimalSchema,
@@ -320,7 +321,7 @@ describe("AnimalsPage — campaign kills", () => {
     act(() => setCurrentFarmId("77"));
     await act(async () => {
       releaseCreate();
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await settle(50);
     });
     expect(toastMocks.success).not.toHaveBeenCalled();
     // The suppressed continuation left the dialog open with the draft intact.
@@ -349,7 +350,7 @@ describe("AnimalsPage — campaign kills", () => {
     act(() => setCurrentFarmId("77"));
     await act(async () => {
       releaseCreate();
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await settle(50);
     });
     // The old farm's failure must not toast into the new farm's UI.
     expect(toastMocks.error).not.toHaveBeenCalled();
@@ -424,7 +425,7 @@ describe("AnimalsPage — campaign kills", () => {
     expect(
       await screen.findByText("You don't have access to this page."),
     ).toBeInTheDocument();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settle(50);
     expect(listRequests).toBe(0);
   });
 

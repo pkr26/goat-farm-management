@@ -163,6 +163,11 @@ class BreedingCandidateOut(BaseModel):
     name: str | None
     age_months: int | None
     latest_weight_kg: float | None
+    # A cull-flagged doe is servable by the owner only (create_breeding_record
+    # 409s her for every other manager); the picker must show the flag so the
+    # operator can skip her instead of filling the form into a rejection
+    # (wave-5 note, 2026-09-20 audit).
+    cull_candidate: bool = False
 
 
 class BreedingCandidateListOut(BaseModel):

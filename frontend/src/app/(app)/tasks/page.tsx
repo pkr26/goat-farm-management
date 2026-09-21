@@ -78,6 +78,7 @@ import {
 } from "@/lib/task-action-access";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
+import { MAX_PAGE_OFFSET } from "@/lib/use-url-state";
 import { safeAppPath } from "@/lib/utils";
 import { enumLabel } from "@/lib/enum-labels";
 
@@ -130,7 +131,10 @@ function tabEmptyGuidance(tab: TaskTab, t: TFn): string {
   }
 }
 const TASK_PAGE_SIZE = 50;
-const MAX_TASK_OFFSET = 1_000_000;
+/** Shared backend mirror (pinned by backend-constants-parity.test.ts):
+ * the tasks endpoints 422 any deeper offset, so the clamp must match the
+ * backend's ceiling exactly (P2-16). */
+const MAX_TASK_OFFSET = MAX_PAGE_OFFSET;
 const TASK_OFFSET_KEYS: Record<TaskTab, TaskOffsetKey> = {
   today: "today_offset",
   overdue: "overdue_offset",
@@ -248,7 +252,8 @@ function RowActions({
   const actionButtonClass = touch ? "h-11 px-4" : undefined;
   /** Completing a recurring duty immediately spawns its successor — a
    * one-tap destructive-ish action the audit asked to gate behind a confirm
-   * that states the next occurrence date (due + N days, computed locally). */
+   * that states the next occurrence date (max(due, today) + N days, the
+   * backend's own anchor, computed locally). */
   const needsRecurringConfirm = task.recur_days !== null;
 
   function invalidate() {
@@ -512,7 +517,17 @@ function RowActions({
               <p className="text-sm text-muted-foreground">
                 {t("tasks.recurConfirm.body", {
                   days: task.recur_days ?? 0,
-                  date: formatDate(addDays(task.due_date, task.recur_days ?? 0)),
+                  /* Mirror the backend's anchor (services/tasks.py:
+                     recurrence_anchor = max(due_date, today)): an overdue
+                     duty's successor spawns from the farm's today, not from
+                     the stale due date the old copy stated (wave-5 note,
+                     2026-09-20 audit). */
+                  date: formatDate(
+                    addDays(
+                      task.due_date > farmToday() ? task.due_date : farmToday(),
+                      task.recur_days ?? 0,
+                    ),
+                  ),
                 })}
               </p>
               {actionError?.action === "complete" && (
@@ -750,6 +765,10 @@ function TaskTable({
                  * refetch lands — strike it through immediately. */}
                 <p
                   dir="auto"
+                  // data-done is the semantic state; the strike-through is
+                  // only its styling (tests assert the attribute, not the
+                  // utility class — 2026-09-20 audit P3).
+                  data-done={task.status !== "PENDING" || undefined}
                   className={
                     task.status === "PENDING"
                       ? "font-medium"
@@ -855,6 +874,7 @@ function TaskTable({
                      * the board refetch lands. */}
                     <span
                       dir="auto"
+                      data-done={t2.status !== "PENDING" || undefined}
                       className={t2.status === "PENDING" ? undefined : "text-muted-foreground line-through"}
                     >
                       {resolveTaskTitle(t2, language)}
@@ -1048,7 +1068,14 @@ function TasksPageContent({ perms }: { perms: PermissionsState }) {
   const pathname = usePathname();
   const router = useRouter();
   const paramsKey = searchParams.toString();
-  const paramsOffsets = taskOffsetsFromParams(new URLSearchParams(paramsKey));
+  // Memoized on paramsKey: a fresh object per render gave `offsets` a new
+  // identity every render, so the offset-normalization effect below re-ran
+  // on every render (P3, 2026-09-20 audit) — its dedupe refs absorbed the
+  // work, but the run itself was pure churn.
+  const paramsOffsets = useMemo(
+    () => taskOffsetsFromParams(new URLSearchParams(paramsKey)),
+    [paramsKey],
+  );
   // Honor ?tab= deep links (the dashboard links to /tasks?tab=overdue etc.);
   // unknown values fall back to "today".
   const requestedTab = searchParams.get("tab");

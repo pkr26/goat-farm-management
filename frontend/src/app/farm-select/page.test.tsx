@@ -17,6 +17,7 @@ import { permissionsHandler, server, TEST_USER } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
 import FarmSelectPage from "./page";
+import { settle } from "@/test/settle";
 
 const { pushMock, replaceMock, navState, sessionEpochShift } = vi.hoisted(() => ({
   pushMock: vi.fn(),
@@ -259,7 +260,7 @@ describe("FarmSelectPage — farm picker", () => {
 
     rendered.unmount();
     releasePermissions();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settle(50);
 
     expect(pushMock).not.toHaveBeenCalled();
   });
@@ -380,7 +381,7 @@ describe("FarmSelectPage — farm picker", () => {
     // to a session that no longer owns the page.
     setAccessToken("second-session-token", TEST_USER.id);
     permissions.release();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settle(50);
 
     // The superseded pick neither reports its failure nor hands the picker
     // back — the new session owns both the error UI and the selection.
@@ -409,7 +410,7 @@ describe("FarmSelectPage — farm picker", () => {
     // would drop the newer session's operator into a farm they never picked.
     sessionEpochShift.value = 1;
     permissions.release();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settle(50);
 
     expect(pushMock).not.toHaveBeenCalled();
   });
@@ -781,7 +782,7 @@ describe("FarmSelectPage — create a farm", () => {
 
     await waitFor(() => expect(refreshCalls).toBe(1));
     await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settle(50);
 
     expect(localStorage.getItem("goatfarm.farmId")).toBeNull();
     expect(pushMock).not.toHaveBeenCalled();
@@ -892,7 +893,7 @@ describe("FarmSelectPage — create a farm", () => {
     // Another tab signed in while the write was on the wire.
     setAccessToken("second-session-token", TEST_USER.id);
     post.release();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settle(50);
 
     // The failure belongs to the replaced session: showing it would blame the
     // new session's operator for a write they never made.
@@ -929,7 +930,7 @@ describe("FarmSelectPage — create a farm", () => {
     // A newer sign-in owns the page by the time the durable POST answers.
     sessionEpochShift.value = 1;
     post.release();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settle(50);
 
     // The farm exists, but it must not be selected for — nor its route pushed
     // at — whoever the newer session belongs to.

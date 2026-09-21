@@ -124,7 +124,7 @@ describe("TasksPage — optimistic completion", () => {
 
     // Before the response lands the cached row already reads DONE.
     await waitFor(() =>
-      expect(titleCell("Clean water troughs")).toHaveClass("line-through"),
+      expect(titleCell("Clean water troughs")).toHaveAttribute("data-done"),
     );
     // The row instance whose Complete was tapped keeps the action mounted
     // but locked while the optimistic row waits (its desktop twin never fired
@@ -168,13 +168,13 @@ describe("TasksPage — optimistic completion", () => {
 
     // The optimistic strike appears while the request is in flight…
     await waitFor(() =>
-      expect(titleCell("Clean water troughs")).toHaveClass("line-through"),
+      expect(titleCell("Clean water troughs")).toHaveAttribute("data-done"),
     );
     // …then the failed completion rolls it back and offers the retry.
     release();
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
     await waitFor(() =>
-      expect(titleCell("Clean water troughs")).not.toHaveClass("line-through"),
+      expect(titleCell("Clean water troughs")).not.toHaveAttribute("data-done"),
     );
     // The retry label lives on the row whose Complete was tapped (the mobile
     // card instance owns that action state); the desktop twin still reads

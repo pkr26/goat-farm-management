@@ -148,7 +148,10 @@ Index(
 # register is append-style like the ledger: a row moves forward through
 # renewal and ends as lapsed/claimed, but is never edited into a different
 # fact or deleted — corrections happen by renewing, not rewriting.
-INSURANCE_POLICY_STATUSES: tuple[str, ...] = ("active", "renewed", "lapsed", "claimed")
+# "renewed" was never a real status value: renewal keeps a policy ACTIVE
+# with a new horizon and appends a premium row (services/finance.py).
+# Removed from the CHECK by cad1e2f3a4b5 (2026-09-20 audit P3).
+INSURANCE_POLICY_STATUSES: tuple[str, ...] = ("active", "lapsed", "claimed")
 INSURANCE_STATUS_ACTIVE = "active"
 INSURANCE_STATUS_CLAIMED = "claimed"
 INSURANCE_STATUS_LAPSED = "lapsed"

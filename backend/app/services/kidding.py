@@ -168,16 +168,15 @@ async def record_kidding(
     await db.flush()
 
     alive_count = sum(1 for k in kids if k["status"] == KidStatus.ALIVE.value)
-    delivered_count = len(kids)
-    if delivered_count >= 5:
-        birth_type: BirthType | None = BirthType.MULTIPLET
-    else:
-        birth_type = {
-            1: BirthType.SINGLE,
-            2: BirthType.TWIN,
-            3: BirthType.TRIPLET,
-            4: BirthType.QUADRUPLET,
-        }.get(delivered_count)
+    # The litter cap above bounds delivered_count to the species maximum
+    # (4 for goats), so the 1-4 map is total; the old >= 5 MULTIPLET branch
+    # was unreachable dead code.
+    birth_type: BirthType | None = {
+        1: BirthType.SINGLE,
+        2: BirthType.TWIN,
+        3: BirthType.TRIPLET,
+        4: BirthType.QUADRUPLET,
+    }.get(len(kids))
 
     # Tags are unique per farm. Preserve the readable "<doe>-K<n>" when free,
     # then use a cryptographically unpredictable bounded fallback. A sequential
@@ -427,14 +426,14 @@ async def replan_dam_after_last_kid_death(
     child: Animal,
     death_date: date,
 ) -> bool:
-    profile = GOAT_PROFILE
     """Replace a stale weaning plan when a kidding's final survivor dies.
 
     The animal status row and its KidEntry are two views of the same neonatal
-    outcome. Keep them aligned, then schedule the same 14-day no-survivor
-    recovery path used when a kidding starts with no live kids. Returns true
-    only when the dam was actually replanned.
+    outcome. Keep them aligned, then schedule the same no-survivor recovery
+    path used when a kidding starts with no live kids. Returns true only when
+    the dam was actually replanned.
     """
+    profile = GOAT_PROFILE
     # KidStatus.DIED records a *neonatal* mortality after a live birth, yet
     # every death routes through here (change_status calls it for any DEAD
     # transition) and KidEntry.animal_id is set once at birth and never

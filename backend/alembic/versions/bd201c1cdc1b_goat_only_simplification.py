@@ -100,6 +100,20 @@ def upgrade() -> None:
     op.drop_column("bucket_definitions", "farm_type")
     op.create_unique_constraint("uq_bucket_definitions_code", "bucket_definitions", ["code"])
 
+    # Recipes are referenced by their lines (recipe_id, no cascade, no
+    # farm_id to sweep by) and by per-farm finished stock (recipe_code).
+    # The dairy-era seed inserted recipes WITH lines on every boot, so the
+    # recipe DELETE below aborts with a raw FK violation on any deployed
+    # dairy-era database unless the lines go first — the same child-first
+    # pattern b3d7f1a5c9e2's downgrade already uses (2026-09-20 audit P1-6).
+    op.execute(
+        "DELETE FROM feed_finished_stock WHERE recipe_code IN "
+        "(SELECT code FROM feed_recipes WHERE farm_type = 'BUFFALO_DAIRY')"
+    )
+    op.execute(
+        "DELETE FROM feed_recipe_lines WHERE recipe_id IN "
+        "(SELECT id FROM feed_recipes WHERE farm_type = 'BUFFALO_DAIRY')"
+    )
     op.execute("DELETE FROM feed_recipes WHERE farm_type = 'BUFFALO_DAIRY'")
     op.drop_constraint("ck_feed_recipes_farm_type", "feed_recipes", type_="check")
     op.drop_column("feed_recipes", "farm_type")

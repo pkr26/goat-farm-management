@@ -803,14 +803,17 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
       <FinanceNav active="ledger" />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        {/* The cards are ALL-TIME totals while the table below obeys the
+         * URL filters — say so on the cards instead of letting a filtered
+         * ledger read as if it summed to them (P3, 2026-09-20 audit). */}
         <StatCard
-          label="Total income"
+          label="Total income (all time)"
           value={<span className="tabular-nums">{formatMoney(payload.total_income)}</span>}
           icon={TrendingUp}
           tint="success"
         />
         <StatCard
-          label="Total expense"
+          label="Total expense (all time)"
           value={<span className="tabular-nums">{formatMoney(payload.total_expense)}</span>}
           icon={TrendingDown}
           tint="destructive"

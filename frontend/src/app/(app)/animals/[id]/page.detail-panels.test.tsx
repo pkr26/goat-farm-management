@@ -20,6 +20,7 @@ import { renderWithProviders } from "@/test/render";
 import { addDays, farmToday } from "@/lib/format";
 
 import AnimalProfilePage from "./page";
+import { settle } from "@/test/settle";
 
 const nav = vi.hoisted(() => ({ id: "1", search: "" }));
 
@@ -352,6 +353,7 @@ describe("AnimalProfilePage guards", () => {
           mortality_cause: "Sudden fever",
           mortality_cause_code: null,
           disposal_method: null,
+        estimated_dob: null,
           necropsy_done: false,
           necropsy_findings: null,
           mortality_reported_at: "2026-07-31",
@@ -373,6 +375,7 @@ describe("AnimalProfilePage guards", () => {
           mortality_cause: null,
           mortality_cause_code: null,
           disposal_method: null,
+        estimated_dob: null,
           necropsy_done: false,
           necropsy_findings: null,
           suspected_scheduled_disease: false,
@@ -665,7 +668,7 @@ describe("AnimalProfilePage guards", () => {
       await waitFor(() => expect(clearanceBodies).toHaveLength(1));
 
       await user.keyboard("{Escape}");
-      await new Promise((resolve) => window.setTimeout(resolve, 75));
+      await settle(75);
       expect(screen.getByRole("dialog")).toBeInTheDocument();
       expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeDisabled();
 
@@ -860,7 +863,7 @@ describe("AnimalProfilePage guards", () => {
       // keep reporting the write that is still on the wire rather than
       // inviting a second confirmation.
       fireEvent.submit(dialog.querySelector("form") as HTMLFormElement);
-      await new Promise((resolve) => window.setTimeout(resolve, 75));
+      await settle(75);
       expect(statusBodies).toHaveLength(1);
       expect(within(dialog).getByRole("button", { name: "Saving…" })).toBeInTheDocument();
 

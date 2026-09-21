@@ -211,10 +211,36 @@ validate_edge_body_size() {
   esac
 }
 
+validate_edge_auth_rate() {
+  rate=$1
+  # limit_req_zone accepts "<positive integer>r/s" or "<positive integer>r/m".
+  # The value is spliced into the rendered config, so anything outside that
+  # grammar must fail here rather than surface as a loopback nginx boot
+  # error that takes the single published listener down.
+  case "$rate" in
+    ""|*[!0-9r/sm]*) fail "GOATFARM_EDGE_AUTH_RATE must be '<positive integer>r/s' or '<positive integer>r/m' (e.g. 5r/s)" ;;
+    *r/s|*r/m) ;;
+    *) fail "GOATFARM_EDGE_AUTH_RATE must end in r/s or r/m" ;;
+  esac
+  number=${rate%r/*}
+  case "$number" in
+    ""|0|*[!0-9]*) fail "GOATFARM_EDGE_AUTH_RATE must be a positive request rate" ;;
+  esac
+}
+
+validate_edge_auth_burst() {
+  burst=$1
+  case "$burst" in
+    ""|*[!0-9]*) fail "GOATFARM_EDGE_AUTH_BURST must be a non-negative integer" ;;
+  esac
+}
+
 environment=${GOATFARM_ENVIRONMENT:?GOATFARM_ENVIRONMENT must be supplied by Compose}
 public_scheme=${GOATFARM_EDGE_PUBLIC_SCHEME:-http}
 bind_host=${GOATFARM_EDGE_BIND_HOST:-127.0.0.1}
 edge_max_body_size=${GOATFARM_EDGE_MAX_BODY_SIZE:-1m}
+edge_auth_rate=${GOATFARM_EDGE_AUTH_RATE:-5r/s}
+edge_auth_burst=${GOATFARM_EDGE_AUTH_BURST:-20}
 connect_sources=${GOATFARM_CSP_CONNECT_ORIGINS:-}
 image_sources=${GOATFARM_CSP_IMG_ORIGINS:-}
 # Test-only path overrides keep the production defaults immutable while the
@@ -232,6 +258,8 @@ case "$public_scheme" in
   *) fail "GOATFARM_EDGE_PUBLIC_SCHEME must be http or https" ;;
 esac
 validate_edge_body_size "$edge_max_body_size"
+validate_edge_auth_rate "$edge_auth_rate"
+validate_edge_auth_burst "$edge_auth_burst"
 
 if [ "$environment" = "production" ] && [ "$public_scheme" != "https" ]; then
   fail "Refusing production edge without an asserted HTTPS terminator (set GOATFARM_EDGE_PUBLIC_SCHEME=https)."
@@ -262,6 +290,8 @@ fi
 sed \
   -e "s|__GOATFARM_EDGE_PUBLIC_SCHEME__|$public_scheme|g" \
   -e "s|__GOATFARM_EDGE_MAX_BODY_SIZE__|$edge_max_body_size|g" \
+  -e "s|__GOATFARM_EDGE_AUTH_RATE__|$edge_auth_rate|g" \
+  -e "s|__GOATFARM_EDGE_AUTH_BURST__|$edge_auth_burst|g" \
   -e "s|__GOATFARM_CSP_CONNECT_ORIGINS__|$connect_sources|g" \
   -e "s|__GOATFARM_CSP_IMG_ORIGINS__|$image_sources|g" \
   "$template_path" > "$rendered_config_path"

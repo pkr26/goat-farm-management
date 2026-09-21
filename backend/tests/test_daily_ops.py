@@ -1181,7 +1181,8 @@ def test_rejects_male_in_recovery_without_dependent_kid() -> None:
             ],
         )
     # The coherent form — an unweaned male kid with its dam — is still valid
-    # and weans by age (covered by test_recovery_starter_kid_weans_by_age).
+    # and weans by age into MALE_KIDS (covered by
+    # test_recovery_starter_male_kid_weans_by_age).
     AnimalStartSpec(tag="K1", sex="M", bucket="RECOVERY", age_months=1, dependent_kid=True)
 
 
@@ -1327,3 +1328,159 @@ def test_male_kids_are_flagged_as_never_becoming_the_replacement_sire() -> None:
     assert not any(
         "does not retain a kid as a replacement sire" in note for note in with_grower.notes
     )
+
+
+# ---------------------------------------------------------------------------
+# 8. 2026-09-20 audit regressions: second-pregnancy milestones (P1-4) and
+#    the male starter dependent kid (P2-6)
+# ---------------------------------------------------------------------------
+
+
+def test_second_pregnancy_fires_its_full_milestone_set() -> None:
+    """P1-4 (2026-09-20 audit): a starter arriving mid-pregnancy carries a
+    start-gestation ``milestone_floor`` so passed milestones do not
+    retro-fire — but the floor (and the done-flags) were never reset on her
+    next service, so her SECOND pregnancy fired zero milestones: no
+    PREGNANCY_LATE move, no pre-kidding vaccines, no DELIVERY entry, no
+    kidding watch.
+
+    P1 starts at gestation day 120 (only the booster, the DELIVERY move and
+    the kidding remain of pregnancy 1), kidded day 31, weans day 91, is
+    re-served day 121 (RESTING flush complete + same-day breeding). Her
+    second pregnancy must run the FULL calendar: scan day 153 (121 + 32),
+    PREGNANCY_LATE day 221 (121 + 100), primary vaccine day 231 (EKD 271 −
+    40), booster day 246 (EKD − 25), DELIVERY day 256 (EKD − 15) and kidding
+    day 271 (EKD)."""
+    payload = DailyOpsInput(
+        start_date=date(2026, 9, 3),
+        horizon_days=280,
+        seed=1,
+        animals=[
+            AnimalStartSpec(
+                tag="P1", sex="F", bucket="PREGNANCY_LATE", age_months=30, bred_days_ago=120
+            ),
+            _buck(),
+        ],
+        params=_quiet_params(),
+    )
+    result = run_daily_ops(payload)
+    assert _moves_of(result, "P1") == [
+        # pregnancy 1 (started at gestation day 120: primary vaccine is history)
+        (16, "PREGNANCY_LATE", "DELIVERY", "delivery"),
+        (31, "DELIVERY", "RECOVERY", "kidding"),
+        (91, "RECOVERY", "RESTING", "weaning"),
+        (121, "RESTING", "BREEDING", "breeding"),
+        # pregnancy 2 — the milestone set the stale floor used to suppress
+        (153, "BREEDING", "PREGNANCY_EARLY", "ultrasound"),
+        (221, "PREGNANCY_EARLY", "PREGNANCY_LATE", "manual"),
+        (256, "PREGNANCY_LATE", "DELIVERY", "delivery"),
+        (271, "DELIVERY", "RECOVERY", "kidding"),
+    ]
+    # Vaccine duties: pregnancy 1's lone booster (day 6), then BOTH doses of
+    # pregnancy 2 on their hand-derived days — the pre-kidding pair the bug
+    # suppressed entirely.
+    vaccine_days = [
+        record.day for record in result.days for task in record.tasks if task.category == "VACCINE"
+    ]
+    assert vaccine_days == [6, 231, 246]
+    assert any("Pre-kidding ET+TT vaccine: P1" in h for _, _, h in _tasks_on(result, 231))
+    assert any("booster: P1" in h for _, _, h in _tasks_on(result, 246))
+    # The second pregnancy's DELIVERY entry precedes its kidding, with the
+    # kidding watch on the due day itself.
+    assert any("Move P1 to DELIVERY" in h for _, _, h in _tasks_on(result, 256))
+    assert any("Kidding due: P1" in h for _, _, h in _tasks_on(result, 271))
+    assert any("Record kidding: P1 — 1 live of 1" in h for _, _, h in _tasks_on(result, 271))
+    second_kid = _journey(result, "P1-2")
+    assert (second_kid.sex, second_kid.born_day, second_kid.dam_tag) == ("F", 271, "P1")
+    # Only the day-121 re-service happens in-sim (pregnancy 1 predates the run).
+    assert result.totals.services == 1
+    assert result.totals.conceptions == 1
+    assert result.totals.kids_born_alive == 2
+
+
+def test_recovery_starter_male_kid_weans_by_age() -> None:
+    """P2-6 (2026-09-20 audit): the weaning loop used to filter on sex == "F",
+    so the age-wean fallback never fired for a MALE dependent starter kid —
+    stranded in RECOVERY for life, off the creep ration past day 60 and under
+    the pre-weaning mortality hazard forever. The male mirror of
+    test_recovery_starter_kid_weans_by_age: a 9-month starter kid weans on
+    day 1 (and, past the 8-month meat window, sells the same day); a 1-month
+    kid (30 days old on day 1) weans on day 31 = 60 − 30 days of age and then
+    eats the MALE_KIDS ration."""
+    result = run_daily_ops(
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=35,
+            seed=1,
+            animals=[
+                AnimalStartSpec(
+                    tag="RK1", sex="M", bucket="RECOVERY", age_months=9, dependent_kid=True
+                ),
+                AnimalStartSpec(
+                    tag="RK2",
+                    sex="M",
+                    bucket="RECOVERY",
+                    age_months=1,
+                    dependent_kid=True,
+                    days_in_bucket=30,
+                ),
+            ],
+            params=_quiet_params(),
+        )
+    )
+    # Both leave RECOVERY for MALE_KIDS via the age-wean "weaning" edge.
+    assert _moves_of(result, "RK1") == [(1, "RECOVERY", "MALE_KIDS", "weaning")]
+    assert _moves_of(result, "RK2") == [(31, "RECOVERY", "MALE_KIDS", "weaning")]
+    assert any("Age wean RK1" in h for _, _, h in _tasks_on(result, 1))
+    assert any("Age wean RK2" in h for _, _, h in _tasks_on(result, 31))
+    # RK1 is 9 months old at weaning — already inside the meat window, so the
+    # sales phase (after weaning) sells him the same day; RK2 lands at ~2
+    # months and grows on in MALE_KIDS.
+    old = _journey(result, "RK1")
+    assert (old.final_status, old.exit_day, old.exit_kind) == ("SOLD", 1, "SOLD")
+    young = _journey(result, "RK2")
+    assert (young.final_status, young.final_bucket) == ("ACTIVE", "MALE_KIDS")
+    # Post-wean feed lines: RK2 eats the creep ration (0.1 kg, 14–30 d band)
+    # on day 1 while dependent, and the MALE_KIDS line from the morning after
+    # his weaning (age 61 d → the frame-builder LACTATING_60_40 at 1.0 kg).
+    day1 = {
+        (line.building, line.recipe): line
+        for line in result.days[0].feeding
+        if line.building in ("RECOVERY", "MALE_KIDS")
+    }
+    assert set(day1) == {("RECOVERY", "CREEP")}
+    assert day1[("RECOVERY", "CREEP")].heads == 1
+    day32 = [line for line in result.days[31].feeding if line.building == "MALE_KIDS"]
+    assert [(line.recipe, line.heads, line.kg_per_head) for line in day32] == [
+        ("LACTATING_60_40", 1, pytest.approx(1.0))
+    ]
+
+    # Weaning ends the pre-weaning hazard the same day it fires (phase 4
+    # weaning runs before phase 5 mortality): a 3-month starter kid (91 days
+    # old) weans on day 1 and must SURVIVE certain kid mortality — with the
+    # old sex filter he stood dependent in RECOVERY and died on day 1.
+    hazard = run_daily_ops(
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=60,
+            seed=1,
+            animals=[
+                AnimalStartSpec(
+                    tag="MK1", sex="M", bucket="RECOVERY", age_months=3, dependent_kid=True
+                )
+            ],
+            params=_quiet_params(kid_pre_weaning_mortality=1.0),
+        )
+    )
+    kid = _journey(hazard, "MK1")
+    assert _moves_of(hazard, "MK1") == [(1, "RECOVERY", "MALE_KIDS", "weaning")]
+    assert (kid.final_status, kid.final_bucket) == ("ACTIVE", "MALE_KIDS")
+    assert hazard.totals.deaths == 0
+    # At 91 days he is past the creep ramp, so day 1 plans no ration for him
+    # (the stranding symptom); from day 2 he is 92 days old and eats the
+    # day-91+ FATTENING line of the MALE_KIDS pen.
+    assert [line for line in hazard.days[0].feeding] == []
+    day2 = [line for line in hazard.days[1].feeding if line.building == "MALE_KIDS"]
+    assert [(line.recipe, line.heads, line.kg_per_head) for line in day2] == [
+        ("FATTENING_50_50", 1, pytest.approx(1.0))
+    ]

@@ -21,6 +21,7 @@ import { enumLabel } from "@/lib/enum-labels";
 import { setCurrentFarmId } from "@/lib/api-client";
 
 import HealthPage from "./page";
+import { settle } from "@/test/settle";
 
 const pushMock = vi.fn();
 const replaceMock = vi.fn();
@@ -66,6 +67,7 @@ function makeAnimal(overrides: Partial<AnimalOut>): AnimalOut {
     birth_weight: null,
     current_bucket: "LACTATING" as AnimalOutCurrentBucket,
     status: "ACTIVE",
+    status_notes: null,
     status_date: null,
     sale_price: null,
     sale_weight_kg: null,
@@ -1954,7 +1956,7 @@ describe("HealthPage", () => {
     act(() => setCurrentFarmId("2"));
     await act(async () => {
       releaseWrite();
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await settle(0);
     });
     await waitFor(() => expect(saveButton).toBeEnabled());
 

@@ -96,6 +96,7 @@ function makeAnimal(overrides: Partial<AnimalOut>): AnimalOut {
     birth_weight: null,
     current_bucket: "BREEDING",
     status: "ACTIVE",
+    status_notes: null,
     status_date: null,
     sale_price: null,
     sale_weight_kg: null,
@@ -252,13 +253,9 @@ describe("HealthPage 422 field mapping", () => {
       within(dialog).getByRole("textbox", { name: /^Dose/ }),
     ).toHaveAttribute("aria-invalid", "true");
 
-    // Only the unmapped remainder reaches the banner + toast.
-    await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith("Unknown to this dialog."),
-    );
-    expect(toast.error).not.toHaveBeenCalledWith(
-      expect.stringContaining("Dose must be at most"),
-    );
+    // Only the unmapped remainder reaches the inline banner — no toast: the
+    // open dialog is the single failure surface (P3, 2026-09-20 audit).
+    expect(toast.error).not.toHaveBeenCalled();
     // The banner carries the remainder plus its retry guidance.
     expect(
       await within(dialog).findByText(/Unknown to this dialog\./),
@@ -292,10 +289,12 @@ describe("HealthPage 422 field mapping", () => {
       { loc: ["body", "mystery"], msg: "Nothing maps here." },
     ]);
 
-    // Nothing mapped, so the flattened server sentence stays the UX.
-    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1));
-    const [message] = vi.mocked(toast.error).mock.calls[0];
-    expect(message).toContain("Nothing maps here.");
+    // Nothing mapped, so the flattened server sentence becomes the inline
+    // banner (inline only — the dialog is the single failure surface).
+    expect(
+      await within(dialog).findByText(/Nothing maps here\./),
+    ).toBeInTheDocument();
+    expect(toast.error).not.toHaveBeenCalled();
     expect(within(dialog).queryByText("Dose must be")).not.toBeInTheDocument();
   });
 });

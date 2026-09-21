@@ -15,6 +15,7 @@ import { permissionsHandler, server, TEST_FARMS } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
 import PlannerPage, { NumberField } from "./page";
+import { settle } from "@/test/settle";
 
 const toastMocks = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
 vi.mock("sonner", () => ({ toast: toastMocks }));
@@ -144,7 +145,7 @@ describe("PlannerPage — campaign kills", () => {
     expect(
       await screen.findByText("You don't have access to this page."),
     ).toBeInTheDocument();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settle(50);
     expect(defaultsRequests).toBe(0);
   });
 
@@ -179,7 +180,7 @@ describe("PlannerPage — campaign kills", () => {
     await userEvent.click(screen.getByRole("button", { name: "Add target" }));
 
     await userEvent.click(screen.getByRole("button", { name: "Save plan" }));
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await settle(100);
     expect(toastMocks.success).not.toHaveBeenCalled();
     expect(toastMocks.error).not.toHaveBeenCalledWith("Could not save the plan.");
   });
@@ -212,7 +213,7 @@ describe("PlannerPage — campaign kills", () => {
     await waitFor(() => expect(releaseSnapshot).toBeDefined());
     act(() => setCurrentFarmId("77"));
     releaseSnapshot();
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await settle(100);
     expect(toastMocks.error).not.toHaveBeenCalled();
     expect(toastMocks.success).not.toHaveBeenCalled();
   });
@@ -246,7 +247,7 @@ describe("PlannerPage — campaign kills", () => {
     await waitFor(() => expect(releaseCalibration).toBeDefined());
     act(() => setCurrentFarmId("77"));
     releaseCalibration();
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await settle(100);
     expect(toastMocks.error).not.toHaveBeenCalled();
     expect(toastMocks.success).not.toHaveBeenCalled();
   });
@@ -273,7 +274,7 @@ describe("PlannerPage — campaign kills", () => {
     await waitFor(() => expect(releaseDelete).toBeDefined());
     act(() => setCurrentFarmId("77"));
     releaseDelete();
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await settle(100);
     expect(toastMocks.success).not.toHaveBeenCalled();
   });
 
@@ -307,7 +308,7 @@ describe("PlannerPage — campaign kills", () => {
     act(() => setCurrentFarmId("77"));
     await act(async () => {
       failSnapshot();
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await settle(50);
     });
     expect(toastMocks.error).not.toHaveBeenCalled();
   });
@@ -335,7 +336,7 @@ describe("PlannerPage — campaign kills", () => {
     act(() => setCurrentFarmId("77"));
     await act(async () => {
       releaseSave();
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await settle(50);
     });
     expect(toastMocks.success).not.toHaveBeenCalled();
   });
@@ -360,7 +361,7 @@ describe("PlannerPage — campaign kills", () => {
     act(() => setCurrentFarmId("77"));
     await act(async () => {
       failSave();
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await settle(50);
     });
     expect(toastMocks.error).not.toHaveBeenCalled();
   });
@@ -384,7 +385,7 @@ describe("PlannerPage — campaign kills", () => {
     act(() => setCurrentFarmId("77"));
     await act(async () => {
       failCalibration();
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await settle(50);
     });
     expect(toastMocks.error).not.toHaveBeenCalled();
   });
@@ -539,7 +540,7 @@ describe("PlannerPage — campaign kills", () => {
     act(() => setCurrentFarmId("77"));
     await act(async () => {
       failPlan();
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await settle(50);
     });
     expect(toastMocks.error).not.toHaveBeenCalled();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -570,7 +571,7 @@ describe("PlannerPage — campaign kills", () => {
     act(() => setCurrentFarmId("77"));
     await act(async () => {
       failUpdate();
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await settle(50);
     });
     expect(toastMocks.error).not.toHaveBeenCalled();
   });
@@ -598,7 +599,7 @@ describe("PlannerPage — campaign kills", () => {
     act(() => setCurrentFarmId("77"));
     await act(async () => {
       failDelete();
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await settle(50);
     });
     expect(toastMocks.error).not.toHaveBeenCalled();
   });
@@ -836,7 +837,7 @@ describe("PlannerPage — null-evaluation report guard", () => {
 
     await user.click(screen.getByRole("button", { name: /^Add target$/ }));
     await user.click(screen.getByRole("button", { name: /^Plan$/ }));
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await settle(100);
     // A report with neither a before nor an after plan renders no report
     // section — dereferencing a null evaluation must never happen.
     expect(screen.queryByText("What to do and when")).not.toBeInTheDocument();

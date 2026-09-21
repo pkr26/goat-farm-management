@@ -6,10 +6,15 @@ officer reviewing the project) can see exactly how each figure was produced.
 No AI and no external calls — the same run always yields the same text.
 """
 
-import math
-
 from .assumptions import SimulationAssumptions
-from .results import MetricExplanation, ReportSection, SensitivityItem, SimulationResult
+from .engine import labour_units_for
+from .results import (
+    AnnualPLRow,
+    MetricExplanation,
+    ReportSection,
+    SensitivityItem,
+    SimulationResult,
+)
 from .vocabulary import GOAT_NOUNS, SpeciesNouns
 
 
@@ -312,12 +317,32 @@ def build_metric_explanations(
         )
     )
     # The averaging basis must be stated exactly as the engine computes it:
-    # principal-REPAYING years (the NABARD criterion). Interest-only
+    # principal-REPAYING years (the NABARD criterion), with the terminal
+    # balloon EXCLUDED exactly as the engine's _operating_principal does —
+    # counting the raw principal figure re-admitted the balloon-only horizon
+    # year the engine itself excludes (P3, 2026-09-20 audit). Interest-only
     # moratorium years carry debt but no operating repayment period, and
     # None also fires when every debt year is interest-only — the two None
     # narratives below cover both.
+    horizon_months = a.meta.horizon_months
+    horizon_year = (horizon_months + 11) // 12
+    # Same terminal-balance derivation the engine uses for its DSCR filter
+    # (schedule[horizon-1].closing_balance, 0.0 when the loan fully amortizes
+    # inside the horizon).
+    terminal_balance = (
+        result.amortization[horizon_months - 1].closing_balance
+        if horizon_months < len(result.amortization)
+        else 0.0
+    )
+
+    def _operating_principal(row: AnnualPLRow) -> float:
+        principal = row.principal
+        if row.year == horizon_year:
+            principal -= terminal_balance
+        return max(principal, 0.0)
+
     repaying_years = sum(
-        1 for row in result.annual_pl if row.debt_service > 0.0 and row.principal > 0.0
+        1 for row in result.annual_pl if row.debt_service > 0.0 and _operating_principal(row) > 0.0
     )
     out.append(
         MetricExplanation(
@@ -494,9 +519,17 @@ def build_metric_explanations(
                 f"Cumulative cash flow first covers your {_inr(m.equity)} equity in "
                 f"{_year_of(m.payback_month)}."
                 + (
-                    " Recovery arrives only in the final month, and it is the terminal "
+                    # With a zero terminal value the liquidation attribution is
+                    # a false explanation (nothing was liquidated) — name the
+                    # final-month swing instead of printing "₹0 terminal
+                    # value" as if it closed anything (P3, 2026-09-20 audit).
+                    f" Recovery arrives only in the final month, and it is the terminal "
                     f"value of the closing assets ({_inr(m.terminal_value)}) — not operating "
                     "cash — that closes the gap: this is a payback by liquidation."
+                    if terminal_driven and (m.terminal_value or 0.0) > 0.0
+                    else " Recovery arrives only in the final month — the whole gap closes "
+                    "there, so treat this as a single final-injection payback, not a "
+                    "steady operating one."
                     if terminal_driven
                     else ""
                 )
@@ -588,11 +621,15 @@ def _litter_expectation_paragraphs(a: SimulationAssumptions, nouns: SpeciesNouns
     prepare the operator for multiples from the second kidding on.
     """
     r = a.reproduction
-    if r.litter_size <= 1.0:
-        return []
     table = r.parity_multipliers.litter_size
     maiden = r.litter_size * table[0]
     mature = r.litter_size * table[1] if len(table) > 1 else r.litter_size
+    # Guard on the computed expectation, not the raw litter_size: the parity
+    # table is what the engine applies, and testing the raw figure could
+    # suppress the paragraph for a herd whose parity multipliers DO produce
+    # multiples (or keep it for one whose table does not) (P3, 2026-09-20).
+    if mature <= 1.0:
+        return []
     # The 35-40% twins / 5-13% triplets bands are the Osmanabadi field record
     # behind a ~1.5+ mature litter. The computed ``mature`` follows the run's
     # own parity table, so quoting the field bands next to a much lower figure
@@ -819,12 +856,22 @@ def build_narrative_report(
     # a "profitable" plan that only works on unpaid labour should say so.
     family_labour_paragraphs: list[str] = []
     if a.costs.family_labour and a.herd.does > 0:
-        # The imputed cost the same flock would pay a hired half/full-time
-        # attendant, at the configured wage and the same headcount scaling
-        # the cash branch uses (ceil(2 x does / threshold) / 2, min half a
-        # unit).
-        units = max(0.5, math.ceil(2.0 * a.herd.does / a.costs.labour_per_head_threshold) / 2.0)
-        imputed = units * a.costs.labour_per_month * 12.0 * (horizon / 12.0)
+        # The imputed cost the same flock would pay hired attendants, on the
+        # engine's OWN per-month labour basis (labour_units_for over each
+        # month's standing doe pool). The old static starting-does figure
+        # ignored the herd's growth and understated the forgone wage ~1.29x
+        # on defaults (P3, 2026-09-20 audit).
+        imputed = (
+            sum(
+                labour_units_for(
+                    row.open_does + row.pregnant_does + row.lactating_does,
+                    False,
+                    a.costs.labour_per_head_threshold,
+                )
+                for row in result.months
+            )
+            * a.costs.labour_per_month
+        )
         family_labour_paragraphs.append(
             f"No hired labour is charged: the plan assumes family labour. At the configured "
             f"₹{a.costs.labour_per_month:,.0f}/month wage the same attendance would cost about "
@@ -991,17 +1038,40 @@ def build_narrative_report(
     risk_figures: dict[str, float | str | None] = {}
     if result.monte_carlo is not None:
         mc = result.monte_carlo
+        risk = a.risk
+        # Describe only what this run actually toggled on: the adverse-event
+        # and within-run variation clauses read as guarantees when the
+        # probabilities are zero or the variation is disabled (P3,
+        # 2026-09-20 audit).
+        event_clauses = [
+            f"{name} events"
+            for name, probability in (
+                ("disease", risk.disease_outbreak_probability_annual),
+                ("drought", risk.drought_probability_annual),
+                ("market-crash", risk.market_crash_probability_annual),
+            )
+            if probability > 0.0
+        ]
+        events_sentence = (
+            f" Every risk path also draws {'/'.join(event_clauses)} events, so this "
+            "distribution sits below the headline (no-disaster) figures — compare "
+            "runs against each other, not against the deterministic base case."
+            if event_clauses
+            else " No adverse-event draws are configured, so this spread reflects "
+            "parameter uncertainty only."
+        )
+        variation_clause = (
+            ", plus monthly adverse events and year-to-year price swings within each run"
+            if risk.within_run_price_variation
+            else ""
+        )
         risk_paragraphs.append(
-            f"Across {mc.runs} correlated Monte Carlo runs (varying prices, feed, fodder yield, "
-            f"operating cost, mortality and reproduction, plus monthly adverse events and "
-            f"year-to-year price swings within each run), the NPV "
+            f"Across {mc.runs} correlated Monte Carlo runs (varying prices, feed, fodder "
+            f"yield, operating cost, mortality and reproduction{variation_clause}), the NPV "
             f"averages {_inr(mc.npv_mean)} "
             f"with a 90% range of {_inr(mc.npv_p5)} to {_inr(mc.npv_p95)}. The project "
             f"loses money in {_pct(mc.prob_npv_negative)} of runs and runs short of operating "
-            f"cash in {_pct(mc.prob_liquidity_shortfall)}. Every risk path also draws disease, "
-            f"drought and market-crash events, so this distribution sits below the headline "
-            f"(no-disaster) figures — compare runs against each other, not against the "
-            f"deterministic base case."
+            f"cash in {_pct(mc.prob_liquidity_shortfall)}.{events_sentence}"
         )
         # Sampling uncertainty: with only N runs the percentiles themselves
         # are estimates. The bootstrap 95% interval says where the true

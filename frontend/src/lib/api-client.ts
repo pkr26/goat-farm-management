@@ -686,7 +686,14 @@ async function rawFetch(
     const timeoutMs = SIMULATION_RUN_PATH.test(requestPathname)
       ? SIMULATION_RUN_TIMEOUT_MS
       : REQUEST_TIMEOUT_MS;
-    const signal = init.signal ?? AbortSignal.timeout(timeoutMs);
+    // Compose, never replace: a caller signal (TanStack Query unmount/farm
+    // switch, the idempotency registry) used to disable the timeout
+    // entirely — an unbounded fetch on a dropped connection left the query
+    // pending forever (P3, 2026-09-20 audit). AbortSignal.any aborts when
+    // EITHER source fires, so caller cancellation semantics are unchanged
+    // and the bounded lifetime still applies.
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    const signal = init.signal ? AbortSignal.any([init.signal, timeoutSignal]) : timeoutSignal;
     return fetch(path, { ...init, headers, credentials: "include", signal });
   };
   if (!cookieMutation) return execute();

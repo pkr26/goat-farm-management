@@ -634,6 +634,17 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       }
     } catch (err) {
       if (!farmScope()) return;
+      if (err instanceof ApiError && err.status === 409) {
+        // Optimistic-concurrency conflict: the row moved under us. Refresh
+        // the list so the operator sees (and can retry against) the current
+        // revision instead of an unretryable stale one until reload (P3,
+        // 2026-09-20 audit).
+        toast.error(
+          "This plan changed in another tab — the list was refreshed; delete again against the latest revision.",
+        );
+        await invalidatePlans();
+        return;
+      }
       toast.error(errorMessage(err, "Could not delete the plan."));
     }
   }

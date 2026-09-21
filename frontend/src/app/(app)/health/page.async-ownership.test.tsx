@@ -176,7 +176,7 @@ function requestGate() {
 
 /** Lets a released response settle through react-query into the effect that
  *  reads it, the way the real network callback would. */
-async function settle() {
+async function settleAct() {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
@@ -330,10 +330,13 @@ describe("HealthPage async ownership guards", () => {
     );
   });
 
-  it("still requires an animal when the deep-linked duty targets no single animal", async () => {
-    // A herd-wide duty carries neither an animal nor a batch, so the link
-    // supplies no target at all and the animal scope stays empty — the form
-    // must ask for one in its own words.
+  it("pre-selects the bucket scope for a deep-linked herd-level duty", async () => {
+    // A herd-wide duty carries neither an animal nor a batch, and the only
+    // sanctioned close path is a bucket-scoped round event (an animal event
+    // 422s; the batch preview refuses a herd duty) — so the link must keep
+    // the duty attached AND default the scope to the whole bucket instead of
+    // stranding the operator in a guaranteed-422 animal scope (P1-8,
+    // 2026-09-20 audit).
     tasks = [makeTask({ id: 12, title: "Herd PPR round", category: "VACCINE" })];
     window.history.replaceState({}, "", "/health?task_id=12");
     const user = userEvent.setup();
@@ -345,13 +348,19 @@ describe("HealthPage async ownership guards", () => {
       ),
     );
 
-    await user.click(within(dialog).getByRole("button", { name: "Save event" }));
-
-    // The picker's placeholder reads the same, so pin the field's own error.
+    // The link survives; the scope lands on the only workable target and the
+    // dead-end radios are disabled with an explanatory hint.
+    expect(within(dialog).getByRole("radio", { name: "Whole bucket" })).toBeChecked();
+    expect(within(dialog).getByRole("radio", { name: "Single animal" })).toBeDisabled();
+    expect(
+      within(dialog).getByText(/closes only with a whole-bucket event/i),
+    ).toBeInTheDocument();
+    // Saving still needs a bucket: submitting the un-targeted round surfaces
+    // the bucket field's own error (bulk scopes label the submit button
+    // "Review target animals").
+    await user.click(within(dialog).getByRole("button", { name: /review target/i }));
     await waitFor(() =>
-      expect(document.getElementById("event-animal-error")).toHaveTextContent(
-        "Pick an animal",
-      ),
+      expect(document.getElementById("event-bucket-error")).toHaveTextContent(/bucket/i),
     );
     expect(postBody).toBeNull();
   });
@@ -442,7 +451,7 @@ describe("HealthPage async ownership guards", () => {
     renderWithProviders(<HealthPage />);
     const dialog = await screen.findByRole("dialog", { name: "Add health event" });
     await lookup.reached;
-    await settle();
+    await settleAct();
     expect(within(dialog).getByRole("status")).toHaveTextContent("Loading linked duties…");
 
     tabs.release();
@@ -488,7 +497,7 @@ describe("HealthPage async ownership guards", () => {
     // all is the moment the lookup reached the effect: the assertions below
     // are not racing it.
     const dutyTrigger = await within(dialog).findByLabelText("Linked duty (completes it)");
-    await settle();
+    await settleAct();
 
     expect(dutyTrigger).toHaveTextContent("— none —");
     expect(within(dialog).getByRole("combobox", { name: "Animal *" })).toHaveTextContent(
@@ -531,7 +540,7 @@ describe("HealthPage async ownership guards", () => {
     // unmount of the farm-keyed subtree.
     act(() => setCurrentFarmId("2"));
     preview.release();
-    await settle();
+    await settleAct();
 
     await waitFor(() => expect(reviewButton(dialog)).toBeEnabled());
     expect(within(dialog).queryByRole("status")).not.toBeInTheDocument();
@@ -576,7 +585,7 @@ describe("HealthPage async ownership guards", () => {
 
     await pickOption(user, batchPicker, "Batch #3 — 5 active in quarantine");
     preview.release();
-    await settle();
+    await settleAct();
 
     await waitFor(() => expect(reviewButton(dialog)).toBeEnabled());
     expect(previewBodies).toEqual([{ scope: "batch", purchase_batch_id: 2 }]);
@@ -629,7 +638,7 @@ describe("HealthPage async ownership guards", () => {
 
     act(() => setCurrentFarmId("2"));
     preview.release();
-    await settle();
+    await settleAct();
 
     await waitFor(() => expect(reviewButton(dialog)).toBeEnabled());
     expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
@@ -652,7 +661,7 @@ describe("HealthPage async ownership guards", () => {
     await user.click(within(dialog).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     preview.release();
-    await settle();
+    await settleAct();
 
     await user.click(screen.getByRole("button", { name: "Add event" }));
     const reopened = await screen.findByRole("dialog", { name: "Add health event" });
@@ -710,7 +719,7 @@ describe("HealthPage async ownership guards", () => {
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith("Health event recorded."),
     );
-    await settle();
+    await settleAct();
 
     expect(screen.getByRole("dialog", { name: "Add health event" })).toBe(reopened);
     expect(within(reopened).getByRole("button", { name: "Save event" })).toBeEnabled();
@@ -739,7 +748,7 @@ describe("HealthPage async ownership guards", () => {
 
     act(() => setCurrentFarmId("2"));
     write.release();
-    await settle();
+    await settleAct();
 
     await waitFor(() => expect(save).toBeEnabled());
     expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
@@ -767,7 +776,7 @@ describe("HealthPage async ownership guards", () => {
     await user.click(within(dialog).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     write.release();
-    await settle();
+    await settleAct();
 
     await user.click(screen.getByRole("button", { name: "Add event" }));
     const reopened = await screen.findByRole("dialog", { name: "Add health event" });

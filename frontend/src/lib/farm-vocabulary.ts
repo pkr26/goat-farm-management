@@ -29,6 +29,9 @@ export interface SpeciesFacts {
   youngStayWithDam: boolean;
   /** Biological cap on litter size (max_litter_size): goat ≤4. */
   maxLitterSize: number;
+  /** First-service age floor (min_breeding_age_months); pinned to the
+   * backend species profile by backend-constants-parity.test.ts (P2-17). */
+  minBreedingAgeMonths: number;
   /** Credible adult body-weight ceiling (max_adult_weight_kg): the backend
    * rejects recorded weights and purchase averages above it (goat 150 kg). */
   maxWeightKg: number;
@@ -88,11 +91,16 @@ export const farmVocabulary: FarmVocabulary = {
   parturitionCap: "Kidding",
   parturitionPast: "kidded",
   dueLabel: "Kidding due",
-  breedingGateCopy: "A doe must be at least 10 months old and 22 kg to breed; bucks 12 months and 25 kg.",
+  // P2-17: the doe gate mirrors the species profile exactly — the backend
+  // enforces 12 months (GOAT_PROFILE.min_breeding_age_months: field puberty
+  // ~11.5 months, first-kidding norms 19-20 months). The old "10 months"
+  // copy/gate passed a 10-11-month doe client-side and 422'd her on submit;
+  // pinned by backend-constants-parity.test.ts.
+  breedingGateCopy: "A doe must be at least 12 months old and 22 kg to breed; bucks 12 months and 25 kg.",
   defaultBreed: "Osmanabadi",
   tagPrefix: "G",
   breedingEntry: {
-    female: { minMonths: 10, minWeightKg: 22 },
+    female: { minMonths: 12, minWeightKg: 22 },
     male: { minMonths: 12, minWeightKg: 25 },
   },
   facts: {
@@ -103,6 +111,7 @@ export const farmVocabulary: FarmVocabulary = {
     maxLitterSize: 4,
     maxWeightKg: 150,
     birthWeightKg: { min: 0.5, max: 8 },
+    minBreedingAgeMonths: 12,
   },
 };
 

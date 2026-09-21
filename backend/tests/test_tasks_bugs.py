@@ -178,7 +178,7 @@ async def _rewind_series_one_day(series_id: str) -> None:
 async def test_huge_task_id_rejected_not_500(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     resp = await client.post(f"/api/tasks/{10**20}/complete", headers=owner)
-    assert resp.status_code in (404, 422)
+    assert resp.status_code == 404
 
 
 # FIXED — regression test

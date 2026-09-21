@@ -1120,21 +1120,24 @@ def test_calendar_wraps_across_year_boundary() -> None:
 
 
 def test_eid_uplift_follows_calendar_not_simulation_month() -> None:
-    """Start 2026-12, Eid in calendar month 1: the uplift hits simulation
-    month 2, verified with a scheduled young-stock sale that month. The
-    explicit empty festival list clears the auto Bakrid calendar so the
-    legacy recurring calendar-month fallback is the active pricing rule."""
+    """Start 2026-12, festival in simulation month 2: the uplift hits the
+    CALENDAR-January month 2, verified with a scheduled young-stock sale that
+    month. The explicit festival list names the simulation month directly;
+    an explicit empty list now disables every festival outright, so the
+    legacy Gregorian fallback must NOT fire through it (P3, 2026-09-20)."""
 
-    def revenue_with_eid(eid_month: int) -> float:
+    def revenue_with_festivals(months: list[int]) -> float:
         a = toy(male_weaners=10)
         a.meta = MetaAssumptions(horizon_months=12, start_year_month="2026-12")
-        a.sales.festival_sale_months = []
-        a.sales.eid_month = eid_month
+        a.sales.festival_sale_months = months
+        a.sales.eid_month = 1
         a.sales.eid_price_uplift = 0.30
         a.events = [HerdEventAssumptions(month=2, kind="sale", animal_class="male_weaner", count=5)]
         return run_simulation(a, with_break_even=False).months[1].sales_revenue
 
-    assert revenue_with_eid(1) / revenue_with_eid(0) == pytest.approx(1.30, abs=1e-9)
+    assert revenue_with_festivals([2]) / revenue_with_festivals([]) == pytest.approx(1.30, abs=1e-9)
+    # The disabled list wins over the legacy eid_month: no uplift at all.
+    assert revenue_with_festivals([]) == pytest.approx(revenue_with_festivals([]), abs=1e-9)
 
 
 # ---------------------------------------------------------------------------

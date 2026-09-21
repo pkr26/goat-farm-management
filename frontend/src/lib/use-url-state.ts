@@ -21,8 +21,12 @@ export type UrlStateUpdate = Record<string, string | number | null | undefined>;
 
 /** Mirror of backend schemas/common.py MAX_PAGE_OFFSET — the inclusive
  * ceiling every paginated endpoint enforces. URL offsets must never exceed
- * it or the API rejects the request with a 422. */
-export const MAX_PAGE_OFFSET = 1_000_000;
+ * it or the API rejects the request with a 422 with no self-heal (error
+ * responses never reach the recovery effects). Pinned to the backend value
+ * by src/lib/backend-constants-parity.test.ts (2026-09-20 audit P2-16: a
+ * drifted mirror let deep links 422 the API after the backend lowered the
+ * constant). */
+export const MAX_PAGE_OFFSET = 10_000;
 
 export function useUrlState() {
   const router = useRouter();

@@ -16,6 +16,7 @@ import { renderWithProviders } from "@/test/render";
 import { addDays, farmToday } from "@/lib/format";
 
 import TasksPage from "./page";
+import { settle } from "@/test/settle";
 
 const { navState, replaceMock, pushMock } = vi.hoisted(() => ({
   navState: { search: "" },
@@ -179,7 +180,7 @@ describe("TasksPage URL state", () => {
 
     expect(await within(await screen.findByRole("table")).findByText("Awaited duty")).toBeInTheDocument();
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      await settle(30);
     });
     expect(replaceMock).not.toHaveBeenCalled();
   });
@@ -201,7 +202,7 @@ describe("TasksPage URL state", () => {
     await screen.findByRole("tab", { name: "Today (0)" });
     await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/tasks?tab=today"));
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await settle(50);
     });
     for (const url of TASKS_URLS) {
       expect(url).not.toMatch(/_offset=-\d/);

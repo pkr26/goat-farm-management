@@ -331,6 +331,10 @@ async def dashboard(
                 InsurancePolicy.policy_number,
                 InsurancePolicy.insurer,
                 InsurancePolicy.renewal_date,
+                # Per-animal policies must serialize their animal_id too (it
+                # was selected away and always serialized as None — P3,
+                # 2026-09-20 audit).
+                InsurancePolicy.animal_id,
                 Animal.tag_number.label("animal_tag"),
             )
             .outerjoin(Animal, InsurancePolicy.animal_id == Animal.id)
@@ -355,6 +359,7 @@ async def dashboard(
                 policy_number=row.policy_number,
                 insurer=row.insurer,
                 renewal_date=row.renewal_date,
+                animal_id=row.animal_id,
                 animal_tag=row.animal_tag,
             )
             for row in expiring_rows

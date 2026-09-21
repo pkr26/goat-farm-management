@@ -137,7 +137,7 @@ function useFinancePayload(payload: Record<string, unknown> = PAYLOAD) {
 
 async function renderLoaded() {
   renderWithProviders(<FinancePage />);
-  expect(await screen.findByText("Total income")).toBeInTheDocument();
+  expect(await screen.findByText("Total income (all time)")).toBeInTheDocument();
 }
 
 /** Ledger/P&L rows also render in below-md card lists (md:hidden) inside the
@@ -177,7 +177,7 @@ describe("FinancePage month URL param sanitisation", () => {
     urlParams = new URLSearchParams(`month=${encodeURIComponent(bad)}`);
     server.use(useFinancePayload());
     renderWithProviders(<FinancePage />);
-    expect(await screen.findByText("Total income")).toBeInTheDocument();
+    expect(await screen.findByText("Total income (all time)")).toBeInTheDocument();
 
     // The filter state stays "off"…
     expect(screen.getByLabelText("Filter by month")).toHaveValue("");
@@ -190,7 +190,7 @@ describe("FinancePage month URL param sanitisation", () => {
     urlParams = new URLSearchParams("month=2025-12");
     server.use(useFinancePayload());
     renderWithProviders(<FinancePage />);
-    expect(await screen.findByText("Total income")).toBeInTheDocument();
+    expect(await screen.findByText("Total income (all time)")).toBeInTheDocument();
 
     expect(screen.getByLabelText("Filter by month")).toHaveValue("2025-12");
     await waitFor(() => expect(lastParams.get("month")).toBe("2025-12"));
@@ -308,7 +308,7 @@ describe("FinancePage ledger URL write-through", () => {
     urlParams = new URLSearchParams("month=2025-12");
     server.use(useFinancePayload());
     const { rerender } = renderWithProviders(<FinancePage />);
-    expect(await screen.findByText("Total income")).toBeInTheDocument();
+    expect(await screen.findByText("Total income (all time)")).toBeInTheDocument();
     expect(screen.getByLabelText("Filter by month")).toHaveValue("2025-12");
 
     // A same-route navigation (shared link, browser Back) arrives.
@@ -642,7 +642,7 @@ describe("FinancePage round-2 mutation survivors", () => {
     urlParams = new URLSearchParams("month=2025-12");
     server.use(useFinancePayload());
     const { rerender } = renderWithProviders(<FinancePage />);
-    expect(await screen.findByText("Total income")).toBeInTheDocument();
+    expect(await screen.findByText("Total income (all time)")).toBeInTheDocument();
 
     urlParams = new URLSearchParams("category=FEED");
     rerender(<FinancePage />);

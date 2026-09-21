@@ -37,6 +37,16 @@ INSURANCE_RENEWAL_LEAD_DAYS = 30
 # transaction.
 INSURANCE_PREMIUM_CATEGORY = "INSURANCE"
 
+
+class PolicyAlreadyClaimedError(ValueError):
+    """The register's terminal state conflict (API maps it to 409, not 422).
+
+    Subclasses ValueError so existing callers that treat every service
+    validation error uniformly keep working; the type — not the message
+    text — carries the status decision (P3, 2026-09-20 audit: the old
+    `"already been claimed" in str(exc)` substring dispatch)."""
+
+
 # BIZ-3 (2026-09-16): one renewal books one non-prorated premium row, so the
 # covered span needs a bound — five years, renewed successively for longer.
 MAX_RENEWAL_SPAN_DAYS = 5 * 366
@@ -407,7 +417,7 @@ async def claim_insurance_policy(
     register's main use case.
     """
     if policy.status == INSURANCE_STATUS_CLAIMED:
-        raise ValueError("This policy has already been claimed")
+        raise PolicyAlreadyClaimedError("This policy has already been claimed")
     if claim_date < policy.start_date:
         raise ValueError("Claim date cannot be before the policy start date")
     policy.status = INSURANCE_STATUS_CLAIMED
@@ -607,7 +617,11 @@ async def mortality_memo(db: AsyncSession, farm: Farm, n_months: int = 12) -> di
         ).scalar_one()
         # Volume-weighted average realized rate: total sale proceeds over
         # total weighed sale live-weight — resistant to one small odd lot
-        # skewing a per-sale average.
+        # skewing a per-sale average. The sale path permits weighed-but-
+        # unpriced sales (sale_price NULL), and SUM skips NULLs while the
+        # kg side counted them: one unpriced lot halved the reported rate
+        # and understated estimated_loss by its weight share. Both sides of
+        # the ratio must see the same priced, weighed sales (P2-3).
         rate_row = (
             await db.execute(
                 select(
@@ -618,6 +632,7 @@ async def mortality_memo(db: AsyncSession, farm: Farm, n_months: int = 12) -> di
                     Animal.status == AnimalStatus.SOLD.value,
                     Animal.status_date >= window_start,
                     Animal.status_date < after_last_month,
+                    Animal.sale_price.is_not(None),
                     Animal.sale_weight_kg.is_not(None),
                     Animal.sale_weight_kg > 0,
                 )

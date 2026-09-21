@@ -22,6 +22,7 @@ import {
 } from "@/lib/auth-context";
 import { TEST_ACCESS_TOKEN, TEST_FARMS, TEST_USER, server } from "@/test/msw-server";
 import { createTestQueryClient, renderWithProviders } from "@/test/render";
+import { settle } from "@/test/settle";
 
 const { pushMock, replaceMock, navState } = vi.hoisted(() => ({
   pushMock: vi.fn(),
@@ -396,7 +397,7 @@ describe("AuthProvider — sign-out single flight release", () => {
 
     await act(async () => {
       releaseSecond();
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await settle(20);
     });
     expect(logoutCalls).toBe(2);
   });
@@ -554,7 +555,7 @@ describe("AuthProvider — a superseded establishment never runs the teardown", 
       await expect(
         actions!.signIn("staged-token", WORKER),
       ).rejects.toMatchObject({ status: 401 });
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await settle(20);
     });
 
     expect(logouts()).toBe(0);

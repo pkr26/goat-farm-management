@@ -194,6 +194,7 @@ async def breeding_candidates(
                 name=animal.name,
                 age_months=animal.age_months_on(reference_date),
                 latest_weight_kg=latest_weight_kg,
+                cull_candidate=animal.cull_candidate,
             )
             for animal, latest_weight_kg in page
         ],

@@ -140,7 +140,7 @@ describe("AnimalsPage branches", () => {
   }
 
   it("clamps a page deep link to the last offset the list endpoint accepts", async () => {
-    // Mirrors backend/app/schemas/common.py MAX_PAGE_OFFSET: offset=1_000_000
+    // Mirrors backend/app/schemas/common.py MAX_PAGE_OFFSET: offset=1_000_000 (now clamped to the 10_000 ceiling — P2-16)
     // is the largest the endpoint answers — anything beyond is a 422 the page
     // could never self-heal from.
     nav.state.search = "page=99999999";
@@ -148,7 +148,7 @@ describe("AnimalsPage branches", () => {
 
     await waitFor(() => expect(seenParams.length).toBeGreaterThanOrEqual(1));
     expect(seenParams[0].get("limit")).toBe("50");
-    expect(seenParams[0].get("offset")).toBe("1000000");
+    expect(seenParams[0].get("offset")).toBe("10000");
 
     // One page of results: the clamped page is out of range and self-heals.
     await waitFor(() => expect(nav.replace).toHaveBeenCalledWith("/animals"));
@@ -207,7 +207,7 @@ describe("AnimalsPage branches", () => {
 
     expect(
       within(dialog).getByText(
-        "BREEDING imports require a doe of at least 10 months and 22 kg.",
+        "BREEDING imports require a doe of at least 12 months and 22 kg.",
       ),
     ).toBeInTheDocument();
   });

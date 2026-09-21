@@ -33,6 +33,7 @@ import {
   TriangleAlert,
   Wallet,
   Wheat,
+  X,
   Repeat,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -232,7 +233,6 @@ const FIELD_BOUNDS: Record<
   // Surplus-milk side-line (meat mode): litres sold per lactating doe per day.
   "sales.milk_sale_litres_per_doe_day": { min: 0, max: 10 },
   "sales.milk_price_per_litre": { min: 0, max: 1e9 },
-  "sales.male_calf_price_per_head": { min: 0, max: 1_000_000 },
   // The sales money heuristic below only matches "price"/"income", so this is
   // the one money field on the form that would otherwise reach the API with no
   // client-side floor and 422 on a negative "rebate".
@@ -344,9 +344,7 @@ function fieldUnits(t: TFn): Record<string, string> {
     "feed.water_litres_buck_per_day": t("simulation.unit.litresDay"),
     // Fields the heuristics would caption as a 0-1 fraction or as a plain
     // multiplier.
-    "sales.male_calf_sell_at_birth_fraction": t("simulation.unit.fraction"),
-    "sales.male_calf_price_per_head": t("simulation.unit.currencyPerHead"),
-    "sales.annual_livestock_price_growth_rate": t("simulation.unit.fraction"),
+        "sales.annual_livestock_price_growth_rate": t("simulation.unit.fraction"),
     "feed.annual_feed_price_growth_rate": t("simulation.unit.fraction"),
     "feed.fodder_storage_loss_fraction_monthly": t("simulation.unit.fraction"),
     "costs.operating_cost_growth_rate_annual": t("simulation.unit.fraction"),
@@ -1022,6 +1020,11 @@ const DAIRY_HIDDEN_FIELDS = new Set([
   "sales.monthly_milk_price_multipliers",
   "sales.annual_milk_price_growth_rate",
   "sales.calf_milk_litres_per_day_per_calf",
+  // The retired male_calf_* keys too (they are in the backend's
+  // _RETIRED_DAIRY_FIELDS but were missing here, so a stale cached payload
+  // could still render/edit them — P3, 2026-09-20 audit).
+  "sales.male_calf_price_per_head",
+  "sales.male_calf_sell_at_birth_fraction",
   "risk.disease_milk_yield_multiplier",
   "risk.milk_price",
 ]);
@@ -1147,6 +1150,11 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
     setScenarioOffsetState(
       scenarioOffsetParamRef.current("scenarios", 0, 0, MAX_PAGE_OFFSET),
     );
+    // A URL-driven page change (back/forward, edited link) invalidates the
+    // rendered comparison: its rows belong to scenarios the operator may no
+    // longer be looking at, and a stale table under a new page reads as
+    // current (P3, 2026-09-20 audit).
+    setCompareIds(null);
   }, [scenarioParamsKey]);
   const setScenarioOffset = useCallback(
     (offset: number) => {
@@ -1188,9 +1196,11 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
     // Setters and refs are stable; nothing else is captured.
   }, []);
 
+  const [explicitDefaultsPending, setExplicitDefaultsPending] = useState(false);
   useEffect(() => {
     if (defaultsQuery.data?.status === 200 && acceptDefaultsRef.current) {
       acceptDefaultsRef.current = false;
+      setExplicitDefaultsPending(false);
       // react-query v5 has no onSuccess: mirror the explicitly requested
       // defaults payload into editable state.
       applyDefaultsToEditor(defaultsQuery.data.data);
@@ -1317,6 +1327,44 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       return next;
     });
   }
+
+  // Validate LOADED values, not just typed ones (P3, 2026-09-20 audit): a
+  // calibrated/imported scenario can carry out-of-bounds numbers that the
+  // per-keystroke gate never sees because nobody typed them. Re-run the rule
+  // gate whenever fresh editor content lands.
+  /* eslint-disable react-hooks/set-state-in-effect -- fresh editor content re-seeds the invalid-marker set */
+  useEffect(() => {
+    if (!assumptions) return;
+    const offenders = new Set<string>();
+    for (const [section, group] of Object.entries(assumptions)) {
+      if (typeof group !== "object" || group === null) continue;
+      for (const [key, value] of Object.entries(group as Record<string, unknown>)) {
+        if (typeof value !== "number" || !Number.isFinite(value)) continue;
+        const path = `${section}.${key}`;
+        if (DAIRY_HIDDEN_FIELDS.has(path)) continue;
+        const rule = numericRule(section, key, t);
+        const below = rule.exclusiveMin !== undefined ? value <= rule.exclusiveMin : false;
+        const under = rule.min !== undefined ? value < rule.min : false;
+        const over = rule.max !== undefined ? value > rule.max : false;
+        if (below || under || over) offenders.add(path);
+      }
+    }
+    setInvalidFields((previous) => {
+      // Keep the live dialog-draft markers (keyed "field:*"): they describe
+      // operator-typed values the loaded content cannot validate or clear.
+      const next = new Set(offenders);
+      for (const key of previous) {
+        // field:* = repeat-dialog drafts; event:* = herd-event rows the
+        // operator is typing into right now. Both describe operator-typed
+        // values, not loaded content.
+        if (key.startsWith("field:") || key.startsWith("event:")) next.add(key);
+      }
+      return next;
+    });
+    // editorVersion bumps exactly when fresh editor content lands.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editorVersion]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   /** Same bookkeeping for the repeat-plan dialog's local set (L-23): no
    * editorContentEpochRef bump — the dialog edits no editor content until
@@ -3178,6 +3226,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                 // different epoch and cannot overwrite these defaults.
                 editorEpochRef.current += 1;
                 acceptDefaultsRef.current = true;
+                setExplicitDefaultsPending(true);
                 if (breed === submittedParams.breed && system === submittedParams.system) {
                   // Apply the refetched payload directly from the result.
                   // With unchanged breed+system the response is deep-equal
@@ -3347,7 +3396,16 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
         </DataTableCard>
       )}
 
-      <fieldset disabled={defaultsQuery.isFetching} className="contents">
+      {/* Frozen ONLY while an explicitly clicked "Load defaults" is in
+       * flight (its response replaces the editor, so late edits would be
+       * silently overwritten). A background refetch — e.g. the one
+       * calibration triggers by advancing submittedParams — must NOT freeze
+       * the editor (P3, 2026-09-20 audit): the explicit buttons already gate
+       * their own pending state. */}
+      <fieldset
+        disabled={defaultsQuery.isFetching && explicitDefaultsPending}
+        className="contents"
+      >
       <Card id="sim-assumptions" tabIndex={-1} className="scroll-mt-28 focus:outline-none">
         <CardHeader>
           <CardTitle>{t("simulation.assumptions.title")}</CardTitle>
@@ -3841,6 +3899,43 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
           </p>
         ) : (
           <div className="space-y-3">
+            {selectedIds.length > 0 && (
+              /* Removable chips for the compare selection (P2-20): off-page
+               * ids are retained by design so scenarios from different pages
+               * can be compared, but a row deleted server-side used to stay
+               * selected forever with no way to untick it — compare then 404'd
+               * on every attempt until a full reload. Every selected id is
+               * removable here, whether or not its row is on this page. */
+              <div
+                className="flex flex-wrap items-center gap-2"
+                aria-label={t("simulation.scenarios.compareSelection")}
+              >
+                {selectedIds.map((id) => {
+                  const row = scenarios.find((scenario) => scenario.id === id);
+                  return (
+                    <span
+                      key={id}
+                      className="inline-flex items-center gap-1 rounded-full border bg-muted/50 px-2.5 py-0.5 text-xs"
+                    >
+                      {row ? row.name : t("simulation.scenarios.offPageChip", { id })}
+                      <button
+                        type="button"
+                        aria-label={t("simulation.scenarios.removeSelection", {
+                          name: row ? row.name : `#${id}`,
+                        })}
+                        className="rounded-full p-0.5 hover:bg-background"
+                        onClick={() => {
+                          setCompareIds(null);
+                          setSelectedIds((prev) => prev.filter((keep) => keep !== id));
+                        }}
+                      >
+                        <X className="size-3" aria-hidden />
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
             <Table>
               <TableHeader>
                 <TableRow>

@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api-client";
 
 import { AccountDialog } from "./account-dialog";
+import { settle } from "@/test/settle";
 
 const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
@@ -128,7 +129,7 @@ describe("AccountDialog — campaign kills", () => {
       rejectExport(new ApiError(503, "late export failure"));
     });
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await settle(20);
     });
     expect(within(dialog).queryByText("late export failure")).not.toBeInTheDocument();
     // The action lock must also have been released by the late failure.

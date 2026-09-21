@@ -10,7 +10,6 @@ export type ListInsurancePoliciesApiFinanceInsuranceGetStatus = typeof ListInsur
 
 export const ListInsurancePoliciesApiFinanceInsuranceGetStatus = {
   active: 'active',
-  renewed: 'renewed',
   lapsed: 'lapsed',
   claimed: 'claimed',
 } as const;

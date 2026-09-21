@@ -74,6 +74,7 @@ function LoginPageContent() {
   const {
     register,
     handleSubmit,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<LoginValues>({ resolver: zodResolver(loginSchema) });
 
@@ -300,6 +301,12 @@ function LoginPageContent() {
               onClick={() => {
                 setMfaToken(null);
                 setServerError(null);
+                // Drop any partial/invalid code draft with the step:
+                // react-hook-form retains it, and on the next password
+                // submit zod would reject the stale value silently (the
+                // totp error only renders inside this branch) — a sign-in
+                // no-op with zero feedback until a page reload.
+                setValue("totp", undefined, { shouldValidate: false });
               }}
             >
               {t("login.totpBack")}

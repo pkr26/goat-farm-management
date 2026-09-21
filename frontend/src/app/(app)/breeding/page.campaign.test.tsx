@@ -18,6 +18,7 @@ import { renderWithProviders } from "@/test/render";
 import { breedingSchema, default as BreedingPage } from "./page";
 import KiddingPage from "@/app/(app)/kidding/page";
 import { kiddingSchema } from "@/app/(app)/kidding/page";
+import { settle } from "@/test/settle";
 
 const toastMocks = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock("sonner", () => ({ toast: toastMocks }));
@@ -292,7 +293,7 @@ describe("BreedingPage — campaign kills", () => {
     );
   });
 
-  it("saves an AI breeding with a trimmed sire name and clears lifted picker labels", async () => {
+  it("saves a natural breeding and clears lifted picker labels", async () => {
     let releaseSave!: () => void;
     let savedBody: Record<string, unknown> | null = null;
     server.use(
@@ -310,23 +311,26 @@ describe("BreedingPage — campaign kills", () => {
     await user.click(screen.getAllByRole("button", { name: "Add breeding" })[0]!);
     const dialog = await screen.findByRole("dialog", { name: "Add breeding" });
 
-    // Pick the first doe through the remote picker.
+    // Pick the doe through the remote picker.
     await user.click(within(dialog).getAllByRole("combobox")[0]!);
-    const pickerDialog = await screen.findByRole("dialog");
+    let pickerDialog = await screen.findByRole("dialog");
     await user.click((await within(pickerDialog).findAllByRole("option"))[0]!);
 
-    await user.click(within(dialog).getByRole("radio", { name: /conventional semen/i }));
-    await user.type(within(dialog).getByLabelText("Semen buck (optional)"), "  Boss  ");
+    // Pick the herd buck — natural cover is the only offered method (the
+    // goat protocol rejects AI writes server-side, so the radios are gone).
+    const buckTrigger = within(dialog).getAllByRole("combobox")[1]!;
+    await user.click(buckTrigger);
+    pickerDialog = await screen.findByRole("dialog");
+    await user.click(await within(pickerDialog).findByText(/B-1/));
     await user.click(within(dialog).getByRole("button", { name: "Save breeding" }));
     expect(await within(dialog).findByRole("button", { name: "Saving…" })).toBeDisabled();
 
     await act(async () => {
       releaseSave();
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      await settle(30);
     });
     await waitFor(() => expect(toastMocks.success).toHaveBeenCalledWith("Breeding saved."));
-    expect(savedBody).toMatchObject({ doe_id: 10, method: "AI", semen_sire_name: "Boss" });
-    expect(savedBody).not.toHaveProperty("buck_id");
+    expect(savedBody).toMatchObject({ doe_id: 10, buck_id: 20 });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
     // Reopening shows a fresh form: the lifted doe label was cleared with it.
@@ -359,7 +363,11 @@ describe("BreedingPage — campaign kills", () => {
     await user.click(within(dialog).getAllByRole("combobox")[0]!);
     const pickerDialog = await screen.findByRole("dialog");
     await user.click((await within(pickerDialog).findAllByRole("option"))[0]!);
-    await user.click(within(dialog).getByRole("radio", { name: /conventional semen/i }));
+    // Natural cover is the only offered method (the goat protocol rejects
+    // AI server-side — P1-9), so pick the herd buck before saving.
+    await user.click(within(dialog).getAllByRole("combobox")[1]!);
+    const buckPicker = await screen.findByRole("dialog");
+    await user.click(await within(buckPicker).findByText(/B-1/));
     await user.click(within(dialog).getByRole("button", { name: "Save breeding" }));
 
     expect(await within(dialog).findByText("Select a doe")).toBeInTheDocument();
@@ -406,7 +414,11 @@ describe("BreedingPage — campaign kills", () => {
     await user.click(within(dialog).getAllByRole("combobox")[0]!);
     const pickerDialog = await screen.findByRole("dialog");
     await user.click((await within(pickerDialog).findAllByRole("option"))[0]!);
-    await user.click(within(dialog).getByRole("radio", { name: /conventional semen/i }));
+    // Natural cover is the only offered method (the goat protocol rejects
+    // AI server-side — P1-9), so pick the herd buck before saving.
+    await user.click(within(dialog).getAllByRole("combobox")[1]!);
+    const buckPicker = await screen.findByRole("dialog");
+    await user.click(await within(buckPicker).findByText(/B-1/));
     await user.click(within(dialog).getByRole("button", { name: "Save breeding" }));
 
     expect(await within(dialog).findByText("Select a doe")).toBeInTheDocument();
@@ -530,7 +542,7 @@ describe("BreedingPage — campaign kills", () => {
     expect(
       await within(dialog).findByText("Result date can't be in the future"),
     ).toBeInTheDocument();
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    await settle(150);
     expect(ultrasoundPosts).toBe(0);
   });
 
@@ -544,7 +556,7 @@ describe("BreedingPage — campaign kills", () => {
     );
     renderWithProviders(<BreedingPage />);
     await screen.findAllByText("D-1");
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settle(50);
     // enabled: canManage && requestedUltrasoundId !== null && … — a manager
     // with no link must never issue the id-0 detail request.
     expect(detailCalls).toBe(0);
@@ -562,7 +574,7 @@ describe("BreedingPage — campaign kills", () => {
     );
     renderWithProviders(<BreedingPage />);
     await screen.findAllByText("D-1");
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settle(50);
     expect(detailCalls).toBe(0);
     expect(screen.queryByRole("dialog", { name: "Ultrasound result" })).not.toBeInTheDocument();
   });
@@ -697,7 +709,7 @@ describe("KiddingPage — campaign kills", () => {
     navState.search = "?breeding_id=55";
     renderWithProviders(<KiddingPage />);
     await screen.findByText("Upcoming (next 30 days)");
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settle(50);
     expect(pregnancyCalls).toEqual([]);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
@@ -779,7 +791,11 @@ describe("BreedingPage — stale-data notice retry", () => {
     await user.click(within(dialog).getAllByRole("combobox")[0]);
     const pickerDialog = await screen.findByRole("dialog");
     await user.click((await within(pickerDialog).findAllByRole("option"))[0]);
-    await user.click(within(dialog).getByRole("radio", { name: /conventional semen/i }));
+    // Natural cover is the only offered method (the goat protocol rejects
+    // AI server-side — P1-9), so pick the herd buck before saving.
+    await user.click(within(dialog).getAllByRole("combobox")[1]!);
+    const buckPicker = await screen.findByRole("dialog");
+    await user.click(await within(buckPicker).findByText(/B-1/));
     await user.click(within(dialog).getByRole("button", { name: "Save breeding" }));
     await waitFor(() => expect(postCalls).toBe(1));
 

@@ -211,7 +211,11 @@ def _report_digest(result: SimulationResult) -> str:
 
 
 def test_metric_narratives_are_stable_across_core_financial_branches() -> None:
-    """Bank-facing explanations change only through an explicit contract update."""
+    """Bank-facing explanations change only through an explicit contract update.
+
+    Digests refreshed for the 2026-09-20 audit's intentional narrative fixes
+    (payback-by-liquidation wording, balloon-excluded debt_years, per-month
+    family-labour imputation, toggle-aware Monte Carlo paragraph)."""
     default = run_simulation(SimulationAssumptions(), with_break_even=False)
     viable = run_simulation(_viable_assumptions(), with_break_even=False)
     no_debt_or_terminal = SimulationAssumptions()
@@ -228,22 +232,22 @@ def test_metric_narratives_are_stable_across_core_financial_branches() -> None:
     )
 
     assert _explanation_digest(default) == (
-        "2d71ad4c14d3adc0153d0c670448e332a1047c3eea7185b40a7e36551300397a"
+        "e0dc42d18bba87e317cab3e5627bea6388110067a78309369ae0eb122f4f72f9"
     )
     assert _explanation_digest(viable) == (
-        "ded4eb7f849e070fce5c5c26a9742d397f382847c4174fe68cb0c844c845d36c"
+        "f8670dca56f2c9f9f7c8c6aff6e431470fc4c4d35cefd38c8e63d96333f4ca6d"
     )
     assert _explanation_digest(no_debt) == (
-        "185dda7f6f534657aabcb1a28fe69a75564a7c86ce70ed508ffbaa48d113ba59"
+        "d0e102036e3c53cb1e120fbca2d8a9362de8d2646edff40c6aa181756546da7e"
     )
     assert _report_digest(default) == (
-        "c2a7af30de577bfa530c3f112cf643def42016ced1b5e8a7e1126ddf7454fe71"
+        "da1f3a375d2fca717f261027e34aec3a6587d982721bb0223e8434ee6254509d"
     )
     assert _report_digest(viable) == (
-        "833dd20f05ba66f3841d5692f96ee4a49e2ff14e6b368c5d2a5c972e238d3861"
+        "6cf715af9ba6a5e48d662ba7c88bb236244c9fdb2427c752dd5c7b9c25701fcc"
     )
     assert _report_digest(no_debt) == (
-        "3e5f5bd96934546e1f4f93e67db6338dadf845704def238a11cbd228c6572e5d"
+        "994d351749994f655689a078d731a450af763c97edda90b3165aafd050f4f3d2"
     )
     # Digests regenerated in the audit-remediation contract update: the
     # labour-rule, DSCR-window and growth-curve corrections changed the
@@ -264,7 +268,7 @@ def test_metric_narratives_are_stable_across_core_financial_branches() -> None:
     # explanation, parity-keyed litter expectations and the water-demand
     # paragraph changed the quoted figures and texts.
     assert _report_digest(risk) == (
-        "b20cb8cf5467822ee03fd557ec9cf6ed1991cc7ea30a11f0d6794e51d7835451"
+        "8b35ac5ee3099f1092b6f1bb004e25157545a76520149f90e1cca9c8358a4514"
     )
 
 
@@ -546,10 +550,16 @@ def test_metric_explanations_hold_exact_financial_decision_boundaries() -> None:
     assert "No capital subsidy" not in tiny_subsidy.explanation
 
     annual_pl = [row.model_copy(update={"debt_service": 0.0}) for row in result.annual_pl]
-    annual_pl[0] = annual_pl[0].model_copy(update={"debt_service": 0.5})
+    # Give year 1 real OPERATING principal (and clear the schedule's terminal
+    # balance, which the horizon-year balloon subtraction would otherwise
+    # cancel — the engine's own DSCR filter, which the figure now mirrors).
+    annual_pl[0] = annual_pl[0].model_copy(update={"debt_service": 0.5, "principal": 0.2})
     tiny_debt_result = result.model_copy(
         update={
             "annual_pl": annual_pl,
+            "amortization": [
+                row.model_copy(update={"closing_balance": 0.0}) for row in result.amortization
+            ],
             "metrics": result.metrics.model_copy(update={"avg_dscr": 1.5}),
         }
     )

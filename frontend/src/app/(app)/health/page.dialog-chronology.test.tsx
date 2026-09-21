@@ -448,12 +448,16 @@ describe("HealthPage dialog branches", () => {
     // The duty still drives type and product…
     expect(within(dialog).getByLabelText("Type")).toHaveTextContent("Deworming");
     expect(within(dialog).getByLabelText(/product name/i)).toHaveValue("Albendazole");
-    // …but it names no target, so the operator still picks one.
-    expect(within(dialog).getByRole("radio", { name: "Single animal" })).toBeChecked();
-    expect(within(dialog).queryByText("Purchase batch *")).not.toBeInTheDocument();
-    expect(within(dialog).getByRole("combobox", { name: "Animal *" })).toHaveTextContent(
-      "Pick an animal",
-    );
+    // …but it names no target, and a herd round closes ONLY via a
+    // bucket-scoped event (the backend 422s an animal event and the batch
+    // preview refuses a herd duty), so the form pre-selects the whole-bucket
+    // scope and disables the dead-end radios (P1-8, 2026-09-20 audit).
+    expect(within(dialog).getByRole("radio", { name: "Whole bucket" })).toBeChecked();
+    expect(within(dialog).getByRole("radio", { name: "Single animal" })).toBeDisabled();
+    expect(within(dialog).getByRole("radio", { name: "Purchase batch" })).toBeDisabled();
+    expect(
+      within(dialog).getByText(/closes only with a whole-bucket event/i),
+    ).toBeInTheDocument();
   });
 
   it("never overwrites product or disease text the operator already typed", async () => {

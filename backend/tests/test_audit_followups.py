@@ -5,6 +5,7 @@ an operator (or attacker) would:
 
 * the must-change-password fence's explicit route allowlist;
 * the species reference-data migration reaching existing databases;
+* the ORF retirement surviving farms whose dosing history cites the template;
 * the creep ration requiring the kid to be inside the weaning window;
 * the register per-email probe limiter never locking a fresh address.
 """
@@ -176,6 +177,206 @@ async def _migration_scenario():
             await conn.close()
     finally:
         await admin_exec(f'DROP DATABASE IF EXISTS "{scratch}"')
+
+
+# ---------------------------------------------------------------------------
+# ORF retirement: dosing history linked to the template survives it (P2-13)
+# ---------------------------------------------------------------------------
+def test_orf_linked_health_events_survive_the_reference_data_migration():
+    """2026-09-20 audit P2-13: farms that already recorded ORF vaccinations
+    hold FK references to the template row, and the column carrying that
+    reference is guarded by an immutability trigger. The migration must
+    detach, delete and re-arm the guard in one upgrade."""
+    import asyncio
+
+    asyncio.run(_orf_upgrade_scenario())
+
+
+async def _orf_upgrade_scenario():
+    """Reproduce a pre-remediation farm at b5d7f9a1c3e5's down_revision
+    (e3a5b7c9d1f2) with an administered ORF dose linked to the template, then
+    run the real alembic chain over it.
+
+    Before the fix this aborted the upgrade twice over: deleting the template
+    first died on the FK (23503), and the naive detach-only order died on
+    trg_health_event_schedule_template_id_immutable (23514) — the very guard
+    d7e8f9a0b1c2 put on health_events.schedule_template_id. The scenario
+    proves both hazards are real on this database before asserting the fixed
+    order survives them."""
+    from app.core.config import get_settings
+
+    admin_url = get_settings().database_url
+    base = admin_url.rsplit("/", 1)[0]
+    scratch = "goatfarm_test_orf_upgrade"
+
+    def _dsn(url: str) -> str:
+        return url.replace("postgresql+asyncpg://", "postgresql://")
+
+    async def admin_exec(sql: str) -> None:
+        import asyncpg
+
+        conn = await asyncpg.connect(_dsn(f"{base}/postgres"))
+        try:
+            await conn.execute(sql)
+        finally:
+            await conn.close()
+
+    await admin_exec(f'DROP DATABASE IF EXISTS "{scratch}" WITH (FORCE)')
+    await admin_exec(f'CREATE DATABASE "{scratch}"')
+    try:
+        env = {**os.environ, "GOATFARM_DATABASE_URL": f"{base}/{scratch}"}
+
+        async def alembic_upgrade(target: str) -> None:
+            proc = await asyncio.to_thread(
+                subprocess.run,
+                [sys.executable, "-m", "alembic", "upgrade", target],
+                env=env,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                cwd=os.getcwd(),
+            )
+            assert proc.returncode == 0, proc.stdout + proc.stderr
+
+        await alembic_upgrade("e3a5b7c9d1f2")
+
+        import asyncpg
+
+        conn = await asyncpg.connect(_dsn(f"{base}/{scratch}"))
+        try:
+            owner_id = await conn.fetchval(
+                """
+                INSERT INTO users (email, password_hash, created_at)
+                VALUES ('orf-history@farm.in', 'h', now())
+                RETURNING id
+                """
+            )
+            farm_id = await conn.fetchval(
+                """
+                INSERT INTO farms (name, owner_id, created_at)
+                VALUES ('ORF History Farm', $1, now())
+                RETURNING id
+                """,
+                owner_id,
+            )
+            # The GOAT ORF vaccine template exactly as the pre-remediation
+            # seed inserted it (farm_type defaults to 'GOAT').
+            orf_id = await conn.fetchval(
+                """
+                INSERT INTO vaccine_templates
+                  (name, first_dose_age_months, booster_weeks,
+                   repeat_months, timing_note)
+                VALUES ('ORF', 4, NULL, 6, 'Every 6 months')
+                RETURNING id
+                """
+            )
+            animal_id = await conn.fetchval(
+                """
+                INSERT INTO animals (
+                  farm_id, tag_number, breed, sex, source, current_bucket,
+                  status, cull_candidate, created_at, movement_restricted,
+                  suspected_scheduled_disease
+                ) VALUES (
+                  $1, 'ORF-HX-1', 'Osmanabadi', 'F', 'PURCHASED', 'FOUNDATION',
+                  'ACTIVE', false, now(), false, false
+                ) RETURNING id
+                """,
+                farm_id,
+            )
+            # An administered dose recorded against the ORF calendar;
+            # d7e8f9a0b1c2's backfill is what produced this link shape.
+            event_id = await conn.fetchval(
+                """
+                INSERT INTO health_events (
+                  farm_id, animal_id, date, type, product_name,
+                  schedule_template_name, schedule_template_id,
+                  suspected_scheduled_disease
+                ) VALUES (
+                  $1, $2, CURRENT_DATE, 'VACCINE', 'ORF vaccine', 'ORF', $3,
+                  false
+                ) RETURNING id
+                """,
+                farm_id,
+                animal_id,
+                orf_id,
+            )
+            # Honesty check: on this database the trigger d7e8f9a0b1c2 left
+            # behind is live, so the detach the migration must perform is
+            # exactly the UPDATE the database refuses — the 23514 that
+            # aborted the naive NULL-only fix.
+            with pytest.raises(asyncpg.CheckViolationError) as blocked:
+                await conn.execute(
+                    "UPDATE health_events SET schedule_template_id = NULL WHERE id = $1",
+                    event_id,
+                )
+            assert blocked.value.sqlstate == "23514"
+            assert "health event schedule template link is immutable" in blocked.value.message
+        finally:
+            await conn.close()
+
+        await alembic_upgrade("head")
+
+        conn = await asyncpg.connect(_dsn(f"{base}/{scratch}"))
+        try:
+            survivor = await conn.fetchrow(
+                """
+                SELECT animal_id, product_name, schedule_template_name,
+                       schedule_template_id
+                FROM health_events WHERE id = $1
+                """,
+                event_id,
+            )
+            # The recorded dose survives with every clinical fact intact;
+            # only the schedule-source link retires with its template.
+            assert survivor["animal_id"] == animal_id
+            assert survivor["product_name"] == "ORF vaccine"
+            assert survivor["schedule_template_name"] == "ORF"
+            assert survivor["schedule_template_id"] is None
+            assert (
+                await conn.fetchval("SELECT count(*) FROM vaccine_templates WHERE name = 'ORF'")
+                == 0
+            )
+            # The guard the migration had to sidestep is back in place...
+            assert (
+                await conn.fetchval(
+                    """
+                    SELECT count(*) FROM pg_trigger
+                    WHERE tgname = 'trg_health_event_schedule_template_id_immutable'
+                      AND NOT tgisinternal
+                    """
+                )
+                == 1
+            )
+            # ...and functional: relinking a row is refused again. (The probe
+            # template needs only a live row to point at; farm_type itself
+            # was dropped from vaccine_templates later by bd201c1cdc1b.)
+            probe_id = await conn.fetchval(
+                """
+                INSERT INTO vaccine_templates
+                  (name, first_dose_age_months, repeat_months, timing_note)
+                VALUES ('PPR', 3, 12, 'Core vaccine')
+                RETURNING id
+                """
+            )
+            with pytest.raises(asyncpg.CheckViolationError) as refused:
+                await conn.execute(
+                    "UPDATE health_events SET schedule_template_id = $1 WHERE id = $2",
+                    probe_id,
+                    event_id,
+                )
+            assert refused.value.sqlstate == "23514"
+            assert "health event schedule template link is immutable" in refused.value.message
+            # A value-preserving UPDATE that mentions the column still passes:
+            # the guard fires on change, not on the column being named.
+            await conn.execute(
+                "UPDATE health_events SET schedule_template_id = NULL WHERE id = $1",
+                event_id,
+            )
+        finally:
+            await conn.close()
+    finally:
+        await admin_exec(f'DROP DATABASE IF EXISTS "{scratch}" WITH (FORCE)')
 
 
 # ---------------------------------------------------------------------------

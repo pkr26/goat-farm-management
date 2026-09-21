@@ -21,24 +21,27 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.simulation.assumptions import (  # noqa: E402
+from app.simulation.assumptions import (
     HerdAssumptions,
     MetaAssumptions,
     SimulationAssumptions,
 )
-from app.simulation.engine import run_simulation  # noqa: E402
+from app.simulation.engine import run_simulation
 
 
 def _digest(seed: int) -> str:
     a = SimulationAssumptions(
         meta=MetaAssumptions(horizon_months=24),
-        herd=HerdAssumptions(does=20, bucks=2, auto_purchase_bucks=False,
-                             foundation_flock_state="open"),
+        herd=HerdAssumptions(
+            does=20, bucks=2, auto_purchase_bucks=False, foundation_flock_state="open"
+        ),
     )
     a.risk.seed = seed
     result = run_simulation(a, with_break_even=False)
     payload = json.dumps(
-        result.model_dump(mode="json"), sort_keys=True, separators=(",", ":"),
+        result.model_dump(mode="json"),
+        sort_keys=True,
+        separators=(",", ":"),
         allow_nan=False,
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -51,22 +54,28 @@ def main() -> int:
 
     ok = True
     if digest_a1 != digest_a2:
-        print(f"FAIL determinism: same seed produced different projections\n"
-              f"  run1={digest_a1}\n  run2={digest_a2}")
+        print(
+            f"FAIL determinism: same seed produced different projections\n"
+            f"  run1={digest_a1}\n  run2={digest_a2}"
+        )
         ok = False
     else:
         print(f"OK same-seed reproducible: {digest_a1[:16]}…")
 
     if digest_a1 == digest_b:
-        print("FAIL seed sensitivity: a different seed produced the identical "
-              "projection — the seed is not driving the draws")
+        print(
+            "FAIL seed sensitivity: a different seed produced the identical "
+            "projection — the seed is not driving the draws"
+        )
         ok = False
     else:
         print(f"OK different seed diverges: {digest_b[:16]}…")
 
     if not ok:
-        print("\nThe determinism contract is BROKEN — no seeded mutant verdict "
-              "can be trusted until this is fixed.")
+        print(
+            "\nThe determinism contract is BROKEN — no seeded mutant verdict "
+            "can be trusted until this is fixed."
+        )
         return 1
     print("\nDeterminism contract holds — seeded mutation verdicts are meaningful.")
     return 0

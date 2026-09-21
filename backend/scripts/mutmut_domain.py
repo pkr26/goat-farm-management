@@ -21,7 +21,6 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
-import signal
 import subprocess
 import sys
 import tomllib
@@ -72,8 +71,11 @@ def replace_mutmut_section(pyproject_text: str, fragment: dict) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--domain", required=True,
-                    help="fragment name under mutmut-configs/ (e.g. breeding_kidding)")
+    ap.add_argument(
+        "--domain",
+        required=True,
+        help="fragment name under mutmut-configs/ (e.g. breeding_kidding)",
+    )
     ap.add_argument("--timeout-seconds", type=int, default=20000)
     ap.add_argument("--max-children", type=int, default=4)
     args, mutmut_extra = ap.parse_known_args()
@@ -88,8 +90,10 @@ def main() -> int:
     shutil.rmtree(RESULTS_CACHE, ignore_errors=True)
     try:
         cmd = [
-            str(BACKEND / ".venv/bin/mutmut"), "run",
-            "--max-children", str(args.max_children),
+            str(BACKEND / ".venv/bin/mutmut"),
+            "run",
+            "--max-children",
+            str(args.max_children),
             *mutmut_extra,
         ]
         try:

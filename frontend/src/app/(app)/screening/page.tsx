@@ -184,7 +184,10 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
         data: { status, expected_status: expectedStatus },
       });
       toast.success(t("screening.review.reviewed"));
-      await Promise.all([detailQuery.refetch(), listQuery.refetch()]);
+      // Reviews feed the provider scoreboard's accuracy columns; refetch it
+      // with the same refresh so a just-rendered verdict is reflected
+      // immediately instead of after the next poll (P3, 2026-09-20 audit).
+      await Promise.all([detailQuery.refetch(), listQuery.refetch(), statsQuery.refetch()]);
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
         toast.error(t("screening.review.conflict"));
@@ -564,8 +567,21 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                     {rows.map((row) => (
                       <tr
                         key={row.id}
-                        className="cursor-pointer"
+                        // Keyboard-reachable and announced: the row opens the
+                        // photo's review detail, which was mouse-only before
+                        // (P3, 2026-09-20 audit). A real button element with
+                        // its click synthesized keeps one interactive role.
+                        tabIndex={0}
+                        role="button"
+                        aria-label={t("screening.table.openDetail", { id: row.id })}
+                        className="cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
                         onClick={() => setUrlState({ image_id: String(row.id) })}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            setUrlState({ image_id: String(row.id) });
+                          }
+                        }}
                       >
                         <td>
                           <StatusBadge status={row.status}>

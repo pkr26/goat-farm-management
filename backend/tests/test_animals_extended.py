@@ -18,6 +18,7 @@ returns the full filtered total, and supports limit/offset pagination.
 
 import re
 from datetime import date, timedelta
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -50,7 +51,12 @@ def iso(d) -> str:
 # Helpers
 # ---------------------------------------------------------------------------
 async def post_animal(client: httpx.AsyncClient, headers: dict, payload: dict) -> httpx.Response:
-    return await client.post("/api/animals", json=payload, headers=headers)
+    # Every PURCHASED create with a price books money, so the endpoint now
+    # demands an Idempotency-Key for it (P2-1, 2026-09-20 audit); a fresh
+    # uuid per call keeps the retry-protection semantics the tests rely on.
+    keyed = {**headers}
+    keyed.setdefault("Idempotency-Key", f"test-{uuid4()}")
+    return await client.post("/api/animals", json=payload, headers=keyed)
 
 
 async def make_animal(

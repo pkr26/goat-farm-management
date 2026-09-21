@@ -13,6 +13,7 @@ import { describe, expect, it, vi } from "vitest";
 import { DiseaseCheckDialog } from "@/components/screening-check-dialog";
 import { server } from "@/test/msw-server";
 import { createTestQueryClient, renderWithProviders } from "@/test/render";
+import { settle } from "@/test/settle";
 
 const { pushMock } = vi.hoisted(() => ({ pushMock: vi.fn() }));
 
@@ -298,7 +299,7 @@ describe("DiseaseCheckDialog", () => {
     // session or trigger its stale upload.
     releaseFirstBatch();
     await waitFor(() => expect(firstBatchReturned).toHaveBeenCalledTimes(1));
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await settle(0);
     expect(uploadBodies).toHaveLength(1);
 
     fireEvent.change(input!, {

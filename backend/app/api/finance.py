@@ -56,6 +56,7 @@ from ..services import (
     require_status_after_recorded_facts,
 )
 from ..services.finance import (
+    PolicyAlreadyClaimedError,
     claim_insurance_policy,
     create_insurance_policy,
     feed_stock_value,
@@ -1011,9 +1012,10 @@ async def claim_policy(
             claim_date=claim_date,
             claimed_by_id=user.id,
         )
+    except PolicyAlreadyClaimedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
     except ValueError as exc:
-        status_code = 409 if "already been claimed" in str(exc) else 422
-        raise HTTPException(status_code=status_code, detail=str(exc)) from None
+        raise HTTPException(status_code=422, detail=str(exc)) from None
     await db.commit()
     linked = (
         await db.get(Animal, policy.animal_id)

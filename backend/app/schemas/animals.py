@@ -23,7 +23,7 @@ from .common import (
 Sex = Literal["M", "F"]
 AnimalSourceStr = Literal["BORN", "PURCHASED"]
 AnimalStatusStr = Literal["ACTIVE", "SOLD", "DEAD", "CULLED"]
-BirthTypeStr = Literal["SINGLE", "TWIN", "TRIPLET", "QUADRUPLET", "MULTIPLET"]
+BirthTypeStr = Literal["SINGLE", "TWIN", "TRIPLET", "QUADRUPLET"]
 # Coded mortality vocabulary (husbandry standards). Re-declares
 # models.enums.MortalityCause like every other wire Literal; the parity test
 # keeps the two lists from drifting.
@@ -172,6 +172,10 @@ class AnimalOut(BaseModel):
     current_bucket: BucketStr
     status: AnimalStatusStr
     status_date: date | None
+    # The exit narrative + server advisories written with the status change;
+    # exposed so the stored note is retrievable, not write-only (P3,
+    # 2026-09-20 audit).
+    status_notes: str | None
     sale_price: float | None
     # Operational sale fact (like latest_weight_kg); paired with sale_price in
     # the ledger note for realized ₹/kg benchmarking.
@@ -379,15 +383,6 @@ class AnimalProfileOut(BaseModel):
     breedings_total: int
     breedings_offset: int
     history_limit: int
-
-
-class BucketBoardRow(BaseModel):
-    bucket: str
-    name: str
-    who: str
-    exit_rule: str
-    daily_kg_per_head: float
-    animals: list[AnimalOut]
 
 
 from .health import HealthEventOut  # noqa: E402

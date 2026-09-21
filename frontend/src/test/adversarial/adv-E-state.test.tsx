@@ -19,6 +19,7 @@ import { PaginationControls } from "@/components/pagination-controls";
 import { useAuth } from "@/lib/auth-context";
 import { server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
+import { settle } from "@/test/settle";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
@@ -91,7 +92,7 @@ describe("ADV E1: a poisoned goatfarm.farmId never selects a foreign tenant", ()
     await waitFor(() =>
       expect(window.localStorage.getItem("goatfarm.farmId")).toBeNull(),
     );
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settle(50);
     expect(e1FarmHeader).toBe("");
   });
 

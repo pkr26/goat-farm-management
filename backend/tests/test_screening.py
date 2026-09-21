@@ -14,6 +14,7 @@ import base64
 import datetime as dt
 import io
 import json
+import logging
 import struct
 from dataclasses import dataclass, field
 from typing import Any
@@ -21,7 +22,7 @@ from typing import Any
 import httpx
 import pytest
 from PIL import Image
-from sqlalchemy import update, select
+from sqlalchemy import select, update
 
 from app.core.config import ScreeningRotationProvider, ScreeningWorkerSettings, Settings
 from app.db import get_sessionmaker
@@ -34,6 +35,7 @@ from app.models import (
     ScreeningImage,
     ScreeningRun,
 )
+from app.schemas.screening import ScreeningFindingReviewIn
 from app.services.screening.detect import (
     DetectionBox,
     DetectionParseError,
@@ -69,11 +71,11 @@ from app.services.screening.providers import (
     gate as run_gate,
 )
 from app.services.screening.rotation import GateExhaustedError, ProviderRotation
-from app.services.screening.s3 import POST_MULTIPART_OVERHEAD_BYTES
 from app.services.screening.s3 import (
     _S3_CONNECT_TIMEOUT_SECONDS,
     _S3_READ_TIMEOUT_SECONDS,
     _S3_TOTAL_MAX_ATTEMPTS,
+    POST_MULTIPART_OVERHEAD_BYTES,
     ScreeningObjectChangedError,
     ScreeningObjectInfo,
     ScreeningObjectMissingError,
@@ -217,6 +219,41 @@ def test_specialist_parse_drops_malformed_conditions() -> None:
 def test_specialist_parse_garbage_raises() -> None:
     with pytest.raises(SpecialistParseError):
         parse_specialist_response("no json at all", SpecialistKind.EYE)
+
+
+# 2026-09-20 audit P1-2: providers answer malformed-but-valid-JSON shapes
+# ("nothing found" spelled as {"conditions": null}, the key omitted, the list
+# wrapped in an object, or a bare scalar/array answer).  Every one of those
+# used to surface as a raw TypeError/KeyError inside the parser — which
+# detonates the per-image handler — instead of this contract's own error.
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        json.dumps({"unrelated": True}),  # key missing entirely
+        json.dumps({"conditions": None}),  # null = "nothing visible" phrasing
+        json.dumps({"conditions": {}}),  # empty wrapper object
+        json.dumps({"conditions": [7, "sick", None]}),  # garbage items drop, not crash
+    ],
+)
+def test_specialist_parse_tolerates_degenerate_but_valid_json(answer: str) -> None:
+    assert parse_specialist_response(answer, SpecialistKind.EYE).conditions == []
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        json.dumps({"conditions": 3}),  # scalar number value
+        json.dumps({"conditions": "none visible"}),  # scalar string value
+        json.dumps({"conditions": {"disease": "ORF"}}),  # non-empty wrapper object
+        "42",  # top-level number
+        '"nothing abnormal"',  # top-level string
+    ],
+)
+def test_specialist_parse_rejects_non_list_shapes_with_controlled_error(answer: str) -> None:
+    with pytest.raises(SpecialistParseError):
+        parse_specialist_response(answer, SpecialistKind.EYE)
 
 
 @pytest.mark.parametrize(
@@ -737,6 +774,54 @@ def test_screening_settings_reject_plain_http_provider_url() -> None:
         )
 
 
+@pytest.mark.parametrize("settings_type", [Settings, ScreeningWorkerSettings])
+def test_screening_settings_reject_stale_horizon_below_worst_cascade(
+    settings_type: type[Settings] | type[ScreeningWorkerSettings],
+) -> None:
+    """2026-09-20 audit P2-10: a stale-PROCESSING horizon shorter than one
+    worst-case cascade lets a second worker stale-reclaim a live row
+    mid-cascade — duplicate runs, duplicate findings, double provider
+    billing.  The pathological timeout/horizon pair must be rejected while
+    Settings is being constructed (boot), not surface later as a runtime
+    race.  Both the API and the least-privilege worker projection share the
+    cross-validator and must fail closed identically."""
+    values: dict[str, object] = {
+        "environment": "development",
+        "screening_enabled": True,
+        "s3_bucket": "goat-photos",
+        "s3_access_key_id": "access-key",
+        "s3_secret_access_key": "secret-key",
+        "screening_anthropic_api_key": "provider-key",
+        "screening_provider_timeout_seconds": 600,
+        "screening_stale_processing_after_seconds": 600,
+    }
+    # One provider at a 600s timeout needs (2·1+6)·600 = 4800s of horizon;
+    # 600s is far inside the pathological band.
+    with pytest.raises(ValueError, match="worst-case cascade"):
+        settings_type(**values)
+
+
+@pytest.mark.parametrize("settings_type", [Settings, ScreeningWorkerSettings])
+def test_screening_settings_accept_stale_horizon_at_worst_cascade_boundary(
+    settings_type: type[Settings] | type[ScreeningWorkerSettings],
+) -> None:
+    """The cross-validator's boundary is legal: with one provider at a 75s
+    timeout one worst-case cascade is exactly (2·1+6)·75 = 600s, so a
+    correctly sized horizon must still construct."""
+    values: dict[str, object] = {
+        "environment": "development",
+        "screening_enabled": True,
+        "s3_bucket": "goat-photos",
+        "s3_access_key_id": "access-key",
+        "s3_secret_access_key": "secret-key",
+        "screening_anthropic_api_key": "provider-key",
+        "screening_provider_timeout_seconds": 75,
+        "screening_stale_processing_after_seconds": 600,
+    }
+    settings = settings_type(**values)
+    assert settings.screening_stale_processing_after_seconds == 600
+
+
 def test_derivative_keys_use_the_full_content_digest() -> None:
     """A shared 64-bit digest prefix must never select the same S3 object."""
     captured = dt.date(2026, 9, 17)
@@ -795,6 +880,41 @@ def test_detection_parse_clamps_out_of_frame_boxes() -> None:
 def test_detection_parse_garbage_raises() -> None:
     with pytest.raises(DetectionParseError):
         parse_detection_response("no json", max_goats=4)
+
+
+# 2026-09-20 audit P1-2: the detection contract must answer the same
+# malformed-but-valid-JSON shapes as the specialist contract (see the
+# specialist section) with a controlled outcome — an empty box list or a
+# DetectionParseError the rotation's fallback chain can catch, never a raw
+# TypeError that would crash the per-image handler.
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        json.dumps({"unrelated": True}),  # key missing entirely
+        json.dumps({"goats": None}),  # null = "no goats" phrasing
+        json.dumps({"goats": {}}),  # empty wrapper object
+        json.dumps({"goats": [1, "two", None]}),  # garbage items drop, not crash
+    ],
+)
+def test_detection_parse_tolerates_degenerate_but_valid_json(answer: str) -> None:
+    assert parse_detection_response(answer, max_goats=4) == []
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        json.dumps({"goats": 3}),  # scalar number value
+        json.dumps({"goats": "two goats"}),  # scalar string value
+        json.dumps({"goats": {"box": [1, 2, 3, 4]}}),  # non-empty wrapper object
+        "42",  # top-level number
+        '"goats everywhere"',  # top-level string
+    ],
+)
+def test_detection_parse_rejects_non_list_shapes_with_controlled_error(answer: str) -> None:
+    with pytest.raises(DetectionParseError):
+        parse_detection_response(answer, max_goats=4)
 
 
 def test_crop_image_cuts_the_box_with_margin() -> None:
@@ -2123,8 +2243,7 @@ async def test_changed_object_is_requeued_without_decoding(client: httpx.AsyncCl
             ProviderRotation([provider]),
         )
         images = {
-            image.s3_key: image
-            for image in (await db.execute(select(ScreeningImage))).scalars()
+            image.s3_key: image for image in (await db.execute(select(ScreeningImage))).scalars()
         }
 
     tokened = images[today_key]
@@ -2764,11 +2883,7 @@ async def test_flagged_row_with_deleted_object_is_not_demoted_to_pending(
         )
         refreshed = (await db.execute(select(ScreeningImage))).scalar_one()
         crops = list(
-            (
-                await db.execute(
-                    select(ScreeningCrop).order_by(ScreeningCrop.crop_index)
-                )
-            ).scalars()
+            (await db.execute(select(ScreeningCrop).order_by(ScreeningCrop.crop_index))).scalars()
         )
 
     assert summary.retried_flagged == 1
@@ -2836,12 +2951,9 @@ async def test_reupload_takes_over_the_claim_from_a_stalled_error_owner(
             db, _cycle_settings(), storage, ProviderRotation([provider])
         )
         images = {
-            image.s3_key: image
-            for image in (await db.execute(select(ScreeningImage))).scalars()
+            image.s3_key: image for image in (await db.execute(select(ScreeningImage))).scalars()
         }
-        claim = (
-            await db.execute(select(ScreeningContentClaim))
-        ).scalar_one()
+        claim = (await db.execute(select(ScreeningContentClaim))).scalar_one()
 
     stuck_row = images[stale_key]
     fresh_row = images[fresh_key]
@@ -2900,13 +3012,9 @@ async def test_reupload_while_owner_is_processing_reports_truthful_duplicate(
 
     provider = CountingProvider(name="fake")
     async with get_sessionmaker()() as db:
-        await run_screening_cycle(
-            db, _cycle_settings(), storage, ProviderRotation([provider])
-        )
+        await run_screening_cycle(db, _cycle_settings(), storage, ProviderRotation([provider]))
         again = (
-            await db.execute(select(ScreeningImage).where(
-                ScreeningImage.s3_key == again_key
-            ))
+            await db.execute(select(ScreeningImage).where(ScreeningImage.s3_key == again_key))
         ).scalar_one()
 
     assert again.status == "SKIPPED"
@@ -2967,9 +3075,392 @@ async def test_stale_processing_horizon_is_configurable_and_progress_gated(
             screening_anthropic_api_key="test-key",
             screening_crop_detection_enabled=False,
             screening_stale_processing_after_seconds=600,
+            # The stale horizon must cover one worst-case cascade
+            # ((2·providers+6) × timeout — P2-10's cross-validator); the
+            # fake provider answers instantly, so a minimal timeout keeps
+            # the tightened 600s horizon legal.
+            screening_provider_timeout_seconds=10,
         )
-        reclaimed = await run_screening_cycle(
-            db, tightened, storage, ProviderRotation([provider])
-        )
+        reclaimed = await run_screening_cycle(db, tightened, storage, ProviderRotation([provider]))
     assert reclaimed.claimed == 1
     assert provider.calls == 1
+
+
+# --------------------------------------------------------------------------
+# Regression: 2026-09-20 audit P1/P2 fixes (cycle resilience, zombie sweep,
+# provider-shape tolerance, blank notes)
+# --------------------------------------------------------------------------
+
+
+async def _seed_two_pending_images(
+    farm_id: int, storage: FakeStorage, first_key: str, second_key: str, capture_day: str
+) -> None:
+    """Two same-farm PENDING rows with distinct bytes; the first is older so
+    the farm-fair claim order (created_at, id) processes it first."""
+    older = utcnow() - dt.timedelta(minutes=10)
+    newer = utcnow() - dt.timedelta(minutes=5)
+    async with get_sessionmaker()() as db:
+        for key, created in ((first_key, older), (second_key, newer)):
+            db.add(
+                ScreeningImage(
+                    farm_id=farm_id,
+                    bucket="BREEDING",
+                    s3_bucket=storage.bucket,
+                    s3_key=key,
+                    captured_date=dt.date.fromisoformat(capture_day),
+                    status="PENDING",
+                    created_at=created,
+                    updated_at=created,
+                )
+            )
+        await db.commit()
+
+
+async def test_one_images_unexpected_failure_does_not_kill_the_cycle(
+    client: httpx.AsyncClient,
+) -> None:
+    """2026-09-20 audit P1-1a: the per-image boundary must survive a prior
+    rollback.
+
+    The FIRST claimed image crashes mid-cascade with a non-ProviderError
+    while its transaction is open (the gate run is already flushed), so the
+    handler's rollback genuinely discards work and expires every claimed
+    identity.  The SECOND image must still be processed in the same cycle:
+    the pre-fix loop re-read attributes off those expired instances
+    (MissingGreenlet — including in this very handler's log line) and
+    committed on a rolled-back session (PendingRollbackError), stranding
+    every remaining image of the cycle behind the aborted transaction."""
+
+    @dataclass
+    class MidCascadeExploder:
+        """Gate answers normally; the specialist call detonates with a
+        non-ProviderError from inside an open transaction — a crash only the
+        cycle loop's generic handler can absorb.  Landscape photos flag (and
+        reach the specialist), portrait ones clear at the gate."""
+
+        name: str = "exploder"
+        model: str = "fake-gate-1"
+        calls: int = field(default=0)
+
+        async def complete(self, image_jpeg: bytes, system_prompt: str) -> ProviderAnswer:
+            self.calls += 1
+            with Image.open(io.BytesIO(image_jpeg)) as decoded:
+                landscape = decoded.width > decoded.height
+            if "veterinary specialist" in system_prompt:
+                if landscape:
+                    raise RuntimeError("injected mid-cascade failure")
+                text = json.dumps({"conditions": []})
+            else:
+                text = FLAGGED_ANSWER if landscape else HEALTHY_ANSWER
+            return ProviderAnswer(text=text, provider=self.name, model=self.model, latency_ms=1)
+
+    headers = await owner_with_farm(client, email="cycle-resilience@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    capture_day = today().isoformat()
+    first_key = f"raw/{farm_id}/{capture_day}/BREEDING/first.jpg"  # landscape → crashes
+    second_key = f"raw/{farm_id}/{capture_day}/BREEDING/second.jpg"  # portrait → healthy
+    storage = FakeStorage(
+        objects={first_key: _jpeg_bytes(2000, 1000), second_key: _jpeg_bytes(1000, 2000)}
+    )
+    await _seed_two_pending_images(farm_id, storage, first_key, second_key, capture_day)
+
+    provider = MidCascadeExploder()
+    async with get_sessionmaker()() as db:
+        summary = await run_screening_cycle(
+            db, _cycle_settings(), storage, ProviderRotation([provider])
+        )
+
+    assert summary.claimed == 2
+    assert summary.errors == 1
+    assert summary.flagged == 0  # the crashing flag was rolled back, not kept
+    async with get_sessionmaker()() as db:
+        rows = {row.s3_key: row for row in (await db.execute(select(ScreeningImage))).scalars()}
+        runs = list((await db.execute(select(ScreeningRun))).scalars())
+    first, second = rows[first_key], rows[second_key]
+    assert first.status == "ERROR"
+    assert "unexpected pipeline failure" in (first.error or "")
+    assert "injected mid-cascade failure" in (first.error or "")
+    assert "terminal after" not in (first.error or "")  # budget not spent yet
+    assert second.status == "HEALTHY"
+    # The rollback really discarded the crashed image's flushed work: no
+    # half-cascade (gate run) survived for it, while the survivor kept its
+    # durable gate verdict.
+    assert [run for run in runs if run.image_id == first.id] == []
+    assert [run.image_id for run in runs] == [second.id]
+    assert provider.calls == 3  # two gates + the detonating specialist call
+
+
+async def test_one_images_commit_failure_rolls_back_and_spares_the_cycle(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """2026-09-20 audit P1-1b: a DB-level failure at the per-image COMMIT.
+
+    The first image processes normally but its boundary commit is poisoned
+    with a real constraint violation (a run row whose ``farm_id`` is NULL),
+    so the flush inside the commit raises IntegrityError.  The handler must
+    roll back BEFORE logging — the old code logged first and raised
+    PendingRollbackError on that very logger line — and the second image
+    must still complete.  The poisoned row stays PROCESSING for the
+    stale-claim reclaim; its half-written work is gone."""
+    import app.services.screening.pipeline as screening_pipeline
+
+    headers = await owner_with_farm(client, email="commit-poison@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    capture_day = today().isoformat()
+    first_key = f"raw/{farm_id}/{capture_day}/BREEDING/poisoned.jpg"
+    second_key = f"raw/{farm_id}/{capture_day}/BREEDING/healthy.jpg"
+    storage = FakeStorage(
+        objects={first_key: _jpeg_bytes(1000, 2000), second_key: _jpeg_bytes(1200, 2000)}
+    )
+    await _seed_two_pending_images(farm_id, storage, first_key, second_key, capture_day)
+
+    real_process = screening_pipeline._process_image
+
+    async def poison_first_commit(
+        db: Any,
+        settings: Any,
+        storage_arg: Any,
+        rotation: Any,
+        image: ScreeningImage,
+        summary: Any,
+        business_today: Any,
+    ) -> None:
+        await real_process(db, settings, storage_arg, rotation, image, summary, business_today)
+        if image.s3_key == first_key:
+            # Added only after the real cascade finished, so the violation
+            # lands exactly at the loop's per-image boundary commit.
+            db.add(
+                ScreeningRun(
+                    farm_id=None,  # NOT NULL violation at flush/commit time
+                    image_id=image.id,
+                    stage="GATE",
+                    run_status="ERROR",
+                    provider="poison",
+                    model="poison",
+                    prompt_version="poison",
+                    error="test-injected row: its NULL farm_id aborts this image's commit",
+                )
+            )
+
+    monkeypatch.setattr(screening_pipeline, "_process_image", poison_first_commit)
+
+    provider = CountingProvider(name="fake")
+    with caplog.at_level(logging.ERROR, logger="app.services.screening.pipeline"):
+        async with get_sessionmaker()() as db:
+            summary = await run_screening_cycle(
+                db, _cycle_settings(), storage, ProviderRotation([provider])
+            )
+
+    assert summary.claimed == 2
+    async with get_sessionmaker()() as db:
+        rows = {row.s3_key: row for row in (await db.execute(select(ScreeningImage))).scalars()}
+        runs = list((await db.execute(select(ScreeningRun))).scalars())
+    first, second = rows[first_key], rows[second_key]
+    # The poisoned image keeps its claim (PROCESSING, attempt charged) and
+    # the rollback left no half-written audit rows behind.
+    assert first.status == "PROCESSING"
+    assert first.screening_attempts == 1
+    assert [run for run in runs if run.image_id == first.id] == []
+    assert second.status == "HEALTHY"
+    assert [run for run in runs if run.image_id == second.id and run.stage == "GATE"]
+    # The handler logged from the pre-loop snapshot id, after the rollback.
+    commit_failures = [
+        record.getMessage()
+        for record in caplog.records
+        if "committing screening image" in record.getMessage()
+    ]
+    assert commit_failures and str(first.id) in commit_failures[0]
+    # Both cascades ran (the first one was rolled back); the survivor's
+    # durable GATE run is the proof the cycle kept going.
+    assert provider.calls == 2
+    # PROCESSING-but-fresh is not stale yet: an immediate follow-up cycle
+    # leaves the claim to the stale reclaim instead of re-billing providers.
+    async with get_sessionmaker()() as db:
+        followup = await run_screening_cycle(
+            db, _cycle_settings(), storage, ProviderRotation([provider])
+        )
+    assert followup.claimed == 0
+
+
+async def test_processing_row_at_attempt_budget_is_swept_to_terminal_error(
+    client: httpx.AsyncClient,
+) -> None:
+    """2026-09-20 audit P1-3: a worker killed mid-image leaves a PROCESSING
+    row whose attempt budget is already spent.  The claim predicate refuses
+    rows at the budget, so without the pre-claim sweep such a row would stay
+    PROCESSING forever — invisible to the retry queue, the review UI and
+    operators.  Once it is also stale, the sweep terminalizes it."""
+    headers = await owner_with_farm(client, email="zombie-processing@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    capture_day = today().isoformat()
+    key = f"raw/{farm_id}/{capture_day}/BREEDING/zombie.jpg"
+    storage = FakeStorage(objects={key: _jpeg_bytes(1000, 2000)})
+    stale = utcnow() - dt.timedelta(hours=2)  # past the 30-minute default horizon
+
+    async with get_sessionmaker()() as db:
+        db.add(
+            ScreeningImage(
+                farm_id=farm_id,
+                bucket="BREEDING",
+                s3_bucket=storage.bucket,
+                s3_key=key,
+                captured_date=dt.date.fromisoformat(capture_day),
+                status="PROCESSING",
+                screening_attempts=MAX_SCREENING_ATTEMPTS,
+                created_at=stale,
+                updated_at=stale,
+            )
+        )
+        await db.commit()
+
+    provider = CountingProvider(name="fake")
+    async with get_sessionmaker()() as db:
+        first = await run_screening_cycle(
+            db, _cycle_settings(), storage, ProviderRotation([provider])
+        )
+        row = (await db.execute(select(ScreeningImage))).scalar_one()
+
+    assert first.terminated_processing == 1
+    assert any("terminated to ERROR" in note for note in first.notes)
+    assert first.claimed == 0  # never re-claimed: the budget is gone
+    assert provider.calls == 0
+    assert row.status == "ERROR"
+    assert "terminal" in (row.error or "")
+    assert "re-upload" in (row.error or "")
+    assert row.screening_attempts == MAX_SCREENING_ATTEMPTS
+
+    # ERROR at the budget is invisible to the claim predicate: later cycles
+    # leave the terminal row alone instead of re-billing providers.
+    async with get_sessionmaker()() as db:
+        second = await run_screening_cycle(
+            db, _cycle_settings(), storage, ProviderRotation([provider])
+        )
+        refreshed = (await db.execute(select(ScreeningImage))).scalar_one()
+    assert second.claimed == 0
+    assert second.terminated_processing == 0
+    assert refreshed.status == "ERROR"
+
+
+@pytest.mark.parametrize("blank", [None, "", "   "])
+def test_finding_review_input_maps_blank_notes_to_none(blank: str | None) -> None:
+    """2026-09-20 audit P2-11(a): ``ck_screening_findings_review_note_nonblank``
+    rejects blank-but-non-NULL notes, so a whitespace-only review note used to
+    surface as an unhandled IntegrityError (500); the request validator maps
+    every blank spelling to None."""
+    assert ScreeningFindingReviewIn(status="CONFIRMED", review_note=blank).review_note is None
+
+
+def test_finding_review_input_preserves_a_real_note() -> None:
+    reviewed = ScreeningFindingReviewIn(status="REJECTED", review_note="  not visible  ")
+    assert reviewed.review_note == "not visible"
+
+
+async def test_blank_specialist_note_persists_as_null_not_integrity_error(
+    client: httpx.AsyncClient,
+) -> None:
+    """2026-09-20 audit P2-11(b): a model that answered ``note: ""`` (or a
+    whitespace note that pydantic's strip reduces to "") must land as NULL.
+    ``ck_screening_findings_text_nonblank`` rejects the blank string, and
+    pre-fix that IntegrityError rolled the whole cascade back into the retry
+    loop instead of recording the flag."""
+    headers = await owner_with_farm(client, email="blank-note@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    capture_day = today().isoformat()
+    key = f"raw/{farm_id}/{capture_day}/wide.jpg"
+    storage = FakeStorage(objects={key: _jpeg_bytes(2000, 1000)})
+
+    @dataclass
+    class BlankNoteProvider:
+        name: str = "blank-note"
+        model: str = "fake-gate-1"
+        calls: int = field(default=0)
+
+        async def complete(self, image_jpeg: bytes, system_prompt: str) -> ProviderAnswer:
+            self.calls += 1
+            if "veterinary specialist" in system_prompt:
+                if "skin, lips" in system_prompt:
+                    text = json.dumps(
+                        {
+                            "conditions": [
+                                {
+                                    "disease": "ORF",
+                                    "confidence": 0.72,
+                                    "severity": "moderate",
+                                    "note": "",
+                                }
+                            ]
+                        }
+                    )
+                else:
+                    text = json.dumps({"conditions": []})
+            else:
+                text = FLAGGED_ANSWER
+            return ProviderAnswer(text=text, provider=self.name, model=self.model, latency_ms=1)
+
+    provider = BlankNoteProvider()
+    async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
+        summary = await run_screening_cycle(
+            db, _cycle_settings(), storage, ProviderRotation([provider])
+        )
+        image = (await db.execute(select(ScreeningImage))).scalar_one()
+        findings = list((await db.execute(select(ScreeningFinding))).scalars())
+
+    assert (summary.claimed, summary.flagged) == (1, 1)
+    assert image.status == "FLAGGED"
+    assert len(findings) == 1
+    assert findings[0].label == "ORF"
+    assert findings[0].note is None  # blank coerced to NULL: the CHECK never fires
+
+
+async def test_cycle_falls_over_when_primary_answers_garbage_json(
+    client: httpx.AsyncClient,
+) -> None:
+    """2026-09-20 audit P1-2 (cascade level): a garbage-but-HTTP-200 provider
+    answer must fail over to the rotation's next provider exactly like a
+    transport outage — the parse failure is a ProviderResponseError inside
+    the gate chain, never a raw TypeError detonating the per-image handler."""
+    headers = await owner_with_farm(client, email="garbage-json@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    capture_day = today().isoformat()
+    key = f"raw/{farm_id}/{capture_day}/tall.jpg"
+    storage = FakeStorage(objects={key: _jpeg_bytes(1000, 2000)})
+
+    @dataclass
+    class GarbageJsonProvider:
+        name: str = "garbage"
+        model: str = "fake-garbage-1"
+        calls: int = field(default=0)
+
+        async def complete(self, image_jpeg: bytes, system_prompt: str) -> ProviderAnswer:
+            self.calls += 1
+            return ProviderAnswer(
+                text="no json here at all",
+                provider=self.name,
+                model=self.model,
+                latency_ms=1,
+            )
+
+    garbage = GarbageJsonProvider()
+    healthy = CountingProvider(name="backup")
+    # The garbage provider must actually be the day's primary for the
+    # mid-cycle fallback path to be exercised deterministically.
+    rotation = ProviderRotation([garbage, healthy])
+    if rotation.primary_for(today()) is not garbage:
+        rotation = ProviderRotation([healthy, garbage])
+
+    async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
+        summary = await run_screening_cycle(db, _cycle_settings(), storage, rotation)
+        runs = list((await db.execute(select(ScreeningRun))).scalars())
+
+    assert (summary.claimed, summary.healthy) == (1, 1)
+    assert all(run.run_status == "OK" for run in runs)
+    gate = next(run for run in runs if run.stage == "GATE")
+    assert gate.provider == "backup"
+    assert gate.detail is not None
+    assert gate.detail.get("fallbacks_failed") == ["garbage"]
+    assert garbage.calls == 1  # it failed the contract, not the transport
+    assert healthy.calls == 1  # and the backup carried the photo

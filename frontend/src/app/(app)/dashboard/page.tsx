@@ -738,8 +738,11 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
             </p>
           )}
           {/* null = withheld (no breeding access); the banner only ever
-              asserts a count the caller is allowed to see */}
-          {(payload.cull_candidates_total ?? 0) > 0 && (
+              asserts a count the caller is allowed to see. OR the permission
+              like every other section: the payload sentinel alone trusts the
+              API nulled it, which is not this page's fail-closed contract
+              (P3, 2026-09-20 audit). */}
+          {!breedingWithheld && (payload.cull_candidates_total ?? 0) > 0 && (
             <p className="flex items-center gap-2 rounded-lg bg-warning-tint px-3 py-2 text-sm text-warning-tint-foreground">
               <TriangleAlert className="size-4 shrink-0" aria-hidden="true" />
               <span>
@@ -762,7 +765,7 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
             whenever the caller can see animal identity at all (a null total
             means the section was withheld, and 0 stays silent like the cull
             banner: no alarm fatigue when nobody is held). */}
-        {(payload.restricted_animals_total ?? 0) > 0 && (
+        {!animalsWithheld && (payload.restricted_animals_total ?? 0) > 0 && (
           <DataTableCard
             title={`Movement restrictions (${payload.restricted_animals_total})`}
             contentClassName="space-y-3"
@@ -847,9 +850,19 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
                     <TableCell>{policy.animal_tag ?? "—"}</TableCell>
                     <TableCell>
                       {formatDate(policy.renewal_date)}{" "}
-                      <span className="text-warning-tint-foreground">
-                        (in {daysBetween(today, policy.renewal_date)}d)
-                      </span>
+                      {/* The backend deliberately includes past-renewal-date
+                       * ACTIVE policies on this panel; mirror the overdue
+                       * pattern the adjacent cards use instead of rendering
+                       * "(in -5d)" nonsense (2026-09-20 audit P2-18). */}
+                      {policy.renewal_date >= today ? (
+                        <span className="text-warning-tint-foreground">
+                          (in {daysBetween(today, policy.renewal_date)}d)
+                        </span>
+                      ) : (
+                        <span className="text-destructive">
+                          ({daysBetween(policy.renewal_date, today)}d overdue)
+                        </span>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -933,8 +946,10 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
       <section className="order-8 space-y-3 md:order-none">
         <h2 className="font-heading text-lg font-semibold">Recent weight records</h2>
         {/* null = withheld (no animals.view); a real 0 renders as a genuine
-            empty state, not this permission notice */}
-        {payload.recent_weights_total === null ? (
+            empty state, not this permission notice. The combined
+            animalsWithheld gate (permission OR sentinel) owns the decision
+            (P3, 2026-09-20 audit). */}
+        {animalsWithheld || payload.recent_weights_total === null ? (
           <EmptyState
             icon={Scale}
             title="Weight records require animals access."

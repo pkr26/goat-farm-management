@@ -8,7 +8,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .common import MAX_FREE_TEXT_LENGTH, MAX_INT32_ID, StrictInputModel
 
@@ -78,6 +78,14 @@ class ScreeningFindingReviewIn(StrictInputModel):
     status: Literal["CONFIRMED", "REJECTED"]
     expected_status: ScreeningFindingStatusStr = "PENDING_REVIEW"
     review_note: str | None = Field(default=None, max_length=MAX_FREE_TEXT_LENGTH)
+
+    @field_validator("review_note")
+    @classmethod
+    def _blank_review_note_is_none(cls, value: str | None) -> str | None:
+        # The DB CHECK rejects blank-but-non-NULL review notes; mapping the
+        # blank here keeps a whitespace-only note a valid no-note request
+        # (422-free) instead of an unhandled IntegrityError (500).
+        return value or None
 
 
 class ScreeningFindingReviewOut(BaseModel):

@@ -32,9 +32,22 @@ from app.models import *  # noqa: F403 — register all tables on Base.metadata
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False: the default True silences every logger
+    # the host process (or the app's own logging config) had already wired —
+    # running `alembic` from a shell that imported app logging then lost all
+    # its output (P3, 2026-09-20 audit).
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
+# DELIBERATELY no naming_convention retrofit on this MetaData (2026-09-20
+# audit P3, investigated and rejected): early revisions create tables with
+# UNNAMED ForeignKeyConstraints and later revisions drop them by their
+# PostgreSQL default names (e.g. farm_memberships_user_id_fkey). Alembic's
+# runtime op.create_table resolves unnamed constraint names through this
+# metadata, so attaching a convention renames those constraints at replay
+# time and aborts the chain with UndefinedObjectError — verified on a fresh
+# database. A convention can only arrive together with a chain-wide rename
+# revision (or a from-scratch chain), not as a retrofit.
 
 # DDL that can't acquire its lock within this window aborts the migration
 # (loud, retryable) rather than piling up blocked sessions behind it.

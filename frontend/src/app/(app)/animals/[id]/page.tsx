@@ -7,7 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowLeft, ArrowLeftRight, Baby, GitBranch, HeartPulse, Scale } from "lucide-react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { Suspense, useMemo, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -16,6 +16,7 @@ import {
   useAnimalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet,
   useAnimalProfileApiAnimalsAnimalIdGet,
   useChangeStatusApiAnimalsAnimalIdStatusPost,
+  useUpdateAnimalApiAnimalsAnimalIdPatch,
   useClearMovementRestrictionApiHealthRestrictionsAnimalIdClearPost,
   useMovementRestrictionHistoryApiHealthRestrictionsAnimalIdGet,
   useMoveBucketApiAnimalsAnimalIdMovePost,
@@ -63,7 +64,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { apiFetch, ApiError } from "@/lib/api-client";
+import { ApiError } from "@/lib/api-client";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { enumLabel } from "@/lib/enum-labels";
 import { useLanguage, useT, type MessageKey } from "@/lib/i18n";
@@ -315,11 +316,11 @@ function AddWeightDialog({
   );
 }
 
-/** Phenotype edit (coat colour / horns) through PATCH /api/animals/{id}.
- * The generated client lags the endpoint in this worktree, so the call goes
- * through apiFetch directly. Both fields always travel in the payload: the
- * contract clears stored values on explicit null, which is exactly what the
- * "Not recorded" option means. */
+/** Phenotype edit (coat colour / horns) through PATCH /api/animals/{id},
+ * via the generated client (the old "generated client lags" comment was
+ * stale — it is byte-current; P3, 2026-09-20 audit). Both fields always
+ * travel in the payload: the contract clears stored values on explicit
+ * null, which is exactly what the "Not recorded" option means. */
 function EditPhenotypeDialog({
   animal,
   onDone,
@@ -333,15 +334,12 @@ function EditPhenotypeDialog({
 }) {
   const t = useT();
   const queryClient = useQueryClient();
+  const mut = useUpdateAnimalApiAnimalsAnimalIdPatch();
   const [open, setOpen] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const phenotype = animal as typeof animal & {
-    coat_color?: string | null;
-    horned?: boolean | null;
-  };
-  const [coatColor, setCoatColor] = useState<string>(phenotype.coat_color ?? "");
+  const [coatColor, setCoatColor] = useState<string>(animal.coat_color ?? "");
   const [horned, setHorned] = useState<string>(
-    phenotype.horned === true ? "yes" : phenotype.horned === false ? "no" : "",
+    animal.horned === true ? "yes" : animal.horned === false ? "no" : "",
   );
   const coatColorItems: Record<string, string> = {
     "": t("animals.notRecorded"),
@@ -359,8 +357,8 @@ function EditPhenotypeDialog({
 
   function openDialog() {
     setSaveError(null);
-    setCoatColor(phenotype.coat_color ?? "");
-    setHorned(phenotype.horned === true ? "yes" : phenotype.horned === false ? "no" : "");
+    setCoatColor(animal.coat_color ?? "");
+    setHorned(animal.horned === true ? "yes" : animal.horned === false ? "no" : "");
     setOpen(true);
   }
 
@@ -370,12 +368,12 @@ function EditPhenotypeDialog({
       const farmScope = captureFarmScope();
       setSaveError(null);
       try {
-        await apiFetch(`/api/animals/${animal.id}`, {
-          method: "PATCH",
-          body: JSON.stringify({
-            coat_color: coatColor || null,
+        await mut.mutateAsync({
+          animalId: animal.id,
+          data: {
+            coat_color: (coatColor || null) as AnimalProfileOut["animal"]["coat_color"],
             horned: horned === "" ? null : horned === "yes",
-          }),
+          },
         });
         if (!farmScope()) return;
         toast.success(t("animals.phenotypeSaved"));
@@ -666,13 +664,32 @@ const statusSchema = z
       .optional()
       .default(""),
     authority_notified_at: z.string().optional(),
+    // DOB-less male sale remedy: the backend stamps this estimate onto the
+    // animal so the meat-sale age floor can be verified (it 422s otherwise).
+    estimated_dob: z.string().optional(),
   })
   .superRefine((values, context) => {
     const statusDate = values.date || farmToday();
-    for (const field of ["date", "mortality_reported_at", "authority_notified_at"] as const) {
+    for (const field of [
+      "date",
+      "mortality_reported_at",
+      "authority_notified_at",
+      "estimated_dob",
+    ] as const) {
       if (values[field] && values[field] > farmToday()) {
         context.addIssue({ code: "custom", path: [field], message: "Date can't be in the future" });
       }
+    }
+    if (
+      values.new_status !== StatusChangeInNewStatus.SOLD &&
+      values.estimated_dob !== undefined &&
+      values.estimated_dob !== ""
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["estimated_dob"],
+        message: "An estimated date of birth only applies to sales",
+      });
     }
     if (
       values.new_status === StatusChangeInNewStatus.DEAD &&
@@ -729,11 +746,15 @@ function statusCanRecordSale(status: StatusValues["new_status"]): boolean {
 
 function StatusDialog({
   animalId,
+  sex,
+  hasDob,
   onDone,
   actionFlight,
   profileSettling,
 }: {
   animalId: number;
+  sex: string;
+  hasDob: boolean;
   onDone: () => void;
   actionFlight: ProfileActionFlight;
   profileSettling: boolean;
@@ -741,6 +762,28 @@ function StatusDialog({
   const [open, setOpen] = useState(false);
   const { language } = useLanguage();
   const mut = useChangeStatusApiAnimalsAnimalIdStatusPost();
+  // A male with neither a recorded nor an estimated birth date cannot pass
+  // the backend's meat-sale age floor — the sale payload must carry the
+  // estimate (the only field-editable remedy; DOB is not editable after
+  // creation). Mirror the requirement client-side instead of 422ing.
+  const needsEstimatedDob = sex === "M" && !hasDob;
+  const resolverSchema = useMemo(
+    () =>
+      statusSchema.superRefine((values, context) => {
+        if (
+          needsEstimatedDob &&
+          values.new_status === StatusChangeInNewStatus.SOLD &&
+          !values.estimated_dob
+        ) {
+          context.addIssue({
+            code: "custom",
+            path: ["estimated_dob"],
+            message: `This male has no birth or estimated date on record — estimate one so the sale age floor can be verified`,
+          });
+        }
+      }),
+    [needsEstimatedDob],
+  );
   const {
     register,
     handleSubmit,
@@ -750,7 +793,7 @@ function StatusDialog({
     reset,
     formState: { errors, isSubmitting },
   } = useForm<StatusInput, unknown, StatusValues>({
-    resolver: zodResolver(statusSchema),
+    resolver: zodResolver(resolverSchema),
     defaultValues: {
       new_status: StatusChangeInNewStatus.SOLD,
       suspected_scheduled_disease: false,
@@ -786,6 +829,12 @@ function StatusDialog({
             sale_price_per_kg:
               values.new_status === StatusChangeInNewStatus.SOLD
                 ? (values.sale_price_per_kg ?? null)
+                : null,
+            // The DOB-less male remedy: only the backend accepts it, and
+            // only for SOLD (StatusChangeIn rejects it on other exits).
+            estimated_dob:
+              values.new_status === StatusChangeInNewStatus.SOLD && needsEstimatedDob
+                ? emptyToNull(values.estimated_dob)
                 : null,
             buyer_name: statusCanRecordSale(values.new_status)
               ? emptyToNull(values.buyer_name)
@@ -879,10 +928,11 @@ function StatusDialog({
                     if (!statusCanRecordSale(nextStatus)) {
                       unregister(["sale_price", "buyer_name"]);
                     }
-                    // Weight and rate are SOLD-only facts: a cull records a
-                    // price, never a realized ₹/kg.
+                    // Weight, rate and the DOB-less-male estimate are
+                    // SOLD-only facts: a cull records a price, never a
+                    // realized ₹/kg.
                     if (nextStatus !== StatusChangeInNewStatus.SOLD) {
-                      unregister(["sale_weight_kg", "sale_price_per_kg"]);
+                      unregister(["sale_weight_kg", "sale_price_per_kg", "estimated_dob"]);
                     }
                     if (nextStatus !== StatusChangeInNewStatus.DEAD) {
                       setValue("suspected_scheduled_disease", false);
@@ -1004,6 +1054,30 @@ function StatusDialog({
                   </p>
                 )}
               </div>
+              {newStatus === StatusChangeInNewStatus.SOLD && needsEstimatedDob && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="s_estimated_dob">Estimated date of birth *</Label>
+                  <Input
+                    id="s_estimated_dob"
+                    type="date"
+                    max={farmToday()}
+                    aria-invalid={Boolean(errors.estimated_dob) || undefined}
+                    aria-describedby={
+                      errors.estimated_dob ? "status-estimated-dob-error" : "status-estimated-dob-hint"
+                    }
+                    {...register("estimated_dob")}
+                  />
+                  <p id="status-estimated-dob-hint" className="text-xs text-muted-foreground">
+                    This male has no birth or estimated date on record; the estimate is saved to
+                    the animal so the meat-sale age floor can be verified.
+                  </p>
+                  {errors.estimated_dob && (
+                    <p id="status-estimated-dob-error" role="alert" className="text-sm text-destructive">
+                      {errors.estimated_dob.message}
+                    </p>
+                  )}
+                </div>
+              )}
             </>
           )}
           {newStatus === StatusChangeInNewStatus.DEAD && (
@@ -1528,13 +1602,6 @@ function ProfileBody({
   const { language } = useLanguage();
   const t = useT();
   const a = profile.animal;
-  /** Phenotype descriptors ride the optional API contract; the generated
-   * client types lag it, so read through a widened alias and render only
-   * what the payload actually carries. */
-  const phenotype = a as typeof a & {
-    coat_color?: string | null;
-    horned?: boolean | null;
-  };
   const vocabulary = farmVocabulary;
   const active = a.status === "ACTIVE";
   const canViewHealth = can("health.view");
@@ -1604,6 +1671,8 @@ function ProfileBody({
                 {can("animals.status") && (
                   <StatusDialog
                     animalId={a.id}
+                    sex={a.sex}
+                    hasDob={a.date_of_birth != null || a.estimated_dob != null}
                     onDone={refresh}
                     actionFlight={actionFlight}
                     profileSettling={profileSettling}
@@ -1734,16 +1803,16 @@ function ProfileBody({
           <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             <Detail label="Sex">{a.sex === "F" ? "Female" : "Male"}</Detail>
             <Detail label="Breed">{a.breed}</Detail>
-            {phenotype.coat_color ? (
+            {a.coat_color ? (
               <Detail label={t("animals.coatColor")}>
-                {COAT_COLOR_LABEL_KEYS[phenotype.coat_color]
-                  ? t(COAT_COLOR_LABEL_KEYS[phenotype.coat_color])
-                  : phenotype.coat_color}
+                {COAT_COLOR_LABEL_KEYS[a.coat_color]
+                  ? t(COAT_COLOR_LABEL_KEYS[a.coat_color])
+                  : a.coat_color}
               </Detail>
             ) : null}
-            {phenotype.horned != null ? (
+            {a.horned != null ? (
               <Detail label={t("animals.horned")}>
-                {phenotype.horned ? t("common.yes") : t("common.no")}
+                {a.horned ? t("common.yes") : t("common.no")}
               </Detail>
             ) : null}
             <Detail label="Bucket">{enumLabel("bucket", a.current_bucket, language)}</Detail>
@@ -2118,6 +2187,20 @@ function AnimalProfilePageContent({ perms }: { perms: PermissionsState }) {
   const [movesOffset, setMovesOffset] = useState(0);
   const [healthEventsOffset, setHealthEventsOffset] = useState(0);
   const [breedingsOffset, setBreedingsOffset] = useState(0);
+  // A deep link to a DIFFERENT animal re-renders this same component, so the
+  // per-panel offsets would carry the previous animal's page into the new
+  // animal's (shorter) history — reset them on the id change (P3,
+  // 2026-09-20 audit: health-log pagination was lost/misapplied on deep
+  // links between animals).
+  /* eslint-disable react-hooks/set-state-in-effect -- URL-id re-seed of local pagination state */
+  useEffect(() => {
+    setKidsOffset(0);
+    setWeightsOffset(0);
+    setMovesOffset(0);
+    setHealthEventsOffset(0);
+    setBreedingsOffset(0);
+  }, [animalId]);
+  /* eslint-enable react-hooks/set-state-in-effect */
   const query = useAnimalProfileApiAnimalsAnimalIdGet(
     animalId,
     {

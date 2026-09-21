@@ -452,13 +452,20 @@ describe("SimulationPage mutation hardening: cross-field assumption guards", () 
         assumptions: {
           ...DEFAULTS,
           finance: {
+            // Single-field bounds all hold; only the PAIR guards (loan+
+            // subsidy <= 1, moratorium < term) would fire, and each pair has
+            // a null operand so they must be ignored. (The old fixture used
+                       // out-of-single-bounds values, which the mount-time loaded-value
+            // validation now flags independently — P3, 2026-09-20.)
             loan_fraction_of_project_cost: null,
-            subsidy_fraction: 1.2,
+            subsidy_fraction: 0.9,
             moratorium_months: 6,
             loan_term_months: null,
           },
           feed: { initial_fodder_stock_kg_dm: 9, fodder_storage_capacity_kg_dm: null },
-          optimization: { doe_scale_low: 6, doe_scale_high: null },
+          // doe_scale_low stays inside its own single-field bound (0 < x
+          // <= 5): only the low<=high PAIR guard is exercised (high is null).
+          optimization: { doe_scale_low: 4, doe_scale_high: null },
         },
       }),
       scenarioFixture({
@@ -466,7 +473,7 @@ describe("SimulationPage mutation hardening: cross-field assumption guards", () 
         name: "Nulls B",
         assumptions: {
           ...DEFAULTS,
-          finance: { loan_fraction_of_project_cost: 1.2, subsidy_fraction: null },
+          finance: { loan_fraction_of_project_cost: 0.9, subsidy_fraction: null },
         },
       }),
     ];
@@ -475,7 +482,7 @@ describe("SimulationPage mutation hardening: cross-field assumption guards", () 
     const rowA = (await screen.findByText("Nulls A")).closest("tr") as HTMLElement;
     await user.click(within(rowA).getByRole("button", { name: "Load" }));
     await waitFor(() =>
-      expect(screen.getByLabelText("Subsidy Fraction")).toHaveValue(1.2),
+      expect(screen.getByLabelText("Subsidy Fraction")).toHaveValue(0.9),
     );
     for (const message of [
       /Loan fraction plus subsidy fraction must not exceed 1/,
@@ -484,12 +491,15 @@ describe("SimulationPage mutation hardening: cross-field assumption guards", () 
       /Herd scale low must be less than or equal to herd scale high/,
     ])
       expect(screen.queryByText(message)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Run simulation" })).toBeEnabled();
+    const runButton = screen.getByRole("button", { name: "Run simulation" });
+    // The scenario load releases the single-flight gate a render after the
+    // values land; poll for the re-enable instead of asserting synchronously.
+    await waitFor(() => expect(runButton).toBeEnabled());
 
     const rowB = screen.getByText("Nulls B").closest("tr") as HTMLElement;
     await user.click(within(rowB).getByRole("button", { name: "Load" }));
     await waitFor(() =>
-      expect(screen.getByLabelText("Loan Fraction Of Project Cost")).toHaveValue(1.2),
+      expect(screen.getByLabelText("Loan Fraction Of Project Cost")).toHaveValue(0.9),
     );
     expect(
       screen.queryByText(/Loan fraction plus subsidy fraction/),

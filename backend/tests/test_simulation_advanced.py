@@ -75,14 +75,18 @@ def test_calendar_price_growth_and_festival_uplift_are_composed_once() -> None:
     a.sales.festival_sale_months = [2]
     result = run_simulation(a, with_break_even=False)
 
+    # The revalidating run normalizes the hand-set curve to mean 1.0 (the
+    # base price is the documented annual mean — P3, 2026-09-20 audit), so
+    # February's effective multiplier is 1.2 scaled by 12/12.2.
+    norm = 12.0 / 12.2
     assert result.months[1].meat_price_per_kg == pytest.approx(
-        100.0 * 1.2 * math.pow(1.12, 1.0 / 12.0) * (1.0 + a.sales.eid_price_uplift)
+        100.0 * 1.2 * norm * math.pow(1.12, 1.0 / 12.0) * (1.0 + a.sales.eid_price_uplift)
     )
-    assert result.months[12].meat_price_per_kg == pytest.approx(112.0)
+    assert result.months[12].meat_price_per_kg == pytest.approx(112.0 * norm)
     # Once exact lunar-calendar simulation months are present, the legacy
     # recurring February setting must not invent another festival in year 2.
     assert result.months[13].meat_price_per_kg == pytest.approx(
-        100.0 * 1.2 * math.pow(1.12, 13.0 / 12.0)
+        100.0 * 1.2 * norm * math.pow(1.12, 13.0 / 12.0)
     )
 
 
@@ -165,17 +169,20 @@ def test_meat_price_and_other_revenue_compound_at_the_year_boundary() -> None:
         eid_price_uplift=0.3,
     )
 
+    # The hand-set curve is normalized to mean 1.0 at construction (the base
+    # price is the documented annual mean — P3, 2026-09-20 audit).
+    december = 1.1 * 12.0 / 12.1
     assert meat_price_for_month(
         sales,
         simulation_month=13,
         calendar_month=12,
         shock_multiplier=0.5,
-    ) == pytest.approx(100.0 * 1.1 * 1.21 * 1.3 * 0.5)
+    ) == pytest.approx(100.0 * december * 1.21 * 1.3 * 0.5)
     assert meat_price_for_month(
         sales,
         simulation_month=13,
         calendar_month=12,
-    ) == pytest.approx(100.0 * 1.1 * 1.21 * 1.3)
+    ) == pytest.approx(100.0 * december * 1.21 * 1.3)
     assert other_revenue_growth(sales, 1) == pytest.approx(1.0)
     assert other_revenue_growth(sales, 13) == pytest.approx(1.21)
 
@@ -900,6 +907,49 @@ def test_sensitivity_applies_and_reports_each_low_and_high_case(
 
 def test_percentage_label_handles_a_zero_base() -> None:
     assert _pct_label(0.0, 123.0) == "+0%"
+
+
+def test_sensitivity_and_optimization_tolerate_the_sale_age_boundary() -> None:
+    """P1-5 (2026-09-20 audit): with a male-grower purchase arriving at 8
+    months under sale_age_months=9, the arrival age sits exactly on the class
+    chain boundary (growers must be <= sale_age − 1), so the scenario is valid
+    but has NO room to lower the sale age. Both analyses sweep it ±2 months;
+    the unclamped low variant (9 − 2 = 7) used to fail whole-scenario
+    re-validation inside the analysis — a pydantic ValidationError out of
+    run_sensitivity and a crash out of run_optimization. The sweeps clamp to
+    ``min_feasible_sale_age`` (9 here), so the low side becomes a "+0 month"
+    no-op and both analyses complete."""
+    from app.simulation.assumptions import min_feasible_sale_age
+
+    assumptions = SimulationAssumptions(
+        meta=MetaAssumptions(horizon_months=24),
+        events=[
+            # Boundary: 8-month male growers under a 9-month sale age —
+            # valid (8 <= 9 − 1) but infeasible to lower any further.
+            HerdEventAssumptions(
+                month=20, kind="purchase", animal_class="male_grower", count=5, age_months=8
+            )
+        ],
+    )
+    assumptions.growth.sale_age_months = 9
+    assert min_feasible_sale_age(assumptions) == 9
+
+    # run_sensitivity completes with all 9 tornado rows; the sale-age low side
+    # clamps to the base (a reported no-op), the high side still moves +2.
+    by_name = {item.parameter: item for item in montecarlo.run_sensitivity(assumptions)}
+    assert len(by_name) == 9
+    sale_age = by_name["sale_age_months"]
+    assert sale_age.label_low == "+0 month(s)"
+    assert sale_age.delta_npv_low == pytest.approx(0.0)
+    assert sale_age.label_high == "+2 month(s)"
+
+    # run_optimization completes without a ValidationError, and every sale age
+    # it reports (baseline + ranked alternatives) stayed inside the feasible
+    # window the clamp carved out.
+    optimized = run_optimization(assumptions)
+    candidates = [optimized.baseline, *optimized.alternatives]
+    assert optimized.evaluated_candidates >= 1
+    assert all(candidate.sale_age_months >= 9 for candidate in candidates)
 
 
 def test_optimizer_respects_candidate_cap_and_never_recommends_infeasible_plan() -> None:

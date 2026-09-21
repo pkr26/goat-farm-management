@@ -37,6 +37,10 @@ from app.security import (
 from .conftest import OWNER_PW, owner_with_farm, register
 
 TEST_TOTP_KEY = "VFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFQ"
+# Resolved at import (sync) time: ruff ASYNC240 forbids Path method calls
+# inside async tests, and both rekey tests need this same absolute path.
+_REKEY_SCRIPT_PATH = str(Path(__file__).resolve().parents[1] / "scripts" / "rekey_totp_secrets.py")
+
 TEST_TOTP_PREVIOUS_KEY = "UFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFA"
 
 
@@ -691,17 +695,16 @@ async def test_owner_with_totp_full_app_flow_still_works(
     assert farms.status_code == 200 and len(farms.json()) == 1
 
 
-
 def _previous_key_ciphertext(secret: str) -> bytes:
     """A v2 envelope sealed under the predecessor key (needs_rewrap=True)."""
     from app.core.config import decode_totp_encryption_key
 
     nonce = b"\x01" * 12
-    key = decode_totp_encryption_key(
-        TEST_TOTP_PREVIOUS_KEY, setting_name="TEST_TOTP_PREVIOUS_KEY"
-    )
-    return TOTP_ENVELOPE_PREFIX + nonce + AESGCM(key).encrypt(
-        nonce, secret.encode("ascii"), security.TOTP_ENVELOPE_AAD
+    key = decode_totp_encryption_key(TEST_TOTP_PREVIOUS_KEY, setting_name="TEST_TOTP_PREVIOUS_KEY")
+    return (
+        TOTP_ENVELOPE_PREFIX
+        + nonce
+        + AESGCM(key).encrypt(nonce, secret.encode("ascii"), security.TOTP_ENVELOPE_AAD)
     )
 
 
@@ -722,8 +725,7 @@ async def test_rekey_script_apply_path_runs_against_the_real_database(
     """
     from app.core.config import Settings
 
-    script = Path(__file__).resolve().parents[1] / "scripts" / "rekey_totp_secrets.py"
-    namespace = runpy.run_path(str(script), run_name="rekey_apply_real_test")
+    namespace = runpy.run_path(_REKEY_SCRIPT_PATH, run_name="rekey_apply_real_test")
     # runpy returns a *copy* of the execution globals; the functions keep
     # the original dict, so patches must target __globals__ directly.
     rekey_globals = namespace["_rekey"].__globals__
@@ -773,15 +775,9 @@ async def test_rekey_script_apply_path_runs_against_the_real_database(
             for user in (await db.execute(select(User).order_by(User.id))).scalars()
             if user.email.startswith("rekey-")
         }
-    assert decrypt_totp_secret_with_metadata(
-        rows["rekey-legacy@farm.in"]
-    ).needs_rewrap is True
-    assert decrypt_totp_secret_with_metadata(
-        rows["rekey-previous@farm.in"]
-    ).needs_rewrap is True
-    assert decrypt_totp_secret_with_metadata(
-        rows["rekey-current@farm.in"]
-    ).needs_rewrap is False
+    assert decrypt_totp_secret_with_metadata(rows["rekey-legacy@farm.in"]).needs_rewrap is True
+    assert decrypt_totp_secret_with_metadata(rows["rekey-previous@farm.in"]).needs_rewrap is True
+    assert decrypt_totp_secret_with_metadata(rows["rekey-current@farm.in"]).needs_rewrap is False
 
     # Apply at batch_size=1: three separate locked transactions, resumable
     # by construction after any interruption between batches.
@@ -824,8 +820,7 @@ async def test_rekey_script_counts_undecryptable_rows_against_the_real_database(
     """
     from app.core.config import Settings
 
-    script = Path(__file__).resolve().parents[1] / "scripts" / "rekey_totp_secrets.py"
-    namespace = runpy.run_path(str(script), run_name="rekey_unavailable_real_test")
+    namespace = runpy.run_path(_REKEY_SCRIPT_PATH, run_name="rekey_unavailable_real_test")
     rekey_globals = namespace["_rekey"].__globals__
     test_settings = Settings(
         _env_file=None,
@@ -873,9 +868,7 @@ async def test_rekey_script_counts_undecryptable_rows_against_the_real_database(
     # idle transaction that blocks the suite's table cleanup.)
     async with get_sessionmaker()() as verify_db:
         orphan_row = (
-            await verify_db.execute(
-                select(User).where(User.email == "rekey-orphan@farm.in")
-            )
+            await verify_db.execute(select(User).where(User.email == "rekey-orphan@farm.in"))
         ).scalar_one()
     assert totals.unavailable_preview_ids == [orphan_row.id]
     assert orphan_row.totp_secret_enc == orphan

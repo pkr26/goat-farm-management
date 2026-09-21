@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from itertools import product
 from typing import Any
 
-from .assumptions import MAX_HEAD, MAX_MONEY, SimulationAssumptions
+from .assumptions import MAX_HEAD, MAX_MONEY, SimulationAssumptions, min_feasible_sale_age
 from .engine import _ceil_head_ratio, _CoreResult, _run_core
 from .results import OptimizationCandidate, OptimizationResult
 
@@ -168,9 +168,18 @@ def run_optimization(a: SimulationAssumptions) -> OptimizationResult:
     )
 
     doe_scales = _linspace(policy.doe_scale_low, policy.doe_scale_high, policy.doe_scale_steps)
+    # Sale-age candidates that would strand a male-grower purchase event
+    # outside its class chain (age <= sale_age - 1) fail scenario
+    # re-validation on an otherwise-valid baseline (P1-5); clamp the grid's
+    # low end to the feasibility floor. The submitted sale age itself always
+    # validates, so the axis is never empty.
     sale_ages = list(
         range(
-            max(6, a.growth.sale_age_months - policy.sale_age_radius_months),
+            max(
+                min_feasible_sale_age(a),
+                6,
+                a.growth.sale_age_months - policy.sale_age_radius_months,
+            ),
             min(24, a.growth.sale_age_months + policy.sale_age_radius_months) + 1,
         )
     )

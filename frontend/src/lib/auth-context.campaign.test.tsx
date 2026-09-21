@@ -17,6 +17,7 @@ import { apiFetch } from "@/lib/api-client";
 import { AuthProvider, useAuth, type AuthState } from "@/lib/auth-context";
 import { server, TEST_ACCESS_TOKEN, TEST_FARMS, TEST_USER } from "@/test/msw-server";
 import { createTestQueryClient } from "@/test/render";
+import { settle } from "@/test/settle";
 
 const { pushMock, replaceMock, navState } = vi.hoisted(() => ({
   pushMock: vi.fn(),
@@ -161,7 +162,7 @@ describe("AuthProvider — campaign kills", () => {
       expect(screen.getByTestId("user")).toHaveTextContent("none");
       // Give the redirect effect a chance to (wrongly) fire before asserting.
       await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        await settle(20);
       });
       expect(replaceMock).not.toHaveBeenCalled();
     },

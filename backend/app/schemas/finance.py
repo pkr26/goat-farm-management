@@ -140,7 +140,7 @@ class FinanceOut(BaseModel):
 
 
 # Mirrors models.INSURANCE_POLICY_STATUSES exactly.
-InsuranceStatusStr = Literal["active", "renewed", "lapsed", "claimed"]
+InsuranceStatusStr = Literal["active", "lapsed", "claimed"]
 
 
 # Mirrors services.finance.MAX_RENEWAL_SPAN_DAYS (5 × 366 days): the wire
@@ -163,7 +163,10 @@ class InsurancePolicyIn(StrictInputModel):
     # start_date it may lie ahead (the renewal duty is spawned from it).
     renewal_date: date
     animal_id: BoundedId | None = None  # API verifies same-farm existence
-    notes: PostgresText | None = None
+    # insurance_policies.notes String(255) — the missing max_length let a
+    # longer narrative reach the column and surface as a raw 500 (P3,
+    # 2026-09-20 audit).
+    notes: PostgresText | None = Field(default=None, max_length=255)
 
     @model_validator(mode="after")
     def _renewal_horizon_bounds(self) -> "InsurancePolicyIn":

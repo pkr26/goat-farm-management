@@ -128,8 +128,14 @@ class AnthropicProvider:
             )
         except httpx.HTTPError as exc:
             raise ProviderError(f"{self.name} gate call failed: {exc}") from exc
-        except ValueError as exc:
-            raise ProviderResponseError(f"{self.name} returned non-JSON: {exc}") from exc
+        except (ValueError, KeyError, IndexError, TypeError) as exc:
+            # Same tuple as the OpenAI-compatible adapter: a gateway that
+            # answers {"content": null} or a non-list must become a
+            # ProviderResponseError for the fallback chain, not a raw
+            # TypeError that crashes the caller.
+            raise ProviderResponseError(
+                f"{self.name} returned an unexpected payload shape: {exc}"
+            ) from exc
         return ProviderAnswer(
             text=text,
             provider=self.name,

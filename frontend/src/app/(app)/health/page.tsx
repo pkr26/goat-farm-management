@@ -613,6 +613,16 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
   const wPurchaseBatchId = useWatch({ control, name: "purchase_batch_id" });
   const wRoute = useWatch({ control, name: "route" });
   const wTaskId = useWatch({ control, name: "task_id" });
+  // Backend mirror (_linked_task_scope_mismatch + the batch preview's
+  // linked-batch check): a herd-level round duty closes ONLY via a
+  // bucket-scoped event. An animal event is 422'd outright and the batch
+  // preview refuses a task whose batch is not the target, so while such a
+  // duty is linked the other scopes are dead ends, not choices.
+  const herdRoundDutyLinked = (() => {
+    if (!wTaskId || wTaskId === NONE) return false;
+    const task = linkableHealthTasks.find((t) => String(t.id) === wTaskId);
+    return Boolean(task && !task.animal_id && !task.purchase_batch_id);
+  })();
   const wType = useWatch({ control, name: "type" });
   const scope = useWatch({ control, name: "scope" });
   // VACCINE/DEWORMING events accept ONLY an exact seeded programme name
@@ -739,6 +749,15 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
       applied.scope = "batch";
       changeScope("batch", true);
       setValue("purchase_batch_id", String(task.purchase_batch_id));
+    } else {
+      // Herd-level round duty: the backend links the form with the task
+      // alone precisely so the operator picks the scope, and its only
+      // sanctioned close path is a bucket-scoped round event (an animal
+      // event is 422'd, and the batch-scope preview refuses a task whose
+      // batch is not the target). Default to bucket instead of the form's
+      // animal default, which would be a guaranteed 422 on submit.
+      applied.scope = "bucket";
+      changeScope("bucket", true);
     }
     // Stryker disable next-line ConditionalExpression: pendingHealthTasks and exactTask are both pre-filtered to VACCINE/DEWORMING (the only categories that can appear in linkableHealthTasks), so this check is tautological here
     if (task.category === "VACCINE" || task.category === "DEWORMING") {
@@ -789,10 +808,25 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
     setBulkPreview(null);
     setRecordError(null);
     if (!preserveLinkedTask) {
-      // A linked duty has an exact animal or purchase-batch scope. Keeping it
+      // A linked duty with an exact animal or purchase-batch scope. Keeping it
       // while the operator chooses another target makes the preview/write a
-      // guaranteed 422 rather than a valid unlinked health event.
-      clearLinkedTaskPrefill();
+      // guaranteed 422 rather than a valid unlinked health event. A HERD-level
+      // round duty is different: it imposes no target (that is why the backend
+      // deep-links the form with the task alone), so switching scope must keep
+      // the link — silently unlinking (the old behavior) recorded the round
+      // as a stray event and left the duty PENDING forever, with a success
+      // toast.
+      const linkedId = getValues("task_id");
+      const linked =
+        linkedId && linkedId !== NONE
+          ? linkableHealthTasks.find((t) => String(t.id) === linkedId)
+          : undefined;
+      const herdRoundLinked = Boolean(
+        linked && !linked.animal_id && !linked.purchase_batch_id,
+      );
+      if (!herdRoundLinked) {
+        clearLinkedTaskPrefill();
+      }
     }
     // Stryker disable next-line ObjectLiteral, BooleanLiteral: the scope control only ever sets valid enum values, so shouldValidate never surfaces a different error state
     setValue("scope", nextScope, { shouldValidate: true });
@@ -970,8 +1004,9 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
           ) return;
           const message =
             err instanceof ApiError ? err.detail : t("health.toast.reviewFailed");
+          // Inline only: the open dialog renders this beside the submit
+          // button — the same sentence as a toast read as two failures.
           setRecordError(message);
-          toast.error(message);
         }
         return;
       }
@@ -1089,12 +1124,12 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
       if (mappedFields.length === 0) {
         const message =
           err instanceof ApiError ? err.detail : t("health.toast.saveFailed");
+        // Inline only (the dialog owns the failure surface; see the review
+        // path above).
         setRecordError(message);
-        toast.error(message);
       } else if (unmapped.length > 0) {
         const message = unmapped.map((issue) => issue.msg).join("; ");
         setRecordError(message);
-        toast.error(message);
       }
     }
   }
@@ -1437,13 +1472,20 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                         ["batch", t("health.form.scopeBatch")],
                       ] as const
                     ).map(([value, label]) => (
-                      <Label key={value} className="flex items-center gap-1.5 font-normal">
+                      <Label
+                        key={value}
+                        className="flex items-center gap-1.5 font-normal"
+                      >
                         <input
                           type="radio"
                           name={field.name}
                           value={value}
                           checked={field.value === value}
                           onBlur={field.onBlur}
+                          // A linked herd-level round closes only via a
+                          // bucket-scoped event; animal/batch are guaranteed
+                          // 422s while the duty stays linked.
+                          disabled={herdRoundDutyLinked && value !== "bucket"}
                           onChange={() => {
                             // Stryker disable next-line CallExpression: changeScope's setValue("scope", value) writes the same form state one line later — the RHF onChange is redundant
                             field.onChange(value);
@@ -1456,6 +1498,11 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                   </div>
                 )}
               />
+              {herdRoundDutyLinked && (
+                <p className="text-xs text-muted-foreground">
+                  {t("health.form.herdRoundScopeHint")}
+                </p>
+              )}
               {scope === "animal" && (
                 <div className="space-y-1.5">
                   <Label htmlFor="event-animal">{t("health.form.animalLabel")}</Label>
@@ -1553,12 +1600,20 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                     aria-label={t("health.form.reviewedListLabel")}
                     className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded border border-warning/30 bg-background/60 px-2 py-1.5 text-xs"
                   >
-                    {bulkPreview.target_animals.map((animal) => (
-                      <li key={animal.id}>
-                        <span className="font-medium">{animal.tag_number}</span>
-                        {animal.name ? ` · ${animal.name}` : ""}
-                      </li>
-                    ))}
+                    {bulkPreview.target_animals.map((animal, index) => {
+                      // Age at event time (index-aligned with the animals):
+                      // age-sensitive rules (first-dose windows, withdrawal
+                      // floors) are reviewable per animal, not invisible
+                      // (P3, 2026-09-20 audit).
+                      const age = bulkPreview.target_animal_ages_months?.[index];
+                      return (
+                        <li key={animal.id}>
+                          <span className="font-medium">{animal.tag_number}</span>
+                          {animal.name ? ` · ${animal.name}` : ""}
+                          {age != null ? ` · ${age} mo` : ""}
+                        </li>
+                      );
+                    })}
                   </ul>
                 ) : (
                   <EmptyState

@@ -59,7 +59,9 @@ class BirthType(str, enum.Enum):
     TWIN = "TWIN"
     TRIPLET = "TRIPLET"
     QUADRUPLET = "QUADRUPLET"
-    MULTIPLET = "MULTIPLET"  # 5+ live kids (schema caps a kidding at 10)
+    # MULTIPLET (5+ kids) was never producible: the kidding service rejects
+    # litters above the species maximum (4 for goats) with LitterSizeError.
+    # Removed from the vocabulary by cad1e2f3a4b5 (2026-09-20 audit P3).
 
 
 class BreedingMethod(str, enum.Enum):

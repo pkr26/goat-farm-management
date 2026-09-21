@@ -15,6 +15,7 @@ import { renderWithProviders } from "@/test/render";
 import { LanguageProvider, LANGUAGE_STORAGE_KEY } from "@/lib/i18n";
 
 import LoginPage from "./page";
+import { settle } from "@/test/settle";
 
 const { pushMock } = vi.hoisted(() => ({ pushMock: vi.fn() }));
 
@@ -227,7 +228,7 @@ describe("LoginPage", () => {
 
     rendered.unmount();
     releaseLogin();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settle(50);
 
     expect(pushMock).not.toHaveBeenCalled();
   });
@@ -258,7 +259,7 @@ describe("LoginPage", () => {
     await user.click(screen.getByRole("button", { name: /sign in/i }));
 
     await waitFor(() => expect(permissionCalls).toBe(1));
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settle(50);
 
     expect(pushMock).not.toHaveBeenCalledWith("/farm-select");
     expect(pushMock).not.toHaveBeenCalled();
@@ -343,7 +344,7 @@ describe("LoginPage", () => {
 
     view.rerender(<LoginRoute visible={false} />);
     releaseLogin();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settle(50);
 
     // The provider is still mounted here, so signIn WOULD have installed the
     // token: only the page's own mounted guard stops it. Establishing the
@@ -395,7 +396,7 @@ describe("LoginPage", () => {
     // this now-unmounted form should have sent the operator.
     view.rerender(<LoginRoute visible={false} />);
     releaseFarms();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settle(50);
 
     expect(permissionCalls).toBe(0);
     expect(pushMock).not.toHaveBeenCalled();
@@ -439,7 +440,7 @@ describe("LoginPage", () => {
     // router.push from yanking the operator off the route they moved to.
     view.rerender(<LoginRoute visible={false} />);
     releasePermissions();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settle(50);
 
     expect(pushMock).not.toHaveBeenCalled();
   });

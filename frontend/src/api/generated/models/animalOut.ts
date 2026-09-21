@@ -29,6 +29,7 @@ export interface AnimalOut {
   current_bucket: AnimalOutCurrentBucket;
   status: AnimalOutStatus;
   status_date: string | null;
+  status_notes: string | null;
   sale_price: number | null;
   sale_weight_kg: number | null;
   buyer_name: string | null;

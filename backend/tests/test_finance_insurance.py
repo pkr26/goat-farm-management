@@ -398,7 +398,9 @@ async def test_lifetime_pnl_math_includes_only_provenance_scoped_money(
             "purchase_price": 8000.0,
             "historical_import_reason": "Pre-app ledger-backed purchase",
         },
-        headers=owner,
+        # The create books an ANIMAL_PURCHASE row, so it needs an
+        # Idempotency-Key (P2-1, 2026-09-20 audit).
+        headers={**owner, "Idempotency-Key": "insurance-lifetime-pnl-fixture"},
     )
     assert purchased.status_code == 201, purchased.text
     animal_id = purchased.json()["id"]
@@ -499,7 +501,7 @@ async def test_lifetime_pnl_zero_safe_and_scoped(client: httpx.AsyncClient) -> N
             "purchase_price": 3000.0,
             "historical_import_reason": "Pre-app herd record",
         },
-        headers=owner,
+        headers={**owner, "Idempotency-Key": "insurance-zero-safe-fixture"},
     )
     assert imported.status_code == 201, imported.text
     imported_pnl = await client.get(
@@ -1149,6 +1151,79 @@ async def test_mortality_memo_stays_unvalued_without_a_weighed_sale(
     assert memo["head_count"] == 1
     assert memo["estimated_loss"] is None
     assert "unvalued" in memo["basis"]
+
+
+async def test_mortality_memo_realized_rate_excludes_unpriced_weighed_sales(
+    client: httpx.AsyncClient,
+) -> None:
+    """P2-3 (2026-09-20 audit): the realized ₹/kg is proceeds over weighed
+    live-weight, and the sale path permits weighed-but-unpriced lots
+    (sale_price NULL). SUM(sale_price) skips NULL proceeds while the kg side
+    still counted such lots, so one unpriced 100 kg sale halved the farm's
+    reported rate (₹500/kg → ₹250/kg) and understated estimated_loss by its
+    weight share. Both sides of the ratio must see the same priced, weighed
+    sales."""
+    owner = await owner_with_farm(client, email="memo-rate@farm.in")
+    dead = await make_animal(
+        client,
+        owner,
+        tag="M-RATE-DEAD",
+        sex="F",
+        weight_kg=30.0,
+        weight_date=iso(today() - timedelta(days=5)),
+    )
+    priced_lot = await make_animal(
+        client,
+        owner,
+        tag="M-RATE-SOLD-1",
+        sex="M",
+        date_of_birth=iso(today() - timedelta(days=300)),
+    )
+    unpriced_lot = await make_animal(
+        client,
+        owner,
+        tag="M-RATE-SOLD-2",
+        sex="M",
+        date_of_birth=iso(today() - timedelta(days=300)),
+    )
+    await change_status(
+        client,
+        owner,
+        dead["id"],
+        "DEAD",
+        mortality_cause="pneumonia",
+        mortality_cause_code="PNEUMONIA",
+    )
+    await change_status(
+        client,
+        owner,
+        priced_lot["id"],
+        "SOLD",
+        sale_price=50000.0,
+        sale_weight_kg=100.0,
+    )
+    # Weighed at sale but never priced: real kg on the denominator side, no
+    # proceeds to contribute to the numerator.
+    unpriced_sold = await change_status(
+        client,
+        owner,
+        unpriced_lot["id"],
+        "SOLD",
+        sale_weight_kg=100.0,
+    )
+    assert unpriced_sold["status"] == "SOLD"
+
+    summary = await get_finance(client, owner)
+    memo = summary["mortality_loss"]
+    assert memo["head_count"] == 1
+    # 30 kg (last recorded weight) × ₹500/kg (50000/100 — the ONLY priced,
+    # weighed sale) = ₹15,000. The unpriced lot's 100 kg must not drag the
+    # realized rate down to ₹250/kg (₹7,500 under the old query).
+    assert memo["estimated_loss"] == "15000.00"
+    assert "realized ₹/kg" in memo["basis"]
+    # Only the priced lot booked income — the memo's rate denominator never
+    # included free money, and neither did the ledger.
+    assert summary["total_income"] == 50000.0
 
 
 async def test_mortality_memo_withheld_without_health_view(

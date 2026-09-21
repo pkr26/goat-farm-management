@@ -165,6 +165,11 @@ class HealthBulkTargetPreviewOut(BaseModel):
     task_id: int | None
     target_animal_ids: list[int]
     target_animals: list[AnimalIdentityOut]
+    # Age (completed months on the farm's business date) per target animal,
+    # index-aligned with target_animal_ids/target_animals: a herd round's
+    # age-sensitive rules (first-dose windows, withdrawal floors) were
+    # invisible at review time before this existed (P3, 2026-09-20 audit).
+    target_animal_ages_months: list[int | None] = []
     target_count: int
     max_targets: int = MAX_BULK_HEALTH_TARGETS
 

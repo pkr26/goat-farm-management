@@ -38,6 +38,7 @@ from pathlib import Path
 BACKEND = Path(__file__).resolve().parent.parent
 REPO = BACKEND.parent
 
+
 # Curated mutants: (id, description, file, op, targeted tests).
 # op kinds: ("replace", old, new, count) | ("regex_first", pattern, repl)
 @dataclass
@@ -69,119 +70,192 @@ TENANCY_COMMON = [f"{T}/test_tenant_foreign_keys.py", f"{T}/test_rbac_exhaustive
 
 CATALOG: list[GateMutant] = [
     # ---- tenant-filter deletion: detail (IDOR) queries ------------------
-    _tenant("animals-idor", "animals: farm filter dropped from by-id lookup",
-            "backend/app/api/animals.py",
-            "stmt = select(Animal).where(Animal.id == animal_id, Animal.farm_id == farm_id)",
-            "stmt = select(Animal).where(Animal.id == animal_id)",
-            [f"{T}/test_animals_extended.py", *TENANCY_COMMON], count=2),
-    _tenant("breeding-idor", "breeding: farm filter dropped from record-by-id",
-            "backend/app/api/breeding.py",
-            ".where(BreedingRecord.id == record_id, BreedingRecord.farm_id == farm.id)",
-            ".where(BreedingRecord.id == record_id)",
-            [f"{T}/test_breeding_extended.py", *TENANCY_COMMON]),
-    _tenant("feeding-idor", "feeding: farm filter dropped from inventory item by id",
-            "backend/app/api/feeding.py",
-            ".where(FeedInventory.id == item_id, FeedInventory.farm_id == farm.id)",
-            ".where(FeedInventory.id == item_id)",
-            [f"{T}/test_feeding_extended.py", *TENANCY_COMMON]),
-    _tenant("health-idor", "health: farm filter dropped from animal-by-id",
-            "backend/app/api/health.py",
-            "select(Animal).where(Animal.id == animal_id, Animal.farm_id == farm.id)",
-            "select(Animal).where(Animal.id == animal_id)",
-            [f"{T}/test_health_extended.py", *TENANCY_COMMON]),
-    _tenant("tasks-idor", "tasks: farm filter dropped from task-by-id",
-            "backend/app/api/tasks.py",
-            ".where(Task.id == task_id, Task.farm_id == farm.id)",
-            ".where(Task.id == task_id)",
-            [f"{T}/test_tasks_extended.py", *TENANCY_COMMON], count=3),
-    _tenant("screening-idor", "screening: farm filter dropped from image-by-id",
-            "backend/app/api/screening.py",
-            ".where(ScreeningImage.farm_id == farm.id, ScreeningImage.id == image_id)",
-            ".where(ScreeningImage.id == image_id)",
-            [f"{T}/test_screening.py", *TENANCY_COMMON]),
+    _tenant(
+        "animals-idor",
+        "animals: farm filter dropped from by-id lookup",
+        "backend/app/api/animals.py",
+        "stmt = select(Animal).where(Animal.id == animal_id, Animal.farm_id == farm_id)",
+        "stmt = select(Animal).where(Animal.id == animal_id)",
+        [f"{T}/test_animals_extended.py", *TENANCY_COMMON],
+        count=2,
+    ),
+    _tenant(
+        "breeding-idor",
+        "breeding: farm filter dropped from record-by-id",
+        "backend/app/api/breeding.py",
+        ".where(BreedingRecord.id == record_id, BreedingRecord.farm_id == farm.id)",
+        ".where(BreedingRecord.id == record_id)",
+        [f"{T}/test_breeding_extended.py", *TENANCY_COMMON],
+    ),
+    _tenant(
+        "feeding-idor",
+        "feeding: farm filter dropped from inventory item by id",
+        "backend/app/api/feeding.py",
+        ".where(FeedInventory.id == item_id, FeedInventory.farm_id == farm.id)",
+        ".where(FeedInventory.id == item_id)",
+        [f"{T}/test_feeding_extended.py", *TENANCY_COMMON],
+    ),
+    _tenant(
+        "health-idor",
+        "health: farm filter dropped from animal-by-id",
+        "backend/app/api/health.py",
+        "select(Animal).where(Animal.id == animal_id, Animal.farm_id == farm.id)",
+        "select(Animal).where(Animal.id == animal_id)",
+        [f"{T}/test_health_extended.py", *TENANCY_COMMON],
+    ),
+    _tenant(
+        "tasks-idor",
+        "tasks: farm filter dropped from task-by-id",
+        "backend/app/api/tasks.py",
+        ".where(Task.id == task_id, Task.farm_id == farm.id)",
+        ".where(Task.id == task_id)",
+        [f"{T}/test_tasks_extended.py", *TENANCY_COMMON],
+        count=3,
+    ),
+    _tenant(
+        "screening-idor",
+        "screening: farm filter dropped from image-by-id",
+        "backend/app/api/screening.py",
+        ".where(ScreeningImage.farm_id == farm.id, ScreeningImage.id == image_id)",
+        ".where(ScreeningImage.id == image_id)",
+        [f"{T}/test_screening.py", *TENANCY_COMMON],
+    ),
     # ---- tenant-filter deletion: list queries ---------------------------
-    _tenant("animals-list", "animals: farm filter dropped from list query",
-            "backend/app/api/animals.py",
-            "stmt = select(Animal).where(Animal.farm_id == farm.id)",
-            "stmt = select(Animal)",
-            [f"{T}/test_animals_extended.py", f"{T}/test_animal_profile_pagination.py",
-             *TENANCY_COMMON]),
-    _tenant("finance-list", "finance: farm filter dropped from transactions list",
-            "backend/app/api/finance.py",
-            "Transaction.farm_id == farm_id,\n",
-            "",
-            [f"{T}/test_finance_extended.py", f"{T}/test_finance_bugs.py", *TENANCY_COMMON]),
-    _tenant("kidding-list", "kidding: farm filter dropped from records list",
-            "backend/app/api/kidding.py",
-            ".where(KiddingRecord.farm_id == farm.id)",
-            ".where(KiddingRecord.id > 0)",
-            [f"{T}/test_kidding_husbandry.py", *TENANCY_COMMON], count=2),
-    _tenant("team-roles", "team: farm filter dropped from role list",
-            "backend/app/api/team.py",
-            "Role.farm_id == farm.id,\n",
-            "",
-            [f"{T}/test_team_extended.py", f"{T}/test_rbac.py", *TENANCY_COMMON], count=2),
-    _tenant("auth-farmscope", "farm selector lists every farm, not just owned",
-            "backend/app/deps.py",
-            "select(Farm).where(Farm.owner_id == user.id).order_by(Farm.id).limit(cap + 1)",
-            "select(Farm).order_by(Farm.id).limit(cap + 1)",
-            [f"{T}/test_auth_extended.py", *TENANCY_COMMON]),
+    _tenant(
+        "animals-list",
+        "animals: farm filter dropped from list query",
+        "backend/app/api/animals.py",
+        "stmt = select(Animal).where(Animal.farm_id == farm.id)",
+        "stmt = select(Animal)",
+        [
+            f"{T}/test_animals_extended.py",
+            f"{T}/test_animal_profile_pagination.py",
+            *TENANCY_COMMON,
+        ],
+    ),
+    _tenant(
+        "finance-list",
+        "finance: farm filter dropped from transactions list",
+        "backend/app/api/finance.py",
+        "Transaction.farm_id == farm_id,\n",
+        "",
+        [f"{T}/test_finance_extended.py", f"{T}/test_finance_bugs.py", *TENANCY_COMMON],
+    ),
+    _tenant(
+        "kidding-list",
+        "kidding: farm filter dropped from records list",
+        "backend/app/api/kidding.py",
+        ".where(KiddingRecord.farm_id == farm.id)",
+        ".where(KiddingRecord.id > 0)",
+        [f"{T}/test_kidding_husbandry.py", *TENANCY_COMMON],
+        count=2,
+    ),
+    _tenant(
+        "team-roles",
+        "team: farm filter dropped from role list",
+        "backend/app/api/team.py",
+        "Role.farm_id == farm.id,\n",
+        "",
+        [f"{T}/test_team_extended.py", f"{T}/test_rbac.py", *TENANCY_COMMON],
+        count=2,
+    ),
+    _tenant(
+        "auth-farmscope",
+        "farm selector lists every farm, not just owned",
+        "backend/app/deps.py",
+        "select(Farm).where(Farm.owner_id == user.id).order_by(Farm.id).limit(cap + 1)",
+        "select(Farm).order_by(Farm.id).limit(cap + 1)",
+        [f"{T}/test_auth_extended.py", *TENANCY_COMMON],
+    ),
     # ---- central X-Farm-Id / RBAC gates ---------------------------------
-    _regex_tenant("rbac-require-perm-bypass", "require_perm never denies",
-                  "backend/app/deps.py",
-                  r"        if code not in perms:",
-                  "        if False and code not in perms:",
-                  [f"{T}/test_rbac.py", f"{T}/test_rbac_exhaustive.py",
-                   f"{T}/test_dashboard_permissions.py"]),
-    _tenant("rbac-perms-for-owner", "every farm member receives the owner permission set",
-            "backend/app/deps.py",
-            ("    if farm.owner_id == user.id:\n        return set(ALL_PERMISSIONS)\n"
-             "    if membership is None or membership.role is None:\n        return set()\n"
-             "    return membership.role.permission_set()"),
-            ("    if farm.owner_id == user.id:\n        return set(ALL_PERMISSIONS)\n"
-             "    if membership is None or membership.role is None:\n        return set()\n"
-             "    return set(ALL_PERMISSIONS)"),
-            [f"{T}/test_rbac.py", f"{T}/test_rbac_exhaustive.py",
-             f"{T}/test_dashboard_permissions.py"]),
+    _regex_tenant(
+        "rbac-require-perm-bypass",
+        "require_perm never denies",
+        "backend/app/deps.py",
+        r"        if code not in perms:",
+        "        if False and code not in perms:",
+        [f"{T}/test_rbac.py", f"{T}/test_rbac_exhaustive.py", f"{T}/test_dashboard_permissions.py"],
+    ),
+    _tenant(
+        "rbac-perms-for-owner",
+        "every farm member receives the owner permission set",
+        "backend/app/deps.py",
+        (
+            "    if farm.owner_id == user.id:\n        return set(ALL_PERMISSIONS)\n"
+            "    if membership is None or membership.role is None:\n        return set()\n"
+            "    return membership.role.permission_set()"
+        ),
+        (
+            "    if farm.owner_id == user.id:\n        return set(ALL_PERMISSIONS)\n"
+            "    if membership is None or membership.role is None:\n        return set()\n"
+            "    return set(ALL_PERMISSIONS)"
+        ),
+        [f"{T}/test_rbac.py", f"{T}/test_rbac_exhaustive.py", f"{T}/test_dashboard_permissions.py"],
+    ),
     # ---- idempotency scoping --------------------------------------------
-    _tenant("idem-scope-farm", "idempotency replay lookup drops the farm scope",
-            "backend/app/services/idempotency.py",
-            "                IdempotencyRecord.farm_id == farm_id,\n",
-            "",
-            [f"{T}/test_idempotency.py", f"{T}/test_redteam_remediation_2026_09_04.py"],
-            count=2),
-    _tenant("idem-fingerprint", "idempotency fingerprint mismatch never 409s",
-            "backend/app/services/idempotency.py",
-            ("    if operation not in SENSITIVE_IDEMPOTENCY_OPERATIONS:\n"
-             "        return stored_hash == candidates[0]"),
-            "    if True:\n        return True",
-            [f"{T}/test_idempotency.py", f"{T}/test_redteam_remediation_2026_09_04.py"]),
+    _tenant(
+        "idem-scope-farm",
+        "idempotency replay lookup drops the farm scope",
+        "backend/app/services/idempotency.py",
+        "                IdempotencyRecord.farm_id == farm_id,\n",
+        "",
+        [f"{T}/test_idempotency.py", f"{T}/test_redteam_remediation_2026_09_04.py"],
+        count=2,
+    ),
+    _tenant(
+        "idem-fingerprint",
+        "idempotency fingerprint mismatch never 409s",
+        "backend/app/services/idempotency.py",
+        (
+            "    if operation not in SENSITIVE_IDEMPOTENCY_OPERATIONS:\n"
+            "        return stored_hash == candidates[0]"
+        ),
+        "    if True:\n        return True",
+        [f"{T}/test_idempotency.py", f"{T}/test_redteam_remediation_2026_09_04.py"],
+    ),
     # ---- financial core arithmetic --------------------------------------
-    _finance("mc-seed-ignored", "Monte Carlo RNG ignores the run seed",
-             "backend/app/simulation/montecarlo.py",
-             "    rng = random.Random(a.risk.seed)",
-             "    rng = random.Random()",
-             [f"{T}/test_simulation_engine.py", f"{T}/test_simulation_audit_remediation.py"]),
-    _finance("parity-stillbirth-sign", "stillbirth rate applied as a bonus",
-             "backend/app/simulation/planner.py",
-             "r.litter_size * (1.0 - r.stillbirth_rate)",
-             "r.litter_size * (1.0 + r.stillbirth_rate)",
-             [f"{T}/test_simulation_planner.py", f"{T}/test_simulation_engine.py"], count=2),
-    _finance("growth-premium-sign", "young male weight premium subtracted",
-             "backend/app/simulation/engine.py",
-             "        return weight * (1.0 + growth.young_male_weight_premium)",
-             "        return weight * (1.0 - growth.young_male_weight_premium)",
-             [f"{T}/test_simulation_engine.py", f"{T}/test_simulation_financials.py"]),
-    _finance("feed-take-sign", "feed utilization factor sign flipped",
-             "backend/app/simulation/engine.py",
-             "        factor = 1.0 - take / available",
-             "        factor = 1.0 + take / available",
-             [f"{T}/test_simulation_engine.py", f"{T}/test_simulation_financials.py"], count=2),
-    _finance("festival-uplift", "Eid festival price uplift dropped",
-             "backend/app/simulation/market.py",
-             "    uplift = 1.0 + sales.eid_price_uplift if festival else 1.0",
-             "    uplift = 1.0",
-             [f"{T}/test_simulation_financials.py", f"{T}/test_bakrid_advisory.py"]),
+    _finance(
+        "mc-seed-ignored",
+        "Monte Carlo RNG ignores the run seed",
+        "backend/app/simulation/montecarlo.py",
+        "    rng = random.Random(a.risk.seed)",
+        "    rng = random.Random()",
+        [f"{T}/test_simulation_engine.py", f"{T}/test_simulation_audit_remediation.py"],
+    ),
+    _finance(
+        "parity-stillbirth-sign",
+        "stillbirth rate applied as a bonus",
+        "backend/app/simulation/planner.py",
+        "r.litter_size * (1.0 - r.stillbirth_rate)",
+        "r.litter_size * (1.0 + r.stillbirth_rate)",
+        [f"{T}/test_simulation_planner.py", f"{T}/test_simulation_engine.py"],
+        count=2,
+    ),
+    _finance(
+        "growth-premium-sign",
+        "young male weight premium subtracted",
+        "backend/app/simulation/engine.py",
+        "        return weight * (1.0 + growth.young_male_weight_premium)",
+        "        return weight * (1.0 - growth.young_male_weight_premium)",
+        [f"{T}/test_simulation_engine.py", f"{T}/test_simulation_financials.py"],
+    ),
+    _finance(
+        "feed-take-sign",
+        "feed utilization factor sign flipped",
+        "backend/app/simulation/engine.py",
+        "        factor = 1.0 - take / available",
+        "        factor = 1.0 + take / available",
+        [f"{T}/test_simulation_engine.py", f"{T}/test_simulation_financials.py"],
+        count=2,
+    ),
+    _finance(
+        "festival-uplift",
+        "Eid festival price uplift dropped",
+        "backend/app/simulation/market.py",
+        "    uplift = 1.0 + sales.eid_price_uplift if festival else 1.0",
+        "    uplift = 1.0",
+        [f"{T}/test_simulation_financials.py", f"{T}/test_bakrid_advisory.py"],
+    ),
 ]
 
 _FAILED_RE = re.compile(r"^(FAILED|ERROR)\s+(\S+)", re.MULTILINE)
@@ -190,7 +264,10 @@ _FAILED_RE = re.compile(r"^(FAILED|ERROR)\s+(\S+)", re.MULTILINE)
 def changed_files(base: str) -> set[str]:
     r = subprocess.run(
         ["git", "diff", "--name-only", f"{base}...HEAD"],
-        cwd=REPO, capture_output=True, text=True, check=True,
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     return {line.strip() for line in r.stdout.splitlines() if line.strip()}
 
@@ -226,13 +303,26 @@ def run_gate_mutants(mutants: list[GateMutant], db: str, per_run_timeout: int) -
         try:
             apply_op(path, m.op)
             cmd = [
-                str(BACKEND / ".venv/bin/python"), "-m", "pytest",
-                "-q", "--no-header", "-p", "no:cacheprovider", "--tb=line", "-rf",
-                "-o", "addopts=", *m.targeted,
+                str(BACKEND / ".venv/bin/python"),
+                "-m",
+                "pytest",
+                "-q",
+                "--no-header",
+                "-p",
+                "no:cacheprovider",
+                "--tb=line",
+                "-rf",
+                "-o",
+                "addopts=",
+                *m.targeted,
             ]
             try:
                 r = subprocess.run(
-                    cmd, cwd=BACKEND, env=env, capture_output=True, text=True,
+                    cmd,
+                    cwd=BACKEND,
+                    env=env,
+                    capture_output=True,
+                    text=True,
                     timeout=per_run_timeout,
                 )
             except subprocess.TimeoutExpired:
@@ -241,13 +331,17 @@ def run_gate_mutants(mutants: list[GateMutant], db: str, per_run_timeout: int) -
             killed = r.returncode != 0
             failing = sorted(set(_FAILED_RE.findall(r.stdout)))[:3]
             verdict = "KILLED  " if killed else "SURVIVED"
-            print(f"  {verdict} {m.scope}/{m.mid} :: {m.description}"
-                  + (f" [{failing[0][1]}]" if killed and failing else ""))
+            print(
+                f"  {verdict} {m.scope}/{m.mid} :: {m.description}"
+                + (f" [{failing[0][1]}]" if killed and failing else "")
+            )
             if not killed:
                 survivors.append(m)
         except RuntimeError as exc:
-            print(f"  STALE   {m.scope}/{m.mid}: catalog no longer matches source "
-                  f"({str(exc)[:120]}); treat as a gate-maintenance failure")
+            print(
+                f"  STALE   {m.scope}/{m.mid}: catalog no longer matches source "
+                f"({str(exc)[:120]}); treat as a gate-maintenance failure"
+            )
             survivors.append(m)
         finally:
             path.write_text(backup)
@@ -265,8 +359,7 @@ def run_gate_mutants(mutants: list[GateMutant], db: str, per_run_timeout: int) -
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="origin/main")
-    ap.add_argument("--scope", choices=["auto", "tenancy", "financial", "all"],
-                    default="auto")
+    ap.add_argument("--scope", choices=["auto", "tenancy", "financial", "all"], default="auto")
     ap.add_argument("--per-run-timeout", type=int, default=900)
     args = ap.parse_args()
 
@@ -276,20 +369,19 @@ def main() -> int:
         print(f"could not diff against {args.base}: {exc.stderr[:200]}")
         return 2
 
-    scopes = None if args.scope == "all" else (
-        [args.scope] if args.scope != "auto" else None
-    )
-    selected = [
-        m for m in CATALOG
-        if m.file in diff and (scopes is None or m.scope in scopes)
-    ]
+    scopes = None if args.scope == "all" else ([args.scope] if args.scope != "auto" else None)
+    selected = [m for m in CATALOG if m.file in diff and (scopes is None or m.scope in scopes)]
     if not selected:
-        print("mutation gate: no curated mutants map to this diff — skipping "
-              f"({len(diff)} changed files, scopes: {args.scope})")
+        print(
+            "mutation gate: no curated mutants map to this diff — skipping "
+            f"({len(diff)} changed files, scopes: {args.scope})"
+        )
         return 0
 
-    print(f"mutation gate: {len(selected)} mutant(s) in scope "
-          f"(of {len(CATALOG)} curated; diff has {len(diff)} files)")
+    print(
+        f"mutation gate: {len(selected)} mutant(s) in scope "
+        f"(of {len(CATALOG)} curated; diff has {len(diff)} files)"
+    )
     db = os.environ.get("GOATFARM_TEST_DB", "goatfarm_test_gate")
     if "_test" not in db:
         print(f"refusing to run against non-throwaway database {db!r}")

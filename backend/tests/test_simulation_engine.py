@@ -1090,7 +1090,10 @@ def test_apply_system_is_deep_and_applies_rounded_bounded_mortality_uplifts() ->
 def test_eid_uplift_applies_in_festival_month_only() -> None:
     """Explicit festival months price exactly those months at the uplift and
     replace the legacy recurring ``eid_month``; an explicit empty list
-    disables the auto Bakrid calendar, leaving the legacy fallback active."""
+    disables every festival outright (P3, 2026-09-20 audit — it used to fall
+    through to the legacy Gregorian fallback). The legacy branch itself is
+    reachable only pre-validation (None), pinned here by post-construction
+    mutation."""
     flat = SimulationAssumptions(
         meta=MetaAssumptions(horizon_months=24),
         sales=SalesAssumptions(festival_sale_months=[], eid_price_uplift=0.30),
@@ -1103,11 +1106,14 @@ def test_eid_uplift_applies_in_festival_month_only() -> None:
     )
     legacy = SimulationAssumptions(
         meta=MetaAssumptions(horizon_months=24),
-        sales=SalesAssumptions(festival_sale_months=[], eid_month=10, eid_price_uplift=0.30),
+        sales=SalesAssumptions(eid_month=10, eid_price_uplift=0.30),
     )
+    # The parent validator auto-fills None with the Bakrid calendar; restore
+    # the raw unset state to exercise the legacy Gregorian fallback directly.
+    legacy.sales.festival_sale_months = None
     res_flat = run_simulation(flat, with_break_even=False)
     res_festival = run_simulation(festival, with_break_even=False)
-    res_legacy = run_simulation(legacy, with_break_even=False)
+    run_simulation(legacy, with_break_even=False)
 
     def price_ratio(result: SimulationResult, month: int) -> float:
         base_price = res_flat.months[month - 1].meat_price_per_kg
@@ -1121,11 +1127,29 @@ def test_eid_uplift_applies_in_festival_month_only() -> None:
     assert price_ratio(res_festival, 14) == pytest.approx(1.0, rel=1e-9)
     assert price_ratio(res_festival, 16) == pytest.approx(1.0, rel=1e-9)
     assert price_ratio(res_festival, 3) == pytest.approx(1.0, rel=1e-9)
-    # With the festival list cleared the legacy fallback applies in every
-    # calendar October: simulation months 3 and 15 (start 2026-08).
-    assert price_ratio(res_legacy, 3) == pytest.approx(1.30, rel=1e-9)
-    assert price_ratio(res_legacy, 15) == pytest.approx(1.30, rel=1e-9)
-    assert price_ratio(res_legacy, 14) == pytest.approx(1.0, rel=1e-9)
+    # The legacy Gregorian fallback lives only in unvalidated sales groups
+    # (run_simulation revalidates, and every validated parent carries a
+    # materialized list), so pin it at the pricing helper: calendar October
+    # months carry the uplift, their neighbours do not.
+    legacy_sales = SalesAssumptions(festival_sale_months=None, eid_month=10, eid_price_uplift=0.30)
+    no_eid = legacy_sales.model_copy(update={"eid_month": 0})
+    from app.simulation.market import meat_price_for_month
+
+    # Same calendar month with and without the legacy eid_month, so the
+    # ratio isolates the uplift from the seasonal multiplier.
+    october = meat_price_for_month(
+        legacy_sales, simulation_month=3, calendar_month=10
+    ) / meat_price_for_month(no_eid, simulation_month=3, calendar_month=10)
+    assert october == pytest.approx(1.30, rel=1e-9)
+    november = meat_price_for_month(
+        legacy_sales, simulation_month=4, calendar_month=11
+    ) / meat_price_for_month(no_eid, simulation_month=4, calendar_month=11)
+    assert november == pytest.approx(1.0, rel=1e-9)
+    # And an explicit empty list now disables every festival outright.
+    disabled = SalesAssumptions(festival_sale_months=[], eid_month=10, eid_price_uplift=0.30)
+    assert meat_price_for_month(disabled, simulation_month=3, calendar_month=10) == pytest.approx(
+        meat_price_for_month(no_eid, simulation_month=3, calendar_month=10), rel=1e-12
+    )
 
 
 def test_males_finishing_near_a_festival_are_held_and_sold_in_it() -> None:

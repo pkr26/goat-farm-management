@@ -10,6 +10,8 @@ curve in proportion to each breed's yearling weight (NBAGR breed descriptors).
 from typing import Literal, get_args
 
 from .assumptions import (
+    SEMI_INTENSIVE_WEIGHT_CURVE,
+    STALL_FED_WEIGHT_CURVE,
     GrowthAssumptions,
     HerdAssumptions,
     MortalityAssumptions,
@@ -26,18 +28,44 @@ System = Literal["stall_fed", "semi_intensive"]
 SYSTEMS: list[str] = list(get_args(System))
 
 
+def _semi_intensive_weights(stall_fed: list[float]) -> list[float]:
+    """This breed's semi-intensive (CIRG field) weight curve.
+
+    Every preset's stall-fed table is the Osmanabadi stall-fed curve scaled
+    to the breed's yearling weight; the field curve must carry the same
+    ratio (anchored on the breed's own birth weight) instead of dropping the
+    raw Osmanabadi CIRG numbers onto, say, a Jamunapari.
+    """
+    base = list(STALL_FED_WEIGHT_CURVE)
+    cirg = list(SEMI_INTENSIVE_WEIGHT_CURVE)
+    factor = (stall_fed[-1] - stall_fed[0]) / (base[-1] - base[0])
+    return [stall_fed[0] + (w - cirg[0]) * factor for w in cirg]
+
+
 def apply_system(a: SimulationAssumptions, system: System) -> SimulationAssumptions:
     """Return a copy of ``a`` adjusted for the production system.
 
     Semi-intensive: ~30% of DM comes free from grazing; field exposure raises
     kid and adult mortality relative to stall feeding (TNAU/ICAR comparisons of
-    stall-fed vs grazing systems).
+    stall-fed vs grazing systems); and growth follows the CIRG field curve
+    (roughly half the stall-fed gains to 3 months) — slower-growing animals
+    that also eat less purchased feed. Leaving the stall-fed weight table in
+    place while granting the grazing discount priced semi-intensive plans as
+    stall-fed sales on grazing costs, systematically optimistic in a
+    compounding direction (2026-09-20 audit P2-7).
     """
     if system == "stall_fed":
         return a.model_copy(deep=True)
     if system == "semi_intensive":
         variant = a.model_copy(deep=True)
         variant.feed.grazing_dm_fraction = 0.3  # TNAU semi-intensive budgets
+        variant.growth.growth_regime = "semi_intensive"
+        # Mutating the regime alone does not re-derive an already-materialized
+        # table (GrowthAssumptions derives it only at construction), so swap
+        # the table explicitly, scaled to this breed's yearling weight.
+        variant.growth.weight_by_age_months = _semi_intensive_weights(
+            variant.growth.weight_by_age_months
+        )
         # An uplift, not an assignment: the docstring promises field exposure
         # *raises* mortality relative to stall feeding, but a flat assignment
         # left the already-fragile breeds (Black Bengal sits at 0.12 stall-fed)

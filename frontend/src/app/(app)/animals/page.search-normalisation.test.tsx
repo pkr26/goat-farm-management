@@ -108,7 +108,7 @@ function searchBox(): HTMLElement {
   return screen.getByRole("searchbox", { name: "Search animals by tag" });
 }
 
-async function settle(ms: number) {
+async function settleAct(ms: number) {
   await act(async () => {
     await new Promise((resolve) => window.setTimeout(resolve, ms));
   });
@@ -145,7 +145,7 @@ describe("AnimalsPage search term normalisation", () => {
 
     // That term already matches the URL, so the debounce has no replacement
     // to issue and the rows must not be fenced behind a phantom navigation.
-    await settle(400);
+    await settleAct(400);
     expect(nav.replace).not.toHaveBeenCalled();
     expect(nav.push).not.toHaveBeenCalled();
     expect(screen.getAllByText("G-001")[0]).toBeInTheDocument();
@@ -193,7 +193,7 @@ describe("AnimalsPage search term normalisation", () => {
 
     await waitFor(() => expect(seenParams.length).toBeGreaterThan(before));
     expect(seenParams[before].get("q")).toBe("G-001");
-    await settle(400);
+    await settleAct(400);
     expect(nav.replace).not.toHaveBeenCalled();
     expect(screen.getAllByText("G-001")[0]).toBeInTheDocument();
   });
@@ -206,7 +206,7 @@ describe("AnimalsPage search term normalisation", () => {
     await waitFor(() => expect(nav.state.deferredReplacements).toHaveLength(1));
     // The strip rewrites only the flag; the operator's padding rides along.
     expect(nav.state.deferredReplacements[0]).toBe("/animals?q=+G-001+");
-    await settle(50);
+    await settleAct(50);
 
     // Next commits it. The URL still describes the term the box holds, so the
     // commit releases the fence instead of being read as a newer edit.
@@ -325,7 +325,7 @@ describe("AnimalsPage state applied before a URL commits", () => {
     // Padding the term already searched for produces no new URL, so the
     // padding survives in the box until something else navigates.
     fireEvent.change(searchBox(), { target: { value: "  G7  " } });
-    await settle(400);
+    await settleAct(400);
     expect(nav.replace).not.toHaveBeenCalled();
     expect(searchBox()).toHaveValue("  G7  ");
 
@@ -391,7 +391,7 @@ describe("AnimalsPage state applied before a URL commits", () => {
     view.rerender(<AnimalsPage />);
 
     expect((await screen.findAllByText("G-001"))[0]).toBeInTheDocument();
-    await settle(400);
+    await settleAct(400);
     expect(screen.queryByText("Loading animals…")).not.toBeInTheDocument();
     expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Filter animals by status")).toHaveTextContent("Sold");
@@ -414,17 +414,17 @@ describe("AnimalsPage state applied before a URL commits", () => {
         });
       }),
     );
-    nav.state.search = "page=20002";
+    nav.state.search = "page=202";
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("Showing 1000001–1000050 of 1100000 animals");
-    expect(seenParams[0].get("offset")).toBe("1000000");
+    await screen.findByText("Showing 10001–10050 of 1100000 animals");
+    expect(seenParams[0].get("offset")).toBe("10000");
 
     await user.click(screen.getByRole("button", { name: "Next" }));
 
     expect(nav.push).not.toHaveBeenCalled();
     expect(nav.replace).not.toHaveBeenCalled();
     expect(
-      await screen.findByText("Showing 1000051–1000100 of 1100000 animals"),
+      await screen.findByText("Showing 10051–10100 of 1100000 animals"),
     ).toBeInTheDocument();
   });
 });

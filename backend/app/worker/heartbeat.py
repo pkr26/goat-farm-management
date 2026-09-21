@@ -12,9 +12,7 @@ from typing import Literal
 HeartbeatStatus = Literal["starting", "working", "ok", "error", "disabled", "stopped"]
 
 
-def write_heartbeat(
-    path: Path, status: HeartbeatStatus, *, consecutive_failures: int = 0
-) -> None:
+def write_heartbeat(path: Path, status: HeartbeatStatus, *, consecutive_failures: int = 0) -> None:
     """Publish one worker state transition without exposing failure details.
 
     A same-directory replace means the health probe never observes a partial

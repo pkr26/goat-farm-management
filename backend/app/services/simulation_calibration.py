@@ -3,7 +3,7 @@
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal
-from math import exp
+from math import ceil, exp
 from statistics import median
 from typing import Literal
 
@@ -32,7 +32,7 @@ from ..simulation.assumptions import (
     _normalized_seasonality,
 )
 from ..simulation.defaults import System, get_preset
-from ..simulation.engine import _ceil_head_ratio
+from ..simulation.engine import labour_units_for
 from ..simulation.market import BAKRID_DATES_BY_YEAR, bakrid_festival_months
 from ..utils import add_months, today
 
@@ -1007,7 +1007,13 @@ async def calibrate_farm_assumptions(
     # an unviable project look financeable. The span reads the full-window
     # minimum above, so it stays correct even when the per-row scan truncated.
     if true_first_expense is not None:
-        observed_months = max(1, round(_months_between(true_first_expense, reference_date)) + 1)
+        # ceil(), not round()+1: the +1 counted the first month inclusive,
+        # which over-counted by a full month at exact whole-month spans (a
+        # 12.0-month ledger divided by 13 understated every recurring cost
+        # by ~8%) and at halves that round up (P3, 2026-09-20 audit). Ceil
+        # already treats any elapsed fraction as one more covered month and
+        # the max() keeps a same-month ledger at one month.
+        observed_months = max(1, ceil(_months_between(true_first_expense, reference_date)))
         cost_months = min(lookback_months, observed_months)
     else:
         cost_months = lookback_months
@@ -1021,40 +1027,60 @@ async def calibrate_farm_assumptions(
     labour_total = category_expense["LABOUR"]
     if labour_total > 0.0:
         labour_previous = assumptions.costs.labour_per_month
-        # ``labour_per_month`` is a PER-LABOURER wage: the engine charges
-        # ``max(1, ceil(adult_females / labour_per_head_threshold)) *
-        # labour_per_month`` — labour scales with ADULT breeding females
-        # (kids/additional young stock add fractionally to workload; TNAU/
-        # NABARD norm is one worker per ~50 does *with progeny*). The ledger
-        # only knows the farm's whole labour bill, so it must be split across
-        # the labourers that adult-female headcount implies — via the
-        # engine's own helper, so the two cannot drift. Splitting on total
-        # standing head (or assigning the total directly) makes the engine
-        # under- or over-multiply the wage.
+        # ``labour_per_month`` is a PER-ATTENDANT wage: the engine books
+        # ``labour_units_for(does, ...) * labour_per_month`` — half-unit
+        # attendants scaling with ADULT breeding females (TNAU/NABARD norm is
+        # one worker per ~50 does *with progeny*), zero units for family
+        # labour or an empty flock. The ledger only knows the farm's whole
+        # labour bill, so it must be split across the attendants the engine's
+        # OWN basis implies — via the shared helper, so the two cannot drift.
+        # Dividing by whole attendants halved the modelled bill of every
+        # flock the engine books at half units (P2-4).
         adult_females = counts["does"]
-        labour_headcount = (
-            max(1, _ceil_head_ratio(adult_females, assumptions.costs.labour_per_head_threshold))
-            if adult_females > 0
-            else 1
+        labour_units = labour_units_for(
+            adult_females,
+            bool(assumptions.costs.family_labour),
+            assumptions.costs.labour_per_head_threshold,
         )
-        labour_calibrated = min(MAX_MONEY, labour_total / cost_months / labour_headcount)
-        assumptions.costs.labour_per_month = labour_calibrated
-        sample_size = sum(
-            1 for transaction_row in transaction_rows if transaction_row.category == "LABOUR"
-        )
-        record(
-            "costs.labour_per_month",
-            labour_previous,
-            labour_calibrated,
-            sample_size,
-            (
-                f"Total labour expense {cost_basis}, then split across the "
-                f"{labour_headcount} labourer(s) implied by {adult_females} adult "
-                f"female(s) (the engine's labour basis, matching one worker per "
-                f"~{assumptions.costs.labour_per_head_threshold} does with progeny)"
-            ),
-            "transactions",
-        )
+        if labour_units <= 0.0:
+            # Zero implied attendants (family labour or no does): the engine
+            # books no cash labour whatever the wage, so no wage can be
+            # inferred from the bill. Keep the configured wage and say so
+            # instead of silently zeroing or dividing by zero.
+            sample_size = sum(
+                1 for transaction_row in transaction_rows if transaction_row.category == "LABOUR"
+            )
+            record(
+                "costs.labour_per_month",
+                labour_previous,
+                labour_previous,
+                sample_size,
+                (
+                    f"Labour expense of {labour_total:.0f} was NOT spread onto a per-attendant "
+                    f"wage: with {adult_females} adult female(s) the engine's labour basis "
+                    f"implies 0 paid attendant units, so the configured wage was left unchanged."
+                ),
+                "transactions",
+            )
+        else:
+            labour_calibrated = min(MAX_MONEY, labour_total / cost_months / labour_units)
+            assumptions.costs.labour_per_month = labour_calibrated
+            sample_size = sum(
+                1 for transaction_row in transaction_rows if transaction_row.category == "LABOUR"
+            )
+            record(
+                "costs.labour_per_month",
+                labour_previous,
+                labour_calibrated,
+                sample_size,
+                (
+                    f"Total labour expense {cost_basis}, then split across the "
+                    f"{labour_units} attendant unit(s) implied by {adult_females} adult "
+                    f"female(s) (the engine's labour basis, matching one worker per "
+                    f"~{assumptions.costs.labour_per_head_threshold} does with progeny)"
+                ),
+                "transactions",
+            )
     vet_total = category_expense["VET"] + category_expense["MEDICINE"]
     if vet_total > 0.0 and current_head > 0:
         vet_previous = assumptions.costs.vet_per_animal_per_year

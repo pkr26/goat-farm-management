@@ -14,4 +14,5 @@ export interface BreedingCandidateOut {
   name: string | null;
   age_months: number | null;
   latest_weight_kg: number | null;
+  cull_candidate?: boolean;
 }

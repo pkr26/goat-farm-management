@@ -55,16 +55,24 @@ describe("request timeout (CC-1)", () => {
     expect(signal!.aborted).toBe(false);
   });
 
-  it("never overrides a caller's own signal", async () => {
+  it("composes (never replaces) a caller's own signal with the timeout", async () => {
     // The idempotency registry uses the caller signal as cancellation-ownership
     // identity, and TanStack Query aborts its queries through it. Replacing it
-    // would break both.
+    // would break both — but so did DROPPING the timeout for signalled calls
+    // (P3, 2026-09-20 audit): the composed signal aborts on EITHER source, so
+    // caller cancellation still fires immediately and every request stays
+    // bounded.
     const controller = new AbortController();
     fetchMock.mockResolvedValue(jsonResponse(200, { ok: true }));
 
     await apiFetch("/api/animals/1", { signal: controller.signal });
 
-    expect(fetchMock.mock.calls[0][1]?.signal).toBe(controller.signal);
+    const wired = fetchMock.mock.calls[0][1]?.signal;
+    expect(wired).toBeDefined();
+    expect(wired?.aborted).toBe(false);
+    // The caller's cancellation still reaches the wire.
+    controller.abort();
+    expect(wired?.aborted).toBe(true);
   });
 
   it("bounds an unsignalled request with a finite timeout", async () => {
@@ -88,14 +96,17 @@ describe("request timeout (CC-1)", () => {
     expect(ms).toBeGreaterThanOrEqual(30_000);
   });
 
-  it("does not arm a timeout when the caller owns the signal", async () => {
+  it("arms the composed timeout for signalled requests too", async () => {
+    // The timeout is no longer skipped when the caller owns a signal: it is
+    // composed via AbortSignal.any so unbounded signalled requests cannot
+    // outlive their budget (P3, 2026-09-20 audit).
     const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
     const controller = new AbortController();
     fetchMock.mockResolvedValue(jsonResponse(200, { ok: true }));
 
     await apiFetch("/api/animals/1", { signal: controller.signal });
 
-    expect(timeoutSpy).not.toHaveBeenCalled();
+    expect(timeoutSpy).toHaveBeenCalled();
   });
 
   it("propagates an abort as a rejection rather than hanging", async () => {

@@ -39,9 +39,13 @@ function candidateOption(
     kind === "doe" && candidate.latest_weight_kg !== null
       ? `${age ? ", " : " — "}${candidate.latest_weight_kg.toFixed(1)} kg`
       : "";
+  // Cull-flagged does are servable by the owner only — the flag must be
+  // visible at pick time so a non-owner manager skips her instead of
+  // filling the form into a guaranteed 409 (wave-5, 2026-09-20 audit).
+  const cull = kind === "doe" && candidate.cull_candidate ? " — cull candidate (owner only)" : "";
   return {
     value: String(candidate.id),
-    label: `${candidate.tag_number}${name}${age}${weight}`,
+    label: `${candidate.tag_number}${name}${age}${weight}${cull}`,
   };
 }
 

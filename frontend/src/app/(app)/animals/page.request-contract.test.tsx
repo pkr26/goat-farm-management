@@ -392,7 +392,7 @@ describe("AnimalsPage refresh after a create", () => {
 describe("AnimalsPage page ceiling", () => {
   it("steps into the page its URL already names without a second history entry", async () => {
     // A deep link past the endpoint's offset ceiling is clamped to MAX_PAGE
-    // (offset 1_000_000), so the list can be showing page 20001 while the URL
+    // (offset 1_000_000, clamped to the 10_000 ceiling), so the list can be showing a deep page while the URL
     // still names 20002. Stepping forward then needs no navigation at all.
     const user = userEvent.setup();
     server.use(
@@ -406,23 +406,23 @@ describe("AnimalsPage page ceiling", () => {
         });
       }),
     );
-    nav.state.search = "page=20002";
+    nav.state.search = "page=202";
     renderWithProviders(<AnimalsPage />);
 
     expect(
-      await screen.findByText("Showing 1000001–1000050 of 1000051 animals"),
+      await screen.findByText("Showing 10001–10050 of 1000051 animals"),
     ).toBeInTheDocument();
-    expect(seenParams[0].get("offset")).toBe("1000000");
+    expect(seenParams[0].get("offset")).toBe("10000");
 
     await user.click(screen.getByRole("button", { name: "Next" }));
 
     expect(
-      await screen.findByText("Showing 1000051–1000051 of 1000051 animals"),
+      await screen.findByText("Showing 10051–10100 of 1000051 animals"),
     ).toBeInTheDocument();
     // The tag is rendered by both the mobile card list and the table.
-    expect(screen.getAllByText("G-1000051")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("G-10051")[0]).toBeInTheDocument();
     expect(nav.push).not.toHaveBeenCalled();
     expect(nav.replace).not.toHaveBeenCalled();
-    expect(nav.state.search).toBe("page=20002");
+    expect(nav.state.search).toBe("page=202");
   });
 });

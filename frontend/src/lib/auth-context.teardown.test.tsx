@@ -20,6 +20,7 @@ import { useAuth } from "@/lib/auth-context";
 import { farmToday } from "@/lib/format";
 import { server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
+import { settle } from "@/test/settle";
 
 const { pushMock, replaceMock } = vi.hoisted(() => ({
   pushMock: vi.fn(),
@@ -292,7 +293,7 @@ describe("AuthProvider teardown — previous-farm data never reaches the new sco
     await user.click(screen.getByRole("button", { name: "select-2" }));
     await act(async () => {
       state.release();
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await settle(20);
     });
 
     expect(state.aborted).toBe(true);
@@ -333,7 +334,7 @@ describe("AuthProvider teardown — previous-farm data never reaches the new sco
     );
     await act(async () => {
       state.release();
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await settle(20);
     });
 
     expect(state.aborted).toBe(true);
@@ -390,7 +391,7 @@ describe("AuthProvider signOut — the returned promise tracks the revocation", 
     // Local state is already gone while the revocation is still on the wire.
     expect(screen.getByTestId("user")).toHaveTextContent("none");
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await settle(0);
     });
     expect(order).toEqual([]);
 
@@ -425,7 +426,7 @@ describe("AuthProvider signOut — the returned promise tracks the revocation", 
     );
     // Let the failed flight settle and release its coalescing slot.
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await settle(0);
     });
     replaceMock.mockClear();
 

@@ -48,10 +48,10 @@ def main() -> None:
     # Same default as Settings.screening_worker_max_consecutive_cycle_failures
     # (and set to the identical value by both Compose files), so the probe and
     # the worker apply one shared definition of "persistently broken".
-    max_failures = _positive_int(
-        "GOATFARM_SCREENING_WORKER_MAX_CONSECUTIVE_CYCLE_FAILURES", 3
+    max_failures = _positive_int("GOATFARM_SCREENING_WORKER_MAX_CONSECUTIVE_CYCLE_FAILURES", 3)
+    enabled = _bool(
+        "GOATFARM_SCREENING_ENABLED", os.environ.get("GOATFARM_SCREENING_ENABLED", "false")
     )
-    enabled = _bool("GOATFARM_SCREENING_ENABLED", os.environ.get("GOATFARM_SCREENING_ENABLED", "false"))
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
         status = payload["status"]
@@ -68,16 +68,11 @@ def main() -> None:
         raise SystemExit(f"screening worker heartbeat is stale ({age:.0f}s; max {max_age}s)")
     if status == "error":
         consecutive = payload.get("consecutive_failures")
-        if (
-            not isinstance(consecutive, int)
-            or isinstance(consecutive, bool)
-            or consecutive < 0
-        ):
+        if not isinstance(consecutive, int) or isinstance(consecutive, bool) or consecutive < 0:
             raise SystemExit("screening worker heartbeat has a malformed failure count")
         if consecutive >= max_failures:
             raise SystemExit(
-                f"screening worker reports persistent cycle failures "
-                f"({consecutive}/{max_failures})"
+                f"screening worker reports persistent cycle failures ({consecutive}/{max_failures})"
             )
         # A whole-cycle exception inside the worker's own recovery window:
         # the loop is alive and retrying at the next poll, exactly as

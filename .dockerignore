@@ -20,6 +20,8 @@ backend/.mypy_cache
 backend/.ruff_cache
 backend/.env
 backend/keys
+backend/coverage.xml
+backend/htmlcov
 backend/tests
 backend/scripts/*
 !backend/scripts/healthcheck.py
@@ -29,4 +31,11 @@ backend/scripts/*
 **/__pycache__
 .dockerignore
 docker-compose.yml
+docker-compose.production.yml
+docker-compose.override.yml
 .github
+audit_reports
+coverage
+frontend/coverage
+frontend/test-results
+frontend/reports

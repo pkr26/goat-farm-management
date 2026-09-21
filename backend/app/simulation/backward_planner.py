@@ -474,6 +474,11 @@ def build_backward_plan(
     # Cover the last target even when the caller's horizon was shorter, so a
     # distant sale is judged by biology rather than by an arbitrary cutoff.
     variant.meta.horizon_months = max(variant.meta.horizon_months, last_month)
+    # Re-validate after extending: the festival calendar was materialized for
+    # the shorter horizon and auto-fill only ran at construction, so without
+    # this the longer plan silently kept a truncated Bakrid list (same root
+    # cause as the horizon round-trip bug, 2026-09-20 audit P2-8).
+    variant = SimulationAssumptions.model_validate(variant.model_dump())
 
     sale_targets = [
         SaleTarget(month=offset, animal_class=target.animal_class, count=target.count)

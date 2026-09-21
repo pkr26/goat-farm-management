@@ -475,10 +475,19 @@ def close_gaps(
         targets
     )
 
+    # Zero-progress guard: the marginal mirror can promise yield the engine
+    # never delivers under legal-but-degenerate configurations (sale_age or
+    # afb at the boundary where the grower chain is empty; no sire with
+    # auto-purchase off). Without this check each pass piled a full extra
+    # round of does onto the same unmet shortfall and the plan read as
+    # "buy 296 does" (2026-09-20 audit P2-9). The baseline is the
+    # no-purchase shortfall, so even the FIRST phantom round is caught.
+    shortfall_before = sum(fill.shortfall for fill in evaluation.targets if not fill.met)
     for _ in range(max_iterations):
         if evaluation.all_met:
             break
         changed = False
+        round_start_purchases = dict(purchases_by_month)
         for target, fill in zip(targets, evaluation.targets, strict=True):
             if fill.met or target.animal_class not in _PURCHASE_BACKED_CLASSES:
                 continue
@@ -522,6 +531,23 @@ def close_gaps(
         _check_purchase_event_budget(purchases_by_month, reserved=reserved_events)
         purchases = _purchases_from(purchases_by_month, reserved=reserved_events)
         evaluation = _evaluate(assumptions, targets, purchases)
+        shortfall_after = sum(fill.shortfall for fill in evaluation.targets if not fill.met)
+        if shortfall_after >= shortfall_before - 1e-9:
+            # The engine converted a whole round of purchases into zero
+            # shortfall reduction: the marginal model's phantom yield. Roll
+            # the ineffective round back and report the configuration as
+            # un-purchasable instead of escalating.
+            purchases_by_month = round_start_purchases
+            evaluation = _evaluate(assumptions, targets, _purchases_from(purchases_by_month))
+            notes.append(
+                "Purchases cannot back these targets under this configuration: a "
+                "full round of purchased does closed none of the shortfall (the "
+                "grower chain is empty at this sale/breeding age, or no sire is "
+                "available and auto-purchase is off). The shortfall stands as "
+                "reported — adjust the sale age/window or sire supply instead."
+            )
+            break
+        shortfall_before = shortfall_after
 
     return (
         _purchases_from(purchases_by_month, reserved=reserved_events),

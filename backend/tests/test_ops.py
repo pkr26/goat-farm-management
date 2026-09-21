@@ -32,7 +32,6 @@ import app.core.config as config_module
 import app.db as db_module
 import app.main as main_module
 import app.seed as seed_module
-from app.core import config as config_module
 from app.core.config import (
     DEVELOPMENT_IDEMPOTENCY_HMAC_SECRET,
     PRODUCTION_REFRESH_COOKIE_NAME,
@@ -732,8 +731,9 @@ def test_scheme_only_https_urls_fail_fast_at_settings_validation() -> None:
         )
     # Real hosts on https (and loopback http) still validate.
     assert (
-        Settings(_env_file=None, screening_anthropic_base_url="https://api.example.test")
-        .screening_anthropic_base_url
+        Settings(
+            _env_file=None, screening_anthropic_base_url="https://api.example.test"
+        ).screening_anthropic_base_url
         == "https://api.example.test"
     )
     assert (

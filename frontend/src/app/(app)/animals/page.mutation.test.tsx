@@ -17,6 +17,7 @@ import { server } from "@/test/msw-server";
 import { createTestQueryClient, renderWithProviders } from "@/test/render";
 
 import AnimalsPage from "./page";
+import { settle } from "@/test/settle";
 
 const nav = vi.hoisted(() => {
   const state = {
@@ -615,7 +616,7 @@ describe("AnimalsPage mutation hardening", () => {
       nav.state.deferReplace = true;
       nav.state.deferredReplacements = [];
       fireEvent.change(search, { target: { value: "G-9" } });
-      await new Promise((resolve) => window.setTimeout(resolve, 400));
+      await settle(400);
 
       // The debounced replacement is on the wire: the term matches its URL,
       // so only the navigation fence can keep the (cached) rows stood down.

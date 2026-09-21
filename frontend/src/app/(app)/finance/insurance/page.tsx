@@ -210,9 +210,11 @@ function AddPolicyDialog({
     <Dialog
       open
       onOpenChange={(nextOpen) => {
-        // Never block dismissal on an in-flight write; the continuation is
-        // guarded by the single-flight and farm-scope fences instead.
-        if (!nextOpen && saveBusy) return;
+        // As the comment always claimed: never block dismissal on an
+        // in-flight write — the continuation is guarded by the single-flight
+        // and farm-scope fences instead (the busy guard contradicted the
+        // comment and wedged the dialog shut on a slow request; P3,
+        // 2026-09-20 audit).
         if (!nextOpen) reset(policyDefaults());
         onClose();
       }}
@@ -471,8 +473,8 @@ function RenewPolicyDialog({
   return (
     <Dialog
       open
-      onOpenChange={(nextOpen) => {
-        if (!nextOpen && renewBusy) return;
+      onOpenChange={() => {
+        // Same never-block rule as the register dialog (see its comment).
         onClose();
       }}
     >
@@ -579,8 +581,8 @@ function ClaimPolicyDialog({
   return (
     <Dialog
       open
-      onOpenChange={(nextOpen) => {
-        if (!nextOpen && claimFlight.pending) return;
+      onOpenChange={() => {
+        // Same never-block rule as the register dialog (see its comment).
         onClose();
       }}
     >

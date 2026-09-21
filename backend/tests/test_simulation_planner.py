@@ -65,6 +65,85 @@ def test_festival_months_beyond_horizon_are_pruned_not_rejected() -> None:
         SimulationAssumptions.model_validate(document)
 
 
+# ---------------------------------------------------------------------------
+# Festival-month re-anchoring (P2-8, 2026-09-20 audit): auto-fill only ran
+# when festival_sale_months was None, so a horizon shrink materialized a
+# pruned (possibly EMPTY) list that extending the horizon never restored.
+# ---------------------------------------------------------------------------
+
+
+def test_festival_months_round_trip_120_24_120_restores_the_full_list() -> None:
+    """Shrinking the decade plan to 24 months prunes the Bakrid list to its
+    first two months; extending back to 120 must re-derive the FULL calendar,
+    not carry the 2-month prefix forever."""
+    full = SimulationAssumptions().sales.festival_sale_months
+    assert len(full) == 10  # the default decade start covers ten Bakrids
+
+    document = SimulationAssumptions().model_dump(mode="json")
+    document["meta"]["horizon_months"] = 24
+    shrunk = SimulationAssumptions.model_validate(document)
+    assert shrunk.sales.festival_sale_months == full[:2]
+
+    regrown = shrunk.model_dump(mode="json")
+    regrown["meta"]["horizon_months"] = 120
+    extended = SimulationAssumptions.model_validate(regrown)
+    assert extended.sales.festival_sale_months == full
+
+
+def test_festival_months_empty_list_re_anchors_when_the_horizon_grows() -> None:
+    """The residual P2-8 bug: starting 2039-02, the first Bakrid inside a
+    12-month horizon does not exist (Bakrid 2039 fell in January, 2040 in
+    December — simulation month 23). Materializing [] froze that "no Bakrid
+    this year" into the scenario, and extending the horizon carried it into
+    the decade as "no Bakrid, ever". The empty calendar now stays None — the
+    auto-fill stays live — so extending the horizon re-derives the decade's
+    festival months."""
+    short = SimulationAssumptions.model_validate(
+        {"meta": {"start_year_month": "2039-02", "horizon_months": 12}}
+    )
+    # NOT []: an empty calendar is never materialized, because a stored []
+    # is the user's explicit "no festival months" and must be respected.
+    assert short.sales.festival_sale_months is None
+
+    decade_document = short.model_dump(mode="json")
+    decade_document["meta"]["horizon_months"] = 120
+    decade = SimulationAssumptions.model_validate(decade_document)
+    assert decade.sales.festival_sale_months == bakrid_festival_months("2039-02", 120)
+    assert decade.sales.festival_sale_months  # non-empty: the auto-fill fired
+
+
+def test_genuinely_festival_free_horizon_and_explicit_empty_list() -> None:
+    """A horizon whose FULL Bakrid calendar is empty keeps the auto-fill
+    live (None, not []) — 2039-02 + 22 months ends before the month-23
+    Bakrid of 2040. An explicitly empty list, by contrast, is the user's
+    "no festival months" and is respected verbatim on ANY horizon."""
+    assert bakrid_festival_months("2039-02", 22) == []
+    validated = SimulationAssumptions.model_validate(
+        {"meta": {"start_year_month": "2039-02", "horizon_months": 22}}
+    )
+    assert validated.sales.festival_sale_months is None
+    # Round-tripping the None keeps the auto-fill live for a later extension.
+    again = SimulationAssumptions.model_validate(validated.model_dump(mode="json"))
+    assert again.sales.festival_sale_months is None
+
+    # The explicit disable is honored — including on horizons that DO contain
+    # festivals; it must never be re-expanded by the re-anchor rule.
+    document = SimulationAssumptions().model_dump(mode="json")
+    document["sales"]["festival_sale_months"] = []
+    disabled = SimulationAssumptions.model_validate(document)
+    assert disabled.sales.festival_sale_months == []
+
+
+def test_customized_non_prefix_festival_list_is_untouched() -> None:
+    """A hand-set list that is NOT a prefix of the Bakrid chain is a
+    customization, not an auto-derived calendar: re-anchoring must leave it
+    exactly as the planner set it ([3] vs the chain's first month 10)."""
+    document = SimulationAssumptions().model_dump(mode="json")
+    document["sales"]["festival_sale_months"] = [3]
+    validated = SimulationAssumptions.model_validate(document)
+    assert validated.sales.festival_sale_months == [3]
+
+
 def test_evaluate_plan_reports_honest_shortfalls() -> None:
     a = base_assumptions()
     targets = [SaleTarget(month=22, animal_class="male_grower", count=30.0)]
@@ -117,6 +196,41 @@ def test_close_gaps_refuses_impossible_targets_without_runaway() -> None:
     assert not closed
     assert purchases == []
     assert any("impossible" in note for note in notes)
+
+
+def test_close_gaps_zero_progress_guard_sale_age_boundary() -> None:
+    """P2-9 (2026-09-20 audit): at sale_age_months=6 the male-grower chain is
+    a single month wide, so the marginal mirror promises yield the engine
+    never delivers — every pass used to pile a full extra round of does onto
+    the same permanent shortfall and the plan read as "buy ~300 does". The
+    zero-progress guard must catch even the first phantom round: zero doe
+    purchases, gaps open, and a note explaining purchases cannot back the
+    targets."""
+    a = base_assumptions()
+    a.growth.sale_age_months = 6
+    purchases, evaluation, closed, notes = close_gaps(
+        a, [SaleTarget(month=24, animal_class="male_grower", count=25.0)]
+    )
+    assert purchases == []  # not one doe bought for a target no doe can back
+    assert not closed
+    assert evaluation.targets[0].shortfall > 0.0
+    assert any("Purchases cannot back these targets" in note for note in notes)
+
+
+def test_close_gaps_zero_progress_guard_no_sire_and_no_auto_purchase() -> None:
+    """P2-9, sire form: with bucks=0 and auto_purchase_bucks=False no doe ever
+    conceives, so purchased does close nothing — the same guard must stop the
+    escalation instead of recommending a sterile herd of bought does."""
+    a = base_assumptions()
+    a.herd.bucks = 0
+    a.herd.auto_purchase_bucks = False
+    purchases, evaluation, closed, notes = close_gaps(
+        a, [SaleTarget(month=24, animal_class="male_grower", count=25.0)]
+    )
+    assert purchases == []
+    assert not closed
+    assert evaluation.targets[0].shortfall > 0.0
+    assert any("Purchases cannot back these targets" in note for note in notes)
 
 
 def test_plan_probabilities_are_bounded_and_deterministic() -> None:

@@ -20,7 +20,7 @@ with pnpm 9 (`corepack enable`).
 ```bash
 # 1. Backend
 cd backend
-uv sync --frozen --extra dev           # creates backend/.venv from uv.lock
+uv sync --locked --extra dev           # creates backend/.venv from uv.lock
 createdb goatfarm                      # once
 ./.venv/bin/alembic upgrade head
 ./.venv/bin/uvicorn app.main:app --reload --port 8000
@@ -46,7 +46,7 @@ finite, independently committed, lock-skipping batches configured by
 of the number of farms and historical tasks.
 
 `backend/uv.lock` pins the full transitive dependency graph (runtime + dev):
-`uv sync --frozen --extra dev` reproduces it exactly, and `uv lock --upgrade`
+`uv sync --locked --extra dev` reproduces it exactly, and `uv lock --upgrade`
 re-resolves it after changing `pyproject.toml`.
 
 Configuration is via `GOATFARM_*` env vars (`backend/app/core/config.py`; see
@@ -314,6 +314,15 @@ deterministic profile, then uploads `mutmut results` and the campaign stats
 JSON as artifacts, cutting itself off after ~5.5 hours with whatever partial
 results exist. Per-survivor triage is a manual follow-up from those artifacts —
 the workflow reports, it does not block.
+
+The frontend mirrors that posture on Tuesdays
+(`.github/workflows/frontend-mutation.yml`): the four Stryker shards
+(`app1`, `app2`, `components`, `lib` — the lib glob includes
+`auth-context.tsx` and `i18n/index.tsx`) run on the same non-gating
+schedule, each shard's score is appended to `audit_reports/mutation-trend.json`
+by the trend job, and the HTML reports land as 90-day artifacts. Threshold
+breaches surface as workflow warnings, not failures. Run shards locally with
+`pnpm test:mutation:<shard>` (or all four via `pnpm test:mutation`).
 
 The API contract flows one way: backend routes/schemas →
 `shared/openapi.json` → Orval-generated TanStack Query hooks
@@ -658,6 +667,53 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
   digests and fails when a fixable HIGH/CRITICAL exists in a lagging base,
   which is the trigger to re-pin deliberately across the Dockerfiles,
   compose, and workflow mirrors.
+- **Historical migration caveat — detection query.** The first shipped form
+  of revision `c8f1d3a5e709` (same id, since corrected in-repo) rewrote
+  non-finite money to `amount = 0` and nulled five optional price columns
+  instead of refusing; a database that migrated under that variant carries
+  no marker of the rewrite. Any database whose provenance spans August 2026
+  images should be probed during the pre-migration health check — a nonzero
+  count means ledger rows may have been silently neutralized and must be
+  reconciled against backups before the upgrade proceeds:
+
+  ```sql
+  -- Rows a damaged c8f1d3a5e709 pass may have rewritten. NULLed optional
+  -- prices are legitimate on their own; the signal is their co-occurrence
+  -- with a zero amount on rows whose provenance implies a real booking.
+  SELECT count(*) AS suspect_neutralized_rows
+    FROM transactions
+   WHERE amount = 0
+     AND type = 'EXPENSE'
+     AND created_at < '2026-08-20';
+  ```
+
+  A related invariant of the same program: applied Alembic revisions are
+  immutable — CI fails any change that edits, renames, or deletes an
+  existing `backend/alembic/versions/*.py` file instead of appending a new
+  revision (the in-place edit of `c8f1d3a5e709` is the cautionary tale).
+- **Known limitations inside already-applied revisions** (2026-09-20 audit
+  P3s; unfixable in place under the immutability rule above, recorded here so
+  the next database program inherits them deliberately):
+  - Three CHECK swaps in older revisions (`b1c2d3e4f5a6`,
+    `c1d2e3f4a5b6`, `bd201c1cdc1b`) take ACCESS EXCLUSIVE over a full-table
+    scan instead of the chain's own `NOT VALID` + `VALIDATE` short-lock
+    idiom. Their tables are small at every provisioned scale today; any new
+    CHECK on a hot table MUST use `postgresql_not_valid=True` plus
+    `ALTER TABLE … VALIDATE CONSTRAINT` (see `cad1e2f3a4b5` for the pattern).
+  - `c4f6a8b0d2e5`'s jsonb preflight parses every row in Python before the
+    DDL. Fine at current sizes; a future variant should bound the scan
+    (keyset batches) or push the parse into SQL.
+  - `e1f2a3b4c5d6`'s premium backfill skips policies whose recorded horizon
+    predates their start (zero-length periods); those policies show no
+    historical premium rows.
+  - Legacy task rejection notes and malformed kidding-link references were
+    rewritten by older cleanups without an archive table; the audit trail for
+    those specific edits lives in the dated audit bundles only.
+  - No `naming_convention` is attached to the Alembic target metadata: early
+    revisions create unnamed FK constraints that later revisions drop by
+    their PostgreSQL default names, so a convention retrofit renames them at
+    replay time and aborts the chain (see `backend/alembic/env.py`). It can
+    only arrive with a chain-wide rename revision.
 
 **TOTP encryption migration (must finish before a JWT signing-key cutover):**
 TOTP secrets are encrypted with a separate, stable AES-256 key named

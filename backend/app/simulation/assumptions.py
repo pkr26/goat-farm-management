@@ -474,6 +474,20 @@ class SalesAssumptions(_Group):
         min_length=12,
         max_length=12,
     )
+
+    @field_validator("monthly_meat_price_multipliers")
+    @classmethod
+    def _user_seasonality_normalizes_to_mean_one(cls, value: list[float]) -> list[float]:
+        # The default factory normalizes, but a user-supplied curve did not:
+        # a hand-written list averaging 1.1 silently redefined the base price
+        # 10% above the documented annual mean (P3, 2026-09-20 audit). Skip
+        # lists already at mean 1.0 (within float noise) so round trips stay
+        # bit-identical instead of oscillating in the last ULP.
+        mean = sum(value) / len(value)
+        if abs(mean - 1.0) > 1e-12:
+            return _normalized_seasonality(value)
+        return value
+
     # Nominal escalation. Indian mutton/meat CPI has trended near general food
     # inflation (~5-6%/yr recent years); 4% is a conservative long-run plan
     # figure for a 10-year appraisal, paired with the same rate on feed.
@@ -938,6 +952,27 @@ class HerdEventAssumptions(_Group):
     age_months: int | None = Field(default=None, ge=0, le=30)
 
 
+def min_feasible_sale_age(a: "SimulationAssumptions") -> int:
+    """Smallest ``growth.sale_age_months`` that keeps every purchase event valid.
+
+    ``_event_age_within_class_chain`` pins male-grower arrival ages to
+    ``<= sale_age - 1``.  Sensitivity and optimization mutate
+    ``sale_age_months`` and re-validate the whole scenario, so a variant
+    that lowers the sale age below the youngest male-grower event's age + 1
+    would raise a ValidationError on a scenario the user submitted as valid
+    (2026-09-20 audit P1-5).  Callers clamp their sale-age axes to this
+    floor.
+    """
+    return max(
+        (
+            event.age_months + 1
+            for event in a.events
+            if event.animal_class == "male_grower" and event.age_months is not None
+        ),
+        default=6,
+    )
+
+
 # Dairy/buffalo assumption keys retired when the model went goat-meat-only
 # (see SimulationAssumptions._drop_retired_dairy_fields). Kept as data, not
 # scattered string literals, so the API contract change is auditable.
@@ -1051,18 +1086,44 @@ class SimulationAssumptions(_Group):
 
     @model_validator(mode="after")
     def _festival_months_within_horizon(self) -> "SimulationAssumptions":
+        # Lazy import: market imports this module, so a top-level import
+        # would be circular.
+        from .market import bakrid_festival_months
+
         if self.sales.festival_sale_months is None:
             # Every scenario is a meat scenario now, so the Bakrid calendar
-            # auto-fills for the run's own horizon. Lazy import: market
-            # imports this module, so a top-level import would be circular.
-            from .market import bakrid_festival_months
-
-            self.sales.festival_sale_months = bakrid_festival_months(
-                self.meta.start_year_month, self.meta.horizon_months
-            )
-        if len(set(self.sales.festival_sale_months)) != len(self.sales.festival_sale_months):
+            # auto-fills for the run's own horizon — but only when that
+            # horizon actually contains a Bakrid month. An empty calendar
+            # stays None instead of materializing []: a frozen [] would be
+            # indistinguishable from the user's explicit "no festival
+            # months", and the re-anchor rule below deliberately respects
+            # that choice. Staying None keeps the auto-fill live, so
+            # extending the horizon past the lunar gap re-derives the
+            # festivals instead of carrying a silent nothing into the decade
+            # (2026-09-20 audit P2-8).
+            derived = bakrid_festival_months(self.meta.start_year_month, self.meta.horizon_months)
+            if derived:
+                self.sales.festival_sale_months = derived
+        else:
+            # Re-anchor a truncated auto-derived calendar. Shrinking the
+            # horizon prunes the list in place; auto-fill only ran when the
+            # value was None, so extending the horizon back never restored
+            # the pruned months — a decade plan permanently kept 2 of its 10
+            # Bakrid months (2026-09-20 audit P2-8). A list that is exactly
+            # the Bakrid calendar truncated to some shorter horizon (its
+            # months are the first k of the current chain) was auto-derived;
+            # re-derive it for the current horizon. An explicitly EMPTY list
+            # is the user's "no festival months" and is left untouched.
+            # A genuinely customized list (not a prefix of the chain) is
+            # likewise left untouched.
+            months = self.sales.festival_sale_months
+            full = bakrid_festival_months(self.meta.start_year_month, self.meta.horizon_months)
+            if months and set(months) == set(full[: len(months)]) and len(months) != len(full):
+                self.sales.festival_sale_months = full
+        months = self.sales.festival_sale_months or []
+        if len(set(months)) != len(months):
             raise ValueError("sales.festival_sale_months must not contain duplicates")
-        for month in self.sales.festival_sale_months:
+        for month in months:
             if month < 1:
                 raise ValueError(
                     "sales.festival_sale_months must contain 1-based months inside the horizon"
@@ -1071,10 +1132,13 @@ class SimulationAssumptions(_Group):
         # the Bakrid calendar pre-filled for a 10-year horizon, and shrinking
         # the horizon to "see the first two years" must not turn the preset
         # into a 422 the user has to debug. A festival past the horizon simply
-        # is not part of that plan.
-        self.sales.festival_sale_months = [
-            month for month in self.sales.festival_sale_months if month <= self.meta.horizon_months
-        ]
+        # is not part of that plan. A None (festival-free horizon, auto-fill
+        # kept live) stays None — pruning it to [] would freeze the very
+        # nothing-ness the auto-fill branch above refuses to materialize.
+        if self.sales.festival_sale_months is not None:
+            self.sales.festival_sale_months = [
+                month for month in months if month <= self.meta.horizon_months
+            ]
         return self
 
     @model_validator(mode="after")

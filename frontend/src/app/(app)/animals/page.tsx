@@ -78,16 +78,17 @@ import {
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
+import { MAX_PAGE_OFFSET } from "@/lib/use-url-state";
 
 const ALL = "ALL";
 const PAGE_SIZE = 50;
 /** Mirrors backend/app/api/animals.py `q: Query(max_length=60)`. */
 const MAX_TAG_SEARCH = 60;
 const clampSearch = (value: string) => value.slice(0, MAX_TAG_SEARCH);
-/** Mirrors backend/app/schemas/common.py MAX_PAGE_OFFSET (`offset: Query(le=…)`).
- * A larger offset is a 422, and an error response never reaches the
- * out-of-range self-healing below — the list would just dead-end. */
-const MAX_PAGE_OFFSET = 1_000_000;
+/** Backend MAX_PAGE_OFFSET via the shared mirror (pinned by
+ * backend-constants-parity.test.ts): a larger offset is a 422, and an error
+ * response never reaches the out-of-range self-healing below — the list
+ * would just dead-end. */
 const MAX_PAGE = Math.floor(MAX_PAGE_OFFSET / PAGE_SIZE) + 1;
 const BUCKETS = Object.values(AnimalCreateInCurrentBucket);
 const BIRTH_TYPES = Object.values(AnimalCreateInBirthType);

@@ -5,7 +5,8 @@
  * boundary, the label and disabled states that hold for the whole submit
  * attempt, the bucket echoed by the closed Select trigger, and the
  * hidden-field cleanup that stops a stale sale or mortality value from
- * silently blocking a later status change.
+ * silently blocking a later status change — plus the estimated-DOB remedy
+ * a DOB-less male sale must collect and carry (2026-09-20 audit P1-7).
  */
 
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
@@ -425,6 +426,7 @@ describe("AnimalProfilePage dialog branches", () => {
         mortality_cause: "Bloat",
         mortality_cause_code: null,
         disposal_method: null,
+        estimated_dob: null,
         mortality_reported_at: null,
         necropsy_done: false,
         necropsy_findings: null,
@@ -548,6 +550,106 @@ describe("AnimalProfilePage dialog branches", () => {
       expect(confirm).not.toHaveAttribute("disabled");
       expect(fieldset).toBeEnabled();
       expect(statusBodies).toHaveLength(0);
+    });
+  });
+
+  describe("DOB-less male sale estimate (2026-09-20 audit P1-7)", () => {
+    // A buck with neither a recorded nor an estimated birth date cannot pass
+    // the backend's meat-sale age floor, and DOB is not editable after
+    // creation — the estimate is the only field-editable remedy, so the SOLD
+    // dialog must collect it instead of letting the sale 422 server-side.
+    function useAnimalWith(animal: Record<string, unknown>) {
+      server.use(
+        http.get("/api/animals/1", () =>
+          HttpResponse.json({ ...PROFILE, animal: { ...ANIMAL, ...animal } }),
+        ),
+      );
+    }
+
+    function useDoblessBuck() {
+      useAnimalWith({ sex: "M", date_of_birth: null, estimated_dob: null });
+    }
+
+    it("renders a date input for the estimate on a DOB-less male SOLD", async () => {
+      useDoblessBuck();
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Change status");
+
+      const estimate = within(dialog).getByLabelText(/estimated date of birth/i);
+      expect(estimate).toHaveAttribute("type", "date");
+      // Pristine: no invalid state, and the describedby points at the
+      // explanatory hint rather than an error.
+      expect(estimate).not.toHaveAttribute("aria-invalid");
+      expect(estimate).toHaveAccessibleDescription(
+        /the estimate is saved to the animal so the meat-sale age floor/i,
+      );
+    });
+
+    it("blocks the sale without an estimate and never posts", async () => {
+      useDoblessBuck();
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Change status");
+      const estimate = within(dialog).getByLabelText(/estimated date of birth/i);
+
+      await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
+
+      expect(
+        await within(dialog).findByText(
+          "This male has no birth or estimated date on record — estimate one so the sale age floor can be verified",
+        ),
+      ).toBeInTheDocument();
+      expectRejected(
+        estimate,
+        "This male has no birth or estimated date on record — estimate one so the sale age floor can be verified",
+      );
+      expect(statusBodies).toHaveLength(0);
+    });
+
+    it("posts the chosen estimate with the SOLD payload", async () => {
+      useDoblessBuck();
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Change status");
+      const estimate = addDays(farmToday(), -400);
+
+      setInput(within(dialog).getByLabelText(/estimated date of birth/i), estimate);
+      await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
+
+      await waitFor(() => expect(statusBodies).toHaveLength(1));
+      expect(statusBodies[0]).toMatchObject({
+        new_status: "SOLD",
+        estimated_dob: estimate,
+      });
+    });
+
+    it.each([
+      {
+        label: "a male with a recorded DOB",
+        animal: { sex: "M" },
+      },
+      {
+        label: "a female without any birth date",
+        animal: { sex: "F", date_of_birth: null, estimated_dob: null },
+      },
+      {
+        label: "a male whose estimate is already on record",
+        animal: { sex: "M", date_of_birth: null, estimated_dob: "2025-05-01" },
+      },
+    ])("never asks $label for an estimate and posts estimated_dob null", async ({ animal }) => {
+      useAnimalWith(animal);
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Change status");
+
+      expect(
+        within(dialog).queryByLabelText(/estimated date of birth/i),
+      ).not.toBeInTheDocument();
+      await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
+
+      await waitFor(() => expect(statusBodies).toHaveLength(1));
+      expect(statusBodies[0]).toMatchObject({ estimated_dob: null });
     });
   });
 });

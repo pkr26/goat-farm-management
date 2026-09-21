@@ -385,7 +385,9 @@ async def test_golden_path_full_doe_cycle(client: httpx.AsyncClient) -> None:
     refused = await change_status(
         client, headers, male_kid, "SOLD", sale_price=3000, buyer_name="Local buyer"
     )
-    assert refused.status_code in {409, 422}, refused.text
+    # The meat-sale age floor is a 422 from the status route (409 is the
+    # quarantine-only refusal; this kid sits in MALE_KIDS).
+    assert refused.status_code == 422, refused.text
 
     # -- flush-window guard: re-service on the day she entered RESTING is
     # refused; after the flush window it succeeds

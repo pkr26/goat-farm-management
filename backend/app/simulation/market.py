@@ -29,9 +29,12 @@ def meat_price_for_month(
     ``eid_month``. This prevents an old saved calendar month from creating extra
     festivals after a user supplies the accurate lunar-calendar dates.
     """
+    # An explicitly EMPTY list means "no festival sales at all" — testing the
+    # list's truthiness fell through to the legacy eid_month branch and fired
+    # the Gregorian uplift the user just disabled (P3, 2026-09-20 audit).
     festival = (
         simulation_month in sales.festival_sale_months
-        if sales.festival_sale_months
+        if sales.festival_sale_months is not None
         else sales.eid_month > 0 and calendar_month == sales.eid_month
     )
     uplift = 1.0 + sales.eid_price_uplift if festival else 1.0

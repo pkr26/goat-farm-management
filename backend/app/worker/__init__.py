@@ -174,7 +174,7 @@ async def _run_loop(stop: asyncio.Event, settings: ScreeningWorkerSettings | Non
                 logger.info(
                     "screening cycle: claimed=%d healthy=%d flagged=%d skipped=%d "
                     "errors=%d retried_errors=%d retried_flagged=%d "
-                    "expired_uploads=%d notes=%s",
+                    "expired_uploads=%d terminated_processing=%d notes=%s",
                     summary.claimed,
                     summary.healthy,
                     summary.flagged,
@@ -183,6 +183,7 @@ async def _run_loop(stop: asyncio.Event, settings: ScreeningWorkerSettings | Non
                     summary.retried_errors,
                     summary.retried_flagged,
                     summary.expired_uploads,
+                    summary.terminated_processing,
                     summary.notes,
                 )
         except Exception:
@@ -191,9 +192,7 @@ async def _run_loop(stop: asyncio.Event, settings: ScreeningWorkerSettings | Non
             # recovery window (see screening_worker_healthcheck.py): it only
             # fails the container once this count reaches the configured
             # limit — the same threshold at which the worker exits nonzero.
-            _publish_heartbeat(
-                settings, "error", consecutive_failures=consecutive_cycle_failures
-            )
+            _publish_heartbeat(settings, "error", consecutive_failures=consecutive_cycle_failures)
             if (
                 consecutive_cycle_failures
                 >= settings.screening_worker_max_consecutive_cycle_failures

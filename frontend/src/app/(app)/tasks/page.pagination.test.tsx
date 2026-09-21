@@ -249,22 +249,24 @@ describe("TasksPage independent pagination", () => {
 
   it("accepts the exact maximum offset while canonicalizing one malformed sibling", async () => {
     totals = {
-      today: 1_000_001,
+      today: 10_001,
       overdue: 1,
       upcoming: 1,
       awaiting: 1,
       completed: 1,
     };
+    // 10000 is the exact backend MAX_PAGE_OFFSET (P2-16 lowered the mirror
+      // from 1_000_000); a malformed sibling still canonicalizes to 0.
     nav.state.search =
-      "tab=today&today_offset=1000000&overdue_offset=oops&from=dashboard";
+      "tab=today&today_offset=10000&overdue_offset=oops&from=dashboard";
     renderWithProviders(<TasksPage />);
 
     await waitFor(() => expect(seenParams.length).toBeGreaterThan(0));
-    expect(seenParams[0].get("today_offset")).toBe("1000000");
+    expect(seenParams[0].get("today_offset")).toBe("10000");
     expect(seenParams[0].get("overdue_offset")).toBe("0");
     await waitFor(() =>
       expect(nav.replace).toHaveBeenLastCalledWith(
-        "/tasks?tab=today&today_offset=1000000&from=dashboard",
+        "/tasks?tab=today&today_offset=10000&from=dashboard",
       ),
     );
   });

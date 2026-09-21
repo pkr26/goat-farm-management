@@ -330,7 +330,9 @@ ENUM_CASES = [
     (AnimalStatus, {"ACTIVE", "SOLD", "DEAD", "CULLED"}),
     (AnimalSource, {"BORN", "PURCHASED"}),
     (Sex, {"M", "F"}),
-    (BirthType, {"SINGLE", "TWIN", "TRIPLET", "QUADRUPLET", "MULTIPLET"}),
+    # MULTIPLET is unproducible above the species litter cap and was removed
+    # (cad1e2f3a4b5).
+    (BirthType, {"SINGLE", "TWIN", "TRIPLET", "QUADRUPLET"}),
     (BreedingMethod, {"NATURAL", "AI", "AI_SEXED"}),
     # UNASSESSED closes a service that could never be scanned because the doe
     # left the herd; it asserts neither a conception nor a failure to conceive.

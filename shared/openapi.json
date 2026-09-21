@@ -11094,7 +11094,6 @@
                 {
                   "enum": [
                     "active",
-                    "renewed",
                     "lapsed",
                     "claimed"
                   ],
@@ -18967,7 +18966,7 @@
           "screening"
         ],
         "summary": "Export Dataset",
-        "description": "The fine-tuning corpus: findings with image/crop references and the\nvet verdict that makes each label trustworthy. Defaults to every\nreviewed finding; pass vet_status=ALL to include the pending queue.",
+        "description": "The fine-tuning corpus: findings with image/crop references and the\nvet verdict that makes each label trustworthy. Defaults to every\nfinding INCLUDING the pending review queue (each record carries\n``vet_status`` so consumers can filter); pass vet_status=CONFIRMED or\nREJECTED for reviewed-only exports.",
         "operationId": "export_dataset_api_screening_export_get",
         "security": [
           {
@@ -20096,8 +20095,7 @@
                   "SINGLE",
                   "TWIN",
                   "TRIPLET",
-                  "QUADRUPLET",
-                  "MULTIPLET"
+                  "QUADRUPLET"
                 ]
               },
               {
@@ -20506,8 +20504,7 @@
                   "SINGLE",
                   "TWIN",
                   "TRIPLET",
-                  "QUADRUPLET",
-                  "MULTIPLET"
+                  "QUADRUPLET"
                 ]
               },
               {
@@ -20594,6 +20591,17 @@
               }
             ],
             "title": "Status Date"
+          },
+          "status_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Notes"
           },
           "sale_price": {
             "anyOf": [
@@ -20932,6 +20940,7 @@
           "current_bucket",
           "status",
           "status_date",
+          "status_notes",
           "sale_price",
           "sale_weight_kg",
           "buyer_name",
@@ -21510,6 +21519,11 @@
               }
             ],
             "title": "Latest Weight Kg"
+          },
+          "cull_candidate": {
+            "type": "boolean",
+            "title": "Cull Candidate",
+            "default": false
           }
         },
         "type": "object",
@@ -24813,6 +24827,21 @@
             "type": "array",
             "title": "Target Animals"
           },
+          "target_animal_ages_months": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Target Animal Ages Months",
+            "default": []
+          },
           "target_count": {
             "type": "integer",
             "title": "Target Count"
@@ -26066,7 +26095,8 @@
           "notes": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 255
               },
               {
                 "type": "null"
@@ -26145,7 +26175,6 @@
             "type": "string",
             "enum": [
               "active",
-              "renewed",
               "lapsed",
               "claimed"
             ],
