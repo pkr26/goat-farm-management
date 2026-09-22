@@ -117,6 +117,10 @@ export function buildContentSecurityPolicy(options: CspOptions): string {
     "font-src 'self' data:",
     `connect-src 'self'${connectOrigins.length ? ` ${connectOrigins.join(" ")}` : ""}`,
     "object-src 'none'",
+    // Worker-tablet PWA (ITEM 2): the service worker and manifest are
+    // first-party; no third-party worker or manifest may ever load.
+    "worker-src 'self'",
+    "manifest-src 'self'",
     "base-uri 'self'",
     "form-action 'self'",
     "frame-ancestors 'none'",

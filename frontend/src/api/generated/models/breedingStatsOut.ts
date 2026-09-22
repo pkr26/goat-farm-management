@@ -7,10 +7,10 @@
 import type { AnimalIdentityOut } from './animalIdentityOut';
 
 export interface BreedingStatsOut {
-  total_records: number;
+  total_records: number | null;
   conception_rate: number | null;
   first_cycle_rate: number | null;
-  kiddings: number;
+  kiddings: number | null;
   kids_per_kidding: number | null;
   twin_rate: number | null;
   cull_candidates: AnimalIdentityOut[];

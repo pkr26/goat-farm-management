@@ -335,9 +335,12 @@ async def create_animal(
             and payload.purchase_date < recorded_dob
         ):
             raise ValueError("purchase_date cannot predate the recorded birth date")
-        if payload.weight_date is not None and recorded_dob is not None:
-            if payload.weight_date < recorded_dob:
-                raise ValueError("weight_date cannot predate the recorded birth date")
+        if (
+            payload.weight_date is not None
+            and recorded_dob is not None
+            and payload.weight_date < recorded_dob
+        ):
+            raise ValueError("weight_date cannot predate the recorded birth date")
         if (
             payload.weight_date is not None
             and payload.purchase_date is not None
@@ -391,29 +394,27 @@ async def create_animal(
     books_money = managed_purchase or (
         payload.source == "PURCHASED" and payload.purchase_price is not None
     )
-    if managed_purchase:
-        # The managed-purchase cascade books procurement (batch + quarantine
-        # schedule + ANIMAL_PURCHASE expense) — writes that otherwise require
-        # purchases.manage. A role holding only animals.create must not be
-        # able to forge ledger entries through this endpoint (RT-C-1).
-        if "purchases.manage" not in perms:
-            raise HTTPException(
-                status_code=403,
-                detail=(
-                    "Recording a purchased animal books a purchase batch and "
-                    "expense and requires the purchase-management permission. "
-                    "Use a historical import or ask the owner."
-                ),
-            )
-    if books_money:
-        # Money-booking mutation with no natural key: the Idempotency-Key is
-        # mandatory here for the same reason it is on /api/purchases/new —
-        # a keyless retry would double-book the expense (RT-C-4).
-        if idempotency_key is None:
-            raise HTTPException(
-                status_code=422,
-                detail="An Idempotency-Key header is required for purchased-animal creation.",
-            )
+    # The managed-purchase cascade books procurement (batch + quarantine
+    # schedule + ANIMAL_PURCHASE expense) — writes that otherwise require
+    # purchases.manage. A role holding only animals.create must not be
+    # able to forge ledger entries through this endpoint (RT-C-1).
+    if managed_purchase and "purchases.manage" not in perms:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Recording a purchased animal books a purchase batch and "
+                "expense and requires the purchase-management permission. "
+                "Use a historical import or ask the owner."
+            ),
+        )
+    # Money-booking mutation with no natural key: the Idempotency-Key is
+    # mandatory here for the same reason it is on /api/purchases/new —
+    # a keyless retry would double-book the expense (RT-C-4).
+    if books_money and idempotency_key is None:
+        raise HTTPException(
+            status_code=422,
+            detail="An Idempotency-Key header is required for purchased-animal creation.",
+        )
     initial_bucket = Bucket.QUARANTINE.value if managed_purchase else payload.current_bucket
     if historical_import_reason:
         # A direct import cannot fabricate a pregnancy, delivery or lactating
@@ -614,8 +615,7 @@ async def create_animal(
                     # latest weight/move/provenance, otherwise an incorrect
                     # response would also be cached by durable idempotency.
                     await db.flush()
-                    result = await _animal_out(db, animal, farm_date, farm_timezone, perms)
-                return result
+                    return await _animal_out(db, animal, farm_date, farm_timezone, perms)
             except IntegrityError as exc:
                 # Animal tags and tagged stillbirth records share one farm
                 # namespace. The latter is enforced by a trigger-backed unique

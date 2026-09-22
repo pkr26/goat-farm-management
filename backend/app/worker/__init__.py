@@ -16,6 +16,8 @@ from collections.abc import Coroutine
 from contextlib import suppress
 from typing import Any
 
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
 from ..core.config import ScreeningWorkerSettings, get_screening_worker_settings
 from ..db import create_sessionmaker
 from ..services.screening import (
@@ -159,6 +161,32 @@ async def _run_loop(stop: asyncio.Event, settings: ScreeningWorkerSettings | Non
         rotation.names(),
         interval,
     )
+    try:
+        return await _run_cycles(stop, settings, sessionmaker, storage, rotation, interval)
+    finally:
+        # Close every provider's owned httpx transport on shutdown (B-small,
+        # 2026-09-21 audit: the adapters' AsyncClients were never closed, so
+        # each worker exit leaked its connection pools). Concrete adapters
+        # implement aclose; test doubles without transports are skipped.
+        try:
+            providers = list(rotation)
+        except TypeError:  # a patched-in test double without iteration
+            providers = []
+        for provider in providers:
+            aclose = getattr(provider, "aclose", None)
+            if aclose is not None:
+                with suppress(Exception):
+                    await aclose()
+
+
+async def _run_cycles(
+    stop: asyncio.Event,
+    settings: ScreeningWorkerSettings,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    storage: ScreeningStorage,
+    rotation: ProviderRotation,
+    interval: int,
+) -> int:
     consecutive_cycle_failures = 0
     while not stop.is_set():
         try:

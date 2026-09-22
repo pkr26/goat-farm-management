@@ -27,7 +27,9 @@ from ..models.idempotency import CREATE_FARM_IDEMPOTENCY_OPERATION
 from ..utils import utcnow
 
 MAX_IDEMPOTENCY_KEY_LENGTH = 128
-SENSITIVE_IDEMPOTENCY_OPERATIONS = frozenset({"team.workers.create"})
+# Password/PIN-bearing operations: keyed HMAC fingerprints only, so a
+# database/backup reader cannot test guesses offline.
+SENSITIVE_IDEMPOTENCY_OPERATIONS = frozenset({"team.workers.create", "team.workers.reset-pin"})
 
 # Printable, non-whitespace ASCII; shared by the header contract and the
 # OpenAPI parameter schema published for the required-key routes.

@@ -11,7 +11,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
 from contextvars import ContextVar
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +38,7 @@ from .api import (
     health,
     kidding,
     ops_simulation,
+    owner,
     planner,
     purchases,
     screening,
@@ -48,6 +49,7 @@ from .api import (
 from .core.config import get_settings
 from .db import get_engine, get_sessionmaker
 from .deps import deactivate_deleted_user_memberships, purge_expired_refresh_sessions
+from .models import Farm
 from .schemas.common import RequestValidationErrorOut
 from .schemas.ops import HealthStatusOut, ReadinessStatusOut, ReadinessUnavailableOut
 from .security import PasswordWorkCapacityError, prime_dummy_password_hash, validate_jwt_keypair
@@ -59,6 +61,7 @@ from .services.idempotency import (
     MAX_IDEMPOTENCY_KEY_LENGTH,
     purge_expired_idempotency_records,
 )
+from .utils import utcnow
 
 logger = logging.getLogger("goatfarm")
 
@@ -363,6 +366,57 @@ async def _deleted_membership_cleanup_loop(
         await asyncio.sleep(interval_seconds)
 
 
+async def _notifications_loop() -> None:
+    """Minute-tick notification dispatch (ITEM 4, 2026-09-21 playbook).
+
+    Fires the per-farm morning digest at each farm's local digest minute and
+    runs the overdue-critical sweep hourly. Disabled deployments idle — the
+    loop exits immediately, so an unconfigured feature costs nothing.
+    """
+    settings = get_settings()
+    if not settings.notifications_enabled:
+        return
+    from .services.notifications import (
+        build_notification_provider,
+        farms_ready_for_digest,
+        feed_reorder_daily,
+        kidding_watch_daily,
+        overdue_critical_sweep,
+        run_digest_for_farm,
+    )
+
+    provider = build_notification_provider(settings)
+    last_sweep_hour: int | None = None
+    while True:
+        await asyncio.sleep(60)
+        try:
+            now = utcnow().replace(tzinfo=UTC)
+            async with get_sessionmaker()() as db:
+                for farm in await farms_ready_for_digest(db, settings, now):
+                    summary = await run_digest_for_farm(db, settings, provider, farm)
+                    if summary.sent or summary.skipped:
+                        logger.info(
+                            "digest farm=%s sent=%d skipped=%d",
+                            farm.id,
+                            summary.sent,
+                            summary.skipped,
+                        )
+                if last_sweep_hour != now.hour:
+                    last_sweep_hour = now.hour
+                    from sqlalchemy import select as _select
+
+                    for farm in (await db.execute(_select(Farm))).scalars():
+                        await overdue_critical_sweep(db, settings, provider, farm)
+                        # Day-dedupe makes these daily in effect (payload is
+                        # the farm-local date): hourly runs are idempotent.
+                        await kidding_watch_daily(db, settings, provider, farm)
+                        await feed_reorder_daily(db, settings, provider, farm)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("notifications loop iteration failed")
+
+
 async def _cadence_materialization_loop(
     interval_seconds: int,
     farm_batch_size: int,
@@ -412,7 +466,7 @@ def _enforce_production_private_key_mode() -> None:
     if get_settings().environment != "production":
         return
     private_key_path = Path(get_settings().jwt_private_key_path)
-    key_mode = os.stat(private_key_path).st_mode
+    key_mode = private_key_path.stat().st_mode
     if key_mode & 0o077:
         raise RuntimeError(
             f"Refusing to boot: JWT private key {private_key_path} is "
@@ -548,6 +602,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         ),
         name="deleted-membership-cleanup",
     )
+    notifications_task = asyncio.create_task(_notifications_loop(), name="notifications")
     cadence_materialization_task = asyncio.create_task(
         _cadence_materialization_loop(
             get_settings().cadence_materialization_interval_seconds,
@@ -561,6 +616,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         yield
     finally:
         refresh_cleanup_task.cancel()
+        notifications_task.cancel()
         idempotency_cleanup_task.cancel()
         throttle_summary_task.cancel()
         legacy_repair_task.cancel()
@@ -569,6 +625,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         cadence_materialization_task.cancel()
         for cleanup_task in (
             refresh_cleanup_task,
+            notifications_task,
             idempotency_cleanup_task,
             legacy_repair_task,
             inactive_animal_task_cleanup_task,
@@ -681,7 +738,9 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 async def password_capacity_handler(request: Request, exc: Exception) -> JSONResponse:
     """Keep Argon2 bursts from queuing memory-hard work or blocking the loop."""
-    assert isinstance(exc, PasswordWorkCapacityError)
+    # Exception-handler registration guarantees this type; the assert keeps
+    # mypy narrowing without a redundant runtime branch.
+    assert isinstance(exc, PasswordWorkCapacityError)  # noqa: S101 — handler registration fixes this type
     return JSONResponse(
         status_code=429,
         content={"detail": "Password service is busy — please retry shortly."},
@@ -911,6 +970,7 @@ def create_app() -> FastAPI:
     app.include_router(planner.router)
     app.include_router(ops_simulation.router)
     app.include_router(screening.router)
+    app.include_router(owner.router)
     return app
 
 

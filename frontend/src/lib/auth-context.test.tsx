@@ -186,7 +186,9 @@ describe("AuthProvider bootstrap — valid session", () => {
 
     await expectLoaded();
     expect(screen.getByTestId("farmId")).toHaveTextContent("none");
-    expect(localStorage.getItem(FARM_STORAGE_KEY)).toBeNull();
+    // The selection is tombstoned (not removed): a removal is the cross-tab
+    // signal for session teardown, and a revocation must not read as one.
+    expect(localStorage.getItem(FARM_STORAGE_KEY)).toBe("revoked:99");
     expect(screen.getByTestId("farms")).toHaveTextContent("1,2");
   });
 
@@ -486,7 +488,7 @@ describe("AuthProvider actions", () => {
     );
     // The list itself survives so /farm-select offers the explicit choice.
     expect(screen.getByTestId("farms")).toHaveTextContent("3");
-    expect(localStorage.getItem(FARM_STORAGE_KEY)).toBeNull();
+    expect(localStorage.getItem(FARM_STORAGE_KEY)).toBe("revoked:1");
   });
 
   it("clears the token and redirects when a later API call fails auth", async () => {
@@ -594,6 +596,131 @@ describe("AuthProvider actions", () => {
     } finally {
       navState.pathname = previousPath;
     }
+  });
+});
+
+describe("AuthProvider cross-tab storage signals", () => {
+  beforeEach(() => {
+    pushMock.mockClear();
+    replaceMock.mockClear();
+    navState.pathname = "/dashboard";
+    setAccessToken(null);
+    setCurrentFarmId(null);
+  });
+
+  /** Simulates the storage event the browser fires in THIS tab when another
+   *  tab writes/removes the shared key. */
+  function dispatchStorage(key: string, newValue: string | null) {
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key,
+        newValue,
+        oldValue: null,
+        storageArea: window.localStorage,
+      }),
+    );
+  }
+
+  function useTwoFarmList() {
+    server.use(
+      http.get("/api/auth/farms", () =>
+        HttpResponse.json([
+          { id: 1, name: "Farm One", location: null, role: null },
+          { id: 2, name: "Farm Two", location: null, role: null },
+        ]),
+      ),
+    );
+  }
+
+  it("a farm-revoked tombstone from another tab drops only the selection, never the session", async () => {
+    // B1 (2026-09-21 audit): revoking a membership used to read as a session
+    // teardown in every other tab. The tombstone value distinguishes the two
+    // intents: this tab keeps its valid session and lands on /farm-select.
+    useTwoFarmList();
+    localStorage.setItem(FARM_STORAGE_KEY, "1");
+    const { queryClient } = renderWithProviders(<Probe />);
+    await expectLoaded();
+    expect(screen.getByTestId("farmId")).toHaveTextContent("1");
+    queryClient.setQueryData(["/api/animals"], [{ id: 1, tag_number: "A-1" }]);
+
+    await act(async () => {
+      dispatchStorage(FARM_STORAGE_KEY, "revoked:1");
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("farmId")).toHaveTextContent("none"),
+    );
+    expect(screen.getByTestId("user")).toHaveTextContent(TEST_USER.email);
+    expect(replaceMock).not.toHaveBeenCalledWith("/login");
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
+    // The stale membership entry no longer offers the revoked farm.
+    await waitFor(() =>
+      expect(screen.getByTestId("farms")).toHaveTextContent("2"),
+    );
+  });
+
+  it("a farm-revoked tombstone for a farm this tab is not on changes nothing", async () => {
+    useTwoFarmList();
+    renderWithProviders(<Probe />);
+    await expectLoaded();
+    expect(screen.getByTestId("farmId")).toHaveTextContent("1");
+
+    await act(async () => {
+      dispatchStorage(FARM_STORAGE_KEY, "revoked:2");
+    });
+
+    expect(screen.getByTestId("farmId")).toHaveTextContent("1");
+    expect(screen.getByTestId("farms")).toHaveTextContent("1,2");
+    expect(screen.getByTestId("user")).toHaveTextContent(TEST_USER.email);
+  });
+
+  it("a key removal (sign-out in another tab) still tears this session down", async () => {
+    renderWithProviders(<Probe />);
+    await expectLoaded();
+    expect(screen.getByTestId("user")).toHaveTextContent(TEST_USER.email);
+
+    await act(async () => {
+      dispatchStorage(FARM_STORAGE_KEY, null);
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("user")).toHaveTextContent("none"),
+    );
+    expect(localStorage.getItem(FARM_STORAGE_KEY)).toBeNull();
+    expect(replaceMock).toHaveBeenCalledWith("/login");
+  });
+
+  it("a farm switch in another tab updates this tab's selection", async () => {
+    useTwoFarmList();
+    renderWithProviders(<Probe />);
+    await expectLoaded();
+    expect(screen.getByTestId("farmId")).toHaveTextContent("1");
+
+    await act(async () => {
+      dispatchStorage(FARM_STORAGE_KEY, "2");
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("farmId")).toHaveTextContent("2"),
+    );
+    expect(localStorage.getItem(FARM_STORAGE_KEY)).toBe("2");
+  });
+
+  it("a tombstoned persisted selection boots as no selection at all", async () => {
+    // readStoredFarmId must treat "revoked:1" exactly like a missing key: the
+    // bootstrap neither selects the dead farm nor sees a session teardown.
+    localStorage.setItem(FARM_STORAGE_KEY, "revoked:1");
+    server.use(
+      http.get("/api/auth/farms", () =>
+        HttpResponse.json([{ id: 2, name: "Farm Two", location: null, role: null }]),
+      ),
+    );
+
+    renderWithProviders(<Probe />);
+
+    await expectLoaded();
+    expect(screen.getByTestId("farmId")).toHaveTextContent("2");
+    expect(screen.getByTestId("user")).toHaveTextContent(TEST_USER.email);
   });
 });
 

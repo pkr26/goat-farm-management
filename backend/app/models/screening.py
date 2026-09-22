@@ -8,6 +8,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     Date,
     ForeignKey,
@@ -287,7 +288,7 @@ class ScreeningCrop(Base):
         Index("ix_screening_crops_farm_image", "farm_id", "image_id"),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     farm_id: Mapped[int] = mapped_column(Integer)
     image_id: Mapped[int] = mapped_column(Integer)
     crop_index: Mapped[int] = mapped_column(Integer)
@@ -359,7 +360,7 @@ class ScreeningRun(Base):
         Index("ix_screening_runs_image_created", "image_id", "created_at"),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     farm_id: Mapped[int] = mapped_column(Integer)
     image_id: Mapped[int] = mapped_column(Integer)
     # Null for whole-photo runs (detection off, no goats found, or Phase ≤2
@@ -443,7 +444,7 @@ class ScreeningFinding(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     farm_id: Mapped[int] = mapped_column(Integer)
     run_id: Mapped[int] = mapped_column(Integer)
     # Which detected goat this finding belongs to; null for whole-photo

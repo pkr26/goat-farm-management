@@ -13,8 +13,8 @@ export interface TotpChallengeIn {
   mfa_token: string;
   /**
      * @minLength 6
-     * @maxLength 6
-     * @pattern ^[0-9]{6}$
+     * @maxLength 11
+     * @pattern ^([0-9]{6}|[A-Za-z0-9]{5}-[A-Za-z0-9]{5})$
      */
   code: string;
 }

@@ -157,7 +157,17 @@ export default function RegisterPage() {
               autoComplete="new-password"
               maxLength={128}
               aria-invalid={Boolean(errors.password) || undefined}
-              aria-describedby={errors.password ? "register-password-error" : undefined}
+              aria-describedby={
+                [
+                  errors.password ? "register-password-error" : null,
+                  // The hint is requirements text, not decoration: associate
+                  // it so screen readers announce it with the field (B-small
+                  // a11y, 2026-09-21 audit).
+                  "register-password-hint",
+                ]
+                  .filter(Boolean)
+                  .join(" ") || undefined
+              }
               {...register("password")}
             />
             {errors.password && (
@@ -165,7 +175,7 @@ export default function RegisterPage() {
                 {errors.password.message}
               </p>
             )}
-            <p className="text-xs text-muted-foreground">
+            <p id="register-password-hint" className="text-xs text-muted-foreground">
               {t("auth.passwordHint")}
             </p>
           </div>

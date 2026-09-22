@@ -19,6 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
+from ..utils import utcnow
 from .constants import PREGNANCY_LOSS_CAUSES
 from .enums import (
     BreedingMethod,
@@ -169,6 +170,11 @@ class BreedingRecord(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # ITEM 9 (2026-09-21 playbook): closes the backdating blind spot — same-day
+    # entry and a backdated record are now distinguishable.
+    created_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
     doe_id: Mapped[int] = mapped_column(ForeignKey("animals.id"), index=True)
     # Herd sire for NATURAL service. NULL is legal only for AI methods, where
@@ -231,6 +237,11 @@ class KiddingRecord(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # ITEM 9 (2026-09-21 playbook): closes the backdating blind spot — same-day
+    # entry and a backdated record are now distinguishable.
+    created_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
     doe_id: Mapped[int] = mapped_column(ForeignKey("animals.id"))
     date: Mapped[date]
@@ -307,6 +318,11 @@ class KidEntry(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # ITEM 9 (2026-09-21 playbook): closes the backdating blind spot — same-day
+    # entry and a backdated record are now distinguishable.
+    created_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
     kidding_record_id: Mapped[int] = mapped_column(ForeignKey("kidding_records.id"), index=True)
     tag: Mapped[str | None] = mapped_column(String(50))

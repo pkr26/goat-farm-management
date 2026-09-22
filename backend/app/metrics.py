@@ -109,6 +109,41 @@ def record_auth_rate_limit_rejection(scope: str) -> None:
         AUTH_RATE_LIMIT_REJECTIONS.labels(scope=scope).inc()
 
 
+# ITEM 6 (2026-09-21 playbook): screening spend observability. Calls are
+# counted where the pipeline records its ScreeningRun rows; the cost counter
+# is an ESTIMATE from a small per-provider price map — a budgeting signal for
+# the owner, not billing. Provider names are the bounded rotation set.
+SCREENING_PROVIDER_CALLS = Counter(
+    "goatfarm_screening_provider_calls",
+    "Screening worker vision-provider calls, by provider and outcome.",
+    labelnames=("provider", "outcome"),
+    registry=REGISTRY,
+)
+SCREENING_PROVIDER_ESTIMATED_COST = Counter(
+    "goatfarm_screening_provider_estimated_cost_inr",
+    "Estimated screening provider spend in INR (rough per-call price map).",
+    labelnames=("provider",),
+    registry=REGISTRY,
+)
+
+# Rough per-call INR estimates for budgeting only (one image ≈ base64 JPEG of
+# a compressed photo on a mid-tier vision model). Unknown providers fall back
+# to the generic entry.
+SCREENING_CALL_ESTIMATED_COST_INR: dict[str, float] = {
+    "anthropic": 0.90,
+    "openai_compatible": 0.30,
+}
+_SCREENING_DEFAULT_CALL_COST_INR = 0.50
+
+
+def record_screening_provider_call(provider: str, ok: bool) -> None:
+    if enabled():
+        SCREENING_PROVIDER_CALLS.labels(provider=provider, outcome="ok" if ok else "error").inc()
+        SCREENING_PROVIDER_ESTIMATED_COST.labels(provider=provider).inc(
+            SCREENING_CALL_ESTIMATED_COST_INR.get(provider, _SCREENING_DEFAULT_CALL_COST_INR)
+        )
+
+
 def record_idempotency_replay() -> None:
     if enabled():
         IDEMPOTENCY_REPLAYS.inc()

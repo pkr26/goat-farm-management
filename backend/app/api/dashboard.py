@@ -467,7 +467,7 @@ async def dashboard(
                     .group_by(MovementRestrictionAction.animal_id)
                 )
             ).all()
-            placed_dates = {animal_id: acted_at for animal_id, acted_at in placed_rows}
+            placed_dates = {animal_id: acted_at for animal_id, acted_at in placed_rows}  # noqa: C416 — Row-typed rows need the comprehension for mypy's stubs
         restricted_animals = [
             RestrictedAnimalOut(
                 animal=_animal_identity_out(row[0]),
@@ -700,10 +700,10 @@ async def reports(db: DbSession, farm: CurrentFarm, perms: REPORTS_PERM) -> Repo
     # (module docstring), so a reports.view-only caller gets None here too —
     # indistinguishable on the wire from "not enough completed breedings yet".
     breeding_stats = BreedingStatsOut(
-        total_records=total_records,
+        total_records=total_records if can_view_breeding else None,
         conception_rate=_rate(conceived_count, completed_count) if can_view_breeding else None,
         first_cycle_rate=_rate(fc_conceived, fc_completed) if can_view_breeding else None,
-        kiddings=kiddings_count,
+        kiddings=kiddings_count if can_view_breeding else None,
         kids_per_kidding=(
             round(float(total_alive) / kiddings_count, 2)
             if kiddings_count and can_view_breeding
@@ -748,7 +748,7 @@ async def reports(db: DbSession, farm: CurrentFarm, perms: REPORTS_PERM) -> Repo
     mortality = MortalityOut(
         total_deaths=status_counts.get(AnimalStatus.DEAD.value, 0) if can_view_health else None,
         deaths_by_month=deaths_by_month if can_view_health else [],
-        total_kids_born=total_kids,
+        total_kids_born=total_kids if can_view_health else None,
         stillborn=stillborn if can_view_health else None,
         stillborn_rate=_rate(stillborn, total_kids) if can_view_health else None,
     )

@@ -44,7 +44,12 @@ from .engine import (
     _run_core,
     monthly_mortality_rate,
 )
-from .montecarlo import _apply_draws, _correlated_draws, _event_shock_path
+from .montecarlo import (
+    _apply_annual_price_variation,
+    _apply_draws,
+    _correlated_draws,
+    _event_shock_path,
+)
 from .results import EventFill, SimulationResult
 from .vocabulary import GOAT_NOUNS, SpeciesNouns
 
@@ -400,11 +405,18 @@ def _purchase_month_for(target: SaleTarget, assumptions: SimulationAssumptions) 
     return max(1, target.month - lead)
 
 
+# Engine passes close_gaps may run in the worst case: one initial
+# evaluation, one per iteration, plus the zero-progress rollback
+# re-evaluation. The API's CPU budget prices this bound, so it must live
+# beside the loop it prices (B9, 2026-09-21 audit).
+CLOSE_GAPS_MAX_ITERATIONS = 8
+
+
 def close_gaps(
     assumptions: SimulationAssumptions,
     targets: list[SaleTarget],
     *,
-    max_iterations: int = 8,
+    max_iterations: int = CLOSE_GAPS_MAX_ITERATIONS,
     nouns: SpeciesNouns = GOAT_NOUNS,
 ) -> tuple[list[HerdEventAssumptions], PlanEvaluation, bool, list[str]]:
     """Iteratively add doe purchases until every young-stock target fills.
@@ -654,7 +666,17 @@ def plan_probabilities(
     for _ in range(runs):
         draws = _correlated_draws(rng, risk_vars, assumptions.risk.correlation_strength)
         path = _event_shock_path(assumptions, rng)
-        core = _run_core(_apply_draws(base, draws), path)
+        # B10 (2026-09-21 audit): the Monte Carlo this function claims to
+        # mirror layers within-run annual price years onto each run; using
+        # the flat run-level draws here biased the probabilities whenever
+        # that variation was enabled. Same draw order as montecarlo.run, so
+        # seeded runs keep their common random numbers.
+        effective_draws = (
+            _apply_annual_price_variation(path, draws, assumptions, rng)
+            if assumptions.risk.within_run_price_variation
+            else draws
+        )
+        core = _run_core(_apply_draws(base, effective_draws), path)
         fills = [fill for month in core.months for fill in month.event_fills]
         matched = _match_target_fills(fills, targets)
         completed += 1

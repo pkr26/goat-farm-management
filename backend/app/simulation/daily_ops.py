@@ -748,7 +748,7 @@ class _DailyOpsRun:
             if recipe == "CREEP":
                 kg_per_head = creep_daily_kg(members[0].age_days(day))
                 display = f"{display} ({band})"
-                assert kg_per_head > 0, "banded creep group with a zero ration"
+                assert kg_per_head > 0, "banded creep group with a zero ration"  # noqa: S101 — deliberate simulation invariant, not user input
             else:
                 kg_per_head = GOAT_BUCKET_KG_PER_HEAD[building]
             daily = len(members) * kg_per_head
@@ -846,7 +846,7 @@ class _DailyOpsRun:
         for animal in sorted(self._active(), key=lambda a: a.tag):
             if animal.bucket != Bucket.QUARANTINE.value:
                 continue
-            assert animal.quarantine_arrival_day is not None
+            assert animal.quarantine_arrival_day is not None  # noqa: S101 — deliberate QUARANTINE rows carry the arrival day by construction
             protocol_day = day - animal.quarantine_arrival_day + 1
             for offset, category, title in QUARANTINE_PROTOCOL:
                 if protocol_day != offset or (offset, title) in animal.quarantine_steps_fired:
@@ -1003,7 +1003,7 @@ class _DailyOpsRun:
                     f"{_PROFILE.pregnancy_late_day})",
                 )
             # pregnant implies bred_day is set (kidding clears both together)
-            assert animal.bred_day is not None
+            assert animal.bred_day is not None  # noqa: S101 — deliberate pregnant implies bred_day (kidding clears both together)
             ekd = animal.bred_day + _PROFILE.gestation_days
             if (
                 not animal.vaccine_primary_done
@@ -1533,7 +1533,7 @@ class _DailyOpsRun:
         sales = sum(1 for a in self.animals.values() if a.exit_kind == "SOLD")
         moves = sum(len(r.moves) for r in self.days)
         totals = DailyOpsTotals(
-            feed_kg_by_recipe={k: v for k, v in sorted(feed_by_recipe.items())},
+            feed_kg_by_recipe=dict(sorted(feed_by_recipe.items())),
             tasks_by_category=dict(sorted(tasks_by_category.items())),
             tasks_by_role=dict(sorted(tasks_by_role.items())),
             vet_tasks_by_building=dict(sorted(vet_by_building.items())),

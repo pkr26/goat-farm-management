@@ -22,7 +22,7 @@ from ..models.lifecycle import (
     TransitionFacts,
 )
 from ..models.species import GOAT_PROFILE
-from ..utils import today, utcnow
+from ..utils import utcnow
 
 
 def canonicalize_breed(value: str) -> str:
@@ -41,7 +41,10 @@ def bucket_transition_error(
     to_bucket: str,
     *,
     context: TransitionContext = "manual",
-    reference_date: date | None = None,
+    # Required (B-small, 2026-09-21 audit): the old `or today()` fallback
+    # evaluated the deployment-default timezone, not the farm's business
+    # calendar. Every caller already passes the farm-resolved date.
+    reference_date: date,
     facts: TransitionFacts | None = None,
     resting_since: date | None = None,
     allow_restricted_reclassification: bool = False,
@@ -92,7 +95,7 @@ def bucket_transition_error(
             f"Illegal lifecycle transition {animal.current_bucket} → {to_bucket}; "
             "use the required breeding, health, kidding or quarantine workflow"
         )
-    when = reference_date or today()
+    when = reference_date
     if to_bucket == Bucket.BREEDING.value:
         profile = GOAT_PROFILE
         if animal.sex == "F":
@@ -162,7 +165,7 @@ def require_bucket_transition(
     to_bucket: str,
     *,
     context: TransitionContext = "manual",
-    reference_date: date | None = None,
+    reference_date: date,
     facts: TransitionFacts | None = None,
     resting_since: date | None = None,
     allow_restricted_reclassification: bool = False,
@@ -187,7 +190,7 @@ def move_animal(
     created_by_id: int | None = None,
     *,
     context: TransitionContext = "manual",
-    reference_date: date | None = None,
+    reference_date: date,
     facts: TransitionFacts | None = None,
     resting_since: date | None = None,
     allow_restricted_reclassification: bool = False,
@@ -218,7 +221,7 @@ def move_animal(
             animal_id=animal.id,
             from_bucket=animal.current_bucket,
             to_bucket=to_bucket,
-            effective_date=reference_date or today(),
+            effective_date=reference_date,
             reason=reason or None,
             created_by_id=created_by_id,
         )

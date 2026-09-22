@@ -37,7 +37,7 @@ from .constants import (
     VERIFICATION_REQUIRED_CATEGORIES,
     WEANING_DAYS,
 )
-from .core import Farm, FarmMembership, RefreshSession, Role, User
+from .core import Farm, FarmMembership, RefreshSession, Role, TotpRecoveryCode, User
 from .enums import (
     AdministrationRoute,
     AnimalSource,
@@ -77,6 +77,7 @@ from .helpers import (
     quarantine_schedule,
 )
 from .idempotency import IdempotencyRecord
+from .notifications import NotificationLog, NotificationRecipient
 from .planner import PlannerPlan
 from .purchases import PurchaseBatch
 from .screening import (
@@ -169,6 +170,8 @@ __all__ = [
     "KiddingRecord",
     "MortalityCause",
     "MovementRestrictionAction",
+    "NotificationLog",
+    "NotificationRecipient",
     "PlannerPlan",
     "PurchaseBatch",
     "QuarantineTaskSpec",
@@ -191,6 +194,7 @@ __all__ = [
     "Task",
     "TaskCategory",
     "TaskStatus",
+    "TotpRecoveryCode",
     "Transaction",
     "TransactionCategory",
     "TransactionType",

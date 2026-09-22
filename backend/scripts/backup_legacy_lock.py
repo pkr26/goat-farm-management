@@ -108,7 +108,7 @@ def snapshot(lock_path: Path) -> LockSnapshot:
         if not stat.S_ISDIR(directory_before.st_mode):
             raise LegacyLockError("legacy lock is not a directory")
 
-        entries_before = set(os.listdir(directory_fd))
+        entries_before = set(os.listdir(directory_fd))  # noqa: PTH208 — dir_fd form has no pathlib equivalent
         if entries_before not in ({"pid"}, {"pid", ".flock-owner"}):
             raise LegacyLockError("legacy lock contains unexpected directory entries")
         pid_file = _snapshot_file(directory_fd, "pid", "legacy PID file")
@@ -129,7 +129,7 @@ def snapshot(lock_path: Path) -> LockSnapshot:
         # whose content and identity were read above.
         named_directory = os.lstat(lock_path)
         directory_after = os.fstat(directory_fd)
-        entries_after = set(os.listdir(directory_fd))
+        entries_after = set(os.listdir(directory_fd))  # noqa: PTH208 — dir_fd form has no pathlib equivalent
         if (
             not stat.S_ISDIR(named_directory.st_mode)
             or not _same_inode(directory_before, directory_after)
@@ -325,7 +325,7 @@ def delete_verified(lock_path: Path, token: str) -> None:
     try:
         named = os.lstat(lock_path)
         opened = os.fstat(directory_fd)
-        entries = set(os.listdir(directory_fd))
+        entries = set(os.listdir(directory_fd))  # noqa: PTH208 — dir_fd form has no pathlib equivalent
         pid_file = _snapshot_file(directory_fd, "pid", "owned PID file")
         owner_file = None
         if ".flock-owner" in entries:
@@ -346,7 +346,7 @@ def delete_verified(lock_path: Path, token: str) -> None:
         os.unlink("pid", dir_fd=directory_fd)
     finally:
         os.close(directory_fd)
-    os.rmdir(lock_path)
+    Path(lock_path).rmdir()
 
 
 def release_verified(source: Path, destination: Path, token: str) -> None:

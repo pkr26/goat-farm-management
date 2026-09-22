@@ -34,7 +34,9 @@ KIDDING_LOCK_ORDER = "e7f9a1b3c5d8"
 # Must track the chain head; the 2026-09-20 vocabulary cleanup revision
 # (cad1e2f3a4b5) made the previous pinned head stale, breaking every
 # upgrade-HEAD + alembic-check assertion in this suite.
-HEAD = "cad1e2f3a4b5"
+HEAD = (
+    "f6b8d0e2a4c6"  # data_housekeeping (chain: index drops → totp codes → pin auth → notifications)
+)
 SCREENING_CONTENT_CLAIMS_PARENT = "b7e8f9a0c1d2"
 SCREENING_CONTENT_CLAIMS = "f7a9c1e3b5d7"
 LEGACY_LOSS_NOTE = "Legacy pregnancy-loss row; original date and cause were not captured."

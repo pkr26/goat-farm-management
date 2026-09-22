@@ -23,6 +23,7 @@ from ..models import (
 from ..models.species import GOAT_PROFILE
 from ..simulation.market import BAKRID_DATES_BY_YEAR  # read-only calendar import
 from ..utils import add_months, business_date, today
+from ._common import REBREED_AFTER_RESTING_DAYS
 
 # The Bakrid hold window: males whose projected market finish lands inside
 # the two months before the festival are worth holding for the premium.
@@ -232,8 +233,13 @@ async def ready_to_move_suggestions(
         context.c.latest_effective_date,
         created_local_date,
     )
-    # RESTING→BREEDING readiness: the ~30-day dry-off + flush program.
-    resting_ready = bucket_started_local_date <= reference_date - timedelta(days=30)
+    # RESTING→BREEDING readiness: the dry-off + flush program. Single-sourced
+    # with the REBREED duty's rest window so the board's "ready" hint and the
+    # scheduled re-breeding prompt can never disagree (B-small, 2026-09-21
+    # audit: this was an independent hard-coded 30).
+    resting_ready = bucket_started_local_date <= reference_date - timedelta(
+        days=REBREED_AFTER_RESTING_DAYS
+    )
     breeding_rules = [
         and_(
             context.c.sex == "F",

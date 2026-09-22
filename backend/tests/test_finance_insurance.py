@@ -827,6 +827,48 @@ async def test_claim_endpoint_is_terminal_and_single_shot(
     assert too_early.status_code == 422, too_early.text
 
 
+async def test_claim_after_coverage_expiry_is_rejected(
+    client: httpx.AsyncClient,
+) -> None:
+    """B2 (2026-09-21 audit): the claim window closes at the renewal horizon.
+
+    A claim DATED past ``renewal_date`` describes an event the policy never
+    covered, exactly like one dated before ``start_date``; only the claim's
+    own date is bounded — the register stays open for lapsed policies whose
+    covered event (e.g. death) happened inside the window."""
+    owner = await owner_with_farm(client, email="ins-claim-expiry@farm.in")
+    created = await add_policy(
+        client,
+        owner,
+        policy_number="POL-C-EXP",
+        start_date=iso(today() - timedelta(days=100)),
+        renewal_date=iso(today() - timedelta(days=10)),
+    )
+    assert created.status_code == 201, created.text
+    policy_id = created.json()["id"]
+
+    refused = await client.post(
+        f"/api/finance/insurance/{policy_id}/claim",
+        json={"claim_date": iso(today())},
+        headers=owner,
+    )
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["detail"] == "Claim date cannot be after the policy's renewal date"
+    # The refusal left the policy unclaimed — the terminal write never ran.
+    body = (await list_policies(client, owner)).json()["policies"]
+    assert next(p for p in body if p["id"] == policy_id)["status"] != "claimed"
+
+    # A claim dated inside the covered window still lands even though the
+    # horizon has passed: expiry bounds the event date, not the filing date.
+    in_window = await client.post(
+        f"/api/finance/insurance/{policy_id}/claim",
+        json={"claim_date": iso(today() - timedelta(days=20))},
+        headers=owner,
+    )
+    assert in_window.status_code == 200, in_window.text
+    assert in_window.json()["claim_date"] == iso(today() - timedelta(days=20))
+
+
 async def test_claim_date_uses_the_farm_business_calendar(
     client: httpx.AsyncClient,
 ) -> None:

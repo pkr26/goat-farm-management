@@ -18,6 +18,7 @@ import threading
 import time
 from collections import OrderedDict, deque
 from collections.abc import Awaitable, Callable, Mapping
+from contextlib import suppress
 from contextvars import ContextVar
 from typing import cast
 
@@ -77,12 +78,10 @@ async def _offload[T](work: Callable[[], T]) -> T:
         try:
             return work()
         finally:
-            try:
+            # During forced interpreter shutdown there is no live process
+            # admission state left to release.
+            with suppress(RuntimeError):
                 loop.call_soon_threadsafe(mark_completed)
-            except RuntimeError:
-                # During forced interpreter shutdown there is no live process
-                # admission state left to release.
-                pass
 
     def abandon_if_queued() -> None:
         nonlocal abandoned

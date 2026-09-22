@@ -1109,6 +1109,9 @@ function TasksPageContent({ perms }: { perms: PermissionsState }) {
         // The key embeds five tab offsets; without the previous payload a
         // page turn unmounted the whole board into "Loading…" (M-12).
         placeholderData: (previous) => previous,
+        // ITEM 10: staleness strategy is "navigate again" no more — returning
+        // to the tab refreshes the board (same farm, same key, cheap refetch).
+        refetchOnWindowFocus: true,
       },
     },
   );

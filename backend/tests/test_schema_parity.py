@@ -121,26 +121,26 @@ def test_wire_caps_are_shared_from_models() -> None:
 def test_goat_profile_aliases_cannot_drift() -> None:
     """The legacy constants.py names are aliases of GOAT_PROFILE fields."""
     p = GOAT_PROFILE
-    assert models.GESTATION_DAYS == p.gestation_days
-    assert models.KIDDING_WINDOW_DAYS == p.parturition_window_days
-    assert models.MIN_GESTATION_DAYS == p.min_gestation_days
-    assert models.MAX_GESTATION_DAYS == p.max_gestation_days
-    assert models.ULTRASOUND_AFTER_BREEDING_DAYS == p.pregnancy_check_after_service_days
-    assert models.MIN_BREEDING_AGE_MONTHS == p.min_breeding_age_months
-    assert models.MIN_BREEDING_WEIGHT_KG == p.min_breeding_weight_kg
-    assert models.MIN_BUCK_BREEDING_AGE_MONTHS == p.min_sire_breeding_age_months
-    assert models.MIN_BUCK_BREEDING_WEIGHT_KG == p.min_sire_breeding_weight_kg
-    assert models.WEANING_DAYS == p.weaning_days
-    assert models.POSTPARTUM_RECOVERY_DAYS == p.postpartum_recovery_days
-    assert models.MAX_FAILED_CYCLES_BEFORE_CULL == p.failed_services_before_cull
+    assert p.gestation_days == models.GESTATION_DAYS
+    assert p.parturition_window_days == models.KIDDING_WINDOW_DAYS
+    assert p.min_gestation_days == models.MIN_GESTATION_DAYS
+    assert p.max_gestation_days == models.MAX_GESTATION_DAYS
+    assert p.pregnancy_check_after_service_days == models.ULTRASOUND_AFTER_BREEDING_DAYS
+    assert p.min_breeding_age_months == models.MIN_BREEDING_AGE_MONTHS
+    assert p.min_breeding_weight_kg == models.MIN_BREEDING_WEIGHT_KG
+    assert p.min_sire_breeding_age_months == models.MIN_BUCK_BREEDING_AGE_MONTHS
+    assert p.min_sire_breeding_weight_kg == models.MIN_BUCK_BREEDING_WEIGHT_KG
+    assert p.weaning_days == models.WEANING_DAYS
+    assert p.postpartum_recovery_days == models.POSTPARTUM_RECOVERY_DAYS
+    assert p.failed_services_before_cull == models.MAX_FAILED_CYCLES_BEFORE_CULL
     # Husbandry-standards scheduling knobs (constants.py aliases; not yet
     # re-exported through app.models).
-    assert KIDDING_WATCH_START_DAYS == p.kidding_watch_start_days
-    assert BIRTHING_KIT_LEAD_DAYS == p.birthing_kit_lead_days
-    assert POSTPARTUM_CARE_LEAD_DAYS == p.postpartum_care_lead_days
-    assert CREEP_START_DAYS == p.creep_start_days
-    assert MIN_REST_FLUSH_DAYS == p.min_rest_flush_days
-    assert BUCK_ROTATION_AGE_MONTHS == p.buck_rotation_age_months
+    assert p.kidding_watch_start_days == KIDDING_WATCH_START_DAYS
+    assert p.birthing_kit_lead_days == BIRTHING_KIT_LEAD_DAYS
+    assert p.postpartum_care_lead_days == POSTPARTUM_CARE_LEAD_DAYS
+    assert p.creep_start_days == CREEP_START_DAYS
+    assert p.min_rest_flush_days == MIN_REST_FLUSH_DAYS
+    assert p.buck_rotation_age_months == BUCK_ROTATION_AGE_MONTHS
 
 
 def test_species_policy_profiles_are_coherent() -> None:
@@ -163,4 +163,4 @@ def test_species_policy_profiles_are_coherent() -> None:
 
 
 def test_preset_role_code_catalog_matches_seed_definitions() -> None:
-    assert ROLE_PRESET_CODES == {preset["code"] for preset in ROLE_PRESETS}
+    assert {preset["code"] for preset in ROLE_PRESETS} == ROLE_PRESET_CODES

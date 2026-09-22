@@ -118,6 +118,7 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
       query: {
         enabled: allowed,
         placeholderData: (previous) => previous,
+        refetchOnWindowFocus: true,
       },
     },
   );
@@ -127,7 +128,7 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
 
   const statsQuery = useProviderStatsApiScreeningStatsGet(
     { days: 30 },
-    { query: { enabled: allowed } },
+    { query: { enabled: allowed, refetchOnWindowFocus: true } },
   );
   const stats = statsQuery.data?.status === 200 ? statsQuery.data.data : undefined;
 
@@ -567,26 +568,30 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                     {rows.map((row) => (
                       <tr
                         key={row.id}
-                        // Keyboard-reachable and announced: the row opens the
-                        // photo's review detail, which was mouse-only before
-                        // (P3, 2026-09-20 audit). A real button element with
-                        // its click synthesized keeps one interactive role.
-                        tabIndex={0}
-                        role="button"
-                        aria-label={t("screening.table.openDetail", { id: row.id })}
-                        className="cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
-                        onClick={() => setUrlState({ image_id: String(row.id) })}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            setUrlState({ image_id: String(row.id) });
-                          }
+                        // A row is a row: role="button" on <tr> broke the
+                        // screen-reader table semantics (B-small a11y,
+                        // 2026-09-21 audit). The status cell's real button is
+                        // the keyboard/screen-reader path to the review
+                        // detail; the row click stays a pointer-only
+                        // convenience that defers to the button when it is
+                        // the actual target.
+                        className="cursor-pointer"
+                        onClick={(event) => {
+                          if ((event.target as HTMLElement).closest("button")) return;
+                          setUrlState({ image_id: String(row.id) });
                         }}
                       >
                         <td>
-                          <StatusBadge status={row.status}>
-                            {imageStatusLabel(t, row.status)}
-                          </StatusBadge>
+                          <button
+                            type="button"
+                            aria-label={t("screening.table.openDetail", { id: row.id })}
+                            className="rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                            onClick={() => setUrlState({ image_id: String(row.id) })}
+                          >
+                            <StatusBadge status={row.status}>
+                              {imageStatusLabel(t, row.status)}
+                            </StatusBadge>
+                          </button>
                         </td>
                         <td>{formatDate(row.captured_date)}</td>
                         <td className="hidden max-w-[240px] truncate text-muted-foreground md:table-cell">

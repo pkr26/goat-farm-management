@@ -2002,7 +2002,7 @@ async def test_refresh_preverification_ceiling_skips_jwt_work(
     def must_not_decode(_token: str) -> None:
         nonlocal decode_calls
         decode_calls += 1
-        return None
+        return
 
     monkeypatch.setattr(auth_api, "decode_refresh_claims", must_not_decode)
     set_refresh_cookie(client, cookie)

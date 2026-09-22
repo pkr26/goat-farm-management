@@ -240,6 +240,8 @@ export function isIdempotencyProtectedMutation(url: string, method?: string): bo
     path === "/api/animals" ||
     /^\/api\/animals\/\d+\/weight$/.test(path) ||
     path === "/api/tasks" ||
+    // Duty completion/skip accept the key server-side (tablet offline retry).
+    /^\/api\/tasks\/\d+\/(complete|skip)$/.test(path) ||
     path === "/api/team/workers" ||
     path === "/api/health/events" ||
     path === "/api/simulation/scenarios" ||

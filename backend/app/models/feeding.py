@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, Numeric, String, UniqueConstraint
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Numeric, String, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
-from ..utils import today
+from ..utils import today, utcnow
 from .enums import Bucket, FeedingShift, IngredientCategory, sql_in_values
 
 
@@ -161,6 +161,11 @@ class FeedingRecord(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # ITEM 9 (2026-09-21 playbook): closes the backdating blind spot — same-day
+    # entry and a backdated record are now distinguishable.
+    created_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
     date: Mapped[date] = mapped_column(default=today)
     shift: Mapped[str] = mapped_column(String(10))  # FeedingShift enum

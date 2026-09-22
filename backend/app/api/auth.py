@@ -9,12 +9,14 @@ import urllib.parse
 import uuid
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
-from typing import Any, NoReturn
+from typing import Annotated, Any, NoReturn, cast
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from sqlalchemy import delete, func, select
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -42,6 +44,7 @@ from ..models import (
     Farm,
     FarmMembership,
     RefreshSession,
+    TotpRecoveryCode,
     User,
 )
 from ..models.idempotency import CREATE_FARM_IDEMPOTENCY_OPERATION
@@ -65,12 +68,18 @@ from ..schemas.auth import (
     TotpDisableIn,
     TotpEnrollIn,
     TotpEnrollOut,
+    TotpRecoveryCodesOut,
+    TotpRecoveryRegenerateIn,
     UserOut,
+    WorkerLoginIn,
+    WorkerRosterEntryOut,
+    WorkerRosterOut,
 )
-from ..schemas.common import COMMON_ERROR_RESPONSES
+from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID
 from ..security import (
     LEGACY_PBKDF2_PREFIX,
     TOTP_CHALLENGE_TTL_SECONDS,
+    TOTP_RECOVERY_CODE_COUNT,
     DecryptedTotpSecret,
     PasswordWorkCapacityError,
     TotpSecretUnavailableError,
@@ -80,11 +89,15 @@ from ..security import (
     decode_refresh_claims,
     decrypt_totp_secret_with_metadata,
     encrypt_totp_secret,
+    generate_totp_recovery_code,
     generate_totp_secret_b32,
     hash_password_async,
+    hash_totp_recovery_codes_async,
     issue_access_token,
     issue_refresh_token,
     issue_token,
+    looks_like_totp_recovery_code,
+    normalize_totp_recovery_code,
     password_policy_error,
     prime_dummy_password_hash,
     verify_password_async,
@@ -871,7 +884,11 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
             # Every rejection has exactly two bounded executor submissions and
             # pays one Argon2 plus one fixed PBKDF2 budget. A legacy hash spent
             # part of the latter above; completion adds only the remainder.
-            try:
+            # The credential decision is already made. A saturated pool must
+            # not upgrade this definitive 401 into a 429, and the rejection
+            # must still reach the brute-force ledger — losing padding
+            # fidelity under overload is the lesser harm.
+            with suppress(PasswordWorkCapacityError):
                 await reservation.run(
                     lambda: complete_rejected_login_timing_async(
                         payload.password,
@@ -880,12 +897,6 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
                         did_argon_work,
                     )
                 )
-            except PasswordWorkCapacityError:
-                # The credential decision is already made. A saturated pool
-                # must not upgrade this definitive 401 into a 429, and the
-                # rejection must still reach the brute-force ledger — losing
-                # padding fidelity under overload is the lesser harm.
-                pass
             _record_login_failure(request, payload.email)
             if _login_email_locked(request, payload.email):
                 # Soft per-email ceiling (RT-A-1): the wrong password answers
@@ -982,6 +993,183 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
         raise
     finally:
         reservation.release_when_idle()
+
+
+@router.get("/worker-roster")
+async def worker_roster(
+    request: Request,
+    db: DbSession,
+    farm_id: Annotated[int, Query(ge=1, le=MAX_INT32_ID)],
+) -> WorkerRosterOut:
+    """Names tap-to-sign-in offers on this farm's shared tablet.
+
+    Unauthenticated by design (the tablet's first screen has no session) and
+    hard-throttled per IP: this trades limited first/last-name enumeration per
+    farm id for a PIN pad a field worker can actually use — the documented
+    owner-operator tradeoff (README, worker tablet app).
+    """
+    s = get_settings()
+    if s.auth_rate_limit_enabled and auth_limiter.is_blocked(
+        WORKER_ROSTER_SCOPE,
+        _client_key(request),
+        _WORKER_ROSTER_MAX_ATTEMPTS,
+        s.auth_rate_limit_window_seconds,
+    ):
+        metrics.record_auth_rate_limit_rejection(WORKER_ROSTER_SCOPE)
+        raise _too_many_attempts()
+    auth_limiter.record(
+        WORKER_ROSTER_SCOPE,
+        _client_key(request),
+        s.auth_rate_limit_window_seconds,
+        max_attempts=_WORKER_ROSTER_MAX_ATTEMPTS,
+    )
+    rows = (
+        await db.execute(
+            select(FarmMembership.id, User)
+            .join(User, FarmMembership.user_id == User.id)
+            .where(
+                FarmMembership.farm_id == farm_id,
+                FarmMembership.is_active.is_(True),
+                # PIN login is role-scoped by construction; the predicate
+                # stays explicit so a future nullable role can't silently
+                # widen the roster.
+                FarmMembership.role_id.is_not(None),
+                FarmMembership.pin_hash.is_not(None),
+                User.deleted_at.is_(None),
+            )
+            .order_by(User.name, FarmMembership.id)
+            .limit(100)
+        )
+    ).all()
+    return WorkerRosterOut(
+        items=[
+            WorkerRosterEntryOut(membership_id=int(row.id), display_name=row.User.display_name)
+            for row in rows
+        ]
+    )
+
+
+@router.post("/worker-login")
+async def worker_login(
+    payload: WorkerLoginIn,
+    request: Request,
+    response: Response,
+    db: DbSession,
+) -> LoginOut:
+    """Shared-tablet quick sign-in: farm + tap + PIN, throttled like login.
+
+    The PIN is a convenience credential scoped to ONE membership. It never
+    bypasses the second factor (an ACTIVE TOTP refuses — the tablet is not an
+    authenticator) and never admits an owner (owners hold no membership row).
+    Every failure answers the same generic 401 after identical Argon work, so
+    the exchange cannot enumerate farms, memberships or PINs by timing.
+    """
+    s = get_settings()
+    identity_key = f"{_client_key(request)}|{payload.farm_id}|{payload.membership_id}"
+    spray_key = f"{_client_key(request)}|{payload.farm_id}"
+    if s.auth_rate_limit_enabled and (
+        auth_limiter.is_blocked(
+            WORKER_PIN_SCOPE,
+            identity_key,
+            s.worker_pin_rate_limit_max_attempts,
+            s.worker_pin_rate_limit_window_seconds,
+        )
+        or auth_limiter.is_blocked(
+            WORKER_PIN_SPRAY_SCOPE,
+            spray_key,
+            10 * s.worker_pin_rate_limit_max_attempts,
+            s.worker_pin_rate_limit_window_seconds,
+        )
+    ):
+        metrics.record_auth_rate_limit_rejection(WORKER_PIN_SCOPE)
+        raise _too_many_attempts()
+
+    generic = HTTPException(status_code=401, detail="Invalid PIN.")
+    row = (
+        await db.execute(
+            select(FarmMembership, User)
+            .join(User, FarmMembership.user_id == User.id)
+            .where(
+                FarmMembership.id == payload.membership_id,
+                FarmMembership.farm_id == payload.farm_id,
+                FarmMembership.is_active.is_(True),
+                FarmMembership.role_id.is_not(None),
+                User.deleted_at.is_(None),
+            )
+            .execution_options(populate_existing=True)
+            .with_for_update(of=User)
+        )
+    ).first()
+    membership = row[0] if row is not None else None
+    user = row[1] if row is not None else None
+    stored_hash = (
+        membership.pin_hash
+        if membership is not None and membership.pin_hash is not None
+        else _dummy_password_hash()
+    )
+    reservation = _reserve_password_work(WORKER_PIN_RESERVATION_SCOPE, identity_key)
+    try:
+        ok, _needs_rehash = await reservation.run(
+            lambda: verify_password_async(payload.pin, stored_hash)
+        )
+    finally:
+        reservation.release_when_idle()
+
+    def _failed() -> NoReturn:
+        if s.auth_rate_limit_enabled:
+            auth_limiter.record(
+                WORKER_PIN_SCOPE,
+                identity_key,
+                s.worker_pin_rate_limit_window_seconds,
+                max_attempts=s.worker_pin_rate_limit_max_attempts,
+            )
+            auth_limiter.record(
+                WORKER_PIN_SPRAY_SCOPE,
+                spray_key,
+                s.worker_pin_rate_limit_window_seconds,
+                max_attempts=10 * s.worker_pin_rate_limit_max_attempts,
+            )
+        security_event(
+            "auth.worker_pin.login_failed",
+            "wrong or unknown worker PIN",
+            farm_id=payload.farm_id,
+            membership_id=payload.membership_id,
+        )
+        raise generic
+
+    if membership is None or user is None or membership.pin_hash is None or not ok:
+        await db.rollback()
+        _failed()
+    if user.totp_state == "ACTIVE":
+        # The tablet is not an authenticator; a second-factor account must use
+        # the password + TOTP flow.
+        await db.rollback()
+        raise HTTPException(
+            status_code=403,
+            detail="This account requires two-factor sign-in — use the password login.",
+        )
+    if user.must_change_password:
+        # The account's password is still the owner-chosen one and every
+        # domain route is fenced behind its rotation; a PIN session would be
+        # a session that can do nothing.
+        await db.rollback()
+        raise HTTPException(
+            status_code=403,
+            detail="This account must change its password before PIN sign-in.",
+        )
+    out = await _issue_tokens(db, user, response)
+    await db.commit()
+    if s.auth_rate_limit_enabled:
+        auth_limiter.reset(WORKER_PIN_SCOPE, identity_key)
+        auth_limiter.reset(WORKER_PIN_SPRAY_SCOPE, spray_key)
+    security_event(
+        "auth.worker_pin.login_succeeded",
+        "worker signed in on the tablet by PIN",
+        farm_id=payload.farm_id,
+        membership_id=payload.membership_id,
+        user_id=user.id,
+    )
+    return LoginOut(access_token=out.access_token, token_type=out.token_type, user=out.user)
 
 
 @router.post("/refresh")
@@ -1724,6 +1912,15 @@ TOTP_CONFIRM_USER_SCOPE = "totp-confirm"
 # keeps its own ledger — separate from confirm's so a fat-fingered confirm
 # burst cannot lock out a legitimate disable (and vice versa).
 TOTP_DISABLE_USER_SCOPE = "totp-disable"
+TOTP_RECOVERY_REGEN_SCOPE = "totp-recovery-regen"
+# Worker-tablet PIN login (ITEM 2, 2026-09-21 playbook): one scope for the
+# exact (IP, farm, membership) identity and one spray scope for the whole
+# (IP, farm) pair so spraying many memberships cannot multiply the budget.
+WORKER_PIN_SCOPE = "worker-pin"
+WORKER_PIN_SPRAY_SCOPE = "worker-pin-spray"
+WORKER_PIN_RESERVATION_SCOPE = "worker-pin-work"
+WORKER_ROSTER_SCOPE = "worker-roster"
+_WORKER_ROSTER_MAX_ATTEMPTS = 30
 # Challenge codes are 6 digits: 5 attempts / 5 minutes per account makes
 # exhaustive guessing ~700 years; per-IP composite mirrors login.
 TOTP_CHALLENGE_MAX_ATTEMPTS = 5
@@ -1892,15 +2089,33 @@ async def totp_enroll(
     return TotpEnrollOut(secret=secret, otpauth_uri=_otpauth_uri(secret, locked.email))
 
 
-@router.post("/totp/confirm", status_code=204)
+async def _mint_totp_recovery_codes(db: AsyncSession, user: User) -> list[str]:
+    """Replace the user's recovery-code set; return the plaintexts once.
+
+    Called only where the caller has proven control of the account (enrollment
+    confirmation, regeneration with password + TOTP). Hashing runs in the
+    password-work pool so a 10-code mint never blocks the event loop."""
+    codes = [generate_totp_recovery_code() for _ in range(TOTP_RECOVERY_CODE_COUNT)]
+    hashes = await hash_totp_recovery_codes_async(codes)
+    await db.execute(delete(TotpRecoveryCode).where(TotpRecoveryCode.user_id == user.id))
+    for digest in hashes:
+        db.add(TotpRecoveryCode(user_id=user.id, code_hash=digest))
+    return codes
+
+
+@router.post("/totp/confirm")
 async def totp_confirm(
     payload: TotpCodeIn,
     request: Request,
     db: DbSession,
     user: CurrentUser,
-) -> Response:
+) -> TotpRecoveryCodesOut:
     """Finish enrollment: a code generated from the PENDING secret activates
-    the second factor. Proof-of-possession before it gates login."""
+    the second factor. Proof-of-possession before it gates login.
+
+    ITEM 7 (2026-09-21 playbook): activation mints the one-time recovery-code
+    set and returns it HERE, exactly once — the codes are unrecoverable
+    afterwards, so the client must present them for copy/print immediately."""
     user_id = user.id
     locked = (
         await db.execute(
@@ -1964,16 +2179,17 @@ async def totp_confirm(
     locked.totp_last_step = matched
     if decrypted.needs_rewrap:
         locked.totp_secret_enc = encrypt_totp_secret(decrypted.secret)
+    codes = await _mint_totp_recovery_codes(db, locked)
     await db.commit()
     if s.auth_rate_limit_enabled:
         auth_limiter.reset(TOTP_CONFIRM_USER_SCOPE, str(user.id))
         auth_limiter.reset(TOTP_CONFIRM_USER_SCOPE, composite_key)
     security_event(
         "auth.totp.enabled",
-        "TOTP second factor activated",
+        "TOTP second factor activated; recovery codes minted",
         user_id=locked.id,
     )
-    return Response(status_code=204)
+    return TotpRecoveryCodesOut(codes=codes)
 
 
 @router.post("/totp/disable", status_code=204)
@@ -2085,6 +2301,9 @@ async def totp_disable(
         locked.totp_secret_enc = None
         locked.totp_state = None
         locked.totp_last_step = None
+        # The recovery codes exist only to bypass the second factor; disabling
+        # it must retire them (a later re-enrollment mints a fresh set).
+        await db.execute(delete(TotpRecoveryCode).where(TotpRecoveryCode.user_id == user_id))
         await db.commit()
         if s.auth_rate_limit_enabled:
             # A completed disable proves possession of the current code; clear
@@ -2101,6 +2320,99 @@ async def totp_disable(
     # nothing was modified.
     await db.rollback()
     raise HTTPException(status_code=409, detail="Two-factor state changed; try again.")
+
+
+@router.post("/totp/recovery/regenerate", status_code=200)
+async def totp_recovery_regenerate(
+    payload: TotpRecoveryRegenerateIn,
+    request: Request,
+    db: DbSession,
+    user: CurrentUser,
+) -> TotpRecoveryCodesOut:
+    """Re-mint the recovery-code set, revoking every prior code.
+
+    Requires BOTH the current password and a currently-valid TOTP code: an
+    authenticated session alone (a stolen unlocked laptop, an XSS-surviving
+    bearer token) must not be enough to rotate the break-glass material. The
+    new codes are revealed here exactly once, like enrollment's."""
+    user_id = user.id  # _confirm_current_password rolls back and expires `user`
+    # Proof 1 — password, verified outside any transaction (Argon2).
+    await _confirm_current_password(
+        db,
+        request,
+        payload.current_password,
+        user,
+        scope=TOTP_RECOVERY_REGEN_SCOPE,
+    )
+    # Proof 2 — a live TOTP code, under the account lock, with the same guess
+    # budget as disable: this check is a 6-digit oracle too.
+    locked = (
+        await db.execute(
+            select(User)
+            .where(User.id == user_id, User.deleted_at.is_(None))
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if locked is None:
+        raise HTTPException(status_code=401, detail="Account no longer exists.")
+    if locked.totp_state != "ACTIVE" or locked.totp_secret_enc is None:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="Two-factor is not active.")
+    s = get_settings()
+    composite_key = f"{_client_key(request)}|{user_id}"
+    if s.auth_rate_limit_enabled and (
+        auth_limiter.is_blocked(
+            TOTP_RECOVERY_REGEN_SCOPE,
+            str(user_id),
+            TOTP_CHALLENGE_MAX_ATTEMPTS,
+            s.auth_rate_limit_window_seconds,
+        )
+        or auth_limiter.is_blocked(
+            TOTP_RECOVERY_REGEN_SCOPE,
+            composite_key,
+            TOTP_CHALLENGE_MAX_ATTEMPTS,
+            s.auth_rate_limit_window_seconds,
+        )
+    ):
+        metrics.record_auth_rate_limit_rejection(TOTP_RECOVERY_REGEN_SCOPE)
+        await db.rollback()
+        raise _too_many_attempts()
+    decrypted = await _decrypt_totp_secret_or_unavailable(
+        db, locked.totp_secret_enc, user_id=user_id, operation="recovery-regenerate"
+    )
+    matched = verify_totp_code(
+        decrypted.secret, payload.code, at=utcnow(), last_used_step=locked.totp_last_step
+    )
+    if matched is None:
+        auth_limiter.record(
+            TOTP_RECOVERY_REGEN_SCOPE,
+            str(user_id),
+            s.auth_rate_limit_window_seconds,
+            max_attempts=TOTP_CHALLENGE_MAX_ATTEMPTS,
+        )
+        auth_limiter.record(
+            TOTP_RECOVERY_REGEN_SCOPE,
+            composite_key,
+            s.auth_rate_limit_window_seconds,
+            max_attempts=TOTP_CHALLENGE_MAX_ATTEMPTS,
+        )
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="That code is not valid right now.")
+    locked.totp_last_step = matched
+    if decrypted.needs_rewrap:
+        locked.totp_secret_enc = encrypt_totp_secret(decrypted.secret)
+    codes = await _mint_totp_recovery_codes(db, locked)
+    await db.commit()
+    if s.auth_rate_limit_enabled:
+        auth_limiter.reset(TOTP_RECOVERY_REGEN_SCOPE, str(user_id))
+        auth_limiter.reset(TOTP_RECOVERY_REGEN_SCOPE, composite_key)
+    security_event(
+        "auth.totp.recovery_codes_regenerated",
+        "recovery-code set revoked and re-minted",
+        user_id=user_id,
+    )
+    return TotpRecoveryCodesOut(codes=codes)
 
 
 @router.post("/totp/challenge")
@@ -2174,7 +2486,47 @@ async def totp_challenge(
     matched = verify_totp_code(
         decrypted.secret, payload.code, at=utcnow(), last_used_step=user.totp_last_step
     )
-    if matched is None:
+    # ITEM 7 (2026-09-21 playbook): a recovery code (XXXXX-XXXXX) redeems the
+    # challenge exactly like a TOTP code — the break-glass path for a lost
+    # authenticator. Single-use is enforced by a conditional UPDATE race, not
+    # a held lock, so two concurrent redemptions of the same code can never
+    # both succeed; verification runs Argon2 without holding row locks.
+    recovery_redeemed = False
+    if matched is None and looks_like_totp_recovery_code(payload.code):
+        normalized = normalize_totp_recovery_code(payload.code)
+        candidates = (
+            (
+                await db.execute(
+                    select(TotpRecoveryCode)
+                    .where(
+                        TotpRecoveryCode.user_id == user.id,
+                        TotpRecoveryCode.used_at.is_(None),
+                    )
+                    .order_by(TotpRecoveryCode.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for candidate in candidates:
+            ok, _needs_rehash = await verify_password_async(normalized, candidate.code_hash)
+            if not ok:
+                continue
+            claimed = cast(
+                CursorResult[Any],
+                await db.execute(
+                    update(TotpRecoveryCode)
+                    .where(
+                        TotpRecoveryCode.id == candidate.id,
+                        TotpRecoveryCode.used_at.is_(None),
+                    )
+                    .values(used_at=utcnow())
+                ),
+            )
+            if claimed.rowcount == 1:
+                recovery_redeemed = True
+            break
+    if matched is None and not recovery_redeemed:
         auth_limiter.record(
             TOTP_CHALLENGE_USER_SCOPE,
             str(user.id),
@@ -2192,11 +2544,20 @@ async def totp_challenge(
         await db.rollback()
         security_event(
             "auth.totp.challenge_failed",
-            "wrong TOTP code at challenge",
+            "wrong TOTP or recovery code at challenge",
             user_id=user_id,
         )
         raise generic
-    user.totp_last_step = matched
+    if matched is not None:
+        user.totp_last_step = matched
+    if recovery_redeemed:
+        # The break-glass event an operator alerts on: this login did NOT
+        # prove possession of the authenticator device.
+        security_event(
+            "auth.totp.recovery_code_used",
+            "login completed with a single-use recovery code",
+            user_id=user_id,
+        )
     # Single-use means single SUCCESS: a wrong code leaves the challenge
     # retryable inside the throttle budget above; the successful exchange
     # burns it for any later replay (including a thief with a copy).

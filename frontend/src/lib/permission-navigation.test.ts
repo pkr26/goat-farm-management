@@ -13,6 +13,9 @@ describe("firstPermittedPathFromList", () => {
   it("keeps the complete stable landing-route priority", () => {
     expect(PERMISSION_LANDING_ROUTES).toEqual([
       { permission: "dashboard.view", href: "/dashboard" },
+      // Field-first accounts (tasks.complete without dashboard.view) land on
+      // the worker tablet board (ITEM 2, 2026-09-21 playbook).
+      { permission: "tasks.view", href: "/worker" },
       { permission: "animals.view", href: "/animals" },
       { permission: "buckets.view", href: "/buckets" },
       { permission: "breeding.view", href: "/breeding" },
@@ -36,12 +39,14 @@ describe("firstPermittedPathFromList", () => {
         return permission === "buckets.view";
       }),
     ).toBe("/buckets");
-    expect(checked).toEqual(["dashboard.view", "animals.view", "buckets.view"]);
+    expect(checked).toEqual(["dashboard.view", "tasks.view", "animals.view", "buckets.view"]);
   });
 
   it("uses the first permitted module instead of assuming dashboard access", () => {
     expect(firstPermittedPathFromList(["health.view", "finance.view"])).toBe("/health");
-    expect(firstPermittedPathFromList(["tasks.view"])).toBe("/tasks");
+    // tasks.view now lands on the worker tablet board first (ITEM 2); the
+    // full tasks page is still reachable at /tasks directly.
+    expect(firstPermittedPathFromList(["tasks.view"])).toBe("/worker");
   });
 
   it("uses the safe no-access page for an empty custom role", () => {

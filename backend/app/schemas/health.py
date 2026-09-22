@@ -311,14 +311,20 @@ class HealthEventIn(StrictInputModel):
                 raise ValueError(
                     "next_due_date requires a schedule template and recorded authority"
                 )
-        if self.product_manufactured_on and self.product_expires_on:
-            if self.product_expires_on < self.product_manufactured_on:
-                raise ValueError("product expiry cannot be before manufacture date")
+        if (
+            self.product_manufactured_on
+            and self.product_expires_on
+            and self.product_expires_on < self.product_manufactured_on
+        ):
+            raise ValueError("product expiry cannot be before manufacture date")
         if self.product_expires_on and self.date and self.product_expires_on < self.date:
             raise ValueError("product expiry cannot predate the health event")
-        if self.vaccine_valid_until and self.product_expires_on:
-            if self.vaccine_valid_until > self.product_expires_on:
-                raise ValueError("vaccine validity cannot extend beyond product expiry")
+        if (
+            self.vaccine_valid_until
+            and self.product_expires_on
+            and self.vaccine_valid_until > self.product_expires_on
+        ):
+            raise ValueError("vaccine validity cannot extend beyond product expiry")
         if self.withdrawal_until and self.date:
             if self.withdrawal_until < self.date:
                 raise ValueError("withdrawal_until cannot be before the health event date")

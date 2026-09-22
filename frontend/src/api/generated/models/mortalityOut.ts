@@ -12,7 +12,7 @@ export interface MortalityOut {
      * @items.maxItems 2
      */
   deaths_by_month: [string, number][];
-  total_kids_born: number;
+  total_kids_born: number | null;
   stillborn: number | null;
   stillborn_rate: number | null;
 }

@@ -137,7 +137,7 @@ def main() -> int:
         sys.stdout.write("\n".join(resolved))
         return 0
 
-    assert key is not None
+    assert key is not None  # noqa: S101 — narrow after the early-return ladder
     normalized_key = key.lower()
     if normalized_key not in normalized_values or normalized_values[normalized_key] in (None, ""):
         # An empty value ("KEY=") reports absent: the backup/restore ladders
@@ -146,7 +146,7 @@ def main() -> int:
         return 3
 
     value = normalized_values[normalized_key]
-    assert value is not None
+    assert value is not None  # noqa: S101 — narrow after the empty-value guard
     if "\x00" in value:
         print(f"Refusing NUL byte in {key} from {env_file}", file=sys.stderr)
         return 2

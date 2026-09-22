@@ -52,6 +52,19 @@ const nextConfig = {
         source: "/:path*",
         headers: isProd ? [...SECURITY_HEADERS, ...PROD_ONLY_HEADERS] : SECURITY_HEADERS,
       },
+      // The service worker and PWA manifest must always be revalidated — a
+      // cached stale sw.js is the one deployment update path that can wedge
+      // every tablet at once (ITEM 2 Phase 2).
+      {
+        source: "/sw.js",
+        headers: [
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+        ],
+      },
+      {
+        source: "/manifest.webmanifest",
+        headers: [{ key: "Cache-Control", value: "no-cache" }],
+      },
     ];
   },
 };

@@ -12,6 +12,17 @@ class WorkerCreateIn(EmailMixin):
     password: PasswordString | None = Field(default=None, max_length=128)
     name: PostgresText | None = Field(default=None, max_length=120)
     role_id: BoundedId
+    # Optional worker-tablet quick sign-in PIN (ITEM 2, 2026-09-21 playbook).
+    # Digits only — the tablet renders a numeric pad. The deployment's
+    # min length (4 dev / 6 production) is enforced by the handler so the
+    # wire schema stays environment-independent.
+    pin: str | None = Field(default=None, min_length=4, max_length=12, pattern=r"^[0-9]+$")
+
+
+class WorkerPinResetIn(StrictInputModel):
+    """Owner-managed rotation of one membership's tablet PIN."""
+
+    pin: str = Field(min_length=4, max_length=12, pattern=r"^[0-9]+$")
 
 
 class RoleChangeIn(StrictInputModel):
@@ -39,6 +50,30 @@ class MembershipOut(BaseModel):
     is_active: bool
     can_reset_password: bool
     reset_password_block_reason: str | None
+    # True when this membership can sign in on the worker tablet by PIN.
+    pin_set: bool = False
+
+
+class NotificationPrefsIn(StrictInputModel):
+    """Owner-managed notification preferences for one membership."""
+
+    phone: str = Field(min_length=10, max_length=20, pattern=r"^\+?[0-9]{10,19}$")
+    daily_digest: bool = False
+    screening_flags: bool = False
+    kidding_watch: bool = False
+    overdue_critical: bool = False
+    feed_reorder: bool = False
+
+
+class NotificationPrefsOut(BaseModel):
+    membership_id: int
+    phone: str
+    daily_digest: bool
+    screening_flags: bool
+    kidding_watch: bool
+    overdue_critical: bool
+    feed_reorder: bool
+    verified: bool
 
 
 class RoleIn(StrictInputModel):

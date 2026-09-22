@@ -71,6 +71,25 @@ UNGUARDED_BY_DESIGN: dict[tuple[str, str], str] = {
     ("POST", "/api/auth/totp/challenge"): (
         "exchanges the login-issued single-use mfa token, gated on the code"
     ),
+    ("GET", "/api/auth/worker-roster"): (
+        "tablet first screen: names of PIN-enabled workers only, hard "
+        "per-IP throttled (documented first-name-leak tradeoff)"
+    ),
+    ("POST", "/api/auth/worker-login"): (
+        "issues the token permissions are evaluated against, gated on the "
+        "membership PIN with login-grade throttling"
+    ),
+    ("POST", "/api/auth/totp/recovery/regenerate"): (
+        "re-mints the caller's own recovery codes, gated on password + code"
+    ),
+    ("GET", "/api/owner/overview"): (
+        "cross-farm view over OWNED farms; ownership (Farm.owner_id) is the "
+        "permission, evaluated per farm inside the endpoint — not farm RBAC"
+    ),
+    ("GET", "/api/owner/benchmarks"): (
+        "cross-farm view over OWNED farms; ownership (Farm.owner_id) is the "
+        "permission, evaluated per farm inside the endpoint — not farm RBAC"
+    ),
     ("GET", "/api/simulation/defaults"): "global breed/system reference data, no farm scope",
     ("GET", "/api/simulation/defaults/breeds"): "global breed list, no farm scope",
 }
@@ -78,7 +97,12 @@ UNGUARDED_BY_DESIGN: dict[tuple[str, str], str] = {
 # Domain routes that deliberately resolve no `X-Farm-Id`. README's tenancy
 # section names exactly these two; keep the two in step.
 FARMLESS_BY_DESIGN: frozenset[tuple[str, str]] = frozenset(
-    {("GET", "/api/simulation/defaults"), ("GET", "/api/simulation/defaults/breeds")}
+    {
+        ("GET", "/api/simulation/defaults"),
+        ("GET", "/api/simulation/defaults/breeds"),
+        ("GET", "/api/owner/overview"),
+        ("GET", "/api/owner/benchmarks"),
+    }
 )
 
 # The old extractor collapsed from 65 routes to 16 without anyone noticing.

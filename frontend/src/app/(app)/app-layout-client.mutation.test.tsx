@@ -53,7 +53,9 @@ function navGroupItems(label: string) {
 
 async function renderShell() {
   const rendered = renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
-  await waitFor(() => expect(navLinks()).toHaveLength(16));
+  // 16 worker-visible links + the owners-only "All farms" console entry
+  // (the test identity owns the farm).
+  await waitFor(() => expect(navLinks()).toHaveLength(17));
   return rendered;
 }
 
@@ -164,7 +166,9 @@ describe("AppLayout — sidebar permissions failure", () => {
     expect(screen.queryByRole("link", { name: "Dashboard" })).not.toBeInTheDocument();
 
     await user.click(retry);
-    await waitFor(() => expect(navLinks()).toHaveLength(2));
+    // Dashboard + Animals, plus the owners-only "All farms" console (the
+    // recovered identity owns this farm).
+    await waitFor(() => expect(navLinks()).toHaveLength(3));
   });
 });
 

@@ -109,6 +109,11 @@ import type {
   MovementRestrictionClearIn,
   MovementRestrictionHistoryApiHealthRestrictionsAnimalIdGetParams,
   MovementRestrictionHistoryOut,
+  NotificationPrefsIn,
+  NotificationPrefsOut,
+  OwnerBenchmarksApiOwnerBenchmarksGetParams,
+  OwnerBenchmarksOut,
+  OwnerOverviewOut,
   PasswordResetIn,
   PermissionsOut,
   PlannerPlanCreateIn,
@@ -166,6 +171,8 @@ import type {
   TotpDisableIn,
   TotpEnrollIn,
   TotpEnrollOut,
+  TotpRecoveryCodesOut,
+  TotpRecoveryRegenerateIn,
   TransactionCorrectionIn,
   TransactionIn,
   TransactionOut,
@@ -174,6 +181,10 @@ import type {
   WeightIn,
   WeightRecordOut,
   WorkerCreateIn,
+  WorkerLoginIn,
+  WorkerPinResetIn,
+  WorkerRosterApiAuthWorkerRosterGetParams,
+  WorkerRosterOut,
   WorkerStatusIn
 } from './models';
 
@@ -723,6 +734,346 @@ export const useLoginApiAuthLoginPost = <TError = ErrorType<ErrorOut | RequestVa
         TContext
       > => {
       return useMutation(getLoginApiAuthLoginPostMutationOptions(options), queryClient);
+    }
+
+export type workerRosterApiAuthWorkerRosterGetResponse200 = {
+  data: WorkerRosterOut
+  status: 200
+}
+
+export type workerRosterApiAuthWorkerRosterGetResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type workerRosterApiAuthWorkerRosterGetResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type workerRosterApiAuthWorkerRosterGetResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type workerRosterApiAuthWorkerRosterGetResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type workerRosterApiAuthWorkerRosterGetResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type workerRosterApiAuthWorkerRosterGetResponse413 = {
+  data: ErrorOut
+  status: 413
+}
+
+export type workerRosterApiAuthWorkerRosterGetResponse414 = {
+  data: ErrorOut
+  status: 414
+}
+
+export type workerRosterApiAuthWorkerRosterGetResponse415 = {
+  data: ErrorOut
+  status: 415
+}
+
+export type workerRosterApiAuthWorkerRosterGetResponse422 = {
+  data: ErrorOut | RequestValidationErrorOut
+  status: 422
+}
+
+export type workerRosterApiAuthWorkerRosterGetResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type workerRosterApiAuthWorkerRosterGetResponse500 = {
+  data: ErrorOut
+  status: 500
+}
+
+export type workerRosterApiAuthWorkerRosterGetResponse503 = {
+  data: ErrorOut
+  status: 503
+}
+
+export type workerRosterApiAuthWorkerRosterGetResponseSuccess = (workerRosterApiAuthWorkerRosterGetResponse200) & {
+  headers: Headers;
+};
+export type workerRosterApiAuthWorkerRosterGetResponseError = (workerRosterApiAuthWorkerRosterGetResponse400 | workerRosterApiAuthWorkerRosterGetResponse401 | workerRosterApiAuthWorkerRosterGetResponse403 | workerRosterApiAuthWorkerRosterGetResponse404 | workerRosterApiAuthWorkerRosterGetResponse409 | workerRosterApiAuthWorkerRosterGetResponse413 | workerRosterApiAuthWorkerRosterGetResponse414 | workerRosterApiAuthWorkerRosterGetResponse415 | workerRosterApiAuthWorkerRosterGetResponse422 | workerRosterApiAuthWorkerRosterGetResponse429 | workerRosterApiAuthWorkerRosterGetResponse500 | workerRosterApiAuthWorkerRosterGetResponse503) & {
+  headers: Headers;
+};
+
+export type workerRosterApiAuthWorkerRosterGetResponse = (workerRosterApiAuthWorkerRosterGetResponseSuccess | workerRosterApiAuthWorkerRosterGetResponseError)
+
+export const getWorkerRosterApiAuthWorkerRosterGetUrl = (params: WorkerRosterApiAuthWorkerRosterGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/auth/worker-roster?${stringifiedParams}` : `/api/auth/worker-roster`
+}
+
+/**
+ * Names tap-to-sign-in offers on this farm's shared tablet.
+ *
+ * Unauthenticated by design (the tablet's first screen has no session) and
+ * hard-throttled per IP: this trades limited first/last-name enumeration per
+ * farm id for a PIN pad a field worker can actually use — the documented
+ * owner-operator tradeoff (README, worker tablet app).
+ * @summary Worker Roster
+ */
+export const workerRosterApiAuthWorkerRosterGet = async (params: WorkerRosterApiAuthWorkerRosterGetParams, options?: Parameters<typeof customInstance>[1]): Promise<workerRosterApiAuthWorkerRosterGetResponse> => {
+
+  return customInstance<workerRosterApiAuthWorkerRosterGetResponse>(getWorkerRosterApiAuthWorkerRosterGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getWorkerRosterApiAuthWorkerRosterGetQueryKey = (params?: WorkerRosterApiAuthWorkerRosterGetParams,) => {
+    return [
+    `/api/auth/worker-roster`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getWorkerRosterApiAuthWorkerRosterGetQueryOptions = <TData = Awaited<ReturnType<typeof workerRosterApiAuthWorkerRosterGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(params: WorkerRosterApiAuthWorkerRosterGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof workerRosterApiAuthWorkerRosterGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getWorkerRosterApiAuthWorkerRosterGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof workerRosterApiAuthWorkerRosterGet>>> = ({ signal }) => workerRosterApiAuthWorkerRosterGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof workerRosterApiAuthWorkerRosterGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type WorkerRosterApiAuthWorkerRosterGetQueryResult = NonNullable<Awaited<ReturnType<typeof workerRosterApiAuthWorkerRosterGet>>>
+export type WorkerRosterApiAuthWorkerRosterGetQueryError = ErrorType<ErrorOut | RequestValidationErrorOut>
+
+
+export function useWorkerRosterApiAuthWorkerRosterGet<TData = Awaited<ReturnType<typeof workerRosterApiAuthWorkerRosterGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
+ params: WorkerRosterApiAuthWorkerRosterGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof workerRosterApiAuthWorkerRosterGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof workerRosterApiAuthWorkerRosterGet>>,
+          TError,
+          Awaited<ReturnType<typeof workerRosterApiAuthWorkerRosterGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useWorkerRosterApiAuthWorkerRosterGet<TData = Awaited<ReturnType<typeof workerRosterApiAuthWorkerRosterGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
+ params: WorkerRosterApiAuthWorkerRosterGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof workerRosterApiAuthWorkerRosterGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof workerRosterApiAuthWorkerRosterGet>>,
+          TError,
+          Awaited<ReturnType<typeof workerRosterApiAuthWorkerRosterGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useWorkerRosterApiAuthWorkerRosterGet<TData = Awaited<ReturnType<typeof workerRosterApiAuthWorkerRosterGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
+ params: WorkerRosterApiAuthWorkerRosterGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof workerRosterApiAuthWorkerRosterGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Worker Roster
+ */
+
+export function useWorkerRosterApiAuthWorkerRosterGet<TData = Awaited<ReturnType<typeof workerRosterApiAuthWorkerRosterGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
+ params: WorkerRosterApiAuthWorkerRosterGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof workerRosterApiAuthWorkerRosterGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getWorkerRosterApiAuthWorkerRosterGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type workerLoginApiAuthWorkerLoginPostResponse200 = {
+  data: LoginOut
+  status: 200
+}
+
+export type workerLoginApiAuthWorkerLoginPostResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type workerLoginApiAuthWorkerLoginPostResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type workerLoginApiAuthWorkerLoginPostResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type workerLoginApiAuthWorkerLoginPostResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type workerLoginApiAuthWorkerLoginPostResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type workerLoginApiAuthWorkerLoginPostResponse413 = {
+  data: ErrorOut
+  status: 413
+}
+
+export type workerLoginApiAuthWorkerLoginPostResponse414 = {
+  data: ErrorOut
+  status: 414
+}
+
+export type workerLoginApiAuthWorkerLoginPostResponse415 = {
+  data: ErrorOut
+  status: 415
+}
+
+export type workerLoginApiAuthWorkerLoginPostResponse422 = {
+  data: ErrorOut | RequestValidationErrorOut
+  status: 422
+}
+
+export type workerLoginApiAuthWorkerLoginPostResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type workerLoginApiAuthWorkerLoginPostResponse500 = {
+  data: ErrorOut
+  status: 500
+}
+
+export type workerLoginApiAuthWorkerLoginPostResponse503 = {
+  data: ErrorOut
+  status: 503
+}
+
+export type workerLoginApiAuthWorkerLoginPostResponseSuccess = (workerLoginApiAuthWorkerLoginPostResponse200) & {
+  headers: Headers;
+};
+export type workerLoginApiAuthWorkerLoginPostResponseError = (workerLoginApiAuthWorkerLoginPostResponse400 | workerLoginApiAuthWorkerLoginPostResponse401 | workerLoginApiAuthWorkerLoginPostResponse403 | workerLoginApiAuthWorkerLoginPostResponse404 | workerLoginApiAuthWorkerLoginPostResponse409 | workerLoginApiAuthWorkerLoginPostResponse413 | workerLoginApiAuthWorkerLoginPostResponse414 | workerLoginApiAuthWorkerLoginPostResponse415 | workerLoginApiAuthWorkerLoginPostResponse422 | workerLoginApiAuthWorkerLoginPostResponse429 | workerLoginApiAuthWorkerLoginPostResponse500 | workerLoginApiAuthWorkerLoginPostResponse503) & {
+  headers: Headers;
+};
+
+export type workerLoginApiAuthWorkerLoginPostResponse = (workerLoginApiAuthWorkerLoginPostResponseSuccess | workerLoginApiAuthWorkerLoginPostResponseError)
+
+export const getWorkerLoginApiAuthWorkerLoginPostUrl = () => {
+
+
+
+
+  return `/api/auth/worker-login`
+}
+
+/**
+ * Shared-tablet quick sign-in: farm + tap + PIN, throttled like login.
+ *
+ * The PIN is a convenience credential scoped to ONE membership. It never
+ * bypasses the second factor (an ACTIVE TOTP refuses — the tablet is not an
+ * authenticator) and never admits an owner (owners hold no membership row).
+ * Every failure answers the same generic 401 after identical Argon work, so
+ * the exchange cannot enumerate farms, memberships or PINs by timing.
+ * @summary Worker Login
+ */
+export const workerLoginApiAuthWorkerLoginPost = async (workerLoginIn: WorkerLoginIn, options?: Parameters<typeof customInstance>[1]): Promise<workerLoginApiAuthWorkerLoginPostResponse> => {
+
+  return customInstance<workerLoginApiAuthWorkerLoginPostResponse>(getWorkerLoginApiAuthWorkerLoginPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(workerLoginIn)
+  }
+);}
+
+
+
+
+
+export const getWorkerLoginApiAuthWorkerLoginPostMutationOptions = <TError = ErrorType<ErrorOut | RequestValidationErrorOut>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof workerLoginApiAuthWorkerLoginPost>>, TError,{data: WorkerLoginIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof workerLoginApiAuthWorkerLoginPost>>, TError,{data: WorkerLoginIn}, TContext> => {
+
+const mutationKey = ['workerLoginApiAuthWorkerLoginPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof workerLoginApiAuthWorkerLoginPost>>, {data: WorkerLoginIn}> = (props) => {
+          const {data} = props ?? {};
+
+          return  workerLoginApiAuthWorkerLoginPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type WorkerLoginApiAuthWorkerLoginPostMutationResult = NonNullable<Awaited<ReturnType<typeof workerLoginApiAuthWorkerLoginPost>>>
+    export type WorkerLoginApiAuthWorkerLoginPostMutationBody = WorkerLoginIn
+    export type WorkerLoginApiAuthWorkerLoginPostMutationError = ErrorType<ErrorOut | RequestValidationErrorOut>
+
+    /**
+ * @summary Worker Login
+ */
+export const useWorkerLoginApiAuthWorkerLoginPost = <TError = ErrorType<ErrorOut | RequestValidationErrorOut>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof workerLoginApiAuthWorkerLoginPost>>, TError,{data: WorkerLoginIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof workerLoginApiAuthWorkerLoginPost>>,
+        TError,
+        {data: WorkerLoginIn},
+        TContext
+      > => {
+      return useMutation(getWorkerLoginApiAuthWorkerLoginPostMutationOptions(options), queryClient);
     }
 
 export type refreshApiAuthRefreshPostResponse200 = {
@@ -2313,9 +2664,9 @@ export const useTotpEnrollApiAuthTotpEnrollPost = <TError = ErrorType<ErrorOut |
       return useMutation(getTotpEnrollApiAuthTotpEnrollPostMutationOptions(options), queryClient);
     }
 
-export type totpConfirmApiAuthTotpConfirmPostResponse204 = {
-  data: void
-  status: 204
+export type totpConfirmApiAuthTotpConfirmPostResponse200 = {
+  data: TotpRecoveryCodesOut
+  status: 200
 }
 
 export type totpConfirmApiAuthTotpConfirmPostResponse400 = {
@@ -2378,7 +2729,7 @@ export type totpConfirmApiAuthTotpConfirmPostResponse503 = {
   status: 503
 }
 
-export type totpConfirmApiAuthTotpConfirmPostResponseSuccess = (totpConfirmApiAuthTotpConfirmPostResponse204) & {
+export type totpConfirmApiAuthTotpConfirmPostResponseSuccess = (totpConfirmApiAuthTotpConfirmPostResponse200) & {
   headers: Headers;
 };
 export type totpConfirmApiAuthTotpConfirmPostResponseError = (totpConfirmApiAuthTotpConfirmPostResponse400 | totpConfirmApiAuthTotpConfirmPostResponse401 | totpConfirmApiAuthTotpConfirmPostResponse403 | totpConfirmApiAuthTotpConfirmPostResponse404 | totpConfirmApiAuthTotpConfirmPostResponse409 | totpConfirmApiAuthTotpConfirmPostResponse413 | totpConfirmApiAuthTotpConfirmPostResponse414 | totpConfirmApiAuthTotpConfirmPostResponse415 | totpConfirmApiAuthTotpConfirmPostResponse422 | totpConfirmApiAuthTotpConfirmPostResponse429 | totpConfirmApiAuthTotpConfirmPostResponse500 | totpConfirmApiAuthTotpConfirmPostResponse503) & {
@@ -2398,6 +2749,10 @@ export const getTotpConfirmApiAuthTotpConfirmPostUrl = () => {
 /**
  * Finish enrollment: a code generated from the PENDING secret activates
  * the second factor. Proof-of-possession before it gates login.
+ *
+ * ITEM 7 (2026-09-21 playbook): activation mints the one-time recovery-code
+ * set and returns it HERE, exactly once — the codes are unrecoverable
+ * afterwards, so the client must present them for copy/print immediately.
  * @summary Totp Confirm
  */
 export const totpConfirmApiAuthTotpConfirmPost = async (totpCodeIn: TotpCodeIn, options?: Parameters<typeof customInstance>[1]): Promise<totpConfirmApiAuthTotpConfirmPostResponse> => {
@@ -2606,6 +2961,157 @@ export const useTotpDisableApiAuthTotpDisablePost = <TError = ErrorType<ErrorOut
         TContext
       > => {
       return useMutation(getTotpDisableApiAuthTotpDisablePostMutationOptions(options), queryClient);
+    }
+
+export type totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse200 = {
+  data: TotpRecoveryCodesOut
+  status: 200
+}
+
+export type totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse413 = {
+  data: ErrorOut
+  status: 413
+}
+
+export type totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse414 = {
+  data: ErrorOut
+  status: 414
+}
+
+export type totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse415 = {
+  data: ErrorOut
+  status: 415
+}
+
+export type totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse422 = {
+  data: ErrorOut | RequestValidationErrorOut
+  status: 422
+}
+
+export type totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse500 = {
+  data: ErrorOut
+  status: 500
+}
+
+export type totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse503 = {
+  data: ErrorOut
+  status: 503
+}
+
+export type totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponseSuccess = (totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse200) & {
+  headers: Headers;
+};
+export type totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponseError = (totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse400 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse401 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse403 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse404 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse409 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse413 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse414 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse415 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse422 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse429 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse500 | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse503) & {
+  headers: Headers;
+};
+
+export type totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse = (totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponseSuccess | totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponseError)
+
+export const getTotpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostUrl = () => {
+
+
+
+
+  return `/api/auth/totp/recovery/regenerate`
+}
+
+/**
+ * Re-mint the recovery-code set, revoking every prior code.
+ *
+ * Requires BOTH the current password and a currently-valid TOTP code: an
+ * authenticated session alone (a stolen unlocked laptop, an XSS-surviving
+ * bearer token) must not be enough to rotate the break-glass material. The
+ * new codes are revealed here exactly once, like enrollment's.
+ * @summary Totp Recovery Regenerate
+ */
+export const totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePost = async (totpRecoveryRegenerateIn: TotpRecoveryRegenerateIn, options?: Parameters<typeof customInstance>[1]): Promise<totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse> => {
+
+  return customInstance<totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostResponse>(getTotpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(totpRecoveryRegenerateIn)
+  }
+);}
+
+
+
+
+
+export const getTotpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostMutationOptions = <TError = ErrorType<ErrorOut | RequestValidationErrorOut>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePost>>, TError,{data: TotpRecoveryRegenerateIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePost>>, TError,{data: TotpRecoveryRegenerateIn}, TContext> => {
+
+const mutationKey = ['totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePost>>, {data: TotpRecoveryRegenerateIn}> = (props) => {
+          const {data} = props ?? {};
+
+          return  totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TotpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostMutationResult = NonNullable<Awaited<ReturnType<typeof totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePost>>>
+    export type TotpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostMutationBody = TotpRecoveryRegenerateIn
+    export type TotpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostMutationError = ErrorType<ErrorOut | RequestValidationErrorOut>
+
+    /**
+ * @summary Totp Recovery Regenerate
+ */
+export const useTotpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePost = <TError = ErrorType<ErrorOut | RequestValidationErrorOut>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePost>>, TError,{data: TotpRecoveryRegenerateIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof totpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePost>>,
+        TError,
+        {data: TotpRecoveryRegenerateIn},
+        TContext
+      > => {
+      return useMutation(getTotpRecoveryRegenerateApiAuthTotpRecoveryRegeneratePostMutationOptions(options), queryClient);
     }
 
 export type totpChallengeApiAuthTotpChallengePostResponse200 = {
@@ -12830,6 +13336,483 @@ export const useResetPasswordApiTeamWorkersMembershipIdResetPasswordPost = <TErr
       return useMutation(getResetPasswordApiTeamWorkersMembershipIdResetPasswordPostMutationOptions(options), queryClient);
     }
 
+export type resetPinApiTeamWorkersMembershipIdResetPinPostResponse200 = {
+  data: MembershipOut
+  status: 200
+}
+
+export type resetPinApiTeamWorkersMembershipIdResetPinPostResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type resetPinApiTeamWorkersMembershipIdResetPinPostResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type resetPinApiTeamWorkersMembershipIdResetPinPostResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type resetPinApiTeamWorkersMembershipIdResetPinPostResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type resetPinApiTeamWorkersMembershipIdResetPinPostResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type resetPinApiTeamWorkersMembershipIdResetPinPostResponse413 = {
+  data: ErrorOut
+  status: 413
+}
+
+export type resetPinApiTeamWorkersMembershipIdResetPinPostResponse414 = {
+  data: ErrorOut
+  status: 414
+}
+
+export type resetPinApiTeamWorkersMembershipIdResetPinPostResponse415 = {
+  data: ErrorOut
+  status: 415
+}
+
+export type resetPinApiTeamWorkersMembershipIdResetPinPostResponse422 = {
+  data: ErrorOut | RequestValidationErrorOut
+  status: 422
+}
+
+export type resetPinApiTeamWorkersMembershipIdResetPinPostResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type resetPinApiTeamWorkersMembershipIdResetPinPostResponse500 = {
+  data: ErrorOut
+  status: 500
+}
+
+export type resetPinApiTeamWorkersMembershipIdResetPinPostResponse503 = {
+  data: ErrorOut
+  status: 503
+}
+
+export type resetPinApiTeamWorkersMembershipIdResetPinPostResponseSuccess = (resetPinApiTeamWorkersMembershipIdResetPinPostResponse200) & {
+  headers: Headers;
+};
+export type resetPinApiTeamWorkersMembershipIdResetPinPostResponseError = (resetPinApiTeamWorkersMembershipIdResetPinPostResponse400 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse401 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse403 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse404 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse409 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse413 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse414 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse415 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse422 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse429 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse500 | resetPinApiTeamWorkersMembershipIdResetPinPostResponse503) & {
+  headers: Headers;
+};
+
+export type resetPinApiTeamWorkersMembershipIdResetPinPostResponse = (resetPinApiTeamWorkersMembershipIdResetPinPostResponseSuccess | resetPinApiTeamWorkersMembershipIdResetPinPostResponseError)
+
+export const getResetPinApiTeamWorkersMembershipIdResetPinPostUrl = (membershipId: number,) => {
+
+
+
+
+  return `/api/team/workers/${membershipId}/reset-pin`
+}
+
+/**
+ * Owner-only set/rotation of one membership's tablet PIN.
+ *
+ * Rotating the PIN is an account-security change: every existing session is
+ * revoked (a borrowed tablet signed in under the old PIN stops working
+ * immediately), mirroring the password-reset endpoint's semantics.
+ * @summary Reset Pin
+ */
+export const resetPinApiTeamWorkersMembershipIdResetPinPost = async (membershipId: number,
+    workerPinResetIn: WorkerPinResetIn, options?: Parameters<typeof customInstance>[1]): Promise<resetPinApiTeamWorkersMembershipIdResetPinPostResponse> => {
+
+  return customInstance<resetPinApiTeamWorkersMembershipIdResetPinPostResponse>(getResetPinApiTeamWorkersMembershipIdResetPinPostUrl(membershipId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(workerPinResetIn)
+  }
+);}
+
+
+
+
+
+export const getResetPinApiTeamWorkersMembershipIdResetPinPostMutationOptions = <TError = ErrorType<ErrorOut | RequestValidationErrorOut>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resetPinApiTeamWorkersMembershipIdResetPinPost>>, TError,{membershipId: number;data: WorkerPinResetIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof resetPinApiTeamWorkersMembershipIdResetPinPost>>, TError,{membershipId: number;data: WorkerPinResetIn}, TContext> => {
+
+const mutationKey = ['resetPinApiTeamWorkersMembershipIdResetPinPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof resetPinApiTeamWorkersMembershipIdResetPinPost>>, {membershipId: number;data: WorkerPinResetIn}> = (props) => {
+          const {membershipId,data} = props ?? {};
+
+          return  resetPinApiTeamWorkersMembershipIdResetPinPost(membershipId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ResetPinApiTeamWorkersMembershipIdResetPinPostMutationResult = NonNullable<Awaited<ReturnType<typeof resetPinApiTeamWorkersMembershipIdResetPinPost>>>
+    export type ResetPinApiTeamWorkersMembershipIdResetPinPostMutationBody = WorkerPinResetIn
+    export type ResetPinApiTeamWorkersMembershipIdResetPinPostMutationError = ErrorType<ErrorOut | RequestValidationErrorOut>
+
+    /**
+ * @summary Reset Pin
+ */
+export const useResetPinApiTeamWorkersMembershipIdResetPinPost = <TError = ErrorType<ErrorOut | RequestValidationErrorOut>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resetPinApiTeamWorkersMembershipIdResetPinPost>>, TError,{membershipId: number;data: WorkerPinResetIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof resetPinApiTeamWorkersMembershipIdResetPinPost>>,
+        TError,
+        {membershipId: number;data: WorkerPinResetIn},
+        TContext
+      > => {
+      return useMutation(getResetPinApiTeamWorkersMembershipIdResetPinPostMutationOptions(options), queryClient);
+    }
+
+export type getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse200 = {
+  data: NotificationPrefsOut | null
+  status: 200
+}
+
+export type getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse413 = {
+  data: ErrorOut
+  status: 413
+}
+
+export type getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse414 = {
+  data: ErrorOut
+  status: 414
+}
+
+export type getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse415 = {
+  data: ErrorOut
+  status: 415
+}
+
+export type getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse422 = {
+  data: ErrorOut | RequestValidationErrorOut
+  status: 422
+}
+
+export type getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse500 = {
+  data: ErrorOut
+  status: 500
+}
+
+export type getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse503 = {
+  data: ErrorOut
+  status: 503
+}
+
+export type getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponseSuccess = (getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse200) & {
+  headers: Headers;
+};
+export type getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponseError = (getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse400 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse401 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse403 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse404 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse409 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse413 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse414 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse415 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse422 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse429 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse500 | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse503) & {
+  headers: Headers;
+};
+
+export type getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse = (getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponseSuccess | getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponseError)
+
+export const getGetNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetUrl = (membershipId: number,) => {
+
+
+
+
+  return `/api/team/workers/${membershipId}/notifications`
+}
+
+/**
+ * The membership's notification preferences, or null when unset.
+ * @summary Get Notification Prefs
+ */
+export const getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet = async (membershipId: number, options?: Parameters<typeof customInstance>[1]): Promise<getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse> => {
+
+  return customInstance<getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetResponse>(getGetNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetUrl(membershipId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetQueryKey = (membershipId: number,) => {
+    return [
+    `/api/team/workers/${membershipId}/notifications`
+    ] as const;
+    }
+
+
+export const getGetNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetQueryOptions = <TData = Awaited<ReturnType<typeof getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(membershipId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetQueryKey(membershipId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet>>> = ({ signal }) => getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet(membershipId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: membershipId !== null && membershipId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetQueryResult = NonNullable<Awaited<ReturnType<typeof getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet>>>
+export type GetNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetQueryError = ErrorType<ErrorOut | RequestValidationErrorOut>
+
+
+export function useGetNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet<TData = Awaited<ReturnType<typeof getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
+ membershipId: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet>>,
+          TError,
+          Awaited<ReturnType<typeof getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet<TData = Awaited<ReturnType<typeof getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
+ membershipId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet>>,
+          TError,
+          Awaited<ReturnType<typeof getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet<TData = Awaited<ReturnType<typeof getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
+ membershipId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Get Notification Prefs
+ */
+
+export function useGetNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet<TData = Awaited<ReturnType<typeof getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
+ membershipId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetQueryOptions(membershipId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse200 = {
+  data: NotificationPrefsOut
+  status: 200
+}
+
+export type setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse413 = {
+  data: ErrorOut
+  status: 413
+}
+
+export type setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse414 = {
+  data: ErrorOut
+  status: 414
+}
+
+export type setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse415 = {
+  data: ErrorOut
+  status: 415
+}
+
+export type setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse422 = {
+  data: ErrorOut | RequestValidationErrorOut
+  status: 422
+}
+
+export type setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse500 = {
+  data: ErrorOut
+  status: 500
+}
+
+export type setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse503 = {
+  data: ErrorOut
+  status: 503
+}
+
+export type setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponseSuccess = (setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse200) & {
+  headers: Headers;
+};
+export type setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponseError = (setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse400 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse401 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse403 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse404 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse409 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse413 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse414 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse415 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse422 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse429 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse500 | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse503) & {
+  headers: Headers;
+};
+
+export type setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse = (setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponseSuccess | setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponseError)
+
+export const getSetNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutUrl = (membershipId: number,) => {
+
+
+
+
+  return `/api/team/workers/${membershipId}/notifications`
+}
+
+/**
+ * Owner-only create/update of one membership's notification channel.
+ *
+ * Notifications reach a farm's people through numbers the OWNER controls;
+ * a delegated team manager may view but not edit them.
+ * @summary Set Notification Prefs
+ */
+export const setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPut = async (membershipId: number,
+    notificationPrefsIn: NotificationPrefsIn, options?: Parameters<typeof customInstance>[1]): Promise<setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse> => {
+
+  return customInstance<setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutResponse>(getSetNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutUrl(membershipId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(notificationPrefsIn)
+  }
+);}
+
+
+
+
+
+export const getSetNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutMutationOptions = <TError = ErrorType<ErrorOut | RequestValidationErrorOut>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPut>>, TError,{membershipId: number;data: NotificationPrefsIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPut>>, TError,{membershipId: number;data: NotificationPrefsIn}, TContext> => {
+
+const mutationKey = ['setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPut'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPut>>, {membershipId: number;data: NotificationPrefsIn}> = (props) => {
+          const {membershipId,data} = props ?? {};
+
+          return  setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPut(membershipId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutMutationResult = NonNullable<Awaited<ReturnType<typeof setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPut>>>
+    export type SetNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutMutationBody = NotificationPrefsIn
+    export type SetNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutMutationError = ErrorType<ErrorOut | RequestValidationErrorOut>
+
+    /**
+ * @summary Set Notification Prefs
+ */
+export const useSetNotificationPrefsApiTeamWorkersMembershipIdNotificationsPut = <TError = ErrorType<ErrorOut | RequestValidationErrorOut>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPut>>, TError,{membershipId: number;data: NotificationPrefsIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof setNotificationPrefsApiTeamWorkersMembershipIdNotificationsPut>>,
+        TError,
+        {membershipId: number;data: NotificationPrefsIn},
+        TContext
+      > => {
+      return useMutation(getSetNotificationPrefsApiTeamWorkersMembershipIdNotificationsPutMutationOptions(options), queryClient);
+    }
+
 export type createRoleApiTeamRolesPostResponse201 = {
   data: RoleOut
   status: 201
@@ -18087,4 +19070,363 @@ export const useRequestUploadApiScreeningUploadsPost = <TError = ErrorType<Error
       > => {
       return useMutation(getRequestUploadApiScreeningUploadsPostMutationOptions(options), queryClient);
     }
+
+export type ownerOverviewApiOwnerOverviewGetResponse200 = {
+  data: OwnerOverviewOut
+  status: 200
+}
+
+export type ownerOverviewApiOwnerOverviewGetResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type ownerOverviewApiOwnerOverviewGetResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type ownerOverviewApiOwnerOverviewGetResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type ownerOverviewApiOwnerOverviewGetResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type ownerOverviewApiOwnerOverviewGetResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type ownerOverviewApiOwnerOverviewGetResponse413 = {
+  data: ErrorOut
+  status: 413
+}
+
+export type ownerOverviewApiOwnerOverviewGetResponse414 = {
+  data: ErrorOut
+  status: 414
+}
+
+export type ownerOverviewApiOwnerOverviewGetResponse415 = {
+  data: ErrorOut
+  status: 415
+}
+
+export type ownerOverviewApiOwnerOverviewGetResponse422 = {
+  data: ErrorOut | RequestValidationErrorOut
+  status: 422
+}
+
+export type ownerOverviewApiOwnerOverviewGetResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type ownerOverviewApiOwnerOverviewGetResponse500 = {
+  data: ErrorOut
+  status: 500
+}
+
+export type ownerOverviewApiOwnerOverviewGetResponse503 = {
+  data: ErrorOut
+  status: 503
+}
+
+export type ownerOverviewApiOwnerOverviewGetResponseSuccess = (ownerOverviewApiOwnerOverviewGetResponse200) & {
+  headers: Headers;
+};
+export type ownerOverviewApiOwnerOverviewGetResponseError = (ownerOverviewApiOwnerOverviewGetResponse400 | ownerOverviewApiOwnerOverviewGetResponse401 | ownerOverviewApiOwnerOverviewGetResponse403 | ownerOverviewApiOwnerOverviewGetResponse404 | ownerOverviewApiOwnerOverviewGetResponse409 | ownerOverviewApiOwnerOverviewGetResponse413 | ownerOverviewApiOwnerOverviewGetResponse414 | ownerOverviewApiOwnerOverviewGetResponse415 | ownerOverviewApiOwnerOverviewGetResponse422 | ownerOverviewApiOwnerOverviewGetResponse429 | ownerOverviewApiOwnerOverviewGetResponse500 | ownerOverviewApiOwnerOverviewGetResponse503) & {
+  headers: Headers;
+};
+
+export type ownerOverviewApiOwnerOverviewGetResponse = (ownerOverviewApiOwnerOverviewGetResponseSuccess | ownerOverviewApiOwnerOverviewGetResponseError)
+
+export const getOwnerOverviewApiOwnerOverviewGetUrl = () => {
+
+
+
+
+  return `/api/owner/overview`
+}
+
+/**
+ * Attention headlines for every farm the caller owns, in one response.
+ * @summary Owner Overview
+ */
+export const ownerOverviewApiOwnerOverviewGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<ownerOverviewApiOwnerOverviewGetResponse> => {
+
+  return customInstance<ownerOverviewApiOwnerOverviewGetResponse>(getOwnerOverviewApiOwnerOverviewGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getOwnerOverviewApiOwnerOverviewGetQueryKey = () => {
+    return [
+    `/api/owner/overview`
+    ] as const;
+    }
+
+
+export const getOwnerOverviewApiOwnerOverviewGetQueryOptions = <TData = Awaited<ReturnType<typeof ownerOverviewApiOwnerOverviewGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof ownerOverviewApiOwnerOverviewGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getOwnerOverviewApiOwnerOverviewGetQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof ownerOverviewApiOwnerOverviewGet>>> = ({ signal }) => ownerOverviewApiOwnerOverviewGet({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof ownerOverviewApiOwnerOverviewGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type OwnerOverviewApiOwnerOverviewGetQueryResult = NonNullable<Awaited<ReturnType<typeof ownerOverviewApiOwnerOverviewGet>>>
+export type OwnerOverviewApiOwnerOverviewGetQueryError = ErrorType<ErrorOut | RequestValidationErrorOut>
+
+
+export function useOwnerOverviewApiOwnerOverviewGet<TData = Awaited<ReturnType<typeof ownerOverviewApiOwnerOverviewGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof ownerOverviewApiOwnerOverviewGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof ownerOverviewApiOwnerOverviewGet>>,
+          TError,
+          Awaited<ReturnType<typeof ownerOverviewApiOwnerOverviewGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useOwnerOverviewApiOwnerOverviewGet<TData = Awaited<ReturnType<typeof ownerOverviewApiOwnerOverviewGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof ownerOverviewApiOwnerOverviewGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof ownerOverviewApiOwnerOverviewGet>>,
+          TError,
+          Awaited<ReturnType<typeof ownerOverviewApiOwnerOverviewGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useOwnerOverviewApiOwnerOverviewGet<TData = Awaited<ReturnType<typeof ownerOverviewApiOwnerOverviewGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof ownerOverviewApiOwnerOverviewGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Owner Overview
+ */
+
+export function useOwnerOverviewApiOwnerOverviewGet<TData = Awaited<ReturnType<typeof ownerOverviewApiOwnerOverviewGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof ownerOverviewApiOwnerOverviewGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getOwnerOverviewApiOwnerOverviewGetQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type ownerBenchmarksApiOwnerBenchmarksGetResponse200 = {
+  data: OwnerBenchmarksOut
+  status: 200
+}
+
+export type ownerBenchmarksApiOwnerBenchmarksGetResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type ownerBenchmarksApiOwnerBenchmarksGetResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type ownerBenchmarksApiOwnerBenchmarksGetResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type ownerBenchmarksApiOwnerBenchmarksGetResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type ownerBenchmarksApiOwnerBenchmarksGetResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type ownerBenchmarksApiOwnerBenchmarksGetResponse413 = {
+  data: ErrorOut
+  status: 413
+}
+
+export type ownerBenchmarksApiOwnerBenchmarksGetResponse414 = {
+  data: ErrorOut
+  status: 414
+}
+
+export type ownerBenchmarksApiOwnerBenchmarksGetResponse415 = {
+  data: ErrorOut
+  status: 415
+}
+
+export type ownerBenchmarksApiOwnerBenchmarksGetResponse422 = {
+  data: ErrorOut | RequestValidationErrorOut
+  status: 422
+}
+
+export type ownerBenchmarksApiOwnerBenchmarksGetResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type ownerBenchmarksApiOwnerBenchmarksGetResponse500 = {
+  data: ErrorOut
+  status: 500
+}
+
+export type ownerBenchmarksApiOwnerBenchmarksGetResponse503 = {
+  data: ErrorOut
+  status: 503
+}
+
+export type ownerBenchmarksApiOwnerBenchmarksGetResponseSuccess = (ownerBenchmarksApiOwnerBenchmarksGetResponse200) & {
+  headers: Headers;
+};
+export type ownerBenchmarksApiOwnerBenchmarksGetResponseError = (ownerBenchmarksApiOwnerBenchmarksGetResponse400 | ownerBenchmarksApiOwnerBenchmarksGetResponse401 | ownerBenchmarksApiOwnerBenchmarksGetResponse403 | ownerBenchmarksApiOwnerBenchmarksGetResponse404 | ownerBenchmarksApiOwnerBenchmarksGetResponse409 | ownerBenchmarksApiOwnerBenchmarksGetResponse413 | ownerBenchmarksApiOwnerBenchmarksGetResponse414 | ownerBenchmarksApiOwnerBenchmarksGetResponse415 | ownerBenchmarksApiOwnerBenchmarksGetResponse422 | ownerBenchmarksApiOwnerBenchmarksGetResponse429 | ownerBenchmarksApiOwnerBenchmarksGetResponse500 | ownerBenchmarksApiOwnerBenchmarksGetResponse503) & {
+  headers: Headers;
+};
+
+export type ownerBenchmarksApiOwnerBenchmarksGetResponse = (ownerBenchmarksApiOwnerBenchmarksGetResponseSuccess | ownerBenchmarksApiOwnerBenchmarksGetResponseError)
+
+export const getOwnerBenchmarksApiOwnerBenchmarksGetUrl = (params?: OwnerBenchmarksApiOwnerBenchmarksGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/owner/benchmarks?${stringifiedParams}` : `/api/owner/benchmarks`
+}
+
+/**
+ * Per-farm performance figures over the trailing window, for ranking.
+ * @summary Owner Benchmarks
+ */
+export const ownerBenchmarksApiOwnerBenchmarksGet = async (params?: OwnerBenchmarksApiOwnerBenchmarksGetParams, options?: Parameters<typeof customInstance>[1]): Promise<ownerBenchmarksApiOwnerBenchmarksGetResponse> => {
+
+  return customInstance<ownerBenchmarksApiOwnerBenchmarksGetResponse>(getOwnerBenchmarksApiOwnerBenchmarksGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getOwnerBenchmarksApiOwnerBenchmarksGetQueryKey = (params?: OwnerBenchmarksApiOwnerBenchmarksGetParams,) => {
+    return [
+    `/api/owner/benchmarks`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getOwnerBenchmarksApiOwnerBenchmarksGetQueryOptions = <TData = Awaited<ReturnType<typeof ownerBenchmarksApiOwnerBenchmarksGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(params?: OwnerBenchmarksApiOwnerBenchmarksGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof ownerBenchmarksApiOwnerBenchmarksGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getOwnerBenchmarksApiOwnerBenchmarksGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof ownerBenchmarksApiOwnerBenchmarksGet>>> = ({ signal }) => ownerBenchmarksApiOwnerBenchmarksGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof ownerBenchmarksApiOwnerBenchmarksGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type OwnerBenchmarksApiOwnerBenchmarksGetQueryResult = NonNullable<Awaited<ReturnType<typeof ownerBenchmarksApiOwnerBenchmarksGet>>>
+export type OwnerBenchmarksApiOwnerBenchmarksGetQueryError = ErrorType<ErrorOut | RequestValidationErrorOut>
+
+
+export function useOwnerBenchmarksApiOwnerBenchmarksGet<TData = Awaited<ReturnType<typeof ownerBenchmarksApiOwnerBenchmarksGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
+ params: undefined |  OwnerBenchmarksApiOwnerBenchmarksGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof ownerBenchmarksApiOwnerBenchmarksGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof ownerBenchmarksApiOwnerBenchmarksGet>>,
+          TError,
+          Awaited<ReturnType<typeof ownerBenchmarksApiOwnerBenchmarksGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useOwnerBenchmarksApiOwnerBenchmarksGet<TData = Awaited<ReturnType<typeof ownerBenchmarksApiOwnerBenchmarksGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
+ params?: OwnerBenchmarksApiOwnerBenchmarksGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof ownerBenchmarksApiOwnerBenchmarksGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof ownerBenchmarksApiOwnerBenchmarksGet>>,
+          TError,
+          Awaited<ReturnType<typeof ownerBenchmarksApiOwnerBenchmarksGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useOwnerBenchmarksApiOwnerBenchmarksGet<TData = Awaited<ReturnType<typeof ownerBenchmarksApiOwnerBenchmarksGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
+ params?: OwnerBenchmarksApiOwnerBenchmarksGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof ownerBenchmarksApiOwnerBenchmarksGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Owner Benchmarks
+ */
+
+export function useOwnerBenchmarksApiOwnerBenchmarksGet<TData = Awaited<ReturnType<typeof ownerBenchmarksApiOwnerBenchmarksGet>>, TError = ErrorType<ErrorOut | RequestValidationErrorOut>>(
+ params?: OwnerBenchmarksApiOwnerBenchmarksGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof ownerBenchmarksApiOwnerBenchmarksGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getOwnerBenchmarksApiOwnerBenchmarksGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 

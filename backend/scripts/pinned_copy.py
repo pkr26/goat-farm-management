@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 import stat
 import sys
+from contextlib import suppress
 from pathlib import Path
 
 _COPY_CHUNK_BYTES = 1024 * 1024
@@ -84,10 +85,8 @@ def copy_pinned_regular_file(source: Path, destination: Path) -> None:
         if source_fd >= 0:
             os.close(source_fd)
         if destination_created and not completed:
-            try:
+            with suppress(OSError):
                 destination.unlink()
-            except OSError:
-                pass
 
 
 def main() -> int:

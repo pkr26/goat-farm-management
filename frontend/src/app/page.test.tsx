@@ -169,7 +169,7 @@ describe("RootPage redirect hub", () => {
     renderWithProviders(<RootPage />);
 
     await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/farm-select"));
-    expect(localStorage.getItem("goatfarm.farmId")).toBeNull();
+    expect(localStorage.getItem("goatfarm.farmId")).toBe("revoked:999");
   });
 
   it("dispatches no destination other than /login for a signed-out visitor", async () => {

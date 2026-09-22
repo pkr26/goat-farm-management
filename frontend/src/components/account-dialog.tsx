@@ -53,7 +53,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
   const [deleteMode, setDeleteMode] = useState(false);
   // Two-factor (TOTP) section state. enrollment holds the secret returned by
   // the enroll endpoint until a code confirms it.
-  const [totpMode, setTotpMode] = useState<"idle" | "enable" | "disable">("idle");
+  const [totpMode, setTotpMode] = useState<"idle" | "enable" | "disable" | "regen">("idle");
   const [totpEnrollment, setTotpEnrollment] = useState<{
     secret: string;
     otpauth_uri: string;
@@ -62,6 +62,11 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
   const [totpCode, setTotpCode] = useState("");
   const [totpBusy, setTotpBusy] = useState(false);
   const [totpError, setTotpError] = useState<string | null>(null);
+  // ITEM 7 (2026-09-21 playbook): the one-time recovery-code reveal. Set the
+  // moment activation/regeneration answers, cleared with the dialog — the
+  // server can never show these again.
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
+  const [codesCopied, setCodesCopied] = useState(false);
   const [deletePassword, setDeletePassword] = useState("");
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [activeAction, setActiveAction] = useState<AccountAction | null>(null);
@@ -131,6 +136,8 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
     setTotpPassword("");
     setTotpCode("");
     setTotpError(null);
+    setRecoveryCodes(null);
+    setCodesCopied(false);
     reset();
   }
 
@@ -165,7 +172,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
     setTotpBusy(true);
     setTotpError(null);
     try {
-      await apiFetch<void>("/api/auth/totp/confirm", {
+      const reveal = await apiFetch<{ codes: string[] }>("/api/auth/totp/confirm", {
         method: "POST",
         body: JSON.stringify({ code: totpCode }),
       });
@@ -174,6 +181,8 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
       setTotpMode("idle");
       setTotpCode("");
       setTotpPassword("");
+      setRecoveryCodes(reveal.codes);
+      setCodesCopied(false);
       if (user) updateUser({ ...user, totp_state: "ACTIVE" });
       toast.success(t("totp.enabledToast"));
     } catch (err) {
@@ -207,6 +216,41 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
     } finally {
       if (operationEpoch === dialogEpoch.current) setTotpBusy(false);
     }
+  }
+
+  async function regenerateRecoveryCodes() {
+    const operationEpoch = dialogEpoch.current;
+    setTotpBusy(true);
+    setTotpError(null);
+    try {
+      const reveal = await apiFetch<{ codes: string[] }>(
+        "/api/auth/totp/recovery/regenerate",
+        {
+          method: "POST",
+          body: JSON.stringify({ current_password: totpPassword, code: totpCode }),
+        },
+      );
+      if (operationEpoch !== dialogEpoch.current) return;
+      setTotpMode("idle");
+      setTotpCode("");
+      setTotpPassword("");
+      setRecoveryCodes(reveal.codes);
+      setCodesCopied(false);
+    } catch (err) {
+      if (operationEpoch === dialogEpoch.current) {
+        setTotpError(err instanceof ApiError ? err.detail : t("totp.networkError"));
+      }
+    } finally {
+      if (operationEpoch === dialogEpoch.current) setTotpBusy(false);
+    }
+  }
+
+  function copyRecoveryCodes() {
+    if (recoveryCodes === null) return;
+    void navigator.clipboard?.writeText(recoveryCodes.join("\n")).then(() => {
+      setCodesCopied(true);
+      toast.success(t("totp.recoveryCopied"));
+    });
   }
 
   async function downloadExport() {
@@ -495,6 +539,22 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
           <h3 id="totp-heading" className="text-sm font-medium">
             {t("totp.title")}
           </h3>
+          {recoveryCodes !== null ? (
+            <div className="space-y-2 rounded-lg border p-3" aria-live="polite">
+              <h4 className="text-sm font-medium">{t("totp.recoveryTitle")}</h4>
+              <p className="text-xs text-destructive">{t("totp.recoveryShownOnce")}</p>
+              <ol className="grid grid-cols-2 gap-1 font-mono text-sm sm:grid-cols-2">
+                {recoveryCodes.map((code) => (
+                  <li key={code} className="select-all">
+                    {code}
+                  </li>
+                ))}
+              </ol>
+              <Button type="button" variant="outline" size="sm" onClick={copyRecoveryCodes}>
+                {codesCopied ? t("totp.recoveryCopied") : t("totp.recoveryCopy")}
+              </Button>
+            </div>
+          ) : null}
           {user?.totp_state === "ACTIVE" ? (
             <>
               <p className="text-xs text-muted-foreground">{t("totp.activeDescr")}</p>
@@ -544,20 +604,81 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
                     </Button>
                   </div>
                 </div>
+              ) : totpMode === "regen" ? (
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">{t("totp.regenIntro")}</p>
+                  <Label htmlFor="totp-regen-password">{t("totp.currentPassword")}</Label>
+                  <Input
+                    id="totp-regen-password"
+                    type="password"
+                    autoComplete="current-password"
+                    maxLength={128}
+                    value={totpPassword}
+                    onChange={(e) => setTotpPassword(e.target.value)}
+                  />
+                  <Label htmlFor="totp-regen-code">{t("login.totpCodeLabel")}</Label>
+                  <Input
+                    id="totp-regen-code"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={totpCode}
+                    onChange={(e) => setTotpCode(e.target.value)}
+                  />
+                  {totpError && (
+                    <p role="alert" className="text-sm text-destructive">
+                      {totpError}
+                    </p>
+                  )}
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      disabled={totpBusy || activeAction !== null}
+                      onClick={() => void regenerateRecoveryCodes()}
+                    >
+                      {totpBusy ? t("totp.regenBusy") : t("totp.regenConfirm")}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={totpBusy}
+                      onClick={() => {
+                        setTotpMode("idle");
+                        setTotpError(null);
+                      }}
+                    >
+                      {t("common.cancel")}
+                    </Button>
+                  </div>
+                </div>
               ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={activeAction !== null}
-                  onClick={() => {
-                    setTotpMode("disable");
-                    setTotpPassword("");
-                    setTotpCode("");
-                    setTotpError(null);
-                  }}
-                >
-                  {t("totp.disable")}
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={activeAction !== null}
+                    onClick={() => {
+                      setTotpMode("disable");
+                      setTotpPassword("");
+                      setTotpCode("");
+                      setTotpError(null);
+                    }}
+                  >
+                    {t("totp.disable")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={activeAction !== null}
+                    onClick={() => {
+                      setTotpMode("regen");
+                      setTotpPassword("");
+                      setTotpCode("");
+                      setTotpError(null);
+                    }}
+                  >
+                    {t("totp.recoveryRegenerate")}
+                  </Button>
+                </div>
               )}
             </>
           ) : totpEnrollment ? (

@@ -104,7 +104,9 @@ async def animal_computed_facts(
             BucketMove.id.desc(),
         )
     )
-    latest_moves: dict[int, date] = {
+    # Identity comprehension over Row-typed pairs: mypy's stubs accept this
+    # where dict(RowSequence) does not (ruff C416 agrees to disagree).
+    latest_moves: dict[int, date] = {  # noqa: C416 — Row-typed rows need the comprehension for mypy's stubs
         animal_id: effective_date for animal_id, effective_date in move_rows.all()
     }
 

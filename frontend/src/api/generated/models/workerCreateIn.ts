@@ -15,4 +15,5 @@ export interface WorkerCreateIn {
      * @maximum 4611686018427388000
      */
   role_id: number;
+  pin?: string | null;
 }

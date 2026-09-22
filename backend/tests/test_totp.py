@@ -123,7 +123,7 @@ def _current_code(secret_b32: str, *, drift: int = 0) -> tuple[str, int]:
 
 async def _enroll_and_activate(
     client: httpx.AsyncClient, headers: dict, *, password: str = OWNER_PW
-) -> str:
+) -> tuple[str, list[str]]:
     enroll = await client.post(
         "/api/auth/totp/enroll",
         json={"current_password": password},
@@ -133,8 +133,11 @@ async def _enroll_and_activate(
     secret = enroll.json()["secret"]
     code, _step = _current_code(secret)
     confirm = await client.post("/api/auth/totp/confirm", json={"code": code}, headers=headers)
-    assert confirm.status_code == 204, confirm.text
-    return secret
+    # Activation mints the one-time recovery codes (ITEM 7).
+    assert confirm.status_code == 200, confirm.text
+    codes = confirm.json()["codes"]
+    assert len(codes) == 10
+    return secret, codes
 
 
 async def test_totp_unit_engine_roundtrip_and_replay_rejection() -> None:
@@ -206,7 +209,7 @@ async def test_totp_secret_is_encrypted_at_rest(
     client: httpx.AsyncClient,
 ) -> None:
     headers = await register(client, "totp-crypt@farm.in")
-    secret = await _enroll_and_activate(client, headers)
+    secret, _codes = await _enroll_and_activate(client, headers)
     async with get_sessionmaker()() as db:
         row = (
             await db.execute(select(User).where(User.email == "totp-crypt@farm.in"))
@@ -227,7 +230,7 @@ async def test_successful_challenge_lazily_rewraps_legacy_totp_ciphertext(
     stable_totp_key: None,
 ) -> None:
     headers = await register(client, "totp-lazy-rekey@farm.in")
-    secret = await _enroll_and_activate(client, headers)
+    secret, _codes = await _enroll_and_activate(client, headers)
     async with get_sessionmaker()() as db:
         row = (
             await db.execute(select(User).where(User.email == "totp-lazy-rekey@farm.in"))
@@ -286,7 +289,7 @@ async def test_undecryptable_totp_secret_fails_closed_without_500(
 
 async def test_full_totp_login_challenge_flow(client: httpx.AsyncClient) -> None:
     headers = await register(client, "totp-full@farm.in")
-    secret = await _enroll_and_activate(client, headers)
+    secret, _codes = await _enroll_and_activate(client, headers)
     me = await client.get("/api/auth/me", headers=headers)
     assert me.json()["totp_state"] == "ACTIVE"
 
@@ -333,7 +336,7 @@ async def test_challenge_rejects_wrong_code_then_accepts_right(
     client: httpx.AsyncClient,
 ) -> None:
     headers = await register(client, "totp-wrong@farm.in")
-    secret = await _enroll_and_activate(client, headers)
+    secret, _codes = await _enroll_and_activate(client, headers)
     login = await client.post(
         "/api/auth/login", json={"email": "totp-wrong@farm.in", "password": OWNER_PW}
     )
@@ -354,7 +357,7 @@ async def test_challenge_rejects_wrong_code_then_accepts_right(
 
 async def test_challenge_token_is_single_use(client: httpx.AsyncClient) -> None:
     headers = await register(client, "totp-replay@farm.in")
-    secret = await _enroll_and_activate(client, headers)
+    secret, _codes = await _enroll_and_activate(client, headers)
     login = await client.post(
         "/api/auth/login", json={"email": "totp-replay@farm.in", "password": OWNER_PW}
     )
@@ -374,7 +377,7 @@ async def test_used_code_does_not_authenticate_a_second_challenge(
     client: httpx.AsyncClient,
 ) -> None:
     headers = await register(client, "totp-codesingle@farm.in")
-    secret = await _enroll_and_activate(client, headers)
+    secret, _codes = await _enroll_and_activate(client, headers)
     login1 = await client.post(
         "/api/auth/login", json={"email": "totp-codesingle@farm.in", "password": OWNER_PW}
     )
@@ -398,7 +401,7 @@ async def test_challenge_dies_with_a_password_change(
     client: httpx.AsyncClient,
 ) -> None:
     headers = await register(client, "totp-ver@farm.in")
-    secret = await _enroll_and_activate(client, headers)
+    secret, _codes = await _enroll_and_activate(client, headers)
     login = await client.post(
         "/api/auth/login", json={"email": "totp-ver@farm.in", "password": OWNER_PW}
     )
@@ -438,7 +441,7 @@ async def test_enroll_over_an_active_enrollment_is_refused(
     factor the thief could not satisfy. It must now refuse (409) and leave
     the ACTIVE enrollment fully intact."""
     headers = await register(client, "totp-nooverwrite@farm.in")
-    secret = await _enroll_and_activate(client, headers)
+    secret, _codes = await _enroll_and_activate(client, headers)
     resp = await client.post(
         "/api/auth/totp/enroll", json={"current_password": OWNER_PW}, headers=headers
     )
@@ -463,7 +466,7 @@ async def test_disable_requires_password_and_code_when_active(
     client: httpx.AsyncClient,
 ) -> None:
     headers = await register(client, "totp-off@farm.in")
-    secret = await _enroll_and_activate(client, headers)
+    secret, _codes = await _enroll_and_activate(client, headers)
     # Confirm consumed the current step's code; disable needs a fresh one.
     code, _step = _current_code(secret, drift=1)
     bad_code = await client.post(
@@ -521,7 +524,7 @@ async def test_challenge_brute_force_is_throttled(
 ) -> None:
     monkeypatch.setattr(get_settings(), "auth_rate_limit_enabled", True)
     headers = await register(client, "totp-throttle@farm.in")
-    secret = await _enroll_and_activate(client, headers)
+    secret, _codes = await _enroll_and_activate(client, headers)
     login = await client.post(
         "/api/auth/login", json={"email": "totp-throttle@farm.in", "password": OWNER_PW}
     )
@@ -581,7 +584,7 @@ async def test_disable_wrong_code_is_throttled(
 
     ratelimit.drain_throttle_rejections()  # clear residues from other tests
     headers = await register(client, "totp-disablethrottle@farm.in")
-    secret = await _enroll_and_activate(client, headers)
+    secret, _codes = await _enroll_and_activate(client, headers)
     statuses = []
     for _ in range(6):
         resp = await client.post(
@@ -617,7 +620,7 @@ async def test_non_ascii_digit_codes_are_rejected_without_a_500(
     rejects non-ASCII digit strings on its own (defense-in-depth for any
     direct caller)."""
     headers = await register(client, "totp-nonascii@farm.in")
-    secret = await _enroll_and_activate(client, headers)
+    secret, _codes = await _enroll_and_activate(client, headers)
     login = await client.post(
         "/api/auth/login",
         json={"email": "totp-nonascii@farm.in", "password": OWNER_PW},
@@ -642,7 +645,7 @@ async def test_wrong_totp_codes_do_not_inflate_the_429_summary(
     and must stay out of the summary; the blocked answer must appear."""
     monkeypatch.setattr(get_settings(), "auth_rate_limit_enabled", True)
     headers = await register(client, "totp-summary@farm.in")
-    secret = await _enroll_and_activate(client, headers)
+    secret, _codes = await _enroll_and_activate(client, headers)
     login = await client.post(
         "/api/auth/login", json={"email": "totp-summary@farm.in", "password": OWNER_PW}
     )
@@ -679,7 +682,7 @@ async def test_owner_with_totp_full_app_flow_still_works(
     client: httpx.AsyncClient,
 ) -> None:
     headers = await owner_with_farm(client, email="totp-owner@farm.in")
-    secret = await _enroll_and_activate(client, headers)
+    secret, _codes = await _enroll_and_activate(client, headers)
     login = await client.post(
         "/api/auth/login", json={"email": "totp-owner@farm.in", "password": OWNER_PW}
     )
@@ -898,3 +901,135 @@ def test_rekey_main_exit_gate_blocks_cutover_when_rows_are_unavailable(
     assert "unavailable=1" in captured.out
     assert "4242" in captured.err
     assert "Do not rotate or retire the active JWT signer" in captured.err
+
+
+# --- ITEM 7 (2026-09-21 playbook): recovery codes ---------------------------
+
+
+async def _mfa_login(client: httpx.AsyncClient, email: str) -> str:
+    login = await client.post("/api/auth/login", json={"email": email, "password": OWNER_PW})
+    assert login.status_code == 200, login.text
+    mfa_token = login.json()["mfa_token"]
+    assert mfa_token
+    return mfa_token
+
+
+async def _redeem(
+    client: httpx.AsyncClient, email: str, mfa_token: str, code: str
+) -> httpx.Response:
+    return await client.post(
+        "/api/auth/totp/challenge",
+        json={"mfa_token": mfa_token, "code": code},
+    )
+
+
+async def test_recovery_code_redeems_the_login_challenge_single_use(
+    client: httpx.AsyncClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A recovery code is a valid second factor exactly once — the break-glass
+    path for a lost authenticator, with an audit event to alert on."""
+    email = "totp-recovery@farm.in"
+    headers = await register(client, email)
+    _secret, codes = await _enroll_and_activate(client, headers)
+    assert len(set(codes)) == 10
+    assert all(len(code) == 11 and code[5] == "-" for code in codes)
+
+    with caplog.at_level("INFO", logger="app.audit"):
+        mfa_token = await _mfa_login(client, email)
+        accepted = await _redeem(client, email, mfa_token, codes[0].lower())
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["access_token"]
+    assert any("auth.totp.recovery_code_used" in record.message for record in caplog.records), (
+        "the break-glass redemption must be a security event"
+    )
+
+    # Single-use: the SAME code never validates again, even case-shifted.
+    mfa_token = await _mfa_login(client, email)
+    replay = await _redeem(client, email, mfa_token, codes[0])
+    assert replay.status_code == 401
+
+    # But an unused code still works — the set is per-code, not global.
+    mfa_token = await _mfa_login(client, email)
+    second = await _redeem(client, email, mfa_token, codes[1])
+    assert second.status_code == 200, second.text
+
+
+async def test_recovery_codes_are_stored_as_argon2_hashes(
+    client: httpx.AsyncClient,
+) -> None:
+    from app.db import get_sessionmaker
+    from app.models import TotpRecoveryCode
+
+    headers = await register(client, "totp-hashes@farm.in")
+    _secret, _codes = await _enroll_and_activate(client, headers)
+    async with get_sessionmaker()() as db:
+        rows = list(
+            (await db.execute(select(TotpRecoveryCode).order_by(TotpRecoveryCode.id))).scalars()
+        )
+    assert len(rows) == 10
+    assert all(row.code_hash.startswith("$argon2") for row in rows)
+    assert all(row.used_at is None for row in rows)
+
+
+async def test_recovery_regenerate_requires_password_and_totp_and_revokes(
+    client: httpx.AsyncClient,
+) -> None:
+    email = "totp-regen@farm.in"
+    headers = await register(client, email)
+    secret, codes = await _enroll_and_activate(client, headers)
+
+    # Wrong password is refused before anything rotates.
+    code, _step = _current_code(secret, drift=1)
+    bad_pw = await client.post(
+        "/api/auth/totp/recovery/regenerate",
+        json={"current_password": "not-the-password", "code": code},
+        headers=headers,
+    )
+    assert bad_pw.status_code == 400, bad_pw.text
+
+    # Wrong TOTP code is refused too.
+    bad_code = await client.post(
+        "/api/auth/totp/recovery/regenerate",
+        json={"current_password": OWNER_PW, "code": "000000"},
+        headers=headers,
+    )
+    assert bad_code.status_code == 400, bad_code.text
+
+    # A correct password + live code re-mints the whole set, once.
+    regen = await client.post(
+        "/api/auth/totp/recovery/regenerate",
+        json={"current_password": OWNER_PW, "code": code},
+        headers=headers,
+    )
+    assert regen.status_code == 200, regen.text
+    fresh = regen.json()["codes"]
+    assert len(fresh) == 10 and set(fresh).isdisjoint(codes)
+
+    # Every prior code is revoked; every fresh code redeems.
+    mfa_token = await _mfa_login(client, email)
+    old = await _redeem(client, email, mfa_token, codes[2])
+    assert old.status_code == 401
+    mfa_token = await _mfa_login(client, email)
+    new = await _redeem(client, email, mfa_token, fresh[0])
+    assert new.status_code == 200, new.text
+
+
+async def test_disabling_totp_purges_recovery_codes(
+    client: httpx.AsyncClient,
+) -> None:
+    from app.db import get_sessionmaker
+    from app.models import TotpRecoveryCode
+
+    email = "totp-purge@farm.in"
+    headers = await register(client, email)
+    secret, _codes = await _enroll_and_activate(client, headers)
+    code, _step = _current_code(secret, drift=1)
+    disable = await client.post(
+        "/api/auth/totp/disable",
+        json={"current_password": OWNER_PW, "code": code},
+        headers=headers,
+    )
+    assert disable.status_code == 204, disable.text
+    async with get_sessionmaker()() as db:
+        remaining = list((await db.execute(select(TotpRecoveryCode))).scalars())
+    assert remaining == []

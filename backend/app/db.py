@@ -4,6 +4,7 @@ import asyncio
 import json
 import ssl
 from collections.abc import AsyncGenerator
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -161,14 +162,12 @@ def reset_engine() -> None:
     engine, _engine, _sessionmaker = _engine, None, None
     if engine is None:
         return
-    try:
+    # The engine is bound to another (possibly closed) event loop — e.g.
+    # conftest's one-shot seeding runs on a throwaway loop, or a loop is
+    # already running here. Its connections die with that loop; dropping
+    # the engine un-disposed is harmless in the test harness.
+    with suppress(RuntimeError):
         asyncio.run(engine.dispose())
-    except RuntimeError:
-        # The engine is bound to another (possibly closed) event loop — e.g.
-        # conftest's one-shot seeding runs on a throwaway loop, or a loop is
-        # already running here. Its connections die with that loop; dropping
-        # the engine un-disposed is harmless in the test harness.
-        pass
 
 
 async def get_db() -> AsyncGenerator[AsyncSession]:

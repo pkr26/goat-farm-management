@@ -5,26 +5,7 @@
  * nav) and a slim sticky topbar (farm switcher, theme, account, logout).
  */
 
-import {
-  Baby,
-  Boxes,
-  CalendarCheck,
-  CalendarClock,
-  ChartColumn,
-  ClipboardList,
-  Camera,
-  FlaskConical,
-  HeartPulse,
-  IndianRupee,
-  LayoutDashboard,
-  LogOut,
-  PawPrint,
-  ShoppingCart,
-  Stethoscope,
-  Users,
-  Wheat,
-  type LucideIcon,
-} from "lucide-react";
+import { Baby, BarChart3, Boxes, CalendarCheck, CalendarClock, Camera, ChartColumn, ClipboardList, FlaskConical, HeartPulse, IndianRupee, LayoutDashboard, LogOut, PawPrint, ShoppingCart, Stethoscope, type LucideIcon, Users, Wheat } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, type ReactNode } from "react";
@@ -59,7 +40,15 @@ import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { usePermissions } from "@/lib/use-permissions";
 import { cn } from "@/lib/utils";
 
-type NavItem = { href: string; labelKey: MessageKey; perm: string; icon: LucideIcon };
+type NavItem = {
+  href: string;
+  labelKey: MessageKey;
+  perm: string;
+  icon: LucideIcon;
+  // Owner-console entries ignore `perm` and show only for farm owners —
+  // ownership, not a permission code, is what the cross-farm API accepts.
+  ownerOnly?: boolean;
+};
 
 /** Sidebar labels resolve through the i18n catalog so low-literacy Telangana
  * workers can navigate; the English catalog strings are byte-identical to
@@ -73,6 +62,13 @@ const NAV_GROUPS: { labelKey: MessageKey; items: NavItem[] }[] = [
         labelKey: "nav.dashboard",
         perm: "dashboard.view",
         icon: LayoutDashboard,
+      },
+      {
+        href: "/owner",
+        labelKey: "nav.owner",
+        perm: "dashboard.view",
+        icon: BarChart3,
+        ownerOnly: true,
       },
     ],
   },
@@ -259,7 +255,9 @@ function AppSidebar({
         ))}
       </SidebarContent>
       <SidebarFooter className="px-4 pb-4">
-        <p className="text-[0.68rem] leading-relaxed text-muted-foreground/70">
+        {/* Full-strength muted token: the /70 tint sat under 4.5:1 on the
+            sidebar background (sub-AA microtext, 2026-09-21 audit). */}
+        <p className="text-[0.68rem] leading-relaxed text-muted-foreground">
           {t("shell.tagline")}
         </p>
       </SidebarFooter>
@@ -315,7 +313,13 @@ function AppLayoutContent({
   defaultOpen: boolean;
 }) {
   const { user, farms, farmId, loading, signOut } = useAuth();
-  const { can, loading: permsLoading, isError: permsError, refetch: permsRefetch } = usePermissions();
+  const {
+    can,
+    isOwner,
+    loading: permsLoading,
+    isError: permsError,
+    refetch: permsRefetch,
+  } = usePermissions();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -355,7 +359,9 @@ function AppLayoutContent({
     ? []
     : NAV_GROUPS.map((group) => ({
         ...group,
-        items: group.items.filter((item) => can(item.perm)),
+        items: group.items.filter((item) =>
+          item.ownerOnly ? isOwner && can(item.perm) : can(item.perm),
+        ),
       })).filter((group) => group.items.length > 0);
   const landingItem = visibleGroups[0]?.items[0];
   const landingHref = !permsLoading && !permsError ? firstPermittedPath(can) : null;

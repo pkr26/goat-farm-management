@@ -77,7 +77,13 @@ describe("AccountDialog two-factor section", () => {
           otpauth_uri: "otpauth://totp/Herdly:owner@goatfarm.test?secret=JBSWY3DPEHPK3PXP",
         };
       }
-      if (path === "/api/auth/totp/confirm") return undefined;
+      if (path === "/api/auth/totp/confirm") {
+        // Activation mints the one-time recovery codes (ITEM 7).
+        return {
+          codes: ["AAAAA-BBBBB", "CCCCC-DDDDD", "EEEEE-FFFFF", "GGGGG-HHHHH", "IIIII-JJJJJ",
+                  "KKKKK-LLLLL", "MMMMM-NNNNN", "OOOOO-PPPPP", "QQQQQ-RRRRR", "SSSSS-TTTTT"],
+        };
+      }
       throw new Error(`unexpected ${path}`);
     });
     const user = userEvent.setup();
@@ -102,6 +108,49 @@ describe("AccountDialog two-factor section", () => {
       ),
     );
     expect(mocks.toastSuccess).toHaveBeenCalled();
+    // ITEM 7: the reveal block shows every code exactly once, with the
+    // shown-once warning.
+    expect(await within(totp).findByText("AAAAA-BBBBB")).toBeTruthy();
+    expect(within(totp).getByText("SSSSS-TTTTT")).toBeTruthy();
+    expect(
+      within(totp).getByText(/Shown only once — copy or print them now/i),
+    ).toBeTruthy();
+  });
+
+  it("regenerates recovery codes after password + code proof, revoking the old reveal", async () => {
+    mocks.user = {
+      id: 1,
+      email: "owner@goatfarm.test",
+      name: "Owner",
+      totp_state: "ACTIVE",
+    };
+    const calls: string[] = [];
+    mocks.apiFetch.mockImplementation(async (path: string, init?: { body?: string }) => {
+      calls.push(path);
+      if (path === "/api/auth/totp/recovery/regenerate") {
+        expect(JSON.parse(init?.body ?? "{}")).toEqual({
+          current_password: "owner-password-1",
+          code: "123456",
+        });
+        return { codes: ["ZZZZZ-ZZZZZ", "YYYYY-YYYYY"] };
+      }
+      throw new Error(`unexpected ${path}`);
+    });
+    const user = userEvent.setup();
+    render(<AccountDialog name="Owner" email="owner@goatfarm.test" />);
+    await openAccount(user);
+
+    const totp = screen.getByRole("region", { name: /two-factor authentication/i });
+    await user.click(
+      within(totp).getByRole("button", { name: /regenerate recovery codes/i }),
+    );
+    await user.type(within(totp).getByLabelText(/current password/i), "owner-password-1");
+    await user.type(within(totp).getByLabelText(/authenticator code/i), "123456");
+    await user.click(within(totp).getByRole("button", { name: /^regenerate codes$/i }));
+
+    expect(await within(totp).findByText("ZZZZZ-ZZZZZ")).toBeTruthy();
+    expect(within(totp).getByText("YYYYY-YYYYY")).toBeTruthy();
+    expect(calls).toEqual(["/api/auth/totp/recovery/regenerate"]);
   });
 
   it("surfaces a wrong password from the enroll endpoint inline", async () => {

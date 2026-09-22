@@ -433,6 +433,7 @@ class ScreeningRuntimeSettings(Protocol):
     screening_s3_prefix: str
     screening_poll_interval_seconds: int
     screening_max_images_per_cycle: int
+    screening_daily_call_budget_per_farm: int
     screening_image_max_edge_px: int
     screening_crop_detection_enabled: bool
     screening_max_crops_per_image: int
@@ -793,6 +794,38 @@ class Settings(BaseSettings):
     # over successive cycles instead of one unbounded batch.
     screening_poll_interval_seconds: int = Field(default=300, ge=30)
     screening_max_images_per_cycle: int = Field(default=50, ge=1, le=1_000)
+    # ITEM 6 (2026-09-21 playbook): per-farm daily provider-call budget. The
+    # claim path measures spend as the farm's ScreeningRun rows for the
+    # current UTC day (every provider call records exactly one run) and
+    # leaves over-budget farms' photos PENDING until the next day — a stuck
+    # provider loop or a runaway backlog can never produce an unbounded
+    # bill. Counted per call, not per photo: a multi-crop cascade costs its
+    # real size.
+    screening_daily_call_budget_per_farm: int = Field(default=400, ge=1, le=100_000)
+    # --- Notifications (ITEM 4, 2026-09-21 playbook) --------------------------
+    # Off by default: without provider credentials the feature stays inert
+    # (same fail-closed posture as screening). When enabled in production the
+    # validator below refuses to boot without the MSG91 credentials.
+    notifications_enabled: bool = False
+    notifications_provider: Literal["console", "msg91"] = "console"
+    msg91_auth_key: SecretStr | None = None
+    msg91_sender_id: str = "HURDLY"
+    # Farm-local morning hour (and minute) at which the daily digest fires.
+    notifications_digest_hour: int = Field(default=6, ge=0, le=23)
+    notifications_digest_minute: int = Field(default=30, ge=0, le=59)
+    # Per-farm SMS cap per local day across every alert class.
+    notifications_farm_daily_cap: int = Field(default=50, ge=1, le=1000)
+    # Quiet hours (farm-local): no sends inside [start, end).
+    notifications_quiet_start_hour: int = Field(default=21, ge=0, le=23)
+    notifications_quiet_end_hour: int = Field(default=6, ge=0, le=23)
+
+    # --- Worker tablet PIN login (ITEM 2, 2026-09-21 playbook) ---------------
+    # Short numeric PINs are a convenience credential for a shared farm
+    # tablet, scoped to one membership — never a replacement for the account
+    # password. Production demands the longer floor below.
+    worker_pin_min_length: int = Field(default=4, ge=4, le=12)
+    worker_pin_rate_limit_max_attempts: int = Field(default=10, ge=1, le=100)
+    worker_pin_rate_limit_window_seconds: int = Field(default=300, ge=30, le=3600)
     # VLM cost scales with pixels: normalize every image to this longest-edge
     # before it is ever sent to a provider.
     screening_image_max_edge_px: int = Field(default=1_568, ge=256, le=4_096)
@@ -1140,6 +1173,26 @@ class Settings(BaseSettings):
         # default host-bound. A __Host- cookie cannot carry Domain, must be
         # Secure and must use Path=/; the response helper enforces the latter
         # two attributes. Custom production names must retain that guarantee.
+        # Production floor for tablet PINs: the 4-digit development default
+        # auto-tightens (same precedent as the refresh-cookie name), while an
+        # operator who EXPLICITLY configures a shorter floor gets a refusal —
+        # silently overriding a deliberate choice is worse than failing it.
+        if (
+            self.environment == "production"
+            and self.notifications_enabled
+            and (self.notifications_provider != "msg91" or self.msg91_auth_key is None)
+        ):
+            raise ValueError(
+                "GOATFARM_NOTIFICATIONS_ENABLED=true in production requires "
+                "GOATFARM_NOTIFICATIONS_PROVIDER=msg91 and GOATFARM_MSG91_AUTH_KEY"
+            )
+        if self.environment == "production" and self.worker_pin_min_length < 6:
+            if "worker_pin_min_length" in self.model_fields_set:
+                raise ValueError(
+                    "GOATFARM_WORKER_PIN_MIN_LENGTH must be at least 6 in production — "
+                    "4-digit PINs are only a development convenience"
+                )
+            self.worker_pin_min_length = 6
         if (
             self.environment == "production"
             and self.refresh_cookie_name == DEVELOPMENT_REFRESH_COOKIE_NAME
@@ -1374,6 +1427,14 @@ class ScreeningWorkerSettings(BaseSettings):
     screening_s3_prefix: str = Field(default="raw", min_length=1, max_length=100)
     screening_poll_interval_seconds: int = Field(default=300, ge=30)
     screening_max_images_per_cycle: int = Field(default=50, ge=1, le=1_000)
+    # ITEM 6 (2026-09-21 playbook): per-farm daily provider-call budget. The
+    # claim path measures spend as the farm's ScreeningRun rows for the
+    # current UTC day (every provider call records exactly one run) and
+    # leaves over-budget farms' photos PENDING until the next day — a stuck
+    # provider loop or a runaway backlog can never produce an unbounded
+    # bill. Counted per call, not per photo: a multi-crop cascade costs its
+    # real size.
+    screening_daily_call_budget_per_farm: int = Field(default=400, ge=1, le=100_000)
     screening_image_max_edge_px: int = Field(default=1_568, ge=256, le=4_096)
     screening_crop_detection_enabled: bool = True
     screening_max_crops_per_image: int = Field(default=8, ge=1, le=20)

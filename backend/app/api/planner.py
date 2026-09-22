@@ -45,7 +45,7 @@ from ..simulation.backward_planner import (
     month_offset,
 )
 from ..simulation.engine import run_simulation
-from ..simulation.planner import build_dpr_markdown
+from ..simulation.planner import CLOSE_GAPS_MAX_ITERATIONS, build_dpr_markdown
 from ..simulation.vocabulary import GOAT_NOUNS
 from ._run_limits import (
     _charge_run_budget,
@@ -250,9 +250,14 @@ async def plan_sales(
         )
     horizon = min(240, max(payload.assumptions.meta.horizon_months, max(offsets), 12))
     # Priced like the sale planner plus the one extra deterministic pass the
-    # stage plan needs: one evaluation, at most nine gap-closing passes, the
-    # stage run, then the requested risk replays.
-    cost = (2 + 9 + payload.risk_runs) * horizon
+    # stage plan needs: the before-evaluation and the stage run (the 2), plus
+    # — when gap closing is on — close_gaps' worst case of one initial
+    # evaluation, one engine pass per iteration, and the zero-progress
+    # rollback re-evaluation (B9, 2026-09-21 audit: the old flat 9 dropped
+    # the rollback pass and drifted from the loop's real bound), then the
+    # requested risk replays.
+    close_gaps_passes = 2 + CLOSE_GAPS_MAX_ITERATIONS if payload.close_gaps else 0
+    cost = (2 + close_gaps_passes + payload.risk_runs) * horizon
 
     async def run() -> BackwardPlanReport:
         _check_run_budget(farm_id, user_id, cost)

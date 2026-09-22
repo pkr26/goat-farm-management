@@ -183,7 +183,10 @@ class Task(Base):
     # Stable identity for one recurrence chain. Title/assignment are editable
     # display data and cannot safely distinguish two otherwise identical
     # parallel duties.
-    recurring_series_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    # No single-column series index: uq_task_recurring_series_due
+    # (farm_id, recurring_series_id, due_date) serves every spawn-dedup
+    # lookup, which is always tenant-scoped.
+    recurring_series_id: Mapped[str | None] = mapped_column(String(36))
 
     animal: Mapped[Animal | None] = relationship(foreign_keys=[animal_id])
     breeding_record: Mapped[BreedingRecord | None] = relationship(foreign_keys=[breeding_record_id])

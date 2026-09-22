@@ -106,8 +106,9 @@ async def test_recent_weights_visible_with_animals_view_notes_still_gated(
 # ungated — a reports.view-only caller got the herd's breeding and mortality
 # aggregates in full. Both blocks now follow the cull_candidates convention:
 # withheld fields come back None (list fields empty), never a fabricated
-# zero, while the un-gated raw counts (total_records, kiddings,
-# total_kids_born) stay visible.
+# zero. B4 (2026-09-21 audit) closed the last side doors: the raw counts
+# (total_records, kiddings, total_kids_born) are breeding/health-derived
+# aggregates like their siblings and are withheld too.
 async def test_reports_breeding_and_mortality_aggregates_require_permission(
     client: httpx.AsyncClient,
 ) -> None:
@@ -154,17 +155,18 @@ async def test_reports_breeding_and_mortality_aggregates_require_permission(
     assert delegated_breeding["first_cycle_rate"] is None
     assert delegated_breeding["kids_per_kidding"] is None
     assert delegated_breeding["twin_rate"] is None
-    # The raw counts behind the rates aren't breeding-identity data; they stay.
-    assert delegated_breeding["total_records"] == breeding["total_records"]
-    assert delegated_breeding["kiddings"] == breeding["kiddings"]
+    # B4: the raw counts behind the rates are breeding-derived aggregates —
+    # they are withheld like the rates, never handed back ungated.
+    assert delegated_breeding["total_records"] is None
+    assert delegated_breeding["kiddings"] is None
 
     delegated_mortality = delegated["mortality"]
     assert delegated_mortality["total_deaths"] is None
     assert delegated_mortality["deaths_by_month"] == []
     assert delegated_mortality["stillborn"] is None
     assert delegated_mortality["stillborn_rate"] is None
-    # Births aren't a clinical/mortality figure — health.view doesn't gate it.
-    assert delegated_mortality["total_kids_born"] == mortality["total_kids_born"]
+    # Births are a kidding-outcome aggregate; health.view gates it too (B4).
+    assert delegated_mortality["total_kids_born"] is None
 
 
 async def test_dashboard_withholds_clinical_status_totals_without_health_view(

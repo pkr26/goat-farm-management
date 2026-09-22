@@ -92,6 +92,31 @@ class User(Base):
         return self.name or self.email
 
 
+class TotpRecoveryCode(Base):
+    """One single-use break-glass code for the TOTP second factor.
+
+    Minted only at enrollment confirmation or an explicit (password + TOTP
+    proof) regeneration; shown to the user exactly once and never stored in
+    the clear. ``used_at`` is the single-use marker: a spent code stays in the
+    table as the audit trail of WHEN it redeemed, but can never validate
+    again. Deleting the account (CASCADE) removes the hashes with it; TOTP
+    disable/regenerate purges and remints the set atomically.
+    """
+
+    __tablename__ = "totp_recovery_codes"
+    __table_args__ = (
+        # The challenge path scans exactly this shape: the owner's unused
+        # codes, oldest first, FOR UPDATE.
+        Index("ix_totp_recovery_codes_user_used", "user_id", "used_at", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    code_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
 class Farm(Base):
     __tablename__ = "farms"
 
@@ -235,6 +260,13 @@ class FarmMembership(Base):
     # externally registered accounts fail closed: their password may not be
     # rewritten by a farm manager.
     account_provisioned_by_farm: Mapped[bool] = mapped_column(default=False, server_default="false")
+    # Worker-tablet quick sign-in (ITEM 2, 2026-09-21 playbook): an Argon2id
+    # hash of this membership's short numeric PIN. Null on memberships that
+    # never opted into PIN login. The account password stays the account's
+    # real credential — a PIN is scoped to THIS membership and survives none
+    # of the account-level password machinery.
+    pin_hash: Mapped[str | None] = mapped_column(String(255))
+    pin_updated_at: Mapped[datetime | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
     user: Mapped[User] = relationship(back_populates="memberships")

@@ -87,9 +87,7 @@ async def _column_types() -> dict[tuple[str, str], tuple[str, int | None, int | 
 
 
 async def test_feed_quantity_schema_and_models_use_exact_gram_numeric() -> None:
-    assert await _column_types() == {
-        column: ("numeric", 15, 3) for column in EXPECTED_NUMERIC_COLUMNS
-    }
+    assert await _column_types() == dict.fromkeys(EXPECTED_NUMERIC_COLUMNS, ("numeric", 15, 3))
 
     attributes = (
         FeedInventory.qty_on_hand,
@@ -283,9 +281,7 @@ async def test_migration_refuses_dirty_legacy_precision_then_reupgrades_cleanly(
         await connection.close()
 
     await _alembic("upgrade", "head")
-    assert await _column_types() == {
-        column: ("numeric", 15, 3) for column in EXPECTED_NUMERIC_COLUMNS
-    }
+    assert await _column_types() == dict.fromkeys(EXPECTED_NUMERIC_COLUMNS, ("numeric", 15, 3))
     async with get_sessionmaker()() as db:
         canonicalized = (
             await db.execute(

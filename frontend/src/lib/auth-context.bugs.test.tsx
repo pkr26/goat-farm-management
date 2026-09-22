@@ -272,7 +272,7 @@ describe("AuthProvider — query cache cleared on farm switch / sign-out", () =>
       expect(screen.getByTestId("farmId")).toHaveTextContent("none"),
     );
     expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
-    expect(localStorage.getItem("goatfarm.farmId")).toBeNull();
+    expect(localStorage.getItem("goatfarm.farmId")).toBe("revoked:1");
   });
 });
 

@@ -369,6 +369,327 @@
         }
       }
     },
+    "/api/auth/worker-roster": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Worker Roster",
+        "description": "Names tap-to-sign-in offers on this farm's shared tablet.\n\nUnauthenticated by design (the tablet's first screen has no session) and\nhard-throttled per IP: this trades limited first/last-name enumeration per\nfarm id for a PIN pad a field worker can actually use \u2014 the documented\nowner-operator tradeoff (README, worker tablet app).",
+        "operationId": "worker_roster_api_auth_worker_roster_get",
+        "parameters": [
+          {
+            "name": "farm_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 2147483647,
+              "minimum": 1,
+              "title": "Farm Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerRosterOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected (invalid state or values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (state, replay, or race)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body is too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "414": {
+            "description": "Request target is too long",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Input validation failed or a business rule was rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorOut"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequestValidationErrorOut"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/worker-login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Worker Login",
+        "description": "Shared-tablet quick sign-in: farm + tap + PIN, throttled like login.\n\nThe PIN is a convenience credential scoped to ONE membership. It never\nbypasses the second factor (an ACTIVE TOTP refuses \u2014 the tablet is not an\nauthenticator) and never admits an owner (owners hold no membership row).\nEvery failure answers the same generic 401 after identical Argon work, so\nthe exchange cannot enumerate farms, memberships or PINs by timing.",
+        "operationId": "worker_login_api_auth_worker_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkerLoginIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected (invalid state or values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (state, replay, or race)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body is too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "414": {
+            "description": "Request target is too long",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Input validation failed or a business rule was rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorOut"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequestValidationErrorOut"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth/refresh": {
       "post": {
         "tags": [
@@ -1951,7 +2272,7 @@
           "auth"
         ],
         "summary": "Totp Confirm",
-        "description": "Finish enrollment: a code generated from the PENDING secret activates\nthe second factor. Proof-of-possession before it gates login.",
+        "description": "Finish enrollment: a code generated from the PENDING secret activates\nthe second factor. Proof-of-possession before it gates login.\n\nITEM 7 (2026-09-21 playbook): activation mints the one-time recovery-code\nset and returns it HERE, exactly once \u2014 the codes are unrecoverable\nafterwards, so the client must present them for copy/print immediately.",
         "operationId": "totp_confirm_api_auth_totp_confirm_post",
         "requestBody": {
           "content": {
@@ -1964,8 +2285,15 @@
           "required": true
         },
         "responses": {
-          "204": {
-            "description": "Successful Response"
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TotpRecoveryCodesOut"
+                }
+              }
+            }
           },
           "400": {
             "description": "Rejected (invalid state or values)",
@@ -2123,6 +2451,170 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "400": {
+            "description": "Rejected (invalid state or values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (state, replay, or race)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body is too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "414": {
+            "description": "Request target is too long",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Input validation failed or a business rule was rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorOut"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequestValidationErrorOut"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/auth/totp/recovery/regenerate": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Totp Recovery Regenerate",
+        "description": "Re-mint the recovery-code set, revoking every prior code.\n\nRequires BOTH the current password and a currently-valid TOTP code: an\nauthenticated session alone (a stolen unlocked laptop, an XSS-surviving\nbearer token) must not be enough to rotate the break-glass material. The\nnew codes are revealed here exactly once, like enrollment's.",
+        "operationId": "totp_recovery_regenerate_api_auth_totp_recovery_regenerate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TotpRecoveryRegenerateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TotpRecoveryCodesOut"
+                }
+              }
+            }
           },
           "400": {
             "description": "Rejected (invalid state or values)",
@@ -8122,6 +8614,25 @@
               "type": "string",
               "title": "X-Farm-Id"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "responses": {
@@ -8294,6 +8805,25 @@
             "schema": {
               "type": "string",
               "title": "X-Farm-Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
             }
           }
         ],
@@ -14059,6 +14589,573 @@
         }
       }
     },
+    "/api/team/workers/{membership_id}/reset-pin": {
+      "post": {
+        "tags": [
+          "team"
+        ],
+        "summary": "Reset Pin",
+        "description": "Owner-only set/rotation of one membership's tablet PIN.\n\nRotating the PIN is an account-security change: every existing session is\nrevoked (a borrowed tablet signed in under the old PIN stops working\nimmediately), mirroring the password-reset endpoint's semantics.",
+        "operationId": "reset_pin_api_team_workers__membership_id__reset_pin_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "membership_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Membership Id"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkerPinResetIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MembershipOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected (invalid state or values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (state, replay, or race)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body is too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "414": {
+            "description": "Request target is too long",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Input validation failed or a business rule was rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorOut"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequestValidationErrorOut"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/team/workers/{membership_id}/notifications": {
+      "get": {
+        "tags": [
+          "team"
+        ],
+        "summary": "Get Notification Prefs",
+        "description": "The membership's notification preferences, or null when unset.",
+        "operationId": "get_notification_prefs_api_team_workers__membership_id__notifications_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "membership_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Membership Id"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/NotificationPrefsOut"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Notification Prefs Api Team Workers  Membership Id  Notifications Get"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected (invalid state or values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (state, replay, or race)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body is too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "414": {
+            "description": "Request target is too long",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Input validation failed or a business rule was rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorOut"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequestValidationErrorOut"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "team"
+        ],
+        "summary": "Set Notification Prefs",
+        "description": "Owner-only create/update of one membership's notification channel.\n\nNotifications reach a farm's people through numbers the OWNER controls;\na delegated team manager may view but not edit them.",
+        "operationId": "set_notification_prefs_api_team_workers__membership_id__notifications_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "membership_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Membership Id"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationPrefsIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPrefsOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected (invalid state or values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (state, replay, or race)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body is too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "414": {
+            "description": "Request target is too long",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Input validation failed or a business rule was rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorOut"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequestValidationErrorOut"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/team/roles": {
       "post": {
         "tags": [
@@ -19174,6 +20271,25 @@
               "type": "string",
               "title": "X-Farm-Id"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "responses": {
@@ -19688,6 +20804,25 @@
               "type": "string",
               "title": "X-Farm-Id"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "requestBody": {
@@ -19707,6 +20842,328 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ScreeningUploadOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected (invalid state or values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (state, replay, or race)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body is too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "414": {
+            "description": "Request target is too long",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Input validation failed or a business rule was rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorOut"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequestValidationErrorOut"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/owner/overview": {
+      "get": {
+        "tags": [
+          "owner"
+        ],
+        "summary": "Owner Overview",
+        "description": "Attention headlines for every farm the caller owns, in one response.",
+        "operationId": "owner_overview_api_owner_overview_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnerOverviewOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected (invalid state or values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (state, replay, or race)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body is too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "414": {
+            "description": "Request target is too long",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported media type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Input validation failed or a business rule was rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorOut"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RequestValidationErrorOut"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/owner/benchmarks": {
+      "get": {
+        "tags": [
+          "owner"
+        ],
+        "summary": "Owner Benchmarks",
+        "description": "Per-farm performance figures over the trailing window, for ranking.",
+        "operationId": "owner_benchmarks_api_owner_benchmarks_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 365,
+              "minimum": 1,
+              "default": 90,
+              "title": "Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnerBenchmarksOut"
                 }
               }
             }
@@ -21887,7 +23344,14 @@
       "BreedingStatsOut": {
         "properties": {
           "total_records": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Total Records"
           },
           "conception_rate": {
@@ -21913,7 +23377,14 @@
             "title": "First Cycle Rate"
           },
           "kiddings": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Kiddings"
           },
           "kids_per_kidding": {
@@ -27049,6 +28520,11 @@
               }
             ],
             "title": "Reset Password Block Reason"
+          },
+          "pin_set": {
+            "type": "boolean",
+            "title": "Pin Set",
+            "default": false
           }
         },
         "type": "object",
@@ -27731,7 +29207,14 @@
             "title": "Deaths By Month"
           },
           "total_kids_born": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Total Kids Born"
           },
           "stillborn": {
@@ -27974,6 +29457,97 @@
           "offset"
         ],
         "title": "MovementRestrictionHistoryOut"
+      },
+      "NotificationPrefsIn": {
+        "properties": {
+          "phone": {
+            "type": "string",
+            "maxLength": 20,
+            "minLength": 10,
+            "pattern": "^\\+?[0-9]{10,19}$",
+            "title": "Phone"
+          },
+          "daily_digest": {
+            "type": "boolean",
+            "title": "Daily Digest",
+            "default": false
+          },
+          "screening_flags": {
+            "type": "boolean",
+            "title": "Screening Flags",
+            "default": false
+          },
+          "kidding_watch": {
+            "type": "boolean",
+            "title": "Kidding Watch",
+            "default": false
+          },
+          "overdue_critical": {
+            "type": "boolean",
+            "title": "Overdue Critical",
+            "default": false
+          },
+          "feed_reorder": {
+            "type": "boolean",
+            "title": "Feed Reorder",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "phone"
+        ],
+        "title": "NotificationPrefsIn",
+        "description": "Owner-managed notification preferences for one membership."
+      },
+      "NotificationPrefsOut": {
+        "properties": {
+          "membership_id": {
+            "type": "integer",
+            "title": "Membership Id"
+          },
+          "phone": {
+            "type": "string",
+            "title": "Phone"
+          },
+          "daily_digest": {
+            "type": "boolean",
+            "title": "Daily Digest"
+          },
+          "screening_flags": {
+            "type": "boolean",
+            "title": "Screening Flags"
+          },
+          "kidding_watch": {
+            "type": "boolean",
+            "title": "Kidding Watch"
+          },
+          "overdue_critical": {
+            "type": "boolean",
+            "title": "Overdue Critical"
+          },
+          "feed_reorder": {
+            "type": "boolean",
+            "title": "Feed Reorder"
+          },
+          "verified": {
+            "type": "boolean",
+            "title": "Verified"
+          }
+        },
+        "type": "object",
+        "required": [
+          "membership_id",
+          "phone",
+          "daily_digest",
+          "screening_flags",
+          "kidding_watch",
+          "overdue_critical",
+          "feed_reorder",
+          "verified"
+        ],
+        "title": "NotificationPrefsOut"
       },
       "OccupancyRow": {
         "properties": {
@@ -28312,6 +29886,210 @@
           "created_at"
         ],
         "title": "OwnedFarmExport"
+      },
+      "OwnerBenchmarksOut": {
+        "properties": {
+          "days": {
+            "type": "integer",
+            "title": "Days"
+          },
+          "farms": {
+            "items": {
+              "$ref": "#/components/schemas/OwnerFarmBenchmarksOut"
+            },
+            "type": "array",
+            "title": "Farms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "days",
+          "farms"
+        ],
+        "title": "OwnerBenchmarksOut"
+      },
+      "OwnerFarmBenchmarksOut": {
+        "properties": {
+          "farm_id": {
+            "type": "integer",
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Farm Id"
+          },
+          "farm_name": {
+            "type": "string",
+            "title": "Farm Name"
+          },
+          "conception_rate": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conception Rate"
+          },
+          "kid_mortality_rate": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kid Mortality Rate"
+          },
+          "avg_daily_gain_kg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Daily Gain Kg"
+          },
+          "feed_cost_per_kg_gain": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feed Cost Per Kg Gain"
+          },
+          "profit_per_animal_sold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profit Per Animal Sold"
+          },
+          "animals_sold": {
+            "type": "integer",
+            "title": "Animals Sold"
+          }
+        },
+        "type": "object",
+        "required": [
+          "farm_id",
+          "farm_name",
+          "avg_daily_gain_kg",
+          "feed_cost_per_kg_gain",
+          "profit_per_animal_sold",
+          "animals_sold"
+        ],
+        "title": "OwnerFarmBenchmarksOut",
+        "description": "One owned farm's benchmark figures over the requested window.\n\nNone (not zero) means the farm has no data for a figure in the window \u2014\nthe same withheld-not-empty convention the reports endpoint uses."
+      },
+      "OwnerFarmOverviewOut": {
+        "properties": {
+          "farm_id": {
+            "type": "integer",
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Farm Id"
+          },
+          "farm_name": {
+            "type": "string",
+            "title": "Farm Name"
+          },
+          "timezone": {
+            "type": "string",
+            "title": "Timezone"
+          },
+          "active_animals": {
+            "type": "integer",
+            "title": "Active Animals"
+          },
+          "overdue_duties": {
+            "type": "integer",
+            "title": "Overdue Duties"
+          },
+          "todays_duties_pending": {
+            "type": "integer",
+            "title": "Todays Duties Pending"
+          },
+          "todays_duties_done": {
+            "type": "integer",
+            "title": "Todays Duties Done"
+          },
+          "kidding_watch": {
+            "type": "integer",
+            "title": "Kidding Watch"
+          },
+          "movement_restricted": {
+            "type": "integer",
+            "title": "Movement Restricted"
+          },
+          "open_screening_flags": {
+            "type": "integer",
+            "title": "Open Screening Flags"
+          },
+          "month_income": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Month Income"
+          },
+          "month_expense": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Month Expense"
+          },
+          "month_net": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Month Net"
+          }
+        },
+        "type": "object",
+        "required": [
+          "farm_id",
+          "farm_name",
+          "timezone",
+          "active_animals",
+          "overdue_duties",
+          "todays_duties_pending",
+          "todays_duties_done",
+          "kidding_watch",
+          "movement_restricted",
+          "open_screening_flags",
+          "month_income",
+          "month_expense",
+          "month_net"
+        ],
+        "title": "OwnerFarmOverviewOut",
+        "description": "One owned farm's headline row on the cross-farm overview."
+      },
+      "OwnerOverviewOut": {
+        "properties": {
+          "farms": {
+            "items": {
+              "$ref": "#/components/schemas/OwnerFarmOverviewOut"
+            },
+            "type": "array",
+            "title": "Farms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "farms"
+        ],
+        "title": "OwnerOverviewOut"
       },
       "ParityMultipliers": {
         "properties": {
@@ -33753,9 +35531,9 @@
           },
           "code": {
             "type": "string",
-            "maxLength": 6,
+            "maxLength": 11,
             "minLength": 6,
-            "pattern": "^[0-9]{6}$",
+            "pattern": "^([0-9]{6}|[A-Za-z0-9]{5}-[A-Za-z0-9]{5})$",
             "title": "Code"
           }
         },
@@ -33841,6 +35619,48 @@
           "otpauth_uri"
         ],
         "title": "TotpEnrollOut"
+      },
+      "TotpRecoveryCodesOut": {
+        "properties": {
+          "codes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Codes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "codes"
+        ],
+        "title": "TotpRecoveryCodesOut",
+        "description": "The one-time reveal of the account's recovery codes.\n\nReturned exactly once \u2014 at enrollment confirmation or regeneration \u2014 and\nnever retrievable afterwards. The client owes the user a copy/print at\nreveal time; the server keeps only Argon2 hashes."
+      },
+      "TotpRecoveryRegenerateIn": {
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Current Password"
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 6,
+            "minLength": 6,
+            "pattern": "^[0-9]{6}$",
+            "title": "Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "current_password",
+          "code"
+        ],
+        "title": "TotpRecoveryRegenerateIn",
+        "description": "Re-mint the recovery-code set. Requires BOTH the current password and\na currently-valid TOTP code: possession of an authenticated session alone\nmust not be enough to rotate the break-glass material."
       },
       "TransactionCorrectionIn": {
         "properties": {
@@ -34594,6 +36414,20 @@
             "maximum": 4.611686018427388e+18,
             "minimum": 1.0,
             "title": "Role Id"
+          },
+          "pin": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 12,
+                "minLength": 4,
+                "pattern": "^[0-9]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pin"
           }
         },
         "additionalProperties": false,
@@ -34603,6 +36437,91 @@
           "role_id"
         ],
         "title": "WorkerCreateIn"
+      },
+      "WorkerLoginIn": {
+        "properties": {
+          "farm_id": {
+            "type": "integer",
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Farm Id"
+          },
+          "membership_id": {
+            "type": "integer",
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Membership Id"
+          },
+          "pin": {
+            "type": "string",
+            "maxLength": 12,
+            "minLength": 4,
+            "pattern": "^[0-9]+$",
+            "title": "Pin"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "farm_id",
+          "membership_id",
+          "pin"
+        ],
+        "title": "WorkerLoginIn",
+        "description": "Shared-tablet quick sign-in (ITEM 2, 2026-09-21 playbook)."
+      },
+      "WorkerPinResetIn": {
+        "properties": {
+          "pin": {
+            "type": "string",
+            "maxLength": 12,
+            "minLength": 4,
+            "pattern": "^[0-9]+$",
+            "title": "Pin"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "pin"
+        ],
+        "title": "WorkerPinResetIn",
+        "description": "Owner-managed rotation of one membership's tablet PIN."
+      },
+      "WorkerRosterEntryOut": {
+        "properties": {
+          "membership_id": {
+            "type": "integer",
+            "title": "Membership Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "membership_id",
+          "display_name"
+        ],
+        "title": "WorkerRosterEntryOut"
+      },
+      "WorkerRosterOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WorkerRosterEntryOut"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "WorkerRosterOut",
+        "description": "Who can tap-and-PIN on this farm's tablet.\n\nDeliberately unauthenticated: the tablet's first screen has no session.\nThe accepted tradeoff (documented in README's worker-tablet section) is\nthat display names of PIN-enabled workers are enumerable per farm id;\nnames only \u2014 no emails, no roles, no counts of anything else."
       },
       "WorkerStatusIn": {
         "properties": {

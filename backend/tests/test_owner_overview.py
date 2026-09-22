@@ -1,0 +1,223 @@
+"""Cross-farm owner overview + benchmarks (ITEM 3, 2026-09-21 playbook).
+
+Endpoints under test:
+- GET /api/owner/overview — per-owned-farm attention headlines.
+- GET /api/owner/benchmarks — per-owned-farm performance figures.
+
+Ownership is the permission: an owner sees exactly their farms' aggregates
+(grouped, never looped per farm), a worker with full grants gets 403, and a
+second owner's farm never appears in the first owner's response.
+"""
+
+from datetime import timedelta
+from decimal import Decimal
+
+import httpx
+import pytest
+
+from app.db import get_sessionmaker
+from app.models import Animal, Task, Transaction
+from app.utils import today
+
+from .conftest import create_farm, owner_with_farm
+from .test_finance_extended import custom_role_id, make_animal, worker_headers
+
+
+async def _seed_overview_rows(client: httpx.AsyncClient, headers: dict) -> None:
+    """Two animals, one on the kidding watch pen, one restricted, one overdue
+    duty, one due-today duty pair, and this month's ledger rows."""
+    doe_a = await make_animal(client, headers, tag="OWN-A-1")
+    doe_b = await make_animal(client, headers, tag="OWN-A-2")
+    async with get_sessionmaker()() as db:
+        farm_id = int(headers["X-Farm-Id"])
+        a = await db.get(Animal, doe_a["id"])
+        b = await db.get(Animal, doe_b["id"])
+        assert a is not None and b is not None
+        a.current_bucket = "DELIVERY"  # kidding watch
+        b.movement_restricted = True
+        b.restriction_reason = "Vet hold"
+        db.add(
+            Task(
+                farm_id=farm_id,
+                title="Overdue duty",
+                due_date=today() - timedelta(days=1),
+                category="OTHER",
+                status="PENDING",
+            )
+        )
+        db.add(
+            Task(
+                farm_id=farm_id,
+                title="Today pending",
+                due_date=today(),
+                category="OTHER",
+                status="PENDING",
+            )
+        )
+        from app.utils import utcnow
+
+        db.add(
+            Task(
+                farm_id=farm_id,
+                title="Today done",
+                due_date=today(),
+                category="OTHER",
+                status="DONE",
+                completed_at=utcnow(),
+            )
+        )
+        db.add(
+            Transaction(
+                farm_id=farm_id,
+                date=today(),
+                type="INCOME",
+                category="ANIMAL_SALE",
+                amount=Decimal("5000.00"),
+            )
+        )
+        db.add(
+            Transaction(
+                farm_id=farm_id,
+                date=today(),
+                type="EXPENSE",
+                category="FEED",
+                amount=Decimal("1200.50"),
+            )
+        )
+        await db.commit()
+
+
+async def test_owner_overview_aggregates_every_owned_farm_and_only_those(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client, email="cross-owner@farm.in")
+    farm_a_id = int(owner["X-Farm-Id"])
+    await _seed_overview_rows(client, owner)
+
+    # A second farm the SAME owner owns, with nothing in it.
+    farm_b_headers = await create_farm(client, owner, name="Second Ranch")
+    farm_b_id = int(farm_b_headers["X-Farm-Id"])
+
+    # A different owner's farm must never leak into the first owner's view.
+    other = await owner_with_farm(client, email="other-owner@farm.in")
+    await make_animal(client, other, tag="OTHER-1")
+
+    resp = await client.get("/api/owner/overview", headers=owner)
+    assert resp.status_code == 200, resp.text
+    assert resp.headers.get("cache-control") == "no-store"
+    farms = {row["farm_id"]: row for row in resp.json()["farms"]}
+    assert set(farms) == {farm_a_id, farm_b_id}
+
+    row_a = farms[farm_a_id]
+    assert row_a["farm_name"] == "Alpha Farm"
+    assert row_a["active_animals"] >= 2
+    assert row_a["kidding_watch"] == 1
+    assert row_a["movement_restricted"] == 1
+    assert row_a["overdue_duties"] == 1
+    assert row_a["todays_duties_pending"] == 1
+    assert row_a["todays_duties_done"] == 1
+    assert Decimal(str(row_a["month_income"])) == Decimal("5000.00")
+    assert Decimal(str(row_a["month_expense"])) == Decimal("1200.50")
+    assert Decimal(str(row_a["month_net"])) == Decimal("3799.50")
+
+    row_b = farms[farm_b_id]
+    assert row_b["active_animals"] == 0
+    assert row_b["overdue_duties"] == 0
+    assert Decimal(str(row_b["month_income"])) == Decimal("0")
+
+
+async def test_owner_overview_is_owner_only(client: httpx.AsyncClient) -> None:
+    owner = await owner_with_farm(client, email="own-only@farm.in")
+    # A worker with every domain grant still has no cross-farm lens.
+    role_id = await custom_role_id(
+        client,
+        owner,
+        "Everything",
+        [
+            "dashboard.view",
+            "animals.view",
+            "animals.manage",
+            "breeding.view",
+            "breeding.manage",
+            "health.view",
+            "health.manage",
+            "tasks.view",
+            "tasks.complete",
+            "tasks.verify",
+            "finance.view",
+            "finance.manage",
+            "feeding.view",
+            "feeding.manage",
+            "reports.view",
+            "screening.view",
+            "screening.manage",
+            "team.manage",
+            "simulation.view",
+            "simulation.manage",
+        ],
+    )
+    worker = await worker_headers(client, owner, role_id, "own-worker@farm.in")
+    resp = await client.get("/api/owner/overview", headers=worker)
+    assert resp.status_code == 403, resp.text
+
+    resp_b = await client.get("/api/owner/benchmarks", headers=worker)
+    assert resp_b.status_code == 403, resp_b.text
+
+    # The owner sees their (empty) farm set: 200, not 403 — ownership of one
+    # farm is enough, and empty aggregates are a valid answer.
+    ok = await client.get("/api/owner/overview", headers=owner)
+    assert ok.status_code == 200, ok.text
+
+
+async def test_owner_benchmarks_rank_farms_over_the_window(client: httpx.AsyncClient) -> None:
+    owner = await owner_with_farm(client, email="bench-owner@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+
+    # Growth + a sold animal with a realized margin, directly through the
+    # models the aggregates read.
+    sold = await make_animal(client, owner, tag="BENCH-SOLD")
+    async with get_sessionmaker()() as db:
+        from app.models import WeightRecord
+
+        animal = await db.get(Animal, sold["id"])
+        assert animal is not None
+        animal.status = "SOLD"
+        animal.status_date = today()
+        animal.sale_price = Decimal("8000.00")
+        animal.purchase_price = Decimal("5000.00")
+        db.add(
+            WeightRecord(
+                farm_id=farm_id,
+                animal_id=animal.id,
+                date=today() - timedelta(days=10),
+                weight_kg=20.0,
+            )
+        )
+        db.add(
+            WeightRecord(
+                farm_id=farm_id,
+                animal_id=animal.id,
+                date=today(),
+                weight_kg=30.0,
+            )
+        )
+        await db.commit()
+
+    resp = await client.get("/api/owner/benchmarks", params={"days": 90}, headers=owner)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["days"] == 90
+    assert len(body["farms"]) == 1
+    row = body["farms"][0]
+    assert row["farm_id"] == farm_id
+    # No breedings/kiddings in the window: withheld (None), never a fake 0.
+    assert row["conception_rate"] is None
+    assert row["kid_mortality_rate"] is None
+    assert row["animals_sold"] == 1
+    assert row["profit_per_animal_sold"] == 3000.0
+    # 10 kg over 10 measured days (11-day span) ≈ 0.909 kg/day.
+    assert row["avg_daily_gain_kg"] == pytest.approx(10.0 / 11.0, abs=0.01)
+
+    # days bounds are enforced.
+    bad = await client.get("/api/owner/benchmarks", params={"days": 4000}, headers=owner)
+    assert bad.status_code == 422

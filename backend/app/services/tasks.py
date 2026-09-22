@@ -35,20 +35,17 @@ from ..models import (
     quarantine_schedule,
 )
 from ..utils import today, utcnow
-from ._common import _add_task, _clear_task_rejection
+from ._common import (
+    REBREED_AFTER_RESTING_DAYS,
+    _clear_task_rejection,
+    _schedule_rebreed,
+)
 from .animals import bucket_transition_error, move_animal
 from .breeding import PREGNANCY_LATE_MOVE_DAYS_BEFORE_EKD
 
 # Namespace for the per-farm manual-duty-queue mutex. Advisory lock keys are
 # global to the database, so every acquisition of this counter must pass it.
 MANUAL_TASK_QUEUE_LOCK_NAMESPACE = 4711
-
-# Rest length after a doe's litter is weaned (or her no-survivor postpartum
-# recovery ends) before the next service: 30 RESTING days covers the
-# min-rest/flush window (GOAT_PROFILE.min_rest_flush_days) with margin, so
-# the re-breeding prompt lands when she is biologically ready to return to
-# the breeding pen.
-REBREED_AFTER_RESTING_DAYS = 30
 
 
 class ManualTaskCapacityError(ValueError):
@@ -346,53 +343,6 @@ async def _guard_generated_weaning_task(db: AsyncSession, task: Task) -> set[int
     return {animal_id for animal_id in linked_ids if animal_id is not None}
 
 
-async def _schedule_rebreed(db: AsyncSession, farm_id: int, doe: Animal, due: date) -> None:
-    """(Re-)date the doe's re-breeding prompt once her rest begins.
-
-    Both RESTING exits a completion can move a doe through — weaning and the
-    no-survivor postpartum recovery — funnel here. Dedupe is the manual
-    ON-conFLICT equivalent: a still-PENDING REBREED duty for the doe is
-    re-dated in place (row-locked like replan_dam_after_last_kid_death's
-    reuse) rather than growing a second parallel prompt, so however many
-    paths schedule the rest, exactly one re-breeding duty is ever open.
-    Replay safety comes from complete_task's non-PENDING no-op: a re-completed
-    weaning/postpartum duty never reaches this insert twice. Like every other
-    generated duty there is no creator attribution — the linked weaning or
-    postpartum row is the audit trail.
-    """
-    # Sessions run autoflush=False: persist any pending inserts (a prior
-    # _schedule_rebreed in this same transaction) so the dedupe SELECT below
-    # sees them — the same flush-before-lookup spawn_next_occurrence needs.
-    await db.flush()
-    existing = (
-        await db.execute(
-            select(Task)
-            .where(
-                Task.farm_id == farm_id,
-                Task.animal_id == doe.id,
-                Task.category == TaskCategory.REBREED.value,
-                Task.status == TaskStatus.PENDING.value,
-            )
-            .with_for_update()
-            .order_by(Task.id)
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    if existing is None:
-        await _add_task(
-            db,
-            farm_id,
-            f"Re-breed {doe.tag_number} (resting complete — flush window done)",
-            due,
-            TaskCategory.REBREED,
-            animal_id=doe.id,
-            title_key="rebreed",
-            title_args={"tag": doe.tag_number, "due_date": due.isoformat()},
-        )
-    else:
-        existing.due_date = due
-
-
 async def complete_task(
     db: AsyncSession,
     task: Task,
@@ -442,6 +392,10 @@ async def complete_task(
             if movement_farm is None:  # pragma: no cover - FK boundary
                 raise ValueError("The duty's farm no longer exists")
             movement_date = today(movement_farm.timezone)
+        # Every movement gate below is reachable only for these two
+        # categories, so the resolved (never-None) date is the one they use;
+        # move_animal/reference gates now require it outright.
+        resolved_movement_date = movement_date
     if task.category == TaskCategory.BUCKET_MOVE.value and task.purchase_batch_id:
         if locked_animals is None:
             raise ValueError("Task completion animals were not pre-locked")
@@ -475,7 +429,7 @@ async def complete_task(
                     linked_animal,
                     Bucket.PREGNANCY_LATE.value,
                     context="manual",
-                    reference_date=movement_date,
+                    reference_date=resolved_movement_date,
                 )
             ):
                 raise ValueError(error)
@@ -490,7 +444,7 @@ async def complete_task(
                     linked_animal,
                     Bucket.RESTING.value,
                     context="postpartum",
-                    reference_date=movement_date,
+                    reference_date=resolved_movement_date,
                 ):
                     raise ValueError(error)
                 postpartum_doe = linked_animal
@@ -504,7 +458,7 @@ async def complete_task(
                     linked_animal,
                     Bucket.DELIVERY.value,
                     context="delivery",
-                    reference_date=movement_date,
+                    reference_date=resolved_movement_date,
                 ):
                     raise ValueError(error)
     elif task.category == TaskCategory.WEANING.value:
@@ -582,7 +536,7 @@ async def complete_task(
                 if animal.id == weaning_doe.id
                 else (_weaning_target(animal) or animal.current_bucket),
                 context="weaning",
-                reference_date=movement_date,
+                reference_date=resolved_movement_date,
             )
             for animal in candidates
         ):
@@ -601,7 +555,7 @@ async def complete_task(
                 "45-day quarantine complete",
                 created_by_id=user.id if user else None,
                 context="quarantine_release",
-                reference_date=movement_date,
+                reference_date=resolved_movement_date,
             )
 
     elif (
@@ -619,7 +573,7 @@ async def complete_task(
                 "Postpartum recovery complete; no surviving kids",
                 created_by_id=user.id if user else None,
                 context="postpartum",
-                reference_date=movement_date,
+                reference_date=resolved_movement_date,
             )
             # Her rest begins now; the next service prompt follows it.
             if movement_date is not None:  # always resolved for BUCKET_MOVE above
@@ -641,7 +595,7 @@ async def complete_task(
                     "Gestation day 100 (ration step-up)",
                     created_by_id=user.id if user else None,
                     context="manual",
-                    reference_date=movement_date,
+                    reference_date=resolved_movement_date,
                 )
         # EARLY is accepted too: the EARLY→LATE transition is only a dashboard
         # suggestion, so a doe whose owner skipped it would otherwise see this
@@ -662,7 +616,7 @@ async def complete_task(
                 "~2 weeks before due date",
                 created_by_id=user.id if user else None,
                 context="delivery",
-                reference_date=movement_date,
+                reference_date=resolved_movement_date,
             )
 
     elif task.category == TaskCategory.WEANING.value and task.animal_id:
@@ -677,7 +631,7 @@ async def complete_task(
                     f"Weaned (day {GOAT_PROFILE.weaning_days})",
                     created_by_id=user.id if user else None,
                     context="weaning",
-                    reference_date=movement_date,
+                    reference_date=resolved_movement_date,
                 )
             if weaning_doe_can_rest and doe.current_bucket in (
                 Bucket.DELIVERY.value,
@@ -690,7 +644,7 @@ async def complete_task(
                     "Kids weaned",
                     created_by_id=user.id if user else None,
                     context="weaning",
-                    reference_date=movement_date,
+                    reference_date=resolved_movement_date,
                 )
                 # The dam's rest starts with the weaning; prompt the next
                 # service once the flush window has run.
@@ -849,7 +803,7 @@ async def spawn_next_occurrence(db: AsyncSession, task: Task) -> Task:
         inserted = await db.get(Task, inserted_id)
         if inserted is not None:
             return inserted
-    existing = (
+    return (
         await db.execute(
             select(Task).where(
                 Task.farm_id == task.farm_id,
@@ -858,7 +812,6 @@ async def spawn_next_occurrence(db: AsyncSession, task: Task) -> Task:
             )
         )
     ).scalar_one()
-    return existing
 
 
 async def skip_task(db: AsyncSession, task: Task, user: User, reason: str | None = None) -> Task:

@@ -3342,6 +3342,26 @@ async def test_postpartum_completion_schedules_rebreed_prompt(client: httpx.Asyn
     assert rebreed[0]["due_date"] == iso(today() + timedelta(days=REBREED_AFTER_RESTING_DAYS))
 
 
+async def test_abortion_schedules_rebreed_prompt(client: httpx.AsyncClient) -> None:
+    """B3 (2026-09-21 audit): an abortion is the third RESTING entry and must
+    open the same next-service prompt the weaning and postpartum exits do —
+    otherwise the doe needing re-service silently drops off the board."""
+    headers = await owner_with_farm(client)
+    doe, _buck, br = await pregnant_doe(client, headers, "D-ABORT-REBREED", gestation_days=60)
+    loss_day = today() - timedelta(days=2)
+
+    aborted = await post_abort(client, headers, br["id"], loss_date=iso(loss_day))
+    assert aborted.status_code == 200, aborted.text
+
+    rebreed = tasks_by_category(await all_tasks(client, headers), "REBREED")
+    assert len(rebreed) == 1
+    assert rebreed[0]["status"] == "PENDING"
+    assert rebreed[0]["animal_id"] == doe["id"]
+    assert rebreed[0]["auto_generated"] is True
+    assert rebreed[0]["due_date"] == iso(loss_day + timedelta(days=REBREED_AFTER_RESTING_DAYS))
+    assert "Re-breed" in rebreed[0]["title"]
+
+
 async def test_rebreed_prompt_reuses_the_pending_row(client: httpx.AsyncClient) -> None:
     """However many paths schedule a doe's rest, one REBREED duty is ever open:
     the second scheduling re-dates the pending row instead of adding another.

@@ -6,6 +6,7 @@ import json
 import os
 import tempfile
 import time
+from contextlib import suppress
 from pathlib import Path
 from typing import Literal
 
@@ -44,9 +45,7 @@ def write_heartbeat(path: Path, status: HeartbeatStatus, *, consecutive_failures
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        Path(temporary).replace(path)
     finally:
-        try:
+        with suppress(FileNotFoundError):
             temporary.unlink()
-        except FileNotFoundError:
-            pass

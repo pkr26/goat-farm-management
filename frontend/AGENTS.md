@@ -24,3 +24,18 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   restyle (2026-09-20 audit P3). Existing class-coupled assertions are being
   migrated opportunistically; do not add new ones.
 - **Fonts**: Inter (sans) + JetBrains Mono via `next/font` in `src/app/layout.tsx`; mapped to `--font-sans`/`--font-mono` tokens. Noto Sans Telugu is loaded alongside and swapped into the sans/heading stacks under `html:lang(te)` (Inter/Fraunces carry no Telugu glyphs).
+
+## Worker tablet surface (`src/app/worker/`)
+
+- Outside the `(app)` group on purpose: no sidebar, no `NAV_GROUPS` entries.
+  Big targets (≥44px), Telugu-first default (`herdly.language` unset → `te`
+  on first mount of the worker shell).
+- Duty mutations go through the offline-aware wrapper in
+  `src/app/worker/page.tsx`: fresh `Idempotency-Key` per attempt, transport
+  failures enqueue via `src/lib/offline-queue.ts` (actor+farm scoped, FIFO,
+  409/4xx drop on replay, 5xx backs off). `End shift` wipes the queue.
+- Test hooks are `data-testid` (`pin-key-*`, `complete-{id}`, `skip-{id}`,
+  `worker-queue-depth`, `end-shift`) — the surface is Telugu-first, so
+  aria-labels localize and testids stay stable.
+- New worker strings land in BOTH `en.ts` and `te.ts` (the MessageKey union
+  enforces parity).

@@ -99,7 +99,10 @@ class Transaction(Base):
     )
     id: Mapped[int] = mapped_column(primary_key=True)
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
-    date: Mapped[date] = mapped_column(default=today, index=True)
+    # No single-column date index: every ledger query is tenant-scoped and
+    # walks ix_transactions_farm_date_id (see the 2026-09-21 index-hygiene
+    # revision that dropped the redundant single).
+    date: Mapped[date] = mapped_column(default=today)
     type: Mapped[str] = mapped_column(String(10))  # TransactionType enum
     category: Mapped[str] = mapped_column(String(20))  # TransactionCategory enum
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))

@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator
 
-from .common import PostgresText, StrictInputModel
+from .common import MAX_INT32_ID, PostgresText, StrictInputModel
 
 MAX_EMAIL_LENGTH = 254
 MAX_PASSWORD_BYTES = 128
@@ -114,12 +114,61 @@ class TotpDisableIn(StrictInputModel):
 
 class TotpChallengeIn(StrictInputModel):
     mfa_token: str = Field(min_length=1, max_length=4096)
-    code: str = Field(min_length=6, max_length=6, pattern=r"^[0-9]{6}$")
+    # Either a 6-digit TOTP code or a single-use recovery code (XXXXX-XXXXX).
+    # Case-insensitive input; the server canonicalizes before comparing.
+    code: str = Field(
+        min_length=6,
+        max_length=11,
+        pattern=r"^([0-9]{6}|[A-Za-z0-9]{5}-[A-Za-z0-9]{5})$",
+    )
 
 
 class TotpEnrollOut(BaseModel):
     secret: str
     otpauth_uri: str
+
+
+class WorkerLoginIn(StrictInputModel):
+    """Shared-tablet quick sign-in (ITEM 2, 2026-09-21 playbook)."""
+
+    farm_id: int = Field(ge=1, le=MAX_INT32_ID)
+    membership_id: int = Field(ge=1, le=MAX_INT32_ID)
+    pin: str = Field(min_length=4, max_length=12, pattern=r"^[0-9]+$")
+
+
+class WorkerRosterEntryOut(BaseModel):
+    membership_id: int
+    display_name: str
+
+
+class WorkerRosterOut(BaseModel):
+    """Who can tap-and-PIN on this farm's tablet.
+
+    Deliberately unauthenticated: the tablet's first screen has no session.
+    The accepted tradeoff (documented in README's worker-tablet section) is
+    that display names of PIN-enabled workers are enumerable per farm id;
+    names only — no emails, no roles, no counts of anything else."""
+
+    items: list[WorkerRosterEntryOut]
+
+
+class TotpRecoveryCodesOut(BaseModel):
+    """The one-time reveal of the account's recovery codes.
+
+    Returned exactly once — at enrollment confirmation or regeneration — and
+    never retrievable afterwards. The client owes the user a copy/print at
+    reveal time; the server keeps only Argon2 hashes."""
+
+    codes: list[str]
+
+
+class TotpRecoveryRegenerateIn(StrictInputModel):
+    """Re-mint the recovery-code set. Requires BOTH the current password and
+    a currently-valid TOTP code: possession of an authenticated session alone
+    must not be enough to rotate the break-glass material."""
+
+    current_password: PasswordString = Field(min_length=1, max_length=128)
+    code: str = Field(min_length=6, max_length=6, pattern=r"^[0-9]{6}$")
 
 
 class AccountDeleteIn(StrictInputModel):

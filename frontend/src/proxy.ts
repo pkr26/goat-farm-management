@@ -55,10 +55,12 @@ export const config = {
      * Match page routes only: the backend-proxied paths (`/api`, `/healthz`,
      * `/readyz`) are JSON surfaces that need no CSP, and static assets
      * (`_next/static`, `_next/image`, favicon) are content-addressed.
+     * The service worker and manifest must be served with their own cache
+     * semantics (see next.config.ts), never with a nonce CSP page response.
      * Prefetches are skipped so <Link> hover/proxy loads don't mint nonces.
      */
     {
-      source: "/((?!api|healthz|readyz|_next/static|_next/image|favicon.ico).*)",
+      source: "/((?!api|healthz|readyz|_next/static|_next/image|favicon.ico|sw.js|manifest.webmanifest|icon-worker-192.png|icon-worker-512.png).*)",
       missing: [
         { type: "header", key: "next-router-prefetch" },
         { type: "header", key: "purpose", value: "prefetch" },

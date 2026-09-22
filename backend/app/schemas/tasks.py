@@ -118,6 +118,13 @@ class TaskRejectIn(StrictInputModel):
     note: PostgresText = Field(min_length=1, max_length=255)
 
 
+class TaskCompleteIn(StrictInputModel):
+    """Degenerate body for the bodyless completion (the idempotency claim's
+    request fingerprint: the identity is (actor, farm, task, key))."""
+
+    pass
+
+
 class TaskSkipIn(StrictInputModel):
     """A skip is an auditable exception to scheduled work; the reason is the
     audit trail, so it is required (non-blank, <= 255 chars)."""

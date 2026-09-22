@@ -15,4 +15,5 @@ export interface MembershipOut {
   is_active: boolean;
   can_reset_password: boolean;
   reset_password_block_reason: string | null;
+  pin_set?: boolean;
 }

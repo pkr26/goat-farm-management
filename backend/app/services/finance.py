@@ -420,6 +420,11 @@ async def claim_insurance_policy(
         raise PolicyAlreadyClaimedError("This policy has already been claimed")
     if claim_date < policy.start_date:
         raise ValueError("Claim date cannot be before the policy start date")
+    # B2 (2026-09-21 audit): a claim is an event inside the covered window.
+    # Lapsed status alone is not the boundary — the animal's death can post-date
+    # the lapse — but a claim DATED past the renewal horizon was never covered.
+    if claim_date > policy.renewal_date:
+        raise ValueError("Claim date cannot be after the policy's renewal date")
     policy.status = INSURANCE_STATUS_CLAIMED
     policy.claim_date = claim_date
     policy.claimed_at = utcnow()

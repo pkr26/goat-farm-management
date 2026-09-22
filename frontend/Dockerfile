@@ -32,6 +32,9 @@ RUN addgroup -S -g 10001 nextjs \
     && adduser -S -u 10001 -G nextjs nextjs
 COPY --from=builder --chown=nextjs:nextjs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nextjs /app/.next/static ./.next/static
+# Next's standalone output omits public/ — the worker PWA's service worker,
+# manifest and icons live there (ITEM 2 Phase 2).
+COPY --from=builder --chown=nextjs:nextjs /app/public ./public
 USER nextjs
 EXPOSE 3000
 # Probe the local /healthz route handler (no auth, no backend dependency)

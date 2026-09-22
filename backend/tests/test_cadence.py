@@ -267,7 +267,7 @@ async def test_interval_rounds_fire_on_a_fresh_farm(
         ("DISINFECTION", DISINFECTION_TITLE),
         ("WEIGHING", WEIGHING_TITLE),
     ):
-        rounds = [t for t in await farm_tasks(farm_id, category)]
+        rounds = list(await farm_tasks(farm_id, category))
         assert [t.title for t in rounds] == [title]
         assert rounds[0].due_date == frozen
 
@@ -769,7 +769,7 @@ async def test_interval_round_forward_window_suppresses_operator_scheduled_round
     )
 
     await run_ensure(farm_id)
-    hoof = [t for t in await farm_tasks(farm_id, "HOOF_TRIMMING")]
+    hoof = list(await farm_tasks(farm_id, "HOOF_TRIMMING"))
     assert len(hoof) == 1
     assert hoof[0].title == "Hoof trimming round (operator-scheduled)"
 

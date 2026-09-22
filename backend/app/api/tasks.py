@@ -35,7 +35,14 @@ from ..models import (
     User,
 )
 from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET
-from ..schemas.tasks import TaskCreateIn, TaskOut, TaskRejectIn, TaskSkipIn, TaskTabsOut
+from ..schemas.tasks import (
+    TaskCompleteIn,
+    TaskCreateIn,
+    TaskOut,
+    TaskRejectIn,
+    TaskSkipIn,
+    TaskTabsOut,
+)
 from ..services import (
     IdempotencyKey,
     ManualTaskCapacityError,
@@ -581,94 +588,117 @@ async def create_task(
 @router.post("/{task_id}/complete")
 async def complete(
     task_id: int,
+    response: Response,
     db: DbSession,
     user: CurrentUser,
     farm: CurrentFarm,
     membership: CurrentMembership,
     perms: COMPLETE,
+    idempotency_key: IdempotencyKey = None,
 ) -> TaskOut:
-    # A recurrence inserts another Task and therefore starts with FARM. The
-    # remainder of the canonical order is every affected ANIMAL (ascending id)
-    # -> TASK. Non-recurring transitions avoid the farm-wide lock.
-    # This includes batch quarantine release and a weaning doe plus all of her
-    # eligible kids, not only Task.animal_id.
-    await _lock_farm_for_recurring_transition(db, farm, task_id)
-    locked_animals = await _lock_completion_animals(db, farm, task_id)
-    task = await _get_task(db, farm, task_id, for_update=True)
-    if task.status != TaskStatus.PENDING.value:
-        raise HTTPException(status_code=400, detail="Task is not pending")
-    _require_locked_linked_animal_active(task, locked_animals)
-    try:
-        await resolve_personal_task_role_fallback(db, task)
-    except ValueError as exc:
-        await db.rollback()
-        raise HTTPException(status_code=409, detail=str(exc)) from None
-    if not await visible_to(db, task, user, farm, membership, lock_assignee=True):
-        raise HTTPException(status_code=403, detail="This duty is not assigned to you")
-    # Form-linked duties (see task_action_url) must be closed via their
-    # form — a bare call would skip recording the ultrasound/kidding/health
-    # data. The linkage-derived fence (action URL present) covers every
-    # well-formed row; the category fence below is the data-invariant
-    # belt-and-braces for legacy/unlinked generated rows, whose bare
-    # completion would silently close a data-capture duty with no data.
-    if task_action_url(task) is not None or (
-        task.auto_generated and task.category in FORM_LINKED_TASK_CATEGORIES
-    ):
-        raise HTTPException(status_code=409, detail="Use the linked form to complete this duty")
-    # Auto-generated duties (quarantine release, weaning, ...) and every
-    # recurring occurrence unlock on their due date. A one-off manual duty may
-    # still be closed early, but completing a freshly spawned recurrence early
-    # must not manufacture another future PENDING row.
-    if (task.auto_generated or task.recur_days is not None) and task.due_date > today(
-        farm.timezone
-    ):
-        raise HTTPException(status_code=409, detail="This duty is not due yet")
-    try:
-        await complete_task(
-            db,
-            task,
-            user,
-            locked_animals=locked_animals,
-            reference_date=today(farm.timezone),
-        )
-    except ValueError as exc:
-        await db.rollback()
-        raise HTTPException(status_code=409, detail=str(exc)) from None
-    await db.commit()
-    return task_out(task)
+    # ITEM 2 Phase 1 (2026-09-21 playbook): the tablet's offline queue retries
+    # this mutation; an optional Idempotency-Key turns a retry into the
+    # original response instead of a second 400 "not pending".
+
+    async def mutate() -> TaskOut:
+        # A recurrence inserts another Task and therefore starts with FARM. The
+        # remainder of the canonical order is every affected ANIMAL (ascending id)
+        # -> TASK. Non-recurring transitions avoid the farm-wide lock.
+        # This includes batch quarantine release and a weaning doe plus all of her
+        # eligible kids, not only Task.animal_id.
+        await _lock_farm_for_recurring_transition(db, farm, task_id)
+        locked_animals = await _lock_completion_animals(db, farm, task_id)
+        task = await _get_task(db, farm, task_id, for_update=True)
+        if task.status != TaskStatus.PENDING.value:
+            raise HTTPException(status_code=400, detail="Task is not pending")
+        _require_locked_linked_animal_active(task, locked_animals)
+        try:
+            await resolve_personal_task_role_fallback(db, task)
+        except ValueError as exc:
+            await db.rollback()
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+        if not await visible_to(db, task, user, farm, membership, lock_assignee=True):
+            raise HTTPException(status_code=403, detail="This duty is not assigned to you")
+        # Form-linked duties (see task_action_url) must be closed via their
+        # form — a bare call would skip recording the ultrasound/kidding/health
+        # data. The linkage-derived fence (action URL present) covers every
+        # well-formed row; the category fence below is the data-invariant
+        # belt-and-braces for legacy/unlinked generated rows, whose bare
+        # completion would silently close a data-capture duty with no data.
+        if task_action_url(task) is not None or (
+            task.auto_generated and task.category in FORM_LINKED_TASK_CATEGORIES
+        ):
+            raise HTTPException(status_code=409, detail="Use the linked form to complete this duty")
+        # Auto-generated duties (quarantine release, weaning, ...) and every
+        # recurring occurrence unlock on their due date. A one-off manual duty may
+        # still be closed early, but completing a freshly spawned recurrence early
+        # must not manufacture another future PENDING row.
+        if (task.auto_generated or task.recur_days is not None) and task.due_date > today(
+            farm.timezone
+        ):
+            raise HTTPException(status_code=409, detail="This duty is not due yet")
+        try:
+            await complete_task(
+                db,
+                task,
+                user,
+                locked_animals=locked_animals,
+                reference_date=today(farm.timezone),
+            )
+        except ValueError as exc:
+            await db.rollback()
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+        return task_out(task)
+
+    return await execute_idempotent(
+        db,
+        http_response=response,
+        key=idempotency_key,
+        farm_id=farm.id,
+        actor_id=user.id,
+        operation="POST /api/tasks/{task_id}/complete",
+        payload=TaskCompleteIn(),
+        path_identity={"task_id": task_id},
+        success_status=200,
+        response_type=TaskOut,
+        mutate=mutate,
+    )
 
 
 @router.post("/{task_id}/skip")
 async def skip(
     task_id: int,
+    response: Response,
     db: DbSession,
     user: CurrentUser,
     farm: CurrentFarm,
     membership: CurrentMembership,
     perms: COMPLETE,
     payload: TaskSkipIn,
+    idempotency_key: IdempotencyKey = None,
 ) -> TaskOut:
-    # A recurring skip inserts its successor and therefore starts with FARM and
-    # takes FK KEY SHARE on the linked animal. Match completion/status ordering
-    # (FARM -> ANIMAL -> TASK)
-    # so a concurrent sale cannot hold Animal while waiting for this Task as
-    # this request holds Task while waiting to insert against Animal.
-    await _lock_farm_for_recurring_transition(db, farm, task_id)
-    locked_animals = await _lock_completion_animals(db, farm, task_id)
-    task = await _get_task(db, farm, task_id, for_update=True)
-    if task.status != TaskStatus.PENDING.value:
-        raise HTTPException(status_code=400, detail="Task is not pending")
-    _require_locked_linked_animal_active(task, locked_animals)
-    try:
-        await resolve_personal_task_role_fallback(db, task)
-    except ValueError as exc:
-        await db.rollback()
-        raise HTTPException(status_code=409, detail=str(exc)) from None
-    if not await visible_to(db, task, user, farm, membership, lock_assignee=True):
-        raise HTTPException(status_code=403, detail="This duty is not assigned to you")
-    if task.recur_days is not None and task.due_date > today(farm.timezone):
-        raise HTTPException(status_code=409, detail="This duty is not due yet")
-    if task.auto_generated and task.purchase_batch_id is not None:
+
+    async def mutate() -> TaskOut:
+        # A recurring skip inserts its successor and therefore starts with FARM and
+        # takes FK KEY SHARE on the linked animal. Match completion/status ordering
+        # (FARM -> ANIMAL -> TASK)
+        # so a concurrent sale cannot hold Animal while waiting for this Task as
+        # this request holds Task while waiting to insert against Animal.
+        await _lock_farm_for_recurring_transition(db, farm, task_id)
+        locked_animals = await _lock_completion_animals(db, farm, task_id)
+        task = await _get_task(db, farm, task_id, for_update=True)
+        if task.status != TaskStatus.PENDING.value:
+            raise HTTPException(status_code=400, detail="Task is not pending")
+        _require_locked_linked_animal_active(task, locked_animals)
+        try:
+            await resolve_personal_task_role_fallback(db, task)
+        except ValueError as exc:
+            await db.rollback()
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+        if not await visible_to(db, task, user, farm, membership, lock_assignee=True):
+            raise HTTPException(status_code=403, detail="This duty is not assigned to you")
+        if task.recur_days is not None and task.due_date > today(farm.timezone):
+            raise HTTPException(status_code=409, detail="This duty is not due yet")
         # Every batch-linked generated row is an auditable quarantine gate.
         # The final release accepts only DONE/VERIFIED prerequisites and there
         # is intentionally no "reopen skipped health work" shortcut, so
@@ -678,69 +708,87 @@ async def skip(
         # a non-empty ACTIVE+QUARANTINE snapshot), so the gate would instead
         # stay permanently overdue. An animal never returns to ACTIVE, making
         # this lock-free read safe in the only direction it can move.
-        if await _batch_has_active_animal(db, farm, task.purchase_batch_id):
+        if (
+            task.auto_generated
+            and task.purchase_batch_id is not None
+            and await _batch_has_active_animal(db, farm, task.purchase_batch_id)
+        ):
             raise HTTPException(
                 status_code=409,
                 detail=(
                     "Quarantine protocol duties cannot be skipped; complete the required workflow"
                 ),
             )
-    if (
-        task.auto_generated
-        and task.category in (TaskCategory.WEANING.value, TaskCategory.BUCKET_MOVE.value)
-        and any(animal.current_bucket == Bucket.RECOVERY.value for animal in locked_animals)
-    ):
-        # RECOVERY is a closed bucket: LEGAL_BUCKET_TRANSITIONS opens it only
-        # for the weaning/postpartum contexts this very duty produces, and no
-        # replacement duty can be created. Skipping it would strand the doe and
-        # her kids there for good — out of the breeding lifecycle and on the
-        # lactating ration — with no remaining API path back.
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "This duty is the only way out of postpartum recovery; "
-                "complete it once the animals can be moved"
-            ),
-        )
-    if task.auto_generated and task.category == TaskCategory.ULTRASOUND.value:
-        # The pregnancy check closes an open service. A PENDING breeding
-        # blocks re-service (uq_breeding_open_pregnancy), no dashboard
-        # suggestion watches a doe idling in BREEDING, and no follow-up duty
-        # is regenerated — so a skipped check leaves the doe stranded in the
-        # breeding pen with no prompt to resolve her, exactly like the
-        # quarantine and RECOVERY gates above. The ultrasound form accepts a
-        # backdated result, so recording the scan is always the honest close.
-        # The outcome read is lock-free: once terminal it never reopens, and
-        # a still-active linked doe is already guaranteed by
-        # _require_locked_linked_animal_active above.
-        outcome = (
-            await db.execute(
-                select(BreedingRecord.outcome).where(
-                    BreedingRecord.id == task.breeding_record_id,
-                    BreedingRecord.farm_id == farm.id,
-                )
+        if (
+            task.auto_generated
+            and task.category in (TaskCategory.WEANING.value, TaskCategory.BUCKET_MOVE.value)
+            and any(animal.current_bucket == Bucket.RECOVERY.value for animal in locked_animals)
+        ):
+            # RECOVERY is a closed bucket: LEGAL_BUCKET_TRANSITIONS opens it only
+            # for the weaning/postpartum contexts this very duty produces, and no
+            # replacement duty can be created. Skipping it would strand the doe and
+            # her kids there for good — out of the breeding lifecycle and on the
+            # lactating ration — with no remaining API path back.
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "This duty is the only way out of postpartum recovery; "
+                    "complete it once the animals can be moved"
+                ),
             )
-        ).scalar_one_or_none()
-        if outcome == BreedingOutcome.PENDING.value:
-            doe_active = any(
-                animal.id == task.animal_id and animal.status == AnimalStatus.ACTIVE.value
-                for animal in locked_animals
-            )
-            if doe_active:
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        "The pregnancy check cannot be skipped while the service is open — "
-                        "record the scan result (a late date is fine) to close it"
-                    ),
+        if task.auto_generated and task.category == TaskCategory.ULTRASOUND.value:
+            # The pregnancy check closes an open service. A PENDING breeding
+            # blocks re-service (uq_breeding_open_pregnancy), no dashboard
+            # suggestion watches a doe idling in BREEDING, and no follow-up duty
+            # is regenerated — so a skipped check leaves the doe stranded in the
+            # breeding pen with no prompt to resolve her, exactly like the
+            # quarantine and RECOVERY gates above. The ultrasound form accepts a
+            # backdated result, so recording the scan is always the honest close.
+            # The outcome read is lock-free: once terminal it never reopens, and
+            # a still-active linked doe is already guaranteed by
+            # _require_locked_linked_animal_active above.
+            outcome = (
+                await db.execute(
+                    select(BreedingRecord.outcome).where(
+                        BreedingRecord.id == task.breeding_record_id,
+                        BreedingRecord.farm_id == farm.id,
+                    )
                 )
-    try:
-        await skip_task(db, task, user, payload.reason)
-    except ValueError as exc:
-        await db.rollback()
-        raise HTTPException(status_code=409, detail=str(exc)) from None
-    await db.commit()
-    return task_out(task)
+            ).scalar_one_or_none()
+            if outcome == BreedingOutcome.PENDING.value:
+                doe_active = any(
+                    animal.id == task.animal_id and animal.status == AnimalStatus.ACTIVE.value
+                    for animal in locked_animals
+                )
+                if doe_active:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            "The pregnancy check cannot be skipped while the service is open — "
+                            "record the scan result (a late date is fine) to close it"
+                        ),
+                    )
+        try:
+            await skip_task(db, task, user, payload.reason)
+        except ValueError as exc:
+            await db.rollback()
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+
+        return task_out(task)
+
+    return await execute_idempotent(
+        db,
+        http_response=response,
+        key=idempotency_key,
+        farm_id=farm.id,
+        actor_id=user.id,
+        operation="POST /api/tasks/{task_id}/skip",
+        payload=payload,
+        path_identity={"task_id": task_id},
+        success_status=200,
+        response_type=TaskOut,
+        mutate=mutate,
+    )
 
 
 @router.post("/{task_id}/verify")

@@ -16,6 +16,13 @@ from ..models import (
 )
 from ..permissions import task_role_codes
 
+# Rest length after a doe's litter is weaned (or her no-survivor postpartum
+# recovery ends) before the next service: 30 RESTING days covers the
+# min-rest/flush window (GOAT_PROFILE.min_rest_flush_days) with margin, so
+# the re-breeding prompt lands when she is biologically ready to return to
+# the breeding pen.
+REBREED_AFTER_RESTING_DAYS = 30
+
 
 def _clear_task_rejection(task: Task) -> None:
     """Clear rejection metadata when a task leaves its returned-to-PENDING state."""
@@ -98,6 +105,52 @@ async def _add_task(
     )
     db.add(task)
     return task
+
+
+async def _schedule_rebreed(db: AsyncSession, farm_id: int, doe: Animal, due: date) -> None:
+    """(Re-)date the doe's re-breeding prompt once her rest begins.
+
+    Every RESTING entry that starts a rest — weaning, the no-survivor
+    postpartum recovery, and a recorded abortion — funnels here. Dedupe is
+    the manual ON-conFLICT equivalent: a still-PENDING REBREED duty for the
+    doe is re-dated in place (row-locked like replan_dam_after_last_kid_death's
+    reuse) rather than growing a second parallel prompt, so however many
+    paths schedule the rest, exactly one re-breeding duty is ever open.
+    Replay safety comes from complete_task's non-PENDING no-op: a re-completed
+    weaning/postpartum duty never reaches this insert twice. Like every other
+    generated duty there is no creator attribution — the linked weaning or
+    postpartum row is the audit trail."""
+    # Sessions run autoflush=False: persist any pending inserts (a prior
+    # _schedule_rebreed in this same transaction) so the dedupe SELECT below
+    # sees them — the same flush-before-lookup spawn_next_occurrence needs.
+    await db.flush()
+    existing = (
+        await db.execute(
+            select(Task)
+            .where(
+                Task.farm_id == farm_id,
+                Task.animal_id == doe.id,
+                Task.category == TaskCategory.REBREED.value,
+                Task.status == TaskStatus.PENDING.value,
+            )
+            .with_for_update()
+            .order_by(Task.id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if existing is None:
+        await _add_task(
+            db,
+            farm_id,
+            f"Re-breed {doe.tag_number} (resting complete — flush window done)",
+            due,
+            TaskCategory.REBREED,
+            animal_id=doe.id,
+            title_key="rebreed",
+            title_args={"tag": doe.tag_number, "due_date": due.isoformat()},
+        )
+    else:
+        existing.due_date = due
 
 
 async def _load_doe(db: AsyncSession, br: BreedingRecord) -> Animal:

@@ -539,7 +539,7 @@ def test_head_conservation_day_over_day() -> None:
     for record in result.days:
         current = {row.building: row.heads for row in record.occupancy}
         delta = {b: current.get(b, 0) - previous.get(b, 0) for b in set(current) | set(previous)}
-        expected = {b: 0 for b in delta}
+        expected = dict.fromkeys(delta, 0)
         for move in record.moves:
             if move.from_bucket:
                 expected[move.from_bucket] = expected.get(move.from_bucket, 0) - 1
@@ -1479,7 +1479,7 @@ def test_recovery_starter_male_kid_weans_by_age() -> None:
     # At 91 days he is past the creep ramp, so day 1 plans no ration for him
     # (the stranding symptom); from day 2 he is 92 days old and eats the
     # day-91+ FATTENING line of the MALE_KIDS pen.
-    assert [line for line in hazard.days[0].feeding] == []
+    assert list(hazard.days[0].feeding) == []
     day2 = [line for line in hazard.days[1].feeding if line.building == "MALE_KIDS"]
     assert [(line.recipe, line.heads, line.kg_per_head) for line in day2] == [
         ("FATTENING_50_50", 1, pytest.approx(1.0))

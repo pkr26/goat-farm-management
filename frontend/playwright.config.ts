@@ -49,14 +49,14 @@ export default defineConfig({
     {
       name: browserName,
       use: { ...devices[BROWSER_DEVICES[browserName]] },
-      testIgnore: /mobile-worker-journey\.spec\.ts/,
+      testIgnore: /mobile-worker-journey\.spec\.ts|worker-tablet-journey\.spec\.ts/,
     },
     ...(browserName === "chromium"
       ? [
           {
             name: "Mobile Chrome",
             use: { ...devices["Pixel 7"] },
-            testMatch: /mobile-worker-journey\.spec\.ts/,
+            testMatch: /mobile-worker-journey\.spec\.ts|worker-tablet-journey\.spec\.ts/,
           },
         ]
       : []),

@@ -15,6 +15,7 @@ import os
 import subprocess
 import sys
 from datetime import date, timedelta
+from pathlib import Path
 
 import httpx
 import pytest
@@ -123,7 +124,7 @@ async def _migration_scenario():
                 env=env,
                 check=True,
                 capture_output=True,
-                cwd=os.getcwd(),
+                cwd=str(Path.cwd()),
             )
             assert proc.returncode == 0
             if target == "head":
@@ -235,7 +236,7 @@ async def _orf_upgrade_scenario():
                 capture_output=True,
                 text=True,
                 timeout=120,
-                cwd=os.getcwd(),
+                cwd=str(Path.cwd()),
             )
             assert proc.returncode == 0, proc.stdout + proc.stderr
 

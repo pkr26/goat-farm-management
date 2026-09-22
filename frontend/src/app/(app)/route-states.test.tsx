@@ -102,7 +102,11 @@ describe("(app) route states", () => {
     render(<NoAccessPage />);
 
     expect(screen.getByRole("heading", { name: "No farm modules assigned" })).toBeInTheDocument();
-    expect(screen.getByText(/ask the farm owner to update your role/i)).toBeInTheDocument();
+    // ITEM 5: the copy is catalog-sourced now; assert the en wording plus the
+    // catalog parity (the i18n gate) rather than raw source text.
+    expect(
+      screen.getByText(/Ask the farm owner to grant access/i),
+    ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Choose another farm" })).toHaveAttribute(
       "href",
       "/farm-select",

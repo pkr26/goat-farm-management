@@ -652,13 +652,12 @@ def _litter_expectation_paragraphs(a: SimulationAssumptions, nouns: SpeciesNouns
             f"{nouns.young_plural.capitalize()} are mostly singles at {nouns.parturition}: "
             f"the average mature litter is only ~{mature:.2f}."
         )
-    paragraphs = [
+    return [
         f"{multiples_lead} "
         f"First-time {nouns.female_plural} (parity 1) run lighter — about "
         f"{maiden:.2f} on average, mostly singles — so a maiden crop of "
         "singles is normal, not a problem."
     ]
-    return paragraphs
 
 
 def _festival_paragraph(assumptions: SimulationAssumptions, result: SimulationResult) -> list[str]:

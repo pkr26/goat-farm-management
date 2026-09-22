@@ -192,7 +192,11 @@ passes. Resume API replicas only after that succeeds.
   (owner or active membership). Every farm-scoped domain endpoint requires it;
   the only exceptions are `GET /api/simulation/defaults` and
   `GET /api/simulation/defaults/breeds`, which serve global breed/production
-  assumptions and need authentication alone (no farm context, no permission).
+  assumptions and need authentication alone (no farm context, no permission),
+  and the owner console (`GET /api/owner/overview`, `GET /api/owner/benchmarks`),
+  which spans every farm the CALLER owns — ownership is its permission and its
+  tenant scoping (a worker with full grants gets 403, and one owner's response
+  never includes another owner's farm).
 - RBAC: owners hold every permission; workers get a role's permission bundle
   (presets: Farm Manager, Animal Mover, Veterinarian, Procurement Officer,
   Feeder, Cleaner, Cleaner Manager, Accountant, Auditor — all editable, plus
@@ -310,6 +314,31 @@ and the published image digests attached.
 Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
 
 ## Production
+
+> **Deployment checklist (ITEM 8, 2026-09-21 playbook).** The items marked
+> **[ops]** are owner actions on your infrastructure, not code — recording
+> them here so the runbook travels with the repo:
+>
+> 1. **[ops]** Cloud VPS, 2–4 vCPU / 8 GB RAM. NOT a farm-premises box: the
+>    tablets reach it over the internet, so it needs a stable public address
+>    and someone (you) watching it.
+> 2. Edge TLS terminator (Caddy/nginx) → `docker-compose.production.yml`,
+>    edge binds loopback; terminator proxies to it (details below).
+> 3. Required env in production: `GOATFARM_ENVIRONMENT=production`,
+>    `GOATFARM_COOKIE_SECURE=true`, `GOATFARM_DB_SSLMODE=verify-full`,
+>    `GOATFARM_MAX_FARMS_PER_USER=25`, the JWT keypair mounted as files,
+>    `GOATFARM_TOTP_ENCRYPTION_KEY` and
+>    `GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET` (≥32 chars, externally
+>    generated), plus the screening/notifications provider keys if those
+>    features are enabled. The backend refuses to boot with an incomplete
+>    production set — that refusal is the checklist.
+> 4. **[ops]** Nightly `backend/scripts/backup.sh` → S3/B2 with GPG recipient
+>    and signer fingerprints; alert on non-zero exit (cron mail, healthchecks
+>    ping, or a systemd `OnFailure=` unit). Quarterly restore drill — the
+>    wall-clock time IS your real RTO.
+> 5. **[ops]** Expected run cost: ~₹2–4k/month VPS + LLM screening spend
+>    (capped per farm by `GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM`).
+
 
 - Unauthenticated ops endpoints: `GET /healthz` (liveness: process up) and
   `GET /readyz` (readiness: `SELECT 1` against the pool, 503 when the DB is
@@ -669,6 +698,69 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
     their PostgreSQL default names, so a convention retrofit renames them at
     replay time and aborts the chain (see `backend/alembic/env.py`). It can
     only arrive with a chain-wide rename revision.
+
+**Notifications (ITEM 4, 2026-09-21 playbook):**
+`GOATFARM_NOTIFICATIONS_ENABLED=true` turns on the minute-tick dispatcher in
+the API process: a per-farm morning digest (each opted-in recipient gets
+THEIR task-scope duties for the day) plus same-day alerts — vet-confirmed
+screening findings (hooked into the review endpoint), the kidding-watch head
+count, overdue-by-3+-days piles and feed items under reorder level. Providers
+seam: `console` (default, logs) and `msg91` (SMS; production refuses to boot
+enabled without its auth key). Every delivery passes day-dedupe (one attempt
+per farm/recipient/class/payload/local-day, recorded in the append-only
+`notification_log`), quiet hours (21:00–06:00 farm-local; a quiet skip holds
+the slot until the window opens) and a per-farm daily cap. Recipient phones
+and per-class opt-ins are managed by the FARM OWNER via
+`GET/PUT /api/team/workers/{id}/notifications` — notifications are never an
+account-recovery channel.
+
+**Worker tablet app (ITEM 2, 2026-09-21 playbook):**
+`/worker` is the field workers' daily driver: a Telugu-first PWA (installable
+on the farm tablet's home screen) with tap-your-name + PIN sign-in, the
+day's duties as large cards, and an offline queue — completions recorded in a
+dead zone carry their `Idempotency-Key` in localStorage and replay exactly
+once when connectivity returns. PIN model:
+
+- PINs are per-MEMBERSHIP Argon2 credentials, provisioned/reset by the farm
+  owner only (`POST /api/team/workers` with `pin`,
+  `POST /api/team/workers/{id}/reset-pin`); rotation revokes every session.
+- A PIN never bypasses the second factor (TOTP-active accounts get 403) and
+  never admits an owner (owners hold no membership). Login-grade throttling:
+  per (IP, farm, membership) plus a farm-wide spray scope at 10×.
+- `GET /api/auth/worker-roster?farm_id=…` is deliberately unauthenticated so
+  the tablet's first screen works without a session. Tradeoff: the DISPLAY
+  NAMES of PIN-enabled workers are enumerable per farm id — names only, never
+  emails or roles, hard-throttled per IP (30/5 min).
+- Shared-device discipline: "End shift" signs out AND wipes the offline
+  queue; queued writes are actor+farm scoped, so one worker's saved duties
+  can never be replayed under the next worker's session.
+- v1 out of scope: worker-native simplified forms, Background Sync/push, QR
+  badges, tablet-only token scoping.
+
+**TOTP recovery codes & the break-glass runbook (ITEM 7, 2026-09-21):**
+Activating two-factor mints ten single-use recovery codes (`XXXXX-XXXXX`),
+revealed exactly once at activation and re-revealable only through
+*Regenerate recovery codes* (password + a live authenticator code; the whole
+prior set is revoked). A recovery code redeems the login TOTP challenge and
+emits the `auth.totp.recovery_code_used` security event — alert on it: that
+login did not prove possession of the authenticator device.
+
+If BOTH the authenticator device and every unused recovery code are lost,
+the documented DB-side reset (run against your own database, e.g. via
+`docker compose -f docker-compose.production.yml exec db psql -U goatfarm`):
+
+```sql
+-- Break-glass: drop the second factor for one account.
+UPDATE users SET totp_secret_enc = NULL, totp_state = NULL, totp_last_step = NULL,
+                 token_version = token_version + 1
+ WHERE email = 'owner@example.in';
+DELETE FROM totp_recovery_codes WHERE user_id = (SELECT id FROM users WHERE email = 'owner@example.in');
+```
+
+The `token_version` bump signs out every existing session for that account,
+so the reset itself cannot be ridden by a stolen bearer token. Re-enroll
+immediately after signing back in — a factor-less account has no second
+factor until then.
 
 **TOTP encryption migration (must finish before a JWT signing-key cutover):**
 TOTP secrets are encrypted with a separate, stable AES-256 key named
@@ -1088,7 +1180,7 @@ backend/
                      request IDs, /healthz + /readyz, prod-safety validation)
     core/config.py   Pydantic settings (GOATFARM_* env vars)
     db.py            Async engine/session (autoflush=False, pre-ping), Base
-    models/          35 tables, domain enums, computed properties — split per
+    models/          38 tables, domain enums, computed properties — split per
                      domain (enums, constants, core, animals, breeding, …)
     services/        All domain flows + state guards — split per domain
                      (animals, breeding, kidding, health, tasks, feeding,

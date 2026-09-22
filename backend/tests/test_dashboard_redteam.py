@@ -120,10 +120,11 @@ async def test_reports_herd_summary_withheld_without_animals_view(
     assert analyst_rep["bucket_rows"] is None
     assert analyst_rep["total_active"] is None
     assert analyst_rep["sex_counts"] is None
-    # The reports page still renders: status counts (own health.view strip)
-    # and the deliberately ungated raw breeding counts stay visible.
+    # The reports page still renders: status counts stay visible (the
+    # clinical outcome statuses are stripped separately), while the breeding
+    # aggregates — counts included (B4) — are withheld from this caller.
     assert analyst_rep["status_counts"] == owner_rep["status_counts"]
-    assert analyst_rep["breeding"]["total_records"] == owner_rep["breeding"]["total_records"]
+    assert analyst_rep["breeding"]["total_records"] is None
 
     # ACCOUNTANT holds animals.view alongside reports.view — nothing changes
     # for any preset that already had the register permission.

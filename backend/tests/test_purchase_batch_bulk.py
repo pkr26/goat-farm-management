@@ -291,7 +291,7 @@ async def test_concurrent_bulk_batches_keep_generated_tags_disjoint(
             ).all()
         )
     assert animal_count == unique_tags == 200
-    assert per_batch == {batch_id: 100 for batch_id in batch_ids}
+    assert per_batch == dict.fromkeys(batch_ids, 100)
 
 
 async def test_animal_creator_cannot_squat_predictable_next_batch_tags(

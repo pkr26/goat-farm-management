@@ -153,7 +153,9 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
   const canViewBreeding = can("breeding.view");
   const canViewFinance = can("finance.view");
   const canViewTasks = can("tasks.view");
-  const query = useDashboardApiDashboardGet({ query: { enabled: allowed } });
+  const query = useDashboardApiDashboardGet({
+    query: { enabled: allowed, refetchOnWindowFocus: true },
+  });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
   // `can(...)` comes from /api/auth/permissions — a DIFFERENT query, which
   // invalidateFarmData deliberately excludes, so the two caches drift by

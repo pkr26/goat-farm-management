@@ -884,7 +884,7 @@ def test_legacy_helper_never_degrades_to_racy_check_then_rename(
         backup_legacy_lock._platform_rename_noreplace(source, destination)
 
     assert source.is_dir()
-    assert set(path.name for path in source.iterdir()) == {"pid", ".flock-owner"}
+    assert {path.name for path in source.iterdir()} == {"pid", ".flock-owner"}
     assert not destination.exists()
 
 

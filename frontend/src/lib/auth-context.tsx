@@ -30,6 +30,7 @@ import {
   setOnAuthFailure,
 } from "@/lib/api-client";
 import { clearPersistedIdempotencyRequestState } from "@/lib/idempotent-request";
+import { wipeOfflineQueue } from "@/lib/offline-queue";
 import { setActiveFarmTimezone } from "@/lib/format";
 
 // Raw auth responses stay anchored to generated contract models so backend
@@ -64,7 +65,7 @@ const AuthContext = createContext<AuthState | null>(null);
 // Stryker disable next-line StringLiteral: a module-level initializer cannot be attributed to the asserting test by per-test coverage; the key is pinned verbatim by the persistence suite
 const FARM_STORAGE_KEY = "goatfarm.farmId";
 // Stryker disable next-line ArrayDeclaration, StringLiteral: a module-level initializer cannot be attributed to the asserting test by per-test coverage; the list is pinned by the redirect suite
-const PUBLIC_PATHS = ["/login", "/register"];
+const PUBLIC_PATHS = ["/login", "/register", "/worker/login"];
 
 /** Site data can be blocked for the origin (reading `window.localStorage`
  * itself throws SecurityError) or over quota. The farm selection is a
@@ -99,6 +100,35 @@ function clearStoredFarmId(): void {
   } catch {
     /* nothing was persisted to clear */
   }
+}
+
+// A key REMOVAL is the cross-tab signal for "the session is dead — mirror the
+// teardown" (signOut / clearSession both remove the key). A farm revocation
+// must broadcast something else entirely: "this selection is gone but the
+// session lives". Tombstoning the value instead of removing it lets the
+// storage listener tell the two apart, so a revoked membership sends the
+// other tabs to /farm-select instead of destroying valid sessions (B1,
+// 2026-09-21 audit). readStoredFarmId already treats the tombstone as "no
+// selection" because Number("revoked:…") is NaN.
+const FARM_STORAGE_REVOKED_PREFIX = "revoked:";
+
+function writeStoredFarmRevoked(id: number): void {
+  try {
+    window.localStorage.setItem(
+      FARM_STORAGE_KEY,
+      `${FARM_STORAGE_REVOKED_PREFIX}${id}`,
+    );
+  } catch {
+    /* blocked or over quota: the tombstone just won't persist */
+  }
+}
+
+function revokedFarmIdFromStorage(value: string | null): number | null {
+  if (value === null || !value.startsWith(FARM_STORAGE_REVOKED_PREFIX)) {
+    return null;
+  }
+  const stored = Number(value.slice(FARM_STORAGE_REVOKED_PREFIX.length));
+  return Number.isSafeInteger(stored) && stored > 0 ? stored : null;
 }
 
 function isAuthSessionChangedError(error: unknown): boolean {
@@ -218,6 +248,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setFarmIdState(null);
     // Last, so the in-memory teardown above can never be left half applied.
     clearStoredFarmId();
+    // Shared-tablet hygiene: queued offline writes are the departing
+    // worker's, not the next one's.
+    wipeOfflineQueue();
   }, [queryClient]);
 
   const signOut = useCallback((): Promise<void> => {
@@ -276,19 +309,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     // The preferred farm was revoked (or the list emptied entirely). A farm
     // transition is still happening: abort and drop URL-only query keys
-    // before an old-farm response can repopulate them, and remove the
-    // now-invalid persisted selection. Deliberately do NOT fall back to
-    // list[0] — silently landing the operator in a farm they never chose
-    // invites acting on the wrong herd's data. farmId stays null, so the
-    // app shell redirects to /farm-select and the membership list rendered
-    // above makes the choice an explicit one.
+    // before an old-farm response can repopulate them, and tombstone the
+    // now-invalid persisted selection so other tabs learn the farm was
+    // revoked without mistaking it for a session teardown. Deliberately do
+    // NOT fall back to list[0] — silently landing the operator in a farm
+    // they never chose invites acting on the wrong herd's data. farmId
+    // stays null, so the app shell redirects to /farm-select and the
+    // membership list rendered above makes the choice an explicit one.
     queryClient.cancelQueries();
     queryClient.clear();
     farmIdRef.current = null;
     setFarmIdState(null);
     setCurrentFarmId(null);
     setActiveFarmTimezone(null);
-    clearStoredFarmId();
+    if (preferred !== null) writeStoredFarmRevoked(preferred);
   }, [queryClient, selectFarm]);
 
   const refreshFarms = useCallback(async () => {
@@ -444,6 +478,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         router.replace("/login");
         return;
       }
+      const revokedId = revokedFarmIdFromStorage(event.newValue);
+      if (revokedId !== null) {
+        // Another tab discovered this farm was revoked. The session itself is
+        // still valid: drop only this tab's selection (and the stale list
+        // entry) so the app shell lands on /farm-select — never the teardown
+        // a key removal announces. Tabs sitting on a different farm are
+        // unaffected.
+        if (userRef.current === null) return;
+        if (farmIdRef.current !== revokedId) return;
+        queryClient.cancelQueries();
+        queryClient.clear();
+        farmIdRef.current = null;
+        setFarmIdState(null);
+        setCurrentFarmId(null);
+        setActiveFarmTimezone(null);
+        const remaining = farmsRef.current.filter(
+          (farm) => farm.id !== revokedId,
+        );
+        farmsRef.current = remaining;
+        setFarms(remaining);
+        return;
+      }
       const stored = Number(event.newValue);
       if (
         Number.isSafeInteger(stored) &&
@@ -456,7 +512,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, [clearSession, router, selectFarm]);
+  }, [clearSession, router, selectFarm, queryClient]);
 
   useEffect(() => {
     if (initialRefreshStarted.current) return;

@@ -107,7 +107,13 @@ describe("ADV B6: route × permission matrix", () => {
   });
 
   it("each single permission lands on exactly its own module route", () => {
+    const seen = new Map<string, string>();
     for (const { permission, href } of PERMISSION_LANDING_ROUTES) {
+      // A permission may appear once per route it gates (tasks.view:
+      // /worker first, then /tasks); the FIRST occurrence is the landing.
+      if (!seen.has(permission)) seen.set(permission, href);
+    }
+    for (const [permission, href] of seen) {
       expect(firstPermittedPathFromList([permission])).toBe(href);
     }
   });

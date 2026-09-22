@@ -27,12 +27,14 @@ import hashlib
 import hmac
 import logging
 import os
+import secrets
 import stat
 import tempfile
 import threading
 import uuid
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
@@ -291,6 +293,44 @@ async def verify_password_with_work_async(password: str, stored: str) -> tuple[b
     return await _run_password_work(lambda: _verify_password_with_work(password, stored))
 
 
+# --- TOTP recovery codes (ITEM 7, 2026-09-21 playbook) ----------------------
+# Break-glass single-use codes for the TOTP second factor: they eliminate the
+# permanent-owner-lockout failure mode without weakening the no-email-recovery
+# stance. Format: 10 chars from a hand-copyable alphabet (no I/L/O/0/1) as
+# XXXXX-XXXXX. Stored as Argon2 hashes — a database/backup reader cannot test
+# guesses offline against plaintext codes.
+TOTP_RECOVERY_CODE_COUNT = 10
+TOTP_RECOVERY_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+
+
+def generate_totp_recovery_code() -> str:
+    chars = [secrets.choice(TOTP_RECOVERY_ALPHABET) for _ in range(10)]
+    return f"{''.join(chars[:5])}-{''.join(chars[5:])}"
+
+
+def normalize_totp_recovery_code(raw: str) -> str:
+    """Canonical form for comparison: uppercase, surrounding/space noise gone."""
+    return raw.strip().replace(" ", "").upper()
+
+
+def looks_like_totp_recovery_code(raw: str) -> bool:
+    normalized = normalize_totp_recovery_code(raw)
+    return (
+        len(normalized) == 11
+        and normalized[5] == "-"
+        and all(char in TOTP_RECOVERY_ALPHABET for char in normalized.replace("-", ""))
+    )
+
+
+def hash_totp_recovery_code(code: str) -> str:
+    return _password_hasher().hash(normalize_totp_recovery_code(code))
+
+
+async def hash_totp_recovery_codes_async(codes: list[str]) -> list[str]:
+    """Hash a whole mint batch off the event loop (Argon2 is CPU-bound)."""
+    return await _run_password_work(lambda: [hash_totp_recovery_code(c) for c in codes])
+
+
 # ---------------------------------------------------------------------------
 # JWT
 # ---------------------------------------------------------------------------
@@ -379,15 +419,13 @@ def _write_atomic(path: Path, data: bytes, mode: int | None = None) -> None:
                 # Apply the requested final mode only after the complete
                 # payload has been written; a private PEM stays 0600 here.
                 os.fchmod(stream.fileno(), mode)
-        os.replace(tmp, path)
+        Path(tmp).replace(path)
     except BaseException:
         if tmp is not None:
-            try:
+            # Preserve the original write/replace failure. The temporary
+            # file remains 0600, so failed cleanup cannot disclose keys.
+            with suppress(OSError):
                 tmp.unlink(missing_ok=True)
-            except OSError:
-                # Preserve the original write/replace failure. The temporary
-                # file remains 0600, so failed cleanup cannot disclose keys.
-                pass
         raise
 
 

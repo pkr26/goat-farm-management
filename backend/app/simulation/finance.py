@@ -360,7 +360,7 @@ def _crossing_decimal_power_roots(
         roots = _all_decimal_power_roots(decimal_terms, decimal_lo, decimal_hi)
         crossing_roots: list[Decimal] = []
         for index, root in enumerate(roots):
-            if root == decimal_lo or root == decimal_hi:
+            if root in (decimal_lo, decimal_hi):
                 crossing_roots.append(root)
                 continue
             left_bound = roots[index - 1] if index > 0 else decimal_lo

@@ -28,6 +28,34 @@ class ProviderError(Exception):
     moves on. The image row is retried by a later cycle."""
 
 
+async def _post_with_one_retry(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    headers: dict[str, str],
+    json: dict[str, object],
+) -> httpx.Response:
+    """POST with exactly one retry on a transient failure.
+
+    ITEM 6 (2026-09-21 playbook): a 5xx blip or a timeout at the gateway
+    edge otherwise costs a full image attempt (and re-pays the whole call
+    on the retry cycle). One immediate retry catches the blip; anything
+    persistent still fails fast for the rotation chain.
+    """
+    try:
+        response = await client.post(url, headers=headers, json=json)
+        response.raise_for_status()
+        return response
+    except (httpx.TimeoutException, httpx.TransportError) as exc:
+        raise ProviderError(f"gate call failed: {exc}") from exc
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code < 500:
+            raise
+        retried = await client.post(url, headers=headers, json=json)
+        retried.raise_for_status()
+        return retried
+
+
 class ProviderResponseError(ProviderError):
     """The endpoint answered but the payload was not usable."""
 
@@ -86,6 +114,14 @@ class AnthropicProvider:
         self._base_url = base_url
         self._timeout = settings.screening_provider_timeout_seconds
         self._client = client or httpx.AsyncClient(timeout=self._timeout)
+        # aclose() below must never close a caller-owned client (tests share
+        # one transport across providers).
+        self._owns_client = client is None
+
+    async def aclose(self) -> None:
+        """Close the owned httpx transport (worker shutdown; B-small fix)."""
+        if self._owns_client:
+            await self._client.aclose()
 
     async def complete(self, image_jpeg: bytes, system_prompt: str) -> ProviderAnswer:
         body = {
@@ -111,7 +147,8 @@ class AnthropicProvider:
         }
         started = time.monotonic()
         try:
-            answer = await self._client.post(
+            answer = await _post_with_one_retry(
+                self._client,
                 f"{self._base_url}/v1/messages",
                 headers={
                     "x-api-key": self._api_key,
@@ -119,7 +156,6 @@ class AnthropicProvider:
                 },
                 json=body,
             )
-            answer.raise_for_status()
             payload = answer.json()
             text = "".join(
                 block.get("text", "")
@@ -173,6 +209,12 @@ class OpenAICompatibleProvider:
         self._base_url = base_url
         self._timeout = settings.screening_provider_timeout_seconds
         self._client = client or httpx.AsyncClient(timeout=self._timeout)
+        self._owns_client = client is None
+
+    async def aclose(self) -> None:
+        """Close the owned httpx transport (worker shutdown; B-small fix)."""
+        if self._owns_client:
+            await self._client.aclose()
 
     async def complete(self, image_jpeg: bytes, system_prompt: str) -> ProviderAnswer:
         data_url = "data:image/jpeg;base64," + base64.b64encode(image_jpeg).decode("ascii")
@@ -194,12 +236,12 @@ class OpenAICompatibleProvider:
         }
         started = time.monotonic()
         try:
-            answer = await self._client.post(
+            answer = await _post_with_one_retry(
+                self._client,
                 f"{self._base_url}/chat/completions",
                 headers={"Authorization": f"Bearer {self._api_key}"},
                 json=body,
             )
-            answer.raise_for_status()
             payload = answer.json()
             text = payload["choices"][0]["message"]["content"]
         except httpx.HTTPError as exc:

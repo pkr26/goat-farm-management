@@ -31,11 +31,13 @@ from ..models import (
 from ..models.species import GOAT_PROFILE
 from ..utils import add_months, today, utcnow
 from ._common import (
+    REBREED_AFTER_RESTING_DAYS,
     _add_task,
     _clear_task_rejection,
     _kidding_record_of,
     _load_doe,
     _pending_tasks_for,
+    _schedule_rebreed,
 )
 from .animals import move_animal
 from .health import PRE_KIDDING_VACCINE_TITLE
@@ -288,7 +290,7 @@ async def breeding_weights_as_of(
             .order_by(Animal.id)
         )
     ).all()
-    return {animal_id: weight for animal_id, weight in rows}
+    return {animal_id: weight for animal_id, weight in rows}  # noqa: C416 — Row-typed rows need the comprehension for mypy's stubs
 
 
 async def doe_has_open_breeding(db: AsyncSession, farm_id: int, doe_id: int) -> bool:
@@ -1101,6 +1103,19 @@ async def mark_aborted(
             # This is a domain reclassification caused by the recorded loss,
             # not a health clearance or an operator-requested movement.
             allow_restricted_reclassification=True,
+        )
+        # B3 (2026-09-21 audit): an abortion is the third RESTING entry, and
+        # the only one that never prompted the next service — the doe silently
+        # dropped off the breeding board. Her rest starts at the loss, so the
+        # re-breeding duty follows the same flush window as weaning and the
+        # no-survivor postpartum recovery. The helper re-dates any still-open
+        # REBREED duty instead of stacking a second one, and a later service
+        # completes the prompt (see record_breeding).
+        await _schedule_rebreed(
+            db,
+            br.farm_id,
+            doe,
+            loss_date + timedelta(days=REBREED_AFTER_RESTING_DAYS),
         )
     # Locked + re-checked like skip_pending_tasks_for_animal: a worker's
     # committed DONE completion must survive — never overwrite it to SKIPPED.

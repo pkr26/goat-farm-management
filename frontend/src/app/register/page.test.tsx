@@ -157,10 +157,17 @@ describe("RegisterPage", () => {
 
       // aria-invalid must be ABSENT (not "false") on an untouched field, and
       // no describedby may point at an error paragraph that does not exist.
+      // The password's hint paragraph is deliberately associated even before
+      // submit (requirements text, not an error).
       for (const field of [/name/i, /email/i, /password/i]) {
         expect(screen.getByLabelText(field)).not.toHaveAttribute("aria-invalid");
-        expect(screen.getByLabelText(field)).not.toHaveAttribute("aria-describedby");
       }
+      expect(screen.getByLabelText(/name/i)).not.toHaveAttribute("aria-describedby");
+      expect(screen.getByLabelText(/email/i)).not.toHaveAttribute("aria-describedby");
+      expect(screen.getByLabelText(/password/i)).toHaveAttribute(
+        "aria-describedby",
+        "register-password-hint",
+      );
       // No empty live region either — screen readers would announce nothing
       // but its presence still pollutes the alert queries below.
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -300,9 +307,11 @@ describe("RegisterPage", () => {
         "register-email-error",
       );
       expect(screen.getByLabelText(/password/i)).toHaveAttribute("aria-invalid", "true");
+      // With an error present both the error paragraph AND the persistent
+      // requirements hint are announced with the field.
       expect(screen.getByLabelText(/password/i)).toHaveAttribute(
         "aria-describedby",
-        "register-password-error",
+        "register-password-error register-password-hint",
       );
       // Each referenced id must actually resolve to that field's message.
       expect(document.getElementById("register-name-error")).toHaveTextContent(/120/);

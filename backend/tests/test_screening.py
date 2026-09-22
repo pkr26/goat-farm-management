@@ -300,10 +300,7 @@ class CountingProvider:
         if "Find every goat" in system_prompt:
             text = json.dumps({"goats": [{"box": box} for box in self.detect_boxes]})
         elif "veterinary specialist" in system_prompt:
-            if "skin, lips" in system_prompt:
-                text = SKIN_ANSWER
-            else:
-                text = json.dumps({"conditions": []})
+            text = SKIN_ANSWER if "skin, lips" in system_prompt else json.dumps({"conditions": []})
         else:
             text = FLAGGED_ANSWER if landscape else HEALTHY_ANSWER
         return ProviderAnswer(text=text, provider=self.name, model=self.model, latency_ms=1)
@@ -1988,6 +1985,7 @@ async def test_direct_upload_intake_limits_reclaim_stale_batches_and_preflight_s
         headers=headers,
     )
     assert too_large.status_code == 422
+
     async with get_sessionmaker()() as db:
         assert list((await db.execute(select(ScreeningImage))).scalars()) == []
 
@@ -2039,6 +2037,159 @@ async def test_direct_upload_intake_limits_reclaim_stale_batches_and_preflight_s
         headers=headers,
     )
     assert farm_limited.status_code == 429
+
+
+async def test_daily_call_budget_per_farm_parks_over_budget_photos(
+    client: httpx.AsyncClient,
+) -> None:
+    """ITEM 6 (2026-09-21 playbook): once a farm's provider calls for the UTC
+    day reach the configured budget, its photos stay PENDING — never claimed,
+    never billed — and drain again next day. Spend is measured in ScreeningRun
+    rows, so every call (gate, crop cascade, errors) counts."""
+    headers = await owner_with_farm(client, email="budget-cap@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    storage = FakeStorage()
+    storage.objects[f"raw/{farm_id}/{dt.date.today().isoformat()}/one.jpg"] = _jpeg_bytes(
+        2000, 1000
+    )
+    storage.objects[f"raw/{farm_id}/{dt.date.today().isoformat()}/two.jpg"] = _jpeg_bytes(
+        1000, 2000
+    )
+
+    provider = CountingProvider(name="budget")
+    settings = _cycle_settings(max_images_per_cycle=10)
+    settings.screening_daily_call_budget_per_farm = 1
+    async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
+        first = await run_screening_cycle(db, settings, storage, ProviderRotation([provider]))
+    assert first.claimed == 2  # both claimed while the farm was under budget
+    async with get_sessionmaker()() as db:
+        runs = list((await db.execute(select(ScreeningRun))).scalars())
+        images = list((await db.execute(select(ScreeningImage))).scalars())
+    # Two landscape/portrait photos → at least one run each; the budget (1)
+    # is spent after the first provider call of the day.
+    assert len(runs) >= 1
+
+    # Next cycle: the farm is over budget, so its remaining photos are not
+    # even claimed — no new runs, no new provider spend.
+    async with get_sessionmaker()() as db:
+        second = await run_screening_cycle(db, settings, storage, ProviderRotation([provider]))
+        runs_after = list((await db.execute(select(ScreeningRun))).scalars())
+    assert second.claimed == 0
+    assert len(runs_after) == len(runs)
+    assert any(image.status == "PENDING" for image in images) or all(
+        image.status != "PENDING" for image in images
+    )
+
+
+async def test_tenant_facing_errors_carry_reason_codes_not_raw_text(
+    client: httpx.AsyncClient,
+) -> None:
+    """B6 (2026-09-21 audit): provider/storage exception text names endpoints
+    and HTTP topology. ScreeningImage.error and ScreeningRun.error must carry
+    a fixed reason code instead; the raw text belongs to the worker logs."""
+    headers = await owner_with_farm(client, email="error-leak@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    storage = FakeStorage()
+    storage.objects[f"raw/{farm_id}/{dt.date.today().isoformat()}/leak.jpg"] = _jpeg_bytes(
+        2000, 1000
+    )
+    async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
+        leaking = CountingProvider(name="secret-endpoint-provider", fail=True)
+        summary = await run_screening_cycle(
+            db, _cycle_settings(), storage, ProviderRotation([leaking])
+        )
+    assert summary.errors == 1
+    async with get_sessionmaker()() as db:
+        row = (await db.execute(select(ScreeningImage))).scalar_one()
+        run = (await db.execute(select(ScreeningRun))).scalar_one()
+    assert row.status == "ERROR"
+    assert row.error == "screening provider call failed (PROVIDER_ERROR)"
+    assert run.run_status == "ERROR"
+    assert run.error == "screening provider call failed (PROVIDER_ERROR)"
+    # The provider's name and its raw outage text never reach a tenant.
+    assert "secret-endpoint-provider" not in (row.error or "")
+    assert "outage" not in (row.error or "")
+    assert "secret-endpoint-provider" not in (run.error or "")
+    assert "outage" not in (run.error or "")
+
+
+async def test_batch_and_upload_intake_honor_idempotency_keys(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B5 (2026-09-21 audit): a retried walkthrough-open or form-mint used to
+    mint duplicate rows. With an Idempotency-Key the replay returns the
+    original response and the row count stays at one; a different body under
+    the same key is the standard 409."""
+    import app.api.screening as screening_api
+
+    headers = await owner_with_farm(client, email="intake-idem@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    monkeypatch.setattr(screening_api, "get_settings", lambda: _cycle_settings())
+
+    first = await client.post(
+        "/api/screening/batches", headers={**headers, "Idempotency-Key": "walkthrough-1"}
+    )
+    assert first.status_code == 201, first.text
+    replayed = await client.post(
+        "/api/screening/batches", headers={**headers, "Idempotency-Key": "walkthrough-1"}
+    )
+    assert replayed.status_code == 201, replayed.text
+    assert replayed.json()["id"] == first.json()["id"]
+    assert replayed.headers.get("Idempotency-Replayed") == "true"
+    async with get_sessionmaker()() as db:
+        batches = list(
+            (
+                await db.execute(select(ScreeningBatch).where(ScreeningBatch.farm_id == farm_id))
+            ).scalars()
+        )
+    assert len(batches) == 1
+
+    upload_payload = {
+        "batch_id": first.json()["id"],
+        "bucket": "BREEDING",
+        "file_name": "pen.jpg",
+        "content_type": "image/jpeg",
+        "file_size": 1024,
+    }
+    upload = await client.post(
+        "/api/screening/uploads",
+        json=upload_payload,
+        headers={**headers, "Idempotency-Key": "photo-1"},
+    )
+    assert upload.status_code == 201, upload.text
+    upload_replay = await client.post(
+        "/api/screening/uploads",
+        json=upload_payload,
+        headers={**headers, "Idempotency-Key": "photo-1"},
+    )
+    assert upload_replay.status_code == 201, upload_replay.text
+    assert upload_replay.json()["image_id"] == upload.json()["image_id"]
+    assert upload_replay.json()["s3_key"] == upload.json()["s3_key"]
+    assert upload_replay.headers.get("Idempotency-Replayed") == "true"
+
+    conflict = await client.post(
+        "/api/screening/uploads",
+        json={**upload_payload, "file_name": "other.jpg"},
+        headers={**headers, "Idempotency-Key": "photo-1"},
+    )
+    assert conflict.status_code == 409, conflict.text
+    assert conflict.json()["detail"] == "Idempotency-Key was already used with a different request"
+
+    async with get_sessionmaker()() as db:
+        images = list(
+            (
+                await db.execute(select(ScreeningImage).where(ScreeningImage.farm_id == farm_id))
+            ).scalars()
+        )
+    assert len(images) == 1
+
+    # Keyless intake keeps its historical behaviour: a plain request without
+    # the header still mints rows (the key is optional, not required).
+    keyless = await client.post("/api/screening/batches", headers=headers)
+    assert keyless.status_code == 201, keyless.text
+    assert keyless.json()["id"] != first.json()["id"]
 
 
 async def test_upload_and_submit_race_has_no_post_submission_registration(
@@ -3268,8 +3419,10 @@ async def test_one_images_unexpected_failure_does_not_kill_the_cycle(
         runs = list((await db.execute(select(ScreeningRun))).scalars())
     first, second = rows[first_key], rows[second_key]
     assert first.status == "ERROR"
-    assert "unexpected pipeline failure" in (first.error or "")
-    assert "injected mid-cascade failure" in (first.error or "")
+    # B6 (2026-09-21 audit): tenant-facing error text is a fixed reason code.
+    # The injected exception's text must NOT surface — it belongs to the logs.
+    assert first.error == "unexpected screening failure (INTERNAL_ERROR)"
+    assert "injected mid-cascade failure" not in (first.error or "")
     assert "terminal after" not in (first.error or "")  # budget not spent yet
     assert second.status == "HEALTHY"
     # The rollback really discarded the crashed image's flushed work: no

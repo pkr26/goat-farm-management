@@ -152,6 +152,13 @@ describe("ADV G3: secret & persistence surface scan", () => {
     // credential: nothing session-bearing may enter this list).
     const authContext = readFileSync(join(SRC_ROOT, "lib", "auth-context.tsx"), "utf8");
     expect(authContext).toContain('FARM_STORAGE_KEY = "goatfarm.farmId"');
+    const workerLayout = readFileSync(
+      join(SRC_ROOT, "app", "worker", "layout.tsx"),
+      "utf8",
+    );
+    expect(workerLayout).toContain('TABLET_FARM_STORAGE_KEY = "herdly.tabletFarm"');
+    const offlineQueue = readFileSync(join(SRC_ROOT, "lib", "offline-queue.ts"), "utf8");
+    expect(offlineQueue).toContain('OFFLINE_QUEUE_STORAGE_KEY = "goatfarm:offlineQueue:v1"');
     const i18n = readFileSync(join(SRC_ROOT, "lib", "i18n", "index.tsx"), "utf8");
     expect(i18n).toContain('LANGUAGE_STORAGE_KEY = "herdly.language"');
     for (const file of files) {
@@ -160,7 +167,9 @@ describe("ADV G3: secret & persistence surface scan", () => {
         expect(
           match[1].trim(),
           `${file} writes storage key ${match[1]}`,
-        ).toMatch(/^(FARM_STORAGE_KEY|IDEMPOTENCY_SESSION_STORAGE_KEY|LANGUAGE_STORAGE_KEY)$/);
+        ).toMatch(
+          /^(FARM_STORAGE_KEY|TABLET_FARM_STORAGE_KEY|OFFLINE_QUEUE_STORAGE_KEY|IDEMPOTENCY_SESSION_STORAGE_KEY|LANGUAGE_STORAGE_KEY)$/,
+        );
       }
     }
   });

@@ -4,8 +4,10 @@ import { ShieldQuestion } from "lucide-react";
 import Link from "next/link";
 
 import { buttonVariants } from "@/components/ui/button";
+import { useT } from "@/lib/i18n";
 
 export default function NoAccessPage() {
+  const t = useT();
   return (
     <div className="relative mx-auto max-w-lg space-y-3 py-16 text-center">
       <span
@@ -16,15 +18,14 @@ export default function NoAccessPage() {
         <ShieldQuestion className="size-6" aria-hidden="true" />
       </span>
       <h1 className="relative font-heading text-2xl font-semibold tracking-tight">
-        No farm modules assigned
+        {t("noaccess.title")}
       </h1>
       <p className="relative text-sm text-muted-foreground">
-        Your role on this farm does not currently include access to a module. Ask the farm owner
-        to update your role, or choose another farm.
+        {t("noaccess.description")}
       </p>
       <div className="relative pt-1">
         <Link href="/farm-select" className={buttonVariants({ variant: "outline" })}>
-          Choose another farm
+          {t("noaccess.chooseFarm")}
         </Link>
       </div>
     </div>

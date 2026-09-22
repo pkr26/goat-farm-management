@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from contextlib import suppress
 
 import httpx
 import pytest
@@ -128,10 +129,8 @@ async def test_periodic_cleanup_commits_only_fixed_batches(
         assert calls == [500, 500]
     finally:
         worker.cancel()
-        try:
+        with suppress(asyncio.CancelledError):
             await worker
-        except asyncio.CancelledError:
-            pass
 
 
 async def test_periodic_cleanup_converges_residue_through_a_live_session(
@@ -209,10 +208,8 @@ async def test_periodic_cleanup_converges_residue_through_a_live_session(
         assert await pending_count() == 0, "worker never converged the residual pending task"
     finally:
         worker.cancel()
-        try:
+        with suppress(asyncio.CancelledError):
             await worker
-        except asyncio.CancelledError:
-            pass
 
 
 async def test_periodic_cleanup_keeps_sweeping_after_a_completed_pass(
@@ -249,10 +246,8 @@ async def test_periodic_cleanup_keeps_sweeping_after_a_completed_pass(
         assert not worker.done()
     finally:
         worker.cancel()
-        try:
+        with suppress(asyncio.CancelledError):
             await worker
-        except asyncio.CancelledError:
-            pass
 
 
 async def test_periodic_cleanup_logs_the_total_number_of_skipped_tasks(
@@ -286,10 +281,8 @@ async def test_periodic_cleanup_logs_the_total_number_of_skipped_tasks(
             ]
         finally:
             worker.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await worker
-            except asyncio.CancelledError:
-                pass
 
 
 async def test_periodic_cleanup_logs_the_failure_reason_and_survives(
@@ -331,7 +324,5 @@ async def test_periodic_cleanup_logs_the_failure_reason_and_survives(
                 await worker
         finally:
             worker.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await worker
-            except asyncio.CancelledError:
-                pass

@@ -78,7 +78,9 @@ describe("LoginPage — mutation targets", () => {
     renderWithProviders(<LoginPage />);
 
     await fillAndSubmit(user);
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/tasks"));
+    // tasks.view resolves to the worker tablet board first (ITEM 2); the
+    // full board remains at /tasks for manager-shaped accounts.
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/worker"));
   });
 
   it("recovers to farm selection when permission discovery fails", async () => {

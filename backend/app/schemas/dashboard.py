@@ -121,10 +121,14 @@ class BucketReportRow(BaseModel):
 
 
 class BreedingStatsOut(BaseModel):
-    total_records: int
+    # None means the caller lacks breeding.view — withheld, not zero. The
+    # counts are breeding-derived aggregates like the rates beside them, so
+    # they cannot stay ungated while every sibling field is withheld (B4,
+    # 2026-09-21 audit).
+    total_records: int | None
     conception_rate: float | None
     first_cycle_rate: float | None
-    kiddings: int
+    kiddings: int | None
     kids_per_kidding: float | None
     twin_rate: float | None
     cull_candidates: list[AnimalIdentityOut]
@@ -137,7 +141,9 @@ class MortalityOut(BaseModel):
     # None means the caller lacks health.view — withheld, not empty/zero.
     total_deaths: int | None
     deaths_by_month: list[tuple[str, int]]
-    total_kids_born: int
+    # Same withheld convention as stillborn beside it: kids born is a
+    # clinical (kidding-outcome) aggregate, not a register count.
+    total_kids_born: int | None
     stillborn: int | None
     stillborn_rate: float | None
 

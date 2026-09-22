@@ -4,6 +4,7 @@ import asyncio
 import os
 import subprocess
 import sys
+from contextlib import suppress
 
 import asyncpg
 import pytest
@@ -52,16 +53,14 @@ async def test_online_index_upgrade_rebuilds_same_named_invalid_remnant(
 
     connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
     try:
-        try:
-            # Reference seeding gives this table many rows. The deliberately
-            # impossible unique expression fails after creating its catalog
-            # entry, reproducing PostgreSQL's interrupted-build remnant using
-            # only supported SQL (no system-catalog mutation).
+        # Reference seeding gives this table many rows. The deliberately
+        # impossible unique expression fails after creating its catalog
+        # entry, reproducing PostgreSQL's interrupted-build remnant using
+        # only supported SQL (no system-catalog mutation).
+        with suppress(asyncpg.UniqueViolationError):
             await connection.execute(
                 f'CREATE UNIQUE INDEX CONCURRENTLY "{index_name}" ON bucket_definitions ((1))'
             )
-        except asyncpg.UniqueViolationError:
-            pass
         invalid = await connection.fetchrow(
             """
             SELECT i.indisvalid, i.indisready, i.indislive,

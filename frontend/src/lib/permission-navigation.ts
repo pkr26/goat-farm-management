@@ -7,6 +7,9 @@ export type PermissionCheck = (permission: string) => boolean;
  * dashboard, so `/dashboard` must never be assumed as a universal home. */
 export const PERMISSION_LANDING_ROUTES = [
   { permission: "dashboard.view", href: "/dashboard" },
+  // Field-first accounts (tasks.complete without dashboard.view) land on the
+  // tablet board (ITEM 2, 2026-09-21 playbook).
+  { permission: "tasks.view", href: "/worker" },
   { permission: "animals.view", href: "/animals" },
   { permission: "buckets.view", href: "/buckets" },
   { permission: "breeding.view", href: "/breeding" },
@@ -46,12 +49,18 @@ const APP_ROUTE_PERMISSIONS = [
   { path: "/feeding", permission: "feeding.view" },
   { path: "/purchases", permission: "purchases.view" },
   { path: "/tasks", permission: "tasks.view" },
+  { path: "/worker", permission: "tasks.view" },
+  { path: "/worker/login", permission: "tasks.view" },
   { path: "/finance", permission: "finance.view" },
   { path: "/planner", permission: "simulation.view" },
   { path: "/simulation", permission: "simulation.view" },
   { path: "/ops-simulation", permission: "simulation.view" },
   { path: "/reports", permission: "reports.view" },
   { path: "/team", permission: "team.manage" },
+  // The cross-farm owner console. Route resolution rides dashboard.view (the
+  // page and the API gate on farm OWNERSHIP, not a permission code; a
+  // non-owner landing here gets the page's own no-access state and 403s).
+  { path: "/owner", permission: "dashboard.view" },
 ] as const;
 
 const MANAGE_ROUTE_PERMISSIONS = [

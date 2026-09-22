@@ -22,6 +22,7 @@ from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm, revoke_use
 from ..models import (
     Farm,
     FarmMembership,
+    NotificationRecipient,
     Role,
     Task,
     User,
@@ -37,6 +38,8 @@ from ..ratelimit import auth_limiter
 from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID
 from ..schemas.team import (
     MembershipOut,
+    NotificationPrefsIn,
+    NotificationPrefsOut,
     PasswordResetIn,
     PermissionGroupOut,
     RoleChangeIn,
@@ -45,6 +48,7 @@ from ..schemas.team import (
     RoleUpdateIn,
     TeamOut,
     WorkerCreateIn,
+    WorkerPinResetIn,
     WorkerStatusIn,
 )
 from ..security import PasswordWorkCapacityError, hash_password_async, password_policy_error
@@ -177,6 +181,21 @@ class PreparedPasswordReset:
     farm_id: int
 
 
+@dataclass(frozen=True)
+class PreparedPinReset:
+    """Post-Argon snapshot for the owner PIN rotation (mirrors the password
+    reset preparation: everything expensive happens before any lock)."""
+
+    membership_id: int
+    pin_hash: str
+    # Raw PIN only so execute_idempotent's SENSITIVE-operation HMAC can
+    # fingerprint the request; nothing raw is persisted (services.idempotency).
+    raw_pin: str
+    actor_id: int
+    actor_token_version: int
+    farm_id: int
+
+
 def _team_password_work_throttled(actor_id: int) -> bool:
     settings = get_settings()
     return settings.auth_rate_limit_enabled and auth_limiter.is_blocked(
@@ -195,6 +214,16 @@ def _team_password_rate_error(actor_id: int) -> HTTPException:
         detail=TEAM_PASSWORD_WORK_LIMIT_REASON,
         headers={"Retry-After": str(get_settings().auth_rate_limit_window_seconds)},
     )
+
+
+def _validate_worker_pin(pin: str) -> None:
+    """Deployment-configured minimum length; digits/shape are schema-level."""
+    minimum = get_settings().worker_pin_min_length
+    if len(pin) < minimum:
+        raise HTTPException(
+            status_code=400,
+            detail=f"A worker PIN must be at least {minimum} digits on this deployment",
+        )
 
 
 async def _hash_team_password(password: str, *, actor_id: int) -> str:
@@ -345,8 +374,39 @@ async def _prepare_password_reset(
     )
 
 
+async def _prepare_pin_reset(
+    payload: WorkerPinResetIn,
+    membership_id: int,
+    db: DbSession,
+    user: CurrentUser,
+    farm: CurrentFarm,
+    perms: TEAM_PERM,
+) -> PreparedPinReset:
+    """Authorize the owner and hash the PIN without holding a connection."""
+    if user.id != farm.owner_id:
+        raise HTTPException(status_code=403, detail=RESET_PASSWORD_OWNER_ONLY_REASON)
+    _validate_worker_pin(payload.pin)
+    # Tenant ownership and existence only — a PIN may be set on any live
+    # membership (unlike a password reset, which additionally requires this
+    # farm to have provisioned the account).
+    await _get_membership(db, farm, membership_id)
+    actor_id = user.id
+    actor_token_version = user.token_version
+    farm_id = farm.id
+    await db.rollback()
+    return PreparedPinReset(
+        membership_id=membership_id,
+        pin_hash=await _hash_team_password(payload.pin, actor_id=actor_id),
+        raw_pin=payload.pin,
+        actor_id=actor_id,
+        actor_token_version=actor_token_version,
+        farm_id=farm_id,
+    )
+
+
 PreparedWorkerCreateDep = Annotated[PreparedWorkerCreate, Depends(_prepare_worker_create)]
 PreparedPasswordResetDep = Annotated[PreparedPasswordReset, Depends(_prepare_password_reset)]
+PreparedPinResetDep = Annotated[PreparedPinReset, Depends(_prepare_pin_reset)]
 
 
 async def _reauthorize_prepared_owner(
@@ -447,6 +507,7 @@ def _membership_out(
         is_active=membership.is_active,
         can_reset_password=can_reset_password,
         reset_password_block_reason=reset_password_block_reason,
+        pin_set=membership.pin_hash is not None,
     )
 
 
@@ -884,6 +945,8 @@ async def _create_worker_after_idempotency_gate(
             error = password_policy_error(password)
             if error:
                 raise HTTPException(status_code=400, detail=error)
+            if payload.pin is not None:
+                _validate_worker_pin(payload.pin)
             await _preflight_worker_create(db, farm, payload)
     finally:
         # Releases the User FOR SHARE pin and every connection before the
@@ -896,6 +959,15 @@ async def _create_worker_after_idempotency_gate(
     password_hash = await _hash_team_password(
         payload.password or "",
         actor_id=prepared.actor_id,
+    )
+    # The PIN rides the same per-owner Argon admission as the password; a
+    # PIN-provisioned worker skips the must-change-password fence because the
+    # tablet has no password-rotation surface (deps.py would otherwise lock
+    # the account out of every domain route).
+    pin_hash = (
+        await _hash_team_password(payload.pin, actor_id=prepared.actor_id)
+        if payload.pin is not None
+        else None
     )
     # Revocation, ownership transfer, role deletion, and capacity are all
     # rechecked after off-transaction preparation before mutation.
@@ -939,8 +1011,9 @@ async def _create_worker_after_idempotency_gate(
             name=(payload.name or "").strip() or None,
             password_hash=password_hash,
             # Owner-provisioned credential: force the holder's first-change
-            # rotation before any domain mutation.
-            must_change_password=True,
+            # rotation before any domain mutation — EXCEPT PIN-provisioned
+            # tablet workers (see the pin_hash comment above).
+            must_change_password=pin_hash is None,
         )
         db.add(worker)
         try:
@@ -954,6 +1027,8 @@ async def _create_worker_after_idempotency_gate(
             role_id=role.id,
             is_active=True,
             account_provisioned_by_farm=True,
+            pin_hash=pin_hash,
+            pin_updated_at=utcnow() if pin_hash is not None else None,
         )
         db.add(membership)
         try:
@@ -984,13 +1059,14 @@ async def _create_worker_after_idempotency_gate(
             is_active=membership.is_active,
             can_reset_password=True,
             reset_password_block_reason=None,
+            pin_set=pin_hash is not None,
         )
 
     # Only a keyed HMAC-SHA-256 request fingerprint is persisted; neither the
     # raw password nor its Argon hash enters the idempotency record/response.
     # PostgreSQL still arbitrates a cross-process race after preparation.
     await _lock_farm_provisioning(db, farm)
-    created = await execute_idempotent(
+    return await execute_idempotent(
         db,
         http_response=response,
         key=idempotency_key,
@@ -1003,7 +1079,6 @@ async def _create_worker_after_idempotency_gate(
         response_type=MembershipOut,
         mutate=mutate,
     )
-    return created
 
 
 @router.post("/workers/{membership_id}/role")
@@ -1182,6 +1257,163 @@ async def reset_password(
         },
     )
     return _membership_out(membership, reset_policy, user, farm)
+
+
+@router.post("/workers/{membership_id}/reset-pin", status_code=200)
+async def reset_pin(
+    prepared: PreparedPinResetDep,
+    membership_id: int,
+    response: Response,
+    db: DbSession,
+    idempotency_key: IdempotencyKey = None,
+) -> MembershipOut:
+    """Owner-only set/rotation of one membership's tablet PIN.
+
+    Rotating the PIN is an account-security change: every existing session is
+    revoked (a borrowed tablet signed in under the old PIN stops working
+    immediately), mirroring the password-reset endpoint's semantics.
+    """
+    if membership_id != prepared.membership_id:
+        raise HTTPException(status_code=400, detail="Path and body disagree about the worker.")
+
+    async def mutate() -> MembershipOut:
+        user, farm = await _reauthorize_prepared_owner(
+            db,
+            actor_id=prepared.actor_id,
+            actor_token_version=prepared.actor_token_version,
+            farm_id=prepared.farm_id,
+        )
+        membership = await _locked_membership(db, farm, user, prepared.membership_id)
+        locked_user = (
+            await db.execute(
+                select(User)
+                .where(User.id == membership.user_id, User.deleted_at.is_(None))
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if locked_user is None:
+            raise HTTPException(status_code=400, detail="Worker account no longer exists")
+        membership.pin_hash = prepared.pin_hash
+        membership.pin_updated_at = utcnow()
+        locked_user.token_version += 1
+        await revoke_user_sessions(db, membership.user_id)
+        await db.flush()
+        _audit_event(
+            "team.worker.pin_reset",
+            farm_id=farm.id,
+            actor_id=user.id,
+            summary="rotated worker tablet PIN and revoked sessions",
+            targets={
+                "membership_id": membership.id,
+                "user_id": membership.user_id,
+            },
+        )
+        return _membership_out(
+            membership,
+            await _reset_password_policy_for_membership(db, membership),
+            locked_user,
+            farm,
+        )
+
+    # Same keyed-HMAC fingerprint contract as the password-bearing create
+    # (the raw PIN never enters the idempotency record or its response).
+    return await execute_idempotent(
+        db,
+        http_response=response,
+        key=idempotency_key,
+        farm_id=prepared.farm_id,
+        actor_id=prepared.actor_id,
+        operation="team.workers.reset-pin",
+        payload=WorkerPinResetIn(pin=prepared.raw_pin),
+        path_identity={"membership_id": prepared.membership_id},
+        success_status=200,
+        response_type=MembershipOut,
+        mutate=mutate,
+    )
+
+
+@router.get("/workers/{membership_id}/notifications")
+async def get_notification_prefs(
+    membership_id: int,
+    db: DbSession,
+    user: CurrentUser,
+    farm: CurrentFarm,
+    perms: TEAM_PERM,
+) -> NotificationPrefsOut | None:
+    """The membership's notification preferences, or null when unset."""
+    membership = await _get_membership(db, farm, membership_id)
+    recipient = (
+        await db.execute(
+            select(NotificationRecipient).where(
+                NotificationRecipient.farm_id == farm.id,
+                NotificationRecipient.membership_id == membership.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if recipient is None:
+        return None
+    return _prefs_out(recipient)
+
+
+@router.put("/workers/{membership_id}/notifications")
+async def set_notification_prefs(
+    membership_id: int,
+    payload: NotificationPrefsIn,
+    db: DbSession,
+    user: CurrentUser,
+    farm: CurrentFarm,
+    perms: TEAM_PERM,
+) -> NotificationPrefsOut:
+    """Owner-only create/update of one membership's notification channel.
+
+    Notifications reach a farm's people through numbers the OWNER controls;
+    a delegated team manager may view but not edit them.
+    """
+    if user.id != farm.owner_id:
+        raise HTTPException(status_code=403, detail=RESET_PASSWORD_OWNER_ONLY_REASON)
+    membership = await _get_membership(db, farm, membership_id)
+    recipient = (
+        await db.execute(
+            select(NotificationRecipient).where(
+                NotificationRecipient.farm_id == farm.id,
+                NotificationRecipient.membership_id == membership.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if recipient is None:
+        recipient = NotificationRecipient(
+            farm_id=farm.id, membership_id=membership.id, phone=payload.phone
+        )
+        db.add(recipient)
+    recipient.phone = payload.phone
+    recipient.daily_digest = payload.daily_digest
+    recipient.screening_flags = payload.screening_flags
+    recipient.kidding_watch = payload.kidding_watch
+    recipient.overdue_critical = payload.overdue_critical
+    recipient.feed_reorder = payload.feed_reorder
+    await db.commit()
+    _audit_event(
+        "team.worker.notification_prefs",
+        farm_id=farm.id,
+        actor_id=user.id,
+        summary="updated worker notification preferences",
+        targets={"membership_id": membership.id, "phone": payload.phone},
+    )
+    return _prefs_out(recipient)
+
+
+def _prefs_out(recipient: NotificationRecipient) -> NotificationPrefsOut:
+    return NotificationPrefsOut(
+        membership_id=recipient.membership_id,
+        phone=recipient.phone,
+        daily_digest=recipient.daily_digest,
+        screening_flags=recipient.screening_flags,
+        kidding_watch=recipient.kidding_watch,
+        overdue_critical=recipient.overdue_critical,
+        feed_reorder=recipient.feed_reorder,
+        verified=recipient.verified,
+    )
 
 
 # ---------------------------------------------------------------------------

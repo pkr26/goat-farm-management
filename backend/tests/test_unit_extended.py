@@ -221,7 +221,7 @@ def test_permission_codes_unique_and_nonempty() -> None:
 
 
 def test_all_permissions_matches_catalog() -> None:
-    assert ALL_PERMISSIONS == {code for code, _ in PERMISSIONS}
+    assert {code for code, _ in PERMISSIONS} == ALL_PERMISSIONS
 
 
 def test_permission_groups_cover_catalog_exactly() -> None:
@@ -1050,7 +1050,9 @@ class FakeSession:
 def test_move_animal_records_move_and_updates_bucket() -> None:
     db = FakeSession()
     animal = make_animal_object(current_bucket=Bucket.FOUNDATION.value)
-    move_animal(db, animal, Bucket.BREEDING.value, "Breeding-ready", created_by_id=9)
+    move_animal(
+        db, animal, Bucket.BREEDING.value, "Breeding-ready", created_by_id=9, reference_date=today()
+    )
     assert animal.current_bucket == Bucket.BREEDING.value
     assert len(db.added) == 1
     move = db.added[0]
@@ -1065,7 +1067,7 @@ def test_move_animal_records_move_and_updates_bucket() -> None:
 def test_move_animal_never_moves_non_active_animals(status: str) -> None:
     db = FakeSession()
     animal = make_animal_object(status=status)
-    move_animal(db, animal, Bucket.BREEDING.value, "forged post")
+    move_animal(db, animal, Bucket.BREEDING.value, "forged post", reference_date=today())
     assert animal.current_bucket == Bucket.FOUNDATION.value  # unchanged
     assert db.added == []
 
@@ -1073,14 +1075,14 @@ def test_move_animal_never_moves_non_active_animals(status: str) -> None:
 def test_move_animal_same_bucket_is_noop() -> None:
     db = FakeSession()
     animal = make_animal_object(current_bucket=Bucket.RESTING.value)
-    move_animal(db, animal, Bucket.RESTING.value, "redundant")
+    move_animal(db, animal, Bucket.RESTING.value, "redundant", reference_date=today())
     assert db.added == []
 
 
 def test_move_animal_blank_reason_stored_as_none() -> None:
     db = FakeSession()
     animal = make_animal_object()
-    move_animal(db, animal, Bucket.BREEDING.value, "")
+    move_animal(db, animal, Bucket.BREEDING.value, "", reference_date=today())
     move = db.added[0]
     assert isinstance(move, BucketMove)
     assert move.reason is None

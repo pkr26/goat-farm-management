@@ -425,9 +425,7 @@ class Animal(Base):
         weight = self.latest_weight_kg_on(reference_date)
         if weight is None or weight < profile.min_breeding_weight_kg:
             return False
-        if self.is_currently_pregnant:
-            return False
-        return True
+        return not self.is_currently_pregnant
 
     @property
     def is_breeding_eligible(self) -> bool:
@@ -514,6 +512,11 @@ class WeightRecord(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # ITEM 9 (2026-09-21 playbook): closes the backdating blind spot — same-day
+    # entry and a backdated record are now distinguishable.
+    created_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
     animal_id: Mapped[int] = mapped_column(ForeignKey("animals.id"), index=True)
     date: Mapped[date] = mapped_column(default=today)

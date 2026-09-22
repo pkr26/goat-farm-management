@@ -33,10 +33,23 @@ export default defineConfig({
       include: ["src/**/*.{ts,tsx}"],
       exclude: ["src/**/*.test.{ts,tsx}", "src/api/generated/**", "src/test/**"],
       thresholds: {
-        statements: 85,
-        branches: 80,
-        functions: 85,
-        lines: 85,
+        // Global floors sit a few points under the measured totals on main
+        // (2026-09-21: 94.2/93.0/95.2/95.9) so ordinary fluctuation never
+        // fails CI while a real regression still trips them (B7 sanity-check,
+        // same honesty fix as the backend fail_under).
+        statements: 90,
+        branches: 87,
+        functions: 90,
+        lines: 90,
+        // Per-glob floors (B8, 2026-09-21 audit): the global averages
+        // previously hid an entire page at 0% — the screening review queue.
+        // Each surface now carries its own floor, well under its measured
+        // level (app/(app) ~97/96, components ~82/83, lib ~97/97) but far
+        // above zero, so no page can ever again ship untested.
+        "src/app/(app)/**": { statements: 80, branches: 60, functions: 80, lines: 80 },
+        "src/app/**": { statements: 55, branches: 50, functions: 55, lines: 55 },
+        "src/components/**": { statements: 75, branches: 70, functions: 80, lines: 75 },
+        "src/lib/**": { statements: 85, branches: 85, functions: 85, lines: 85 },
       },
     },
   },

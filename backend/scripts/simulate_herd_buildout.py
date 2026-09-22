@@ -34,16 +34,21 @@ import csv
 import sys
 from datetime import date
 from pathlib import Path
+from typing import cast
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "backend"))
 
 from app.simulation.assumptions import (  # noqa: E402
+    FinanceAssumptions,
+    HerdAssumptions,
     HerdEventAssumptions,
+    MetaAssumptions,
     SimulationAssumptions,
 )
 from app.simulation.daily_ops import (  # noqa: E402
     AnimalStartSpec,
+    BucketCode,
     DailyOpsInput,
     DailyOpsParams,
     DailyOpsResult,
@@ -85,8 +90,7 @@ def add_months(day: date, months: int) -> date:
     if month == 12:
         last = date(year, 12, 31)
     else:
-        last = date(year, month + 1, 1).toordinal()
-        last = date.fromordinal(last - 1)
+        last = date.fromordinal(date(year, month + 1, 1).toordinal() - 1)
     return date(year, month, min(day.day, last.day))
 
 
@@ -119,7 +123,7 @@ def inr(value: float) -> str:
     digits = str(abs(rounded))
     if len(digits) > 3:
         head, tail = digits[:-3], digits[-3:]
-        groups = []
+        groups: list[str] = []
         while head:
             groups.insert(0, head[-2:])
             head = head[:-2]
@@ -137,12 +141,16 @@ def inr_short(value: float) -> str:
     return inr(value)
 
 
-def head(value: float) -> str:
-    return f"{value:,.0f}"
+def _num(value: object) -> float:
+    return float(cast("float | int | str", value))
 
 
-def kg(value: float) -> str:
-    return f"{value:,.0f}"
+def head(value: object) -> str:
+    return f"{_num(value):,.0f}"
+
+
+def kg(value: object) -> str:
+    return f"{_num(value):,.0f}"
 
 
 # --- assumptions -----------------------------------------------------------------
@@ -184,14 +192,14 @@ def build_monthly_assumptions(*, nlm_subsidy: bool) -> SimulationAssumptions:
             )
         )
     return SimulationAssumptions(
-        meta={"horizon_months": HORIZON_MONTHS, "start_year_month": START_YEAR_MONTH},
-        herd={
-            "does": 0,
-            "bucks": 0,
-            "max_breeding_does": 0,
-            "female_retention_fraction": 1.0,
-        },
-        finance={"nlm_subsidy": nlm_subsidy},
+        meta=MetaAssumptions(horizon_months=HORIZON_MONTHS, start_year_month=START_YEAR_MONTH),
+        herd=HerdAssumptions(
+            does=0,
+            bucks=0,
+            max_breeding_does=0,
+            female_retention_fraction=1.0,
+        ),
+        finance=FinanceAssumptions(nlm_subsidy=nlm_subsidy),
         events=events,
     )
 
@@ -277,7 +285,10 @@ def snapshot_daily_input() -> DailyOpsInput:
     animals: list[AnimalStartSpec] = []
     for batch in range(1, 10):
         age = DOE_AGE_AT_PURCHASE_MONTHS + months_between(batch_arrival_date(batch), SNAPSHOT_DATE)
-        bucket = "BREEDING" if age >= 12 else "FOUNDATION"
+        if age >= 12:
+            bucket: BucketCode = "BREEDING"
+        else:
+            bucket = "FOUNDATION"
         animals.extend(
             AnimalStartSpec(tag=f"B{batch}-G{i:02d}", sex="F", bucket=bucket, age_months=age)
             for i in range(1, DOES_PER_BATCH + 1)
@@ -452,10 +463,10 @@ def _fmt_cell(key: str, value: object) -> str:
     if key == "date":
         return str(value)
     if key in ("sales_revenue", "net_cash_flow", "cumulative_cash_flow"):
-        return inr(float(value))
+        return inr(_num(value))
     if key in ("feed_kg", "water_litres"):
-        return kg(float(value))
-    return head(float(value))
+        return kg(_num(value))
+    return head(_num(value))
 
 
 def write_monthly_files(result: SimulationResult, out_dir: Path) -> None:
@@ -501,12 +512,12 @@ def quarterly_rows(result: SimulationResult) -> list[dict[str, object]]:
                 "bucks": end["bucks"],
                 "kids": end["kids"],
                 "total_herd": end["total_herd"],
-                "births": sum(float(r["births"]) for r in chunk),
-                "sales_head": sum(float(r["sales_head"]) for r in chunk),
-                "sales_revenue": sum(float(r["sales_revenue"]) for r in chunk),
-                "feed_kg": sum(float(r["feed_kg"]) for r in chunk),
-                "water_kl": sum(float(r["water_litres"]) for r in chunk) / 1000.0,
-                "net_cash_flow": sum(float(r["net_cash_flow"]) for r in chunk),
+                "births": sum(_num(r["births"]) for r in chunk),
+                "sales_head": sum(_num(r["sales_head"]) for r in chunk),
+                "sales_revenue": sum(_num(r["sales_revenue"]) for r in chunk),
+                "feed_kg": sum(_num(r["feed_kg"]) for r in chunk),
+                "water_kl": sum(_num(r["water_litres"]) for r in chunk) / 1000.0,
+                "net_cash_flow": sum(_num(r["net_cash_flow"]) for r in chunk),
                 "cumulative_cash_flow": end["cumulative_cash_flow"],
             }
         )
@@ -657,12 +668,12 @@ def build_readme(
     rows = monthly_row_dicts(base)
 
     # --- monthly-engine facts ---
-    first_birth_month = next(r for r in rows if float(r["births"]) > 0)
+    first_birth_month = next(r for r in rows if _num(r["births"]) > 0)
     month19 = rows[18]
-    peak = max(rows, key=lambda r: float(r["total_herd"]))
-    total_kids_born = sum(float(r["births"]) for r in rows)
-    total_sales_head = sum(float(r["sales_head"]) for r in rows)
-    total_sales_revenue = sum(float(r["sales_revenue"]) for r in rows)
+    peak = max(rows, key=lambda r: _num(r["total_herd"]))
+    total_kids_born = sum(_num(r["births"]) for r in rows)
+    total_sales_head = sum(_num(r["sales_head"]) for r in rows)
+    total_sales_revenue = sum(_num(r["sales_revenue"]) for r in rows)
     grower_spend = sum(
         fill.revenue
         for row in base.months
@@ -784,9 +795,9 @@ def build_readme(
         add(
             f"| {q['quarter']} | {q['months']} | {head(q['does'])} | {head(q['f_growers'])} | "
             f"{head(q['bucks'])} | {head(q['kids'])} | {head(q['total_herd'])} | "
-            f"{head(q['births'])} | {head(q['sales_head'])} | {inr(q['sales_revenue'])} | "
-            f"{kg(q['feed_kg'])} | {q['water_kl']:,.0f} | {inr(q['net_cash_flow'])} | "
-            f"{inr(q['cumulative_cash_flow'])} |"
+            f"{head(q['births'])} | {head(q['sales_head'])} | {inr(_num(q['sales_revenue']))} | "
+            f"{kg(q['feed_kg'])} | {_num(q['water_kl']):,.0f} | {inr(_num(q['net_cash_flow']))} | "
+            f"{inr(_num(q['cumulative_cash_flow']))} |"
         )
     add("")
     add("Key waypoints:")
@@ -1305,8 +1316,8 @@ def _readme_observations_section(
     b1: DailyOpsResult,
     rows: list[dict[str, object]],
 ) -> list[str]:
-    first_doe_month = next(r for r in rows if float(r["does"]) > 0)
-    first_birth_month = next(r for r in rows if float(r["births"]) > 0)
+    first_doe_month = next(r for r in rows if _num(r["does"]) > 0)
+    first_birth_month = next(r for r in rows if _num(r["births"]) > 0)
     scheduled_buck_spend = sum(
         fill.revenue
         for row in base.months
@@ -1422,7 +1433,7 @@ def _readme_checklist_section(
         None,
     )
     service_ages = first_service_ages(batch_daily_input(1), b1)
-    first_sale_month = next(r for r in rows if float(r["sales_head"]) > 0)
+    first_sale_month = next(r for r in rows if _num(r["sales_head"]) > 0)
     checks: list[str] = [
         f"Batch 1 arrives 2026-10-01: 50 female growers + 3 bucks appear in QUARANTINE; "
         f"arrival-inspection and rest duties are dated {protocol_dates[1]}.",

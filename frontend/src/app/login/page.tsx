@@ -47,11 +47,13 @@ export function makeLoginSchema(t: TFn) {
       .min(1, t("auth.passwordRequired"))
       .max(128, t("auth.passwordTooLong")),
     // Present only while a TOTP challenge is outstanding (2026-09-16):
-    // the server issued an mfa_token and expects the 6-digit code.
+    // the server issued an mfa_token and expects the 6-digit code — or one
+    // of the account's single-use recovery codes (ITEM 7, 2026-09-21
+    // playbook: XXXXX-XXXXX, case-insensitive).
     totp: z
       .string()
       .trim()
-      .regex(/^[0-9]{6}$/, t("login.totpCodeInvalid"))
+      .regex(/^([0-9]{6}|[A-Za-z0-9]{5}-[A-Za-z0-9]{5})$/, t("login.totpCodeInvalid"))
       .optional(),
   });
 }
@@ -261,14 +263,14 @@ function LoginPageContent() {
               <Label htmlFor="totp">{t("login.totpCodeLabel")}</Label>
               <Input
                 id="totp"
-                inputMode="numeric"
                 autoComplete="one-time-code"
-                pattern="[0-9]*"
-                maxLength={6}
+                maxLength={11}
+                spellCheck={false}
                 aria-invalid={!!errors.totp}
                 aria-describedby={errors.totp ? "totp-error" : undefined}
                 {...register("totp")}
               />
+              <p className="text-xs text-muted-foreground">{t("login.totpRecoveryHint")}</p>
               {errors.totp && (
                 <p id="totp-error" role="alert" className="text-sm text-destructive">
                   {errors.totp.message}

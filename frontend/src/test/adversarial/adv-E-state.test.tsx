@@ -90,7 +90,7 @@ describe("ADV E1: a poisoned goatfarm.farmId never selects a foreign tenant", ()
     window.localStorage.setItem("goatfarm.farmId", "42");
     renderWithProviders(<DashboardPage />);
     await waitFor(() =>
-      expect(window.localStorage.getItem("goatfarm.farmId")).toBeNull(),
+      expect(window.localStorage.getItem("goatfarm.farmId")).toBe("revoked:42"),
     );
     await settle(50);
     expect(e1FarmHeader).toBe("");

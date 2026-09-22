@@ -11,6 +11,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 
 import type { FarmCreateIn } from "@/api/generated/models";
+import { LanguageToggle } from "@/components/language-toggle";
 import { Logo } from "@/components/logo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiFetch, ApiError, authSessionEpochValue } from "@/lib/api-client";
+import { useT } from "@/lib/i18n";
 import { useAuth, type FarmEntry } from "@/lib/auth-context";
 import {
   firstPermittedPathFromList,
@@ -64,6 +66,7 @@ function FarmSelectPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, farms, farmId, loading, selectFarm, refreshFarms, signOut } = useAuth();
+  const t = useT();
   const queryClient = useQueryClient();
   const [serverError, setServerError] = useState<string | null>(null);
   const [selectingFarmId, setSelectingFarmId] = useState<number | null>(null);
@@ -185,6 +188,11 @@ function FarmSelectPageContent() {
     <main className="flex min-h-screen items-center justify-center bg-muted/40 p-4 sm:p-6">
       <div className="w-full max-w-2xl space-y-6">
         <div className="relative space-y-3 text-center">
+          {/* ITEM 5: the picker is the first screen a Telugu-first operator
+              customizes — the toggle must exist here, not only in the app shell. */}
+          <div className="flex justify-center">
+            <LanguageToggle />
+          </div>
           {/* This screen sits outside the app shell, which owns the only other
               sign-out control — a just-registered user must still be able to
               leave (e.g. they registered the wrong account). */}
@@ -197,20 +205,22 @@ function FarmSelectPageContent() {
             disabled={loading}
           >
             <LogOut aria-hidden="true" />
-            Sign out
+            {t("farmSelect.signOut")}
           </Button>
           <Logo className="justify-center" />
           <div className="space-y-1">
-            <h1 className="font-heading text-2xl font-semibold tracking-tight">Your farms</h1>
+            <h1 className="font-heading text-2xl font-semibold tracking-tight">
+              {t("farmSelect.title")}
+            </h1>
             <p className="text-sm text-muted-foreground">
-              Choose a farm to continue, or create a new one below.
+              {t("farmSelect.subtitle")}
             </p>
           </div>
         </div>
 
         {farms.length === 0 && (
           <p className="text-center text-sm text-muted-foreground">
-            No farms yet — create your first one below.
+            {t("farmSelect.empty")}
           </p>
         )}
         {farms.length > 0 && (
@@ -228,15 +238,17 @@ function FarmSelectPageContent() {
                     <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-success-tint text-success-tint-foreground">
                       <PawPrint className="size-[18px]" aria-hidden="true" />
                     </span>
-                    {farm.id === farmId && <Badge variant="success">current</Badge>}
+                    {farm.id === farmId && <Badge variant="success">{t("farmSelect.current")}</Badge>}
                   </div>
                   <span className="mt-3 block truncate font-medium">
-                    {selectingFarmId === farm.id ? "Opening…" : farm.name}
+                    {selectingFarmId === farm.id ? t("farmSelect.opening") : farm.name}
                   </span>
                   <p className="mt-1 text-sm text-muted-foreground">
                     {farm.location ?? "—"} · {farm.role ?? "Owner"}
                   </p>
-                  <p className="mt-1 text-xs text-muted-foreground/80">
+                  {/* Full-strength muted token: the /80 tint sat under 4.5:1
+                  (sub-AA microtext, 2026-09-21 audit). */}
+              <p className="mt-1 text-xs text-muted-foreground">
                     <span>
                       {farmTypeLabel}
                     </span>
@@ -251,7 +263,7 @@ function FarmSelectPageContent() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Create a farm</CardTitle>
+            <CardTitle>{t("farmSelect.createTitle")}</CardTitle>
             <CardDescription>Owners can manage multiple farms.</CardDescription>
           </CardHeader>
           <CardContent>
@@ -264,7 +276,7 @@ function FarmSelectPageContent() {
                 className="min-w-0 space-y-4"
               >
               <div className="space-y-1.5">
-                <Label htmlFor="name">Farm name</Label>
+                <Label htmlFor="name">{t("farmSelect.nameLabel")}</Label>
                 <Input
                   id="name"
                   maxLength={120}
@@ -300,7 +312,7 @@ function FarmSelectPageContent() {
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="timezone">Farm timezone</Label>
+                <Label htmlFor="timezone">{t("farmSelect.timezoneLabel")}</Label>
                 <Input
                   id="timezone"
                   list="common-timezones"
@@ -336,7 +348,7 @@ function FarmSelectPageContent() {
                 </p>
               )}
               <Button type="submit" className="w-full sm:w-auto" disabled={isSubmitting || farmTransition.pending}>
-                {isSubmitting ? "Creating…" : "Create farm"}
+                {isSubmitting ? t("farmSelect.creating") : t("farmSelect.createButton")}
               </Button>
               </fieldset>
             </form>

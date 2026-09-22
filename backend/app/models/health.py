@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -17,6 +18,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -31,7 +33,6 @@ if TYPE_CHECKING:
 class HealthEvent(Base):
     __tablename__ = "health_events"
     __table_args__ = (
-        Index("ix_health_events_date", "date"),
         UniqueConstraint("farm_id", "id", name="uq_health_events_farm_id_id"),
         ForeignKeyConstraint(
             ["farm_id", "animal_id"],
@@ -136,6 +137,11 @@ class HealthEvent(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # ITEM 9 (2026-09-21 playbook): closes the backdating blind spot — same-day
+    # entry and a backdated event are now distinguishable.
+    created_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
     animal_id: Mapped[int | None] = mapped_column(
         ForeignKey("animals.id"), index=True

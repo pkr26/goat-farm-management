@@ -28,12 +28,14 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple, cast
 
-from sqlalchemy import exists, func, or_, select, update
+from sqlalchemy import exists, func, literal, or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from ...core.config import ScreeningRuntimeSettings
+from ...metrics import record_screening_provider_call
 from ...models import (
     Farm,
     ScreeningContentClaim,
@@ -88,6 +90,46 @@ from .specialists import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# B6 (2026-09-21 audit): tenant-facing error fields (ScreeningImage.error,
+# ScreeningRun.error) carry a fixed reason code, never raw exception text —
+# provider/S3 exceptions name endpoints, headers and HTTP topology, which is
+# operator detail a farm member has no need to see. The raw text stays in the
+# worker logs at each failure site. These strings are the complete set a
+# tenant can ever observe; they must stay free of interpolated values.
+class ScreeningErrorReason:
+    PROVIDER_ERROR = "PROVIDER_ERROR"
+    DOWNLOAD_FAILED = "DOWNLOAD_FAILED"
+    INVALID_IMAGE = "INVALID_IMAGE"
+    INTERNAL_ERROR = "INTERNAL_ERROR"
+
+
+_SCREENING_ERROR_MESSAGES = {
+    ScreeningErrorReason.PROVIDER_ERROR: "screening provider call failed",
+    ScreeningErrorReason.DOWNLOAD_FAILED: "photo storage could not be reached",
+    ScreeningErrorReason.INVALID_IMAGE: "photo bytes could not be processed",
+    ScreeningErrorReason.INTERNAL_ERROR: "unexpected screening failure",
+}
+
+
+def screening_error_reason(exc: BaseException) -> str:
+    if isinstance(exc, ProviderError):
+        return ScreeningErrorReason.PROVIDER_ERROR
+    if isinstance(exc, ScreeningStorageError):
+        return ScreeningErrorReason.DOWNLOAD_FAILED
+    if isinstance(exc, (ImageNormalizationError, CropError, DetectionParseError)):
+        return ScreeningErrorReason.INVALID_IMAGE
+    return ScreeningErrorReason.INTERNAL_ERROR
+
+
+def _reason_text(reason: str) -> str:
+    return f"{_SCREENING_ERROR_MESSAGES[reason]} ({reason})"
+
+
+def _tenant_safe_error(exc: BaseException) -> str:
+    return _reason_text(screening_error_reason(exc))
+
 
 # A crashed worker leaves PROCESSING rows behind; reclaim after this long.
 # The pipeline refreshes the image row's ``updated_at`` after every completed
@@ -339,6 +381,7 @@ async def _claim_retry_rows(
     now: dt.datetime,
     abandoned_after: dt.timedelta,
     stale_after: dt.timedelta,
+    daily_call_budget_per_farm: int = 0,
 ) -> tuple[list[ScreeningImage], int, int]:
     """PENDING uploads, stale PROCESSING claims and aged ERROR rows, oldest first.
 
@@ -377,34 +420,61 @@ async def _claim_retry_rows(
             ScreeningCrop.status == ScreeningImageStatus.ERROR.value,
         )
     )
-    eligible = (ScreeningImage.screening_attempts < MAX_SCREENING_ATTEMPTS) & (
-        (
-            (ScreeningImage.status == ScreeningImageStatus.PENDING.value)
-            & or_(
-                ScreeningImage.upload_token.is_(None),
-                ScreeningImage.created_at >= pending_horizon,
+    # ITEM 6 (2026-09-21 playbook): the per-farm daily provider-call budget.
+    # Spend is measured as the farm's ScreeningRun rows since UTC midnight —
+    # every provider call records exactly one run — so a farm whose budget is
+    # spent simply has no claimable rows this cycle; its photos stay PENDING
+    # and drain tomorrow. Counted per call: a multi-crop cascade costs its
+    # real size, and errored calls count too (the provider was paid).
+    budget = daily_call_budget_per_farm
+    budget_ok: ColumnElement[bool]
+    if budget > 0:
+        # Naive UTC midnight: ScreeningRun.created_at is a naive UTC
+        # TIMESTAMP, and utcnow() here is naive too.
+        utc_day_start = dt.datetime.combine(now.date(), dt.time.min)
+        over_budget_farms = (
+            select(ScreeningRun.farm_id)
+            .where(ScreeningRun.created_at >= utc_day_start)
+            .group_by(ScreeningRun.farm_id)
+            .having(func.count() >= budget)
+            .subquery()
+        )
+        budget_ok = ~ScreeningImage.farm_id.in_(select(over_budget_farms.c.farm_id))
+    else:
+        budget_ok = ~literal(False)
+
+    eligible = (
+        (ScreeningImage.screening_attempts < MAX_SCREENING_ATTEMPTS)
+        & budget_ok
+        & (
+            (
+                (ScreeningImage.status == ScreeningImageStatus.PENDING.value)
+                & or_(
+                    ScreeningImage.upload_token.is_(None),
+                    ScreeningImage.created_at >= pending_horizon,
+                )
+                & or_(
+                    ScreeningImage.next_attempt_at.is_(None),
+                    ScreeningImage.next_attempt_at <= now,
+                )
             )
-            & or_(
-                ScreeningImage.next_attempt_at.is_(None),
-                ScreeningImage.next_attempt_at <= now,
+            | (
+                (ScreeningImage.status == ScreeningImageStatus.PROCESSING.value)
+                & (ScreeningImage.updated_at < stale_horizon)
             )
-        )
-        | (
-            (ScreeningImage.status == ScreeningImageStatus.PROCESSING.value)
-            & (ScreeningImage.updated_at < stale_horizon)
-        )
-        | (
-            (ScreeningImage.status == ScreeningImageStatus.ERROR.value)
-            & (ScreeningImage.updated_at < retry_horizon)
-        )
-        # A flagged photo can contain a successfully flagged goat *and* an
-        # errored one.  Keep its visible FLAGGED status, but make it
-        # retryable until every crop is terminal; otherwise the error crop
-        # is silently stranded forever.
-        | (
-            (ScreeningImage.status == ScreeningImageStatus.FLAGGED.value)
-            & (ScreeningImage.updated_at < retry_horizon)
-            & partial_crop_error
+            | (
+                (ScreeningImage.status == ScreeningImageStatus.ERROR.value)
+                & (ScreeningImage.updated_at < retry_horizon)
+            )
+            # A flagged photo can contain a successfully flagged goat *and* an
+            # errored one.  Keep its visible FLAGGED status, but make it
+            # retryable until every crop is terminal; otherwise the error crop
+            # is silently stranded forever.
+            | (
+                (ScreeningImage.status == ScreeningImageStatus.FLAGGED.value)
+                & (ScreeningImage.updated_at < retry_horizon)
+                & partial_crop_error
+            )
         )
     )
     # Global oldest-first claim order let one busy farm fill every worker
@@ -496,7 +566,12 @@ async def run_screening_cycle(
     # manufacture tenant-owned screening rows merely by choosing a farm id in
     # a key.  Existing registered rows remain the sole intake authority.
     claimed, error_retries, flagged_retries = await _claim_retry_rows(
-        db, budget, utcnow(), abandoned_after, stale_after
+        db,
+        budget,
+        utcnow(),
+        abandoned_after,
+        stale_after,
+        settings.screening_daily_call_budget_per_farm,
     )
     summary.retried_errors += error_retries
     summary.retried_flagged += flagged_retries
@@ -566,7 +641,9 @@ async def run_screening_cycle(
             await db.rollback()
             identities_expired = True
             image.status = ScreeningImageStatus.ERROR.value
-            image.error = f"unexpected pipeline failure: {exc}"
+            # Tenant-safe code only; the logger.exception above keeps the raw
+            # traceback for the operator.
+            image.error = _tenant_safe_error(exc)
             summary.errors += 1
         if image.status == ScreeningImageStatus.ERROR.value and attempts >= MAX_SCREENING_ATTEMPTS:
             # Central terminal marker: every ERROR path funnels through this
@@ -607,6 +684,9 @@ def _record_run(
     error: str | None = None,
     crop_id: int | None = None,
 ) -> ScreeningRun:
+    # One provider call = one run row, whatever its outcome: the spend
+    # metrics and the daily per-farm budget both count it here (ITEM 6).
+    record_screening_provider_call(provider, run_status == ScreeningRunStatus.OK.value)
     return ScreeningRun(
         farm_id=image.farm_id,
         image_id=image.id,
@@ -707,7 +787,7 @@ async def _detect_with_fallback(
             model=primary.model,
             prompt_version=DETECT_PROMPT_VERSION,
             run_status=ScreeningRunStatus.ERROR.value,
-            error=str(last_error),
+            error=_tenant_safe_error(last_error),
         )
     )
     return None
@@ -741,10 +821,11 @@ async def _run_cascade(
                 model=primary.model,
                 prompt_version=GATE_PROMPT_VERSION,
                 run_status=ScreeningRunStatus.ERROR.value,
-                error=str(exc),
+                error=_tenant_safe_error(exc),
                 crop_id=crop_id,
             )
         )
+        logger.warning("gate run failed for image %s: %s", image.id, exc)
         return ScreeningImageStatus.ERROR.value
     # The gate chain is the longest single provider segment (every rotation
     # entry at its own timeout); renew the processing lease before the
@@ -808,10 +889,11 @@ async def _run_cascade(
                     model=serving.model,
                     prompt_version=SPECIALIST_PROMPT_VERSIONS[kind],
                     run_status=ScreeningRunStatus.ERROR.value,
-                    error=str(exc),
+                    error=_tenant_safe_error(exc),
                     crop_id=crop_id,
                 )
             )
+            logger.warning("specialist %s failed for image %s: %s", kind.value, image.id, exc)
             summary.notes.append(f"specialist {kind.value} failed for image {image.id}")
             continue
         specialist_run = _record_run(
@@ -893,10 +975,11 @@ async def _run_cascade(
                     model=secondary.model,
                     prompt_version=GATE_PROMPT_VERSION,
                     run_status=ScreeningRunStatus.ERROR.value,
-                    error=str(exc),
+                    error=_tenant_safe_error(exc),
                     crop_id=crop_id,
                 )
             )
+            logger.warning("cross-check failed for image %s: %s", image.id, exc)
 
     return ScreeningImageStatus.FLAGGED.value
 
@@ -1130,7 +1213,8 @@ async def _process_image(
     except ScreeningStorageError as exc:
         # The size probe rides the same failure contract as the download.
         image.status = ScreeningImageStatus.ERROR.value
-        image.error = str(exc)
+        logger.warning("object_info failed for %s: %s", image.s3_key, exc)
+        image.error = _tenant_safe_error(exc)
         summary.errors += 1
         return
     if object_info is None:
@@ -1210,7 +1294,8 @@ async def _process_image(
         return
     except ScreeningStorageError as exc:
         image.status = ScreeningImageStatus.ERROR.value
-        image.error = str(exc)
+        logger.warning("download failed for %s: %s", image.s3_key, exc)
+        image.error = _tenant_safe_error(exc)
         summary.errors += 1
         return
 
@@ -1226,7 +1311,8 @@ async def _process_image(
         # retry would repeatedly send the same parser bomb through the
         # worker, so reject it terminally and require a new upload row.
         image.status = ScreeningImageStatus.SKIPPED.value
-        image.error = f"image rejected during normalization: {exc}"
+        logger.warning("normalization rejected image %s: %s", image.id, exc)
+        image.error = _tenant_safe_error(exc)
         summary.skipped += 1
         return
 
@@ -1291,7 +1377,8 @@ async def _process_image(
         # The gate could still run on the raw bytes, but then the review UI
         # would have no bounded image to show; fail and retry the whole image.
         image.status = ScreeningImageStatus.ERROR.value
-        image.error = str(exc)
+        logger.warning("derivative upload failed for %s: %s", image.s3_key, exc)
+        image.error = _tenant_safe_error(exc)
         summary.errors += 1
         return
 
@@ -1334,7 +1421,7 @@ async def _process_image(
         elif status == ScreeningImageStatus.HEALTHY.value:
             summary.healthy += 1
         else:
-            image.error = "gate stage failed for every provider"
+            image.error = _reason_text(ScreeningErrorReason.PROVIDER_ERROR)
             summary.errors += 1
         return
 
@@ -1373,7 +1460,7 @@ async def _process_image(
         elif status == ScreeningImageStatus.HEALTHY.value:
             summary.healthy += 1
         else:
-            image.error = "gate stage failed for every provider"
+            image.error = _reason_text(ScreeningErrorReason.PROVIDER_ERROR)
             summary.errors += 1
         return
 
@@ -1412,7 +1499,8 @@ async def _process_image(
             )
         except CropError as exc:
             crop.status = ScreeningImageStatus.ERROR.value
-            crop.error = str(exc)
+            logger.warning("crop %s failed for image %s: %s", crop.crop_index, image.id, exc)
+            crop.error = _tenant_safe_error(exc)
             crop_statuses.append(ScreeningImageStatus.ERROR.value)
             continue
         crop_derivative = cropped_derivative_key(
@@ -1422,7 +1510,8 @@ async def _process_image(
             await asyncio.to_thread(storage.upload, crop_derivative, cropped.data, "image/jpeg")
         except ScreeningStorageError as exc:
             crop.status = ScreeningImageStatus.ERROR.value
-            crop.error = str(exc)
+            logger.warning("crop derivative upload failed for image %s: %s", image.id, exc)
+            crop.error = _tenant_safe_error(exc)
             crop_statuses.append(ScreeningImageStatus.ERROR.value)
             continue
         crop.sha256 = cropped.sha256
@@ -1439,7 +1528,7 @@ async def _process_image(
         )
         crop.status = status
         if status == ScreeningImageStatus.ERROR.value:
-            crop.error = "gate stage failed for every provider"
+            crop.error = _reason_text(ScreeningErrorReason.PROVIDER_ERROR)
         crop_statuses.append(status)
         # One completed crop = one lease renewal: a multi-crop photo must
         # never look stale while it is still making per-crop progress.

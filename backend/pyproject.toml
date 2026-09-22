@@ -49,13 +49,58 @@ target-version = "py313"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
-# RUF001/002/003: display strings intentionally keep en/em-dashes and '×' from the v1 UI.
-ignore = ["RUF001", "RUF002", "RUF003"]
+select = [
+    "E",
+    "F",
+    "I",
+    "UP",
+    "B",
+    "ASYNC",
+    "RUF",
+    # ITEM 10 (2026-09-21 playbook): audit-time breadth, adopted after
+    # triage. C4 = comprehension simplification, SIM = small simplifications,
+    # RET = consistent returns, PTH = pathlib over os.path, and the S rules
+    # that matter here (S101 asserts outside tests, S602 shell injection,
+    # S608 SQL string building in app code).
+    "C4",
+    "SIM",
+    "RET",
+    "PTH",
+    "S101",
+    "S602",
+    "S608",
+]
+ignore = [
+    # S105/S106 (hardcoded password name heuristics): every hit is a
+    # scope-name/reason-string CONSTANT (e.g. TEAM_PASSWORD_RESERVATION_SCOPE)
+    # — real secrets are env-driven with fail-closed validators, and the
+    # frontend's adversarial literal scan covers shipped-source secrets.
+    # S311: `random.Random` is deliberate everywhere (seeded, reproducible
+    # simulations); nothing security-sensitive uses it.
+    # S603/S607: subprocess calls with fixed argv through PATH — shell=True
+    # (S602) stays enabled, which is the actual injection boundary.
+    "S105",
+    "S106",
+    "S311",
+    "S603",
+    "S607",
+    # RUF001/002/003: display strings intentionally keep en/em-dashes and
+    # '×' from the v1 UI.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
 
 [tool.ruff.lint.per-file-ignores]
 # Seed data tables are copied verbatim from v1; wrapping them would risk content drift.
 "app/seed.py" = ["E501"]
+# Tests: assert IS the assertion API; fixture passwords/keys are throwaway by
+# definition; S608 flags the literal SQL the DB layer tests deliberately run.
+"tests/**" = ["S101", "S608"]
+# Alembic revisions are raw DDL by design.
+"alembic/versions/**" = ["S608"]
+# Operator scripts: document-shell subprocess calls with fixed argv.
+"scripts/**" = ["S603", "S607", "S608"]
 
 [tool.mypy]
 python_version = "3.13"
@@ -104,8 +149,10 @@ branch = true
 # (the flag --cov-fail-under would override, not complement, this value).
 # Keep it at or below the measured app-wide coverage on main — raise it as
 # coverage improves, never above the measured value.
-# Ratcheted from the measured ~94% app-wide / ~86% branch coverage on main
-# (2026-09-20 audit P3: 75 never bit after coverage climbed past 90). Kept
-# one point below the measured branch figure so ordinary fluctuation does
-# not fail CI while a real regression still trips the floor.
-fail_under = 85
+# B7 (2026-09-21 audit): with branch = true coverage.py's headline TOTAL is
+# the COMBINED line+branch metric (~92.7% measured on main), not the branch
+# figure alone — the old 85 evaluated the combined number while its comment
+# claimed a branch floor, so the ratchet was ~8 points weaker than
+# documented. 92 sits just under the measured combined figure so ordinary
+# fluctuation does not fail CI while a real regression still trips the floor.
+fail_under = 92

@@ -687,7 +687,7 @@ describe("Tabs", () => {
     const trigger = screen.getByRole("tab", { name: "Active" });
     expect(trigger).toHaveAttribute("data-active");
     // Base pill styling…
-    expect(trigger).toHaveClass("relative", "inline-flex", "text-foreground/60");
+    expect(trigger).toHaveClass("relative", "inline-flex", "text-muted-foreground");
     // …the line variant's transparent overrides…
     expect(trigger).toHaveClass(
       "group-data-[variant=line]/tabs-list:bg-transparent",
