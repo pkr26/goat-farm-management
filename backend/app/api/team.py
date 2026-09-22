@@ -1392,6 +1392,8 @@ async def set_notification_prefs(
     recipient.kidding_watch = payload.kidding_watch
     recipient.overdue_critical = payload.overdue_critical
     recipient.feed_reorder = payload.feed_reorder
+    recipient.movement_restriction = payload.movement_restriction
+    recipient.verified = payload.verified
     await db.commit()
     _audit_event(
         "team.worker.notification_prefs",
@@ -1412,6 +1414,7 @@ def _prefs_out(recipient: NotificationRecipient) -> NotificationPrefsOut:
         kidding_watch=recipient.kidding_watch,
         overdue_critical=recipient.overdue_critical,
         feed_reorder=recipient.feed_reorder,
+        movement_restriction=recipient.movement_restriction,
         verified=recipient.verified,
     )
 

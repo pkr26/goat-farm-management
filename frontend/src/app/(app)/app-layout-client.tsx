@@ -315,7 +315,6 @@ function AppLayoutContent({
   const { user, farms, farmId, loading, signOut } = useAuth();
   const {
     can,
-    isOwner,
     loading: permsLoading,
     isError: permsError,
     refetch: permsRefetch,
@@ -324,6 +323,11 @@ function AppLayoutContent({
   const searchParams = useSearchParams();
   const router = useRouter();
   const t = useT();
+  // The owner console serves "owns >= 1 farm" (the backend's rule), which is
+  // wider than the CURRENT farm's is_owner: an owner switched into a farm
+  // they merely manage keeps the entry. /api/auth/farms marks owned farms
+  // with role === null.
+  const ownsAnyFarm = farms.some((f) => f.role === null);
   const farmRedirectIntent = useRef<string | null>(null);
   useDocumentTitle(pathname);
 
@@ -360,7 +364,7 @@ function AppLayoutContent({
     : NAV_GROUPS.map((group) => ({
         ...group,
         items: group.items.filter((item) =>
-          item.ownerOnly ? isOwner && can(item.perm) : can(item.perm),
+          item.ownerOnly ? ownsAnyFarm && can(item.perm) : can(item.perm),
         ),
       })).filter((group) => group.items.length > 0);
   const landingItem = visibleGroups[0]?.items[0];

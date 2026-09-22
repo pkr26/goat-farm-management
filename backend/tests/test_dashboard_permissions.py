@@ -136,11 +136,17 @@ async def test_reports_breeding_and_mortality_aggregates_require_permission(
     assert breeding["first_cycle_rate"] == 100.0
     assert breeding["kids_per_kidding"] == 1.0
     assert breeding["twin_rate"] == 0.0
+    # The positive counterparts of the withheld fields below: the owner's raw
+    # counts are real figures, which is what proves the analyst's None is a
+    # permission gate and not an empty herd.
+    assert breeding["total_records"] == 1
+    assert breeding["kiddings"] == 1
     mortality = owner_reports["mortality"]
     assert mortality["total_deaths"] == 1
     assert mortality["deaths_by_month"] != []
     assert mortality["stillborn"] == 1
     assert mortality["stillborn_rate"] == 50.0
+    assert mortality["total_kids_born"] == 2  # one alive + one stillborn
 
     analyst_role = await custom_role_id(
         client, owner, "Reports Only", ["dashboard.view", "reports.view"]

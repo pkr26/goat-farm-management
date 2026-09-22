@@ -21,6 +21,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -50,7 +51,7 @@ from .core.config import get_settings
 from .db import get_engine, get_sessionmaker
 from .deps import deactivate_deleted_user_memberships, purge_expired_refresh_sessions
 from .models import Farm
-from .schemas.common import RequestValidationErrorOut
+from .schemas.common import ERROR_CODES_BY_STATUS, RequestValidationErrorOut
 from .schemas.ops import HealthStatusOut, ReadinessStatusOut, ReadinessUnavailableOut
 from .security import PasswordWorkCapacityError, prime_dummy_password_hash, validate_jwt_keypair
 from .seed import repair_legacy_data_batch, seed_startup
@@ -672,8 +673,28 @@ async def request_validation_handler(_request: Request, exc: Exception) -> JSONR
     ]
     return JSONResponse(
         status_code=422,
-        content={"detail": _json_safe(jsonable_encoder(public_errors))},
+        content={
+            "detail": _json_safe(jsonable_encoder(public_errors)),
+            "code": ERROR_CODES_BY_STATUS[422],
+        },
     )
+
+
+async def http_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
+    """Default HTTPException shape plus the machine-readable ``code``.
+
+    ITEM 5 (2026-09-21 playbook): the four mapped statuses carry a stable
+    code so localized clients never parse English ``detail`` prose. Detail
+    and headers (WWW-Authenticate, Retry-After, Idempotency-*) pass through
+    unchanged.
+    """
+    status_code = getattr(exc, "status_code", 500)
+    content: dict[str, Any] = {"detail": getattr(exc, "detail", None)}
+    code = ERROR_CODES_BY_STATUS.get(status_code)
+    if code is not None:
+        content["code"] = code
+    headers = getattr(exc, "headers", None)
+    return JSONResponse(status_code=status_code, content=content, headers=headers)
 
 
 def _apply_baseline_response_headers(request: Request, response: Response, request_id: str) -> None:
@@ -743,7 +764,10 @@ async def password_capacity_handler(request: Request, exc: Exception) -> JSONRes
     assert isinstance(exc, PasswordWorkCapacityError)  # noqa: S101 — handler registration fixes this type
     return JSONResponse(
         status_code=429,
-        content={"detail": "Password service is busy — please retry shortly."},
+        content={
+            "detail": "Password service is busy — please retry shortly.",
+            "code": ERROR_CODES_BY_STATUS[429],
+        },
         headers={"Retry-After": "1"},
     )
 
@@ -848,6 +872,7 @@ def create_app() -> FastAPI:
     )
     _publish_required_idempotency_headers(app)
     app.add_exception_handler(RequestValidationError, request_validation_handler)
+    app.add_exception_handler(StarletteHTTPException, http_exception_handler)
     app.add_exception_handler(PasswordWorkCapacityError, password_capacity_handler)
     app.add_exception_handler(Exception, unhandled_exception_handler)
     app.add_middleware(

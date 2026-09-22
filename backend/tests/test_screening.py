@@ -66,6 +66,7 @@ from app.services.screening.providers import (
     OpenAICompatibleProvider,
     ProviderAnswer,
     ProviderError,
+    _post_with_one_retry,
 )
 from app.services.screening.providers import (
     gate as run_gate,
@@ -81,6 +82,7 @@ from app.services.screening.s3 import (
     ScreeningObjectMissingError,
     ScreeningObjectTooLargeError,
     ScreeningStorage,
+    ScreeningStorageError,
 )
 from app.services.screening.specialists import (
     SpecialistKind,
@@ -565,6 +567,68 @@ def test_provider_http_failure_raises_provider_error() -> None:
 
     with pytest.raises(ProviderError):
         asyncio.run(call())
+
+
+def _scripted_transport(*outcomes: Any) -> tuple[httpx.MockTransport, list[int]]:
+    """One scripted outcome per POST; counts every transport call made."""
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        outcome = outcomes[len(calls) - 1]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    return httpx.MockTransport(handler), calls
+
+
+def _run_post(transport: httpx.MockTransport) -> httpx.Response:
+    async def call() -> httpx.Response:
+        client = httpx.AsyncClient(transport=transport)
+        try:
+            return await _post_with_one_retry(
+                client, "https://vision.test/gate", headers={}, json={"probe": 1}
+            )
+        finally:
+            await client.aclose()
+
+    return asyncio.run(call())
+
+
+def test_post_with_one_retry_recovers_from_a_transport_timeout() -> None:
+    transport, calls = _scripted_transport(
+        httpx.ConnectTimeout("edge reset"), httpx.Response(200, json={"ok": True})
+    )
+    assert _run_post(transport).status_code == 200
+    assert len(calls) == 2
+
+
+def test_post_with_one_retry_raises_provider_error_on_persistent_timeout() -> None:
+    transport, calls = _scripted_transport(
+        httpx.ReadTimeout("still wedged"), httpx.ReadTimeout("still wedged")
+    )
+    with pytest.raises(ProviderError):
+        _run_post(transport)
+    assert len(calls) == 2
+
+
+def test_post_with_one_retry_recovers_from_a_5xx_blip() -> None:
+    transport, calls = _scripted_transport(
+        httpx.Response(500, json={"error": "overloaded"}),
+        httpx.Response(200, json={"ok": True}),
+    )
+    assert _run_post(transport).status_code == 200
+    assert len(calls) == 2
+
+
+def test_post_with_one_retry_does_not_retry_a_4xx_answer() -> None:
+    # The endpoint answered and refused the request; retrying a 400 would
+    # double-bill the same rejected call.
+    transport, calls = _scripted_transport(httpx.Response(400, json={"error": "bad request"}))
+    with pytest.raises(httpx.HTTPStatusError):
+        _run_post(transport)
+    assert len(calls) == 1
 
 
 # --------------------------------------------------------------------------
@@ -2065,21 +2129,39 @@ async def test_daily_call_budget_per_farm_parks_over_budget_photos(
     assert first.claimed == 2  # both claimed while the farm was under budget
     async with get_sessionmaker()() as db:
         runs = list((await db.execute(select(ScreeningRun))).scalars())
-        images = list((await db.execute(select(ScreeningImage))).scalars())
     # Two landscape/portrait photos → at least one run each; the budget (1)
     # is spent after the first provider call of the day.
     assert len(runs) >= 1
 
-    # Next cycle: the farm is over budget, so its remaining photos are not
-    # even claimed — no new runs, no new provider spend.
+    # Next cycle: the farm is over budget, so a freshly registered photo is
+    # not even claimed — no new runs, no new provider spend — and its row
+    # stays PENDING for the next day's budget to drain.
+    third_key = f"raw/{farm_id}/{dt.date.today().isoformat()}/three.jpg"
+    storage.objects[third_key] = _jpeg_bytes(1500, 1000)
     async with get_sessionmaker()() as db:
+        db.add(
+            ScreeningImage(
+                farm_id=farm_id,
+                bucket="BREEDING",
+                s3_bucket=storage.bucket,
+                s3_key=third_key,
+                captured_date=dt.date.today(),
+                status="PENDING",
+            )
+        )
+        await db.commit()
         second = await run_screening_cycle(db, settings, storage, ProviderRotation([provider]))
         runs_after = list((await db.execute(select(ScreeningRun))).scalars())
+        parked = (
+            await db.execute(select(ScreeningImage).where(ScreeningImage.s3_key == third_key))
+        ).scalar_one()
     assert second.claimed == 0
     assert len(runs_after) == len(runs)
-    assert any(image.status == "PENDING" for image in images) or all(
-        image.status != "PENDING" for image in images
-    )
+    # The unprocessed row is genuinely untouched: still PENDING, no attempt
+    # spent, nothing recorded as broken.
+    assert parked.status == "PENDING"
+    assert parked.screening_attempts == 0
+    assert parked.error is None
 
 
 async def test_tenant_facing_errors_carry_reason_codes_not_raw_text(
@@ -2113,6 +2195,71 @@ async def test_tenant_facing_errors_carry_reason_codes_not_raw_text(
     assert "outage" not in (row.error or "")
     assert "secret-endpoint-provider" not in (run.error or "")
     assert "outage" not in (run.error or "")
+
+
+class UnreachableStorage(FakeStorage):
+    """HEAD succeeds but every GET dies at the network edge."""
+
+    def download(
+        self,
+        key: str,
+        *,
+        max_bytes: int,
+        etag: str | None = None,
+        version_id: str | None = None,
+    ) -> bytes:
+        raise ScreeningStorageError(
+            "botocore Exceptions ConnectionError: GetObject endpoint unreachable"
+        )
+
+
+async def test_storage_download_failure_carries_the_download_failed_reason_code(
+    client: httpx.AsyncClient,
+) -> None:
+    """B6 companion: an unreachable object store is a DOWNLOAD_FAILED reason
+    code, never the transport's endpoint topology."""
+    headers = await owner_with_farm(client, email="storage-down@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    key = f"raw/{farm_id}/{dt.date.today().isoformat()}/down.jpg"
+    storage = UnreachableStorage(objects={key: _jpeg_bytes(1000, 2000)})
+
+    async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
+        summary = await run_screening_cycle(
+            db, _cycle_settings(), storage, ProviderRotation([CountingProvider(name="fake")])
+        )
+        row = (await db.execute(select(ScreeningImage))).scalar_one()
+
+    assert summary.errors == 1
+    assert row.status == "ERROR"
+    assert row.error == "photo storage could not be reached (DOWNLOAD_FAILED)"
+    # The raw botocore/endpoint text belongs to the worker logs only.
+    assert "botocore" not in (row.error or "")
+    assert "endpoint" not in (row.error or "")
+
+
+async def test_unprocessable_bytes_carry_the_invalid_image_reason_code(
+    client: httpx.AsyncClient,
+) -> None:
+    """B6 companion: bytes the normalizer rejects are an INVALID_IMAGE skip,
+    without the Pillow parser's own text."""
+    headers = await owner_with_farm(client, email="bad-bytes@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    key = f"raw/{farm_id}/{dt.date.today().isoformat()}/garbage.jpg"
+    storage = FakeStorage(objects={key: b"definitely not a jpeg at all"})
+
+    async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
+        summary = await run_screening_cycle(
+            db, _cycle_settings(), storage, ProviderRotation([CountingProvider(name="fake")])
+        )
+        row = (await db.execute(select(ScreeningImage))).scalar_one()
+
+    assert summary.skipped == 1
+    assert summary.errors == 0
+    assert row.status == "SKIPPED"
+    assert row.error == "photo bytes could not be processed (INVALID_IMAGE)"
+    assert "jpeg" not in (row.error or "")
 
 
 async def test_batch_and_upload_intake_honor_idempotency_keys(
@@ -2994,8 +3141,10 @@ async def test_oversized_object_is_skipped_without_download(
     assert first.skipped == 1
     assert first.errors == 0
     assert image.status == "SKIPPED"
-    assert "byte download cap" in (image.error or "")
-    assert str(MAX_DOWNLOAD_BYTES + 1) in (image.error or "")
+    # B6: the tenant-facing field carries the fixed reason code; the raw
+    # byte counts stay in the worker log.
+    assert image.error == "photo exceeds the size limit (OBJECT_TOO_LARGE)"
+    assert str(MAX_DOWNLOAD_BYTES + 1) not in (image.error or "")
     assert storage.download_attempts == []  # refused before any transfer
     assert huge_key not in storage.uploaded
     assert provider.calls == 0  # nothing reached a model

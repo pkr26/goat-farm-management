@@ -16,6 +16,7 @@ whose hash IS the dedupe identity (e.g. "finding:42:CONFIRMED").
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 from dataclasses import dataclass
@@ -55,6 +56,7 @@ ALERT_CLASSES = (
     "KIDDING_WATCH",
     "OVERDUE_CRITICAL",
     "FEED_REORDER",
+    "MOVEMENT_RESTRICTION",
 )
 
 
@@ -86,6 +88,36 @@ async def _farm_send_count_today(db: AsyncSession, farm_id: int, local_date: str
             )
         ).scalar_one()
     )
+
+
+async def _send_with_retry(
+    provider: NotificationProvider, phone: str, message: str, settings: Settings
+) -> DeliveryResult:
+    """Transport failures get one bounded retry with backoff (ITEM 4).
+
+    A blip at the SMS gateway must not strand a same-day alert behind the
+    day-dedupe as FAILED. Terminal provider answers (``ok=False``) are NOT
+    retried — the provider saw the request and rejected it.
+    """
+    attempts = max(1, settings.notifications_send_retry_attempts)
+    backoff = settings.notifications_send_retry_backoff_seconds
+    last_exc: NotificationDeliveryError | None = None
+    for attempt in range(attempts):
+        try:
+            return await provider.send_sms(phone, message)
+        except NotificationDeliveryError as exc:
+            last_exc = exc
+            if attempt + 1 < attempts:
+                logger.warning(
+                    "notification transport failed (attempt %d/%d), retrying: %s",
+                    attempt + 1,
+                    attempts,
+                    exc,
+                )
+                await asyncio.sleep(backoff * (attempt + 1))
+    if last_exc is None:
+        raise NotificationDeliveryError("send retry loop exited without an attempt")
+    raise last_exc
 
 
 async def send_notification(
@@ -166,7 +198,9 @@ async def send_notification(
         return record("SKIPPED_CAP", error="farm daily cap reached")
 
     try:
-        result: DeliveryResult = await provider.send_sms(recipient.phone, message)
+        result: DeliveryResult = await _send_with_retry(
+            provider, recipient.phone, message, settings
+        )
     except NotificationDeliveryError as exc:
         logger.warning("notification transport failed (farm=%s): %s", farm.id, exc)
         return record("FAILED", error=str(exc)[:500])
@@ -293,7 +327,13 @@ async def farms_ready_for_digest(
     configured digest time. Idempotence across restarts comes from the log's
     day dedupe (`digest:<local-date>` payload)."""
     results: list[Farm] = []
-    farms = list((await db.execute(select(Farm))).scalars())
+    farms = list(
+        (
+            await db.execute(
+                select(Farm).order_by(Farm.id).limit(settings.notifications_loop_batch_size)
+            )
+        ).scalars()
+    )
     for farm in farms:
         local = now_utc.astimezone(ZoneInfo(farm.timezone))
         if (local.hour, local.minute) == (
@@ -324,6 +364,7 @@ async def notify_alert_class(
         "KIDDING_WATCH": NotificationRecipient.kidding_watch,
         "OVERDUE_CRITICAL": NotificationRecipient.overdue_critical,
         "FEED_REORDER": NotificationRecipient.feed_reorder,
+        "MOVEMENT_RESTRICTION": NotificationRecipient.movement_restriction,
     }.get(alert_class)
     if column is None:
         raise ValueError(f"Not an alert class: {alert_class!r}")

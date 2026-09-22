@@ -8,6 +8,7 @@ and throttle, idempotent duty completion/skip replay, and the production
 PIN-length validator.
 """
 
+import json
 from collections.abc import Iterator
 
 import httpx
@@ -415,6 +416,41 @@ def test_production_settings_raise_the_pin_floor() -> None:
         Settings(**_PROD_OVERRIDES, worker_pin_min_length=4)
 
 
+async def test_worker_login_requires_a_json_content_type(client: httpx.AsyncClient) -> None:
+    # AUTH-2 parity: /worker-login is a credential endpoint like /login, so a
+    # non-JSON body is refused by the content-type guard before any PIN is
+    # hashed or any identity is probed.
+    owner = await owner_with_farm(client, email="pin-owner-415@farm.in")
+    membership_id, farm_id = await _make_pin_worker(client, owner, email="pin-worker-415@farm.in")
+    refused = await client.post(
+        "/api/auth/worker-login",
+        content=json.dumps({"farm_id": farm_id, "membership_id": membership_id, "pin": "4321"}),
+        headers={"Content-Type": "text/plain"},
+    )
+    assert refused.status_code == 415, refused.text
+    assert "application/json" in refused.json()["detail"]
+
+
+async def test_owner_password_reset_blocks_pin_sign_in(client: httpx.AsyncClient) -> None:
+    # The must-change fence the PIN provisioning path skips is re-armed by the
+    # owner's own password reset: the account's password is the owner-chosen
+    # one again, and a PIN session would be a session that can do nothing.
+    owner = await owner_with_farm(client, email="pin-owner-must@farm.in")
+    membership_id, farm_id = await _make_pin_worker(client, owner, email="pin-worker-must@farm.in")
+    assert (await _worker_login(client, farm_id, membership_id, "4321")).status_code == 200
+
+    reset = await client.post(
+        f"/api/team/workers/{membership_id}/reset-password",
+        json={"password": "owner-chosen-123"},
+        headers=owner,
+    )
+    assert reset.status_code == 200, reset.text
+
+    refused = await _worker_login(client, farm_id, membership_id, "4321")
+    assert refused.status_code == 403, refused.text
+    assert "must change its password" in refused.json()["detail"]
+
+
 async def test_duty_completion_and_skip_are_idempotently_replayable(
     client: httpx.AsyncClient,
 ) -> None:
@@ -496,3 +532,13 @@ async def test_duty_completion_and_skip_are_idempotently_replayable(
     assert skipped_replay.status_code == 200
     assert skipped_replay.headers.get("Idempotency-Replayed") == "true"
     assert skipped_replay.json() == skipped.json()
+
+    # The standard conflict: the SAME key replayed with a DIFFERENT body is a
+    # 409, not a silent replay of the first skip's answer.
+    conflict = await client.post(
+        f"/api/tasks/{task2}/skip",
+        json={"reason": "a different reason entirely"},
+        headers={**worker, "Idempotency-Key": "skip-1"},
+    )
+    assert conflict.status_code == 409, conflict.text
+    assert "different request" in conflict.json()["detail"]

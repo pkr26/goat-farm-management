@@ -75,6 +75,10 @@ test.describe("health flow", () => {
     const pprRow = page.getByRole("row").filter({ hasText: "PPR" });
     await expect(pprRow).toHaveCount(1);
     await expect(pprRow.getByText("Done", { exact: true })).toBeVisible();
-    await expect(page.getByText("Overdue", { exact: true }).first()).toBeVisible();
+    // The schedule renders each row twice (mobile cards + desktop table);
+    // scope to the table so the assertion sees the visible copy.
+    await expect(
+      page.locator("table").getByText("Overdue", { exact: true }).first(),
+    ).toBeVisible();
   });
 });

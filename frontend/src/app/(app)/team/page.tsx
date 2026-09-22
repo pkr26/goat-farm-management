@@ -4,25 +4,33 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { Lock, ShieldCheck, Users } from "lucide-react";
-import { useRef, useState } from "react";
+import { Bell, Lock, ShieldCheck, Users } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
 import {
+  getGetNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetQueryKey,
   getPermissionsApiAuthPermissionsGetQueryKey,
   getTeamPageApiTeamGetQueryKey,
   useChangeRoleApiTeamWorkersMembershipIdRolePost,
   useCreateRoleApiTeamRolesPost,
   useCreateWorkerApiTeamWorkersPost,
   useDeleteRoleApiTeamRolesRoleIdDelete,
+  useGetNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet,
   useResetPasswordApiTeamWorkersMembershipIdResetPasswordPost,
+  useSetNotificationPrefsApiTeamWorkersMembershipIdNotificationsPut,
   useSetWorkerStatusApiTeamWorkersMembershipIdStatusPut,
   useTeamPageApiTeamGet,
   useUpdateRoleApiTeamRolesRoleIdPut,
 } from "@/api/generated/endpoints";
-import type { MembershipOut, RoleOut, TeamOut } from "@/api/generated/models";
+import type {
+  MembershipOut,
+  NotificationPrefsOut,
+  RoleOut,
+  TeamOut,
+} from "@/api/generated/models";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
@@ -36,6 +44,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -61,6 +70,7 @@ import { ApiError } from "@/lib/api-client";
 import { mutationError } from "@/lib/mutations";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { useAuth } from "@/lib/auth-context";
+import { useT } from "@/lib/i18n";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 
@@ -106,6 +116,32 @@ const resetSchema = z.object({
   password: z.string().min(12, "Password must be at least 12 characters").max(128),
 });
 type ResetValues = z.infer<typeof resetSchema>;
+
+/** Mirrors the backend's phone pattern (^\+?[0-9]{10,19}$ — ITEM 4.6). */
+const PHONE_PATTERN = /^\+?[0-9]{10,19}$/;
+
+/** Per-worker SMS notification preferences. All six class booleans are sent
+ * explicitly so a save is a full snapshot, never a partial patch. */
+type NotificationPrefsValues = {
+  phone: string;
+  daily_digest: boolean;
+  screening_flags: boolean;
+  kidding_watch: boolean;
+  overdue_critical: boolean;
+  feed_reorder: boolean;
+  movement_restriction: boolean;
+  verified: boolean;
+};
+
+/** The six alert classes the owner opts each worker into, in display order. */
+const ALERT_CLASSES = [
+  { field: "daily_digest", labelKey: "team.notifications.class.daily_digest" },
+  { field: "screening_flags", labelKey: "team.notifications.class.screening_flags" },
+  { field: "kidding_watch", labelKey: "team.notifications.class.kidding_watch" },
+  { field: "overdue_critical", labelKey: "team.notifications.class.overdue_critical" },
+  { field: "feed_reorder", labelKey: "team.notifications.class.feed_reorder" },
+  { field: "movement_restriction", labelKey: "team.notifications.class.movement_restriction" },
+] as const;
 
 const roleSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(80),
@@ -158,6 +194,8 @@ interface WorkerControlsProps {
   protectedTarget: boolean;
   isOwner: boolean;
   onReset: (m: MembershipOut, release: () => void) => void;
+  /** Opens the per-worker notification preferences dialog (ITEM 4.6). */
+  onNotifications: (m: MembershipOut) => void;
   authority: TeamAuthority;
   /** Row and card render side by side — ids must not collide across them. */
   idPrefix: string;
@@ -363,6 +401,7 @@ function WorkerActions({
   protectedTarget,
   isOwner,
   controls,
+  onNotifications,
   touch = false,
   idPrefix,
 }: {
@@ -371,9 +410,11 @@ function WorkerActions({
   protectedTarget: boolean;
   isOwner: boolean;
   controls: WorkerControls;
+  onNotifications: (m: MembershipOut) => void;
   touch?: boolean;
   idPrefix: string;
 }) {
+  const t = useT();
   const {
     rowBusy,
     actionError,
@@ -429,6 +470,20 @@ function WorkerActions({
               </p>
             )}
           </div>
+        )}
+        {/* Notification prefs are readable by every team.manage holder —
+         * only the SAVE is owner-only (the dialog marks that itself). */}
+        {!isSelf && !protectedTarget && (
+          <Button
+            size="sm"
+            variant="outline"
+            className={actionClass}
+            disabled={rowBusy}
+            onClick={() => onNotifications(m)}
+          >
+            <Bell aria-hidden="true" className="size-3.5" />
+            {t("team.notifications.action")}
+          </Button>
         )}
       </div>
       <Dialog
@@ -512,6 +567,7 @@ function WorkerRow(props: WorkerControlsProps) {
           protectedTarget={protectedTarget}
           isOwner={isOwner}
           controls={controls}
+          onNotifications={props.onNotifications}
           idPrefix={idPrefix}
         />
       </TableCell>
@@ -539,6 +595,7 @@ function WorkerCard(props: WorkerControlsProps) {
         protectedTarget={protectedTarget}
         isOwner={isOwner}
         controls={controls}
+        onNotifications={props.onNotifications}
         touch
         idPrefix={idPrefix}
       />
@@ -866,6 +923,291 @@ function ResetPasswordDialog({
             </Button>
           </DialogFooter>
           </fieldset>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Owner-managed SMS notification preferences for one worker (ITEM 4.6):
+ * phone number + per-alert-class opt-in toggles + the "verified with the
+ * worker" assertion. GET is team.manage-wide, PUT is owner-only, so a
+ * delegated manager gets a read-only view with a hint instead of a save. */
+function NotificationPrefsDialog({
+  membership,
+  isOwner,
+  authority,
+  onClose,
+}: {
+  membership: MembershipOut;
+  isOwner: boolean;
+  authority: TeamAuthority;
+  onClose: () => void;
+}) {
+  const t = useT();
+  const prefsQuery = useGetNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet(
+    membership.id,
+  );
+  const name = membership.name ?? membership.email;
+
+  if (prefsQuery.isLoading) {
+    return (
+      <Dialog open onOpenChange={(open) => !open && onClose()}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("team.notifications.title", { name })}</DialogTitle>
+          </DialogHeader>
+          <p role="status" className="text-sm text-muted-foreground">
+            {t("common.loading")}
+          </p>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  if (prefsQuery.isError) {
+    return (
+      <Dialog open onOpenChange={(open) => !open && onClose()}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("team.notifications.title", { name })}</DialogTitle>
+          </DialogHeader>
+          <p role="alert" className="text-sm text-destructive">
+            {mutationError(prefsQuery.error)}
+          </p>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              {t("common.close")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  return (
+    <NotificationPrefsForm
+      membership={membership}
+      prefs={prefsQuery.data?.status === 200 ? prefsQuery.data.data : null}
+      isOwner={isOwner}
+      authority={authority}
+      onClose={onClose}
+    />
+  );
+}
+
+function NotificationPrefsForm({
+  membership,
+  prefs,
+  isOwner,
+  authority,
+  onClose,
+}: {
+  membership: MembershipOut;
+  /** null when the worker has no saved preferences yet (GET answers null). */
+  prefs: NotificationPrefsOut | null;
+  isOwner: boolean;
+  authority: TeamAuthority;
+  onClose: () => void;
+}) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const saveMutation = useSetNotificationPrefsApiTeamWorkersMembershipIdNotificationsPut();
+  const saveFlight = useSingleFlight();
+  const [formError, setFormError] = useState<string | null>(null);
+  const name = membership.name ?? membership.email;
+  const readOnly = !isOwner;
+  // The message must localise, so the schema (and its resolver) is rebuilt
+  // with the active catalog's phone hint.
+  const schema = useMemo(
+    () =>
+      z.object({
+        phone: z.string().trim().regex(PHONE_PATTERN, t("team.notifications.phoneInvalid")),
+        daily_digest: z.boolean(),
+        screening_flags: z.boolean(),
+        kidding_watch: z.boolean(),
+        overdue_critical: z.boolean(),
+        feed_reorder: z.boolean(),
+        movement_restriction: z.boolean(),
+        verified: z.boolean(),
+      }),
+    [t],
+  );
+  const {
+    register,
+    handleSubmit,
+    control,
+    setValue,
+    formState: { errors, isSubmitting },
+  } = useForm<NotificationPrefsValues>({
+    resolver: zodResolver(schema),
+    // An unset preference row (GET null) pre-fills an empty phone and every
+    // toggle off; the PUT then creates the prefs for the first time.
+    defaultValues: {
+      phone: prefs?.phone ?? "",
+      daily_digest: prefs?.daily_digest ?? false,
+      screening_flags: prefs?.screening_flags ?? false,
+      kidding_watch: prefs?.kidding_watch ?? false,
+      overdue_critical: prefs?.overdue_critical ?? false,
+      feed_reorder: prefs?.feed_reorder ?? false,
+      movement_restriction: prefs?.movement_restriction ?? false,
+      verified: prefs?.verified ?? false,
+    },
+  });
+  const values = useWatch({ control });
+
+  async function onSubmit(values: NotificationPrefsValues) {
+    if (!authority.canStart()) return;
+    await saveFlight.run(async () => {
+      const farmScope = captureFarmScope();
+      setFormError(null);
+      try {
+        await saveMutation.mutateAsync({
+          membershipId: membership.id,
+          data: {
+            phone: values.phone.trim(),
+            daily_digest: values.daily_digest,
+            screening_flags: values.screening_flags,
+            kidding_watch: values.kidding_watch,
+            overdue_critical: values.overdue_critical,
+            feed_reorder: values.feed_reorder,
+            movement_restriction: values.movement_restriction,
+            verified: values.verified,
+          },
+        });
+        if (!farmScope()) return;
+        toast.success(t("team.notifications.savedToast"));
+        await queryClient.invalidateQueries({
+          queryKey:
+            getGetNotificationPrefsApiTeamWorkersMembershipIdNotificationsGetQueryKey(
+              membership.id,
+            ),
+        });
+        onClose();
+      } catch (err) {
+        if (!farmScope()) return;
+        const message = mutationError(err);
+        setFormError(message);
+        toast.error(message);
+      }
+    });
+  }
+
+  const busy = isSubmitting || saveFlight.pending;
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => !open && !busy && onClose()}
+    >
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t("team.notifications.title", { name })}</DialogTitle>
+          <DialogDescription>{t("team.notifications.description")}</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit(onSubmit)} noValidate>
+          <fieldset
+            disabled={readOnly || busy}
+            className="space-y-4"
+            data-readonly={readOnly || undefined}
+          >
+          {formError && (
+            <p role="alert" className="text-sm text-destructive">
+              {formError}
+            </p>
+          )}
+          {readOnly && (
+            <p className="text-sm text-muted-foreground">
+              {t("team.notifications.readOnlyHint")}
+            </p>
+          )}
+          {prefs === null && (
+            <p className="text-sm text-muted-foreground">
+              {t("team.notifications.noneYet")}
+            </p>
+          )}
+          <div className="space-y-1.5">
+            <Label htmlFor="notification-phone">{t("team.notifications.phoneLabel")}</Label>
+            <Input
+              id="notification-phone"
+              type="tel"
+              inputMode="tel"
+              maxLength={20}
+              autoComplete="tel"
+              placeholder={t("team.notifications.phonePlaceholder")}
+              aria-invalid={Boolean(errors.phone) || undefined}
+              aria-describedby={errors.phone ? "notification-phone-error" : undefined}
+              {...register("phone")}
+            />
+            {errors.phone && (
+              <p id="notification-phone-error" role="alert" className="text-sm text-destructive">
+                {errors.phone.message}
+              </p>
+            )}
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium">{t("team.notifications.classesTitle")}</h3>
+            <p className="text-sm text-muted-foreground">
+              {t("team.notifications.classesHint")}
+            </p>
+            <div className="space-y-2">
+              {ALERT_CLASSES.map((alertClass) => {
+                const controlId = `notification-${alertClass.field}`;
+                const labelId = `${controlId}-label`;
+                return (
+                  <div key={alertClass.field} className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      id={controlId}
+                      aria-labelledby={labelId}
+                      checked={values[alertClass.field] ?? false}
+                      disabled={readOnly}
+                      onCheckedChange={(checked) =>
+                        setValue(alertClass.field, checked === true)
+                      }
+                    />
+                    <Label id={labelId} htmlFor={controlId} className="font-normal">
+                      {t(alertClass.labelKey)}
+                    </Label>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div className="space-y-1.5 rounded-lg border bg-muted/40 p-3">
+            <div className="flex items-center gap-2 text-sm">
+              <Checkbox
+                id="notification-verified"
+                aria-labelledby="notification-verified-label"
+                checked={values.verified ?? false}
+                disabled={readOnly}
+                onCheckedChange={(checked) => setValue("verified", checked === true)}
+              />
+              <Label id="notification-verified-label" htmlFor="notification-verified" className="font-normal">
+                {t("team.notifications.verified")}
+              </Label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {t("team.notifications.verifiedHint")}
+            </p>
+          </div>
+          </fieldset>
+          {/* The footer stays OUTSIDE the disabled fieldset: a read-only
+           * manager must always be able to close the dialog. */}
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={busy} onClick={onClose}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              type="submit"
+              disabled={authority.blocked || readOnly || busy}
+            >
+              {busy
+                ? t("team.notifications.saving")
+                : formError
+                  ? t("team.notifications.retrySave")
+                  : t("common.save")}
+            </Button>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -1320,6 +1662,7 @@ function TeamPageContent({ perms }: { perms: PermissionsState }) {
   };
   const [resetTarget, setResetTarget] = useState<ResetTarget | null>(null);
   const resetTargetRef = useRef<ResetTarget | null>(null);
+  const [notificationsTarget, setNotificationsTarget] = useState<MembershipOut | null>(null);
   const [roleDialog, setRoleDialog] = useState<{ role: RoleOut | null } | null>(null);
 
   const query = useTeamPageApiTeamGet({ query: { enabled: allowed } });
@@ -1481,6 +1824,7 @@ function TeamPageContent({ perms }: { perms: PermissionsState }) {
                   resetTargetRef.current = target;
                   setResetTarget(target);
                 }}
+                onNotifications={(membership) => setNotificationsTarget(membership)}
               />
             ))}
           </div>
@@ -1513,6 +1857,7 @@ function TeamPageContent({ perms }: { perms: PermissionsState }) {
                     resetTargetRef.current = target;
                     setResetTarget(target);
                   }}
+                  onNotifications={(membership) => setNotificationsTarget(membership)}
                 />
               ))}
             </TableBody>
@@ -1598,6 +1943,15 @@ function TeamPageContent({ perms }: { perms: PermissionsState }) {
               current === closingTarget ? null : current,
             );
           }}
+        />
+      )}
+      {notificationsTarget && (
+        <NotificationPrefsDialog
+          key={notificationsTarget.id}
+          membership={notificationsTarget}
+          isOwner={isOwner}
+          authority={authority}
+          onClose={() => setNotificationsTarget(null)}
         />
       )}
       {roleDialog && (roleDialog.role === null || currentDialogRole) && (

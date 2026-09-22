@@ -7,6 +7,10 @@
 
 /**
  * Owner-managed notification preferences for one membership.
+ *
+ * ``verified`` records the owner's assertion that the number was confirmed
+ * with the worker (there is deliberately no SMS round-trip: notifications
+ * are never an account-recovery channel).
  */
 export interface NotificationPrefsIn {
   /**
@@ -20,4 +24,6 @@ export interface NotificationPrefsIn {
   kidding_watch?: boolean;
   overdue_critical?: boolean;
   feed_reorder?: boolean;
+  movement_restriction?: boolean;
+  verified?: boolean;
 }

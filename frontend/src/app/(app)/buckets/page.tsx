@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
 import { useEnumLabel } from "@/lib/enum-labels";
+import { useT } from "@/lib/i18n";
 import { safeAppPath } from "@/lib/utils";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 
@@ -50,6 +51,7 @@ function animalsRegisterPath(raw: string | null | undefined, bucket: string): st
 
 function BucketCard({ row, canViewAnimals }: { row: BucketBoardRow; canViewAnimals: boolean }) {
   const enumLabel = useEnumLabel();
+  const t = useT();
   const truncated = row.animals.length < row.animals_total;
 
   return (
@@ -57,13 +59,15 @@ function BucketCard({ row, canViewAnimals }: { row: BucketBoardRow; canViewAnima
       <CardHeader>
         <CardTitle className="flex items-center justify-between gap-2">
           <span>{row.name}</span>
-          <Badge variant="secondary">{row.animals_total} head</Badge>
+          <Badge variant="secondary">{t("buckets.headCount", { count: row.animals_total })}</Badge>
         </CardTitle>
         <p className="text-sm text-muted-foreground">
           {enumLabel("bucket", row.bucket)} · {rationFormat.format(row.daily_kg_per_head)} kg/head/day · {row.who}
         </p>
         {row.exit_rule && (
-          <p className="text-xs text-muted-foreground">Exit: {row.exit_rule}</p>
+          <p className="text-xs text-muted-foreground">
+            {t("buckets.exitRule", { rule: row.exit_rule })}
+          </p>
         )}
       </CardHeader>
       <CardContent>
@@ -71,18 +75,18 @@ function BucketCard({ row, canViewAnimals }: { row: BucketBoardRow; canViewAnima
           <EmptyState
             className="py-8"
             icon={Boxes}
-            title="No animals in this bucket."
-            description="Animals appear here as they are moved into this bucket from the herd register."
+            title={t("buckets.emptyBucket.title")}
+            description={t("buckets.emptyBucket.description")}
           />
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Tag</TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Sex</TableHead>
-                <TableHead className="text-right">Weight</TableHead>
-                <TableHead className="text-right">Days in bucket</TableHead>
+                <TableHead>{t("buckets.col.tag")}</TableHead>
+                <TableHead>{t("buckets.col.name")}</TableHead>
+                <TableHead>{t("buckets.col.sex")}</TableHead>
+                <TableHead className="text-right">{t("buckets.col.weight")}</TableHead>
+                <TableHead className="text-right">{t("buckets.col.daysInBucket")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -110,19 +114,19 @@ function BucketCard({ row, canViewAnimals }: { row: BucketBoardRow; canViewAnima
         )}
         {truncated && (
           <p className="mt-3 text-sm text-muted-foreground">
-            Showing {row.animals.length} of {row.animals_total} animals.{" "}
+            {t("buckets.showingOf", { shown: row.animals.length, total: row.animals_total })}{" "}
             {canViewAnimals ? (
               <Link
                 href={animalsRegisterPath(row.animals_page_path, row.bucket)}
                 className="text-primary underline"
               >
-                View the full bucket register
+                {t("buckets.viewFullRegister")}
               </Link>
             ) : (
-              "The full register requires animal access."
+              t("buckets.fullRegisterNoAccess")
             )}
             <span className="block text-xs">
-              Board preview limit: {row.animals_limit} animals.
+              {t("buckets.previewLimit", { count: row.animals_limit })}
             </span>
           </p>
         )}
@@ -133,12 +137,13 @@ function BucketCard({ row, canViewAnimals }: { row: BucketBoardRow; canViewAnima
 
 export default function BucketsPage() {
   const perms = usePermissions();
+  const t = useT();
   return (
     <PermissionGate
       perms={perms}
       perm="buckets.view"
-      label="Buckets"
-      description="Daily feed plan and occupancy per bucket."
+      label={t("buckets.title")}
+      description={t("buckets.description")}
       cards={2}
     >
       <BucketsPageContent perms={perms} />
@@ -148,6 +153,7 @@ export default function BucketsPage() {
 
 function BucketsPageContent({ perms }: { perms: PermissionsState }) {
   const { can } = perms;
+  const t = useT();
   const allowed = can("buckets.view");
   const canViewAnimals = can("animals.view");
   // Stryker disable next-line ObjectLiteral: PermissionGate refuses to mount this page without buckets.view, so `allowed` is always true by the time this hook runs
@@ -157,28 +163,28 @@ function BucketsPageContent({ perms }: { perms: PermissionsState }) {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Buckets"
-        description="Daily feed plan and occupancy per bucket."
+        title={t("buckets.title")}
+        description={t("buckets.description")}
       />
       {query.isLoading ? (
         <div role="status" aria-live="polite">
-          <span className="sr-only">Loading buckets…</span>
+          <span className="sr-only">{t("buckets.loading")}</span>
           <PageSkeleton cards={2} />
         </div>
       ) : query.isError ? (
         <div role="alert" className="space-y-3">
           <p className="text-sm text-destructive">
-            {query.error instanceof ApiError ? query.error.detail : "Could not load buckets."}
+            {query.error instanceof ApiError ? query.error.detail : t("buckets.loadFailed")}
           </p>
           <Button type="button" variant="outline" onClick={() => void query.refetch()}>
-            Retry buckets
+            {t("buckets.retry")}
           </Button>
         </div>
       ) : !rows || rows.length === 0 ? (
         <EmptyState
           icon={Layers}
-          title="No buckets configured."
-          description="Buckets group animals by life stage and set their daily feed allowance."
+          title={t("buckets.empty.title")}
+          description={t("buckets.empty.description")}
         />
       ) : (
         <div className="grid gap-4 xl:grid-cols-2">

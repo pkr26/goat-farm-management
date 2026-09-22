@@ -18,10 +18,19 @@ from pydantic import ValidationError
 
 from app import metrics
 from app.core.config import Settings, get_settings
+from app.db import get_sessionmaker
 from app.main import create_app
 from app.ratelimit import MemoryLimiterBackend, SlidingWindowRateLimiter, build_limiter_backend
+from app.services.screening import ProviderRotation, run_screening_cycle
 
-from .conftest import create_farm, register
+from .conftest import create_farm, owner_with_farm, register
+from .test_screening import (
+    CountingProvider,
+    FakeStorage,
+    _cycle_settings,
+    _jpeg_bytes,
+    _register_fake_objects,
+)
 
 _SAMPLE_LINE = re.compile(rb"^(goatfarm_\w+(?:_total)?)(\{[^}]*\})? ([0-9.e+-]+)$", re.MULTILINE)
 
@@ -171,6 +180,68 @@ async def test_auth_rate_limit_429_increments_scope_counter() -> None:
     # did not touch the counter; only the 429 decision did (checked by the
     # exact +1 lower bound together with prior's capture point).
     auth_limiter.clear()
+
+
+async def test_screening_provider_call_counters_track_outcomes_and_cost(
+    client: httpx.AsyncClient,
+) -> None:
+    """ITEM 6 spend observability: every provider call (ok or error) bumps the
+    outcome counter and the estimated-cost counter, read off the exposition
+    the /metrics route renders."""
+    import datetime as dt
+
+    headers = await owner_with_farm(client, email="metrics-screening@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    day = dt.date.today().isoformat()
+    ok_key = f"raw/{farm_id}/{day}/probe-ok.jpg"
+    err_key = f"raw/{farm_id}/{day}/probe-err.jpg"
+    # Unknown provider names fall back to the generic INR estimate; unique
+    # names make the before/after deltas exact despite the shared registry.
+    storage = FakeStorage()
+    storage.objects[ok_key] = _jpeg_bytes(1000, 2000)  # portrait → healthy gate
+    storage.objects[err_key] = _jpeg_bytes(2000, 1000)
+
+    calls = "goatfarm_screening_provider_calls_total"
+    cost = "goatfarm_screening_provider_estimated_cost_inr_total"
+    ok_labels = 'outcome="ok",provider="metrics-probe"'
+    err_labels = 'outcome="error",provider="metrics-probe-fail"'
+
+    before = _samples(metrics.render())
+    async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage, keys=[ok_key])
+        await run_screening_cycle(
+            db,
+            _cycle_settings(),
+            storage,
+            ProviderRotation([CountingProvider(name="metrics-probe")]),
+        )
+    after_ok = _samples(metrics.render())
+    assert (
+        _sample_value(after_ok, calls, ok_labels) - (_sample_value(before, calls, ok_labels) or 0.0)
+        == 1.0
+    )
+    assert _sample_value(after_ok, cost, 'provider="metrics-probe"') - (
+        _sample_value(before, cost, 'provider="metrics-probe"') or 0.0
+    ) == pytest.approx(0.50)
+
+    # A provider outage still costs the farm: the errored call counts too.
+    async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage, keys=[err_key])
+        await run_screening_cycle(
+            db,
+            _cycle_settings(),
+            storage,
+            ProviderRotation([CountingProvider(name="metrics-probe-fail", fail=True)]),
+        )
+    after_err = _samples(metrics.render())
+    assert (
+        _sample_value(after_err, calls, err_labels)
+        - (_sample_value(after_ok, calls, err_labels) or 0.0)
+        == 1.0
+    )
+    assert _sample_value(after_err, cost, 'provider="metrics-probe-fail"') - (
+        _sample_value(after_ok, cost, 'provider="metrics-probe-fail"') or 0.0
+    ) == pytest.approx(0.50)
 
 
 async def test_idempotent_replay_is_counted(client: httpx.AsyncClient) -> None:

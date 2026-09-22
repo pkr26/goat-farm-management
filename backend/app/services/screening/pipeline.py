@@ -102,6 +102,7 @@ class ScreeningErrorReason:
     PROVIDER_ERROR = "PROVIDER_ERROR"
     DOWNLOAD_FAILED = "DOWNLOAD_FAILED"
     INVALID_IMAGE = "INVALID_IMAGE"
+    OBJECT_TOO_LARGE = "OBJECT_TOO_LARGE"
     INTERNAL_ERROR = "INTERNAL_ERROR"
 
 
@@ -109,11 +110,14 @@ _SCREENING_ERROR_MESSAGES = {
     ScreeningErrorReason.PROVIDER_ERROR: "screening provider call failed",
     ScreeningErrorReason.DOWNLOAD_FAILED: "photo storage could not be reached",
     ScreeningErrorReason.INVALID_IMAGE: "photo bytes could not be processed",
+    ScreeningErrorReason.OBJECT_TOO_LARGE: "photo exceeds the size limit",
     ScreeningErrorReason.INTERNAL_ERROR: "unexpected screening failure",
 }
 
 
 def screening_error_reason(exc: BaseException) -> str:
+    if isinstance(exc, ScreeningObjectTooLargeError):
+        return ScreeningErrorReason.OBJECT_TOO_LARGE
     if isinstance(exc, ProviderError):
         return ScreeningErrorReason.PROVIDER_ERROR
     if isinstance(exc, ScreeningStorageError):
@@ -1230,10 +1234,16 @@ async def _process_image(
         # object cannot occupy the retry budget either. The cap matches the
         # presigned POST policy's bound (object cap + multipart-envelope
         # allowance) so a policy-accepted upload is never rejected here.
-        image.status = ScreeningImageStatus.SKIPPED.value
-        image.error = (
-            f"object exceeds {MAX_DOWNLOAD_BYTES} byte download cap ({object_info.size} bytes)"
+        # Tenant-facing field carries the fixed reason code (B6); the byte
+        # counts stay in the worker log.
+        logger.warning(
+            "object %s skipped at HEAD probe as too large: %d bytes > cap %d",
+            image.s3_key,
+            object_info.size,
+            MAX_DOWNLOAD_BYTES,
         )
+        image.status = ScreeningImageStatus.SKIPPED.value
+        image.error = _reason_text(ScreeningErrorReason.OBJECT_TOO_LARGE)
         summary.skipped += 1
         return
     if image.upload_token is not None:
@@ -1289,7 +1299,10 @@ async def _process_image(
         return
     except ScreeningObjectTooLargeError as exc:
         image.status = ScreeningImageStatus.SKIPPED.value
-        image.error = str(exc)
+        # Tenant-facing field carries the fixed reason code (B6); the byte
+        # counts stay in the worker log.
+        logger.warning("object %s skipped as too large: %s", image.s3_key, exc)
+        image.error = _reason_text(ScreeningErrorReason.OBJECT_TOO_LARGE)
         summary.skipped += 1
         return
     except ScreeningStorageError as exc:

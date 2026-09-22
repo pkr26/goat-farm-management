@@ -55,7 +55,12 @@ class MembershipOut(BaseModel):
 
 
 class NotificationPrefsIn(StrictInputModel):
-    """Owner-managed notification preferences for one membership."""
+    """Owner-managed notification preferences for one membership.
+
+    ``verified`` records the owner's assertion that the number was confirmed
+    with the worker (there is deliberately no SMS round-trip: notifications
+    are never an account-recovery channel).
+    """
 
     phone: str = Field(min_length=10, max_length=20, pattern=r"^\+?[0-9]{10,19}$")
     daily_digest: bool = False
@@ -63,6 +68,8 @@ class NotificationPrefsIn(StrictInputModel):
     kidding_watch: bool = False
     overdue_critical: bool = False
     feed_reorder: bool = False
+    movement_restriction: bool = False
+    verified: bool = False
 
 
 class NotificationPrefsOut(BaseModel):
@@ -73,6 +80,7 @@ class NotificationPrefsOut(BaseModel):
     kidding_watch: bool
     overdue_critical: bool
     feed_reorder: bool
+    movement_restriction: bool
     verified: bool
 
 

@@ -246,6 +246,40 @@ def test_plan_probabilities_are_bounded_and_deterministic() -> None:
         assert risk.p_eighty >= risk.p_full
 
 
+def test_plan_probabilities_honors_within_run_price_variation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """B10 (2026-09-21 audit): the risk pass layers the Monte Carlo's annual
+    price years onto each run exactly when the flag is on; off recovers the
+    legacy flat run-level draws untouched (mirrors the montecarlo-side pin in
+    test_simulation_audit_remediation.test_within_run_variation_flag_controls_the_process)."""
+    import app.simulation.planner as planner_module
+
+    a = base_assumptions()
+    targets = [SaleTarget(month=24, animal_class="male_grower", count=25.0)]
+    purchases, _, closed, _ = close_gaps(a, targets)
+    assert closed
+
+    real = planner_module._apply_annual_price_variation
+    calls: list[int] = []
+
+    def spying(path, draws, assumptions, rng):
+        calls.append(1)
+        return real(path, draws, assumptions, rng)
+
+    monkeypatch.setattr(planner_module, "_apply_annual_price_variation", spying)
+
+    a.risk.within_run_price_variation = True
+    plan_probabilities(a, targets, purchases, runs=5, seed=7)
+    assert len(calls) == 5  # one annual price layer per risk run
+
+    a.risk.within_run_price_variation = False
+    calls.clear()
+    flat = plan_probabilities(a, targets, purchases, runs=5, seed=7)
+    assert calls == []  # the flag fully disables the annual layer
+    assert 0.0 <= flat[0].p_full <= 1.0
+
+
 def test_build_plan_report_risk_pass_is_optional() -> None:
     a = base_assumptions()
     targets = [SaleTarget(month=24, animal_class="male_grower", count=25.0)]

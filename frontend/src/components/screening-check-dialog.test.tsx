@@ -9,11 +9,18 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it, vi } from "vitest";
+import { toast } from "sonner";
 
 import { DiseaseCheckDialog } from "@/components/screening-check-dialog";
 import { server } from "@/test/msw-server";
 import { createTestQueryClient, renderWithProviders } from "@/test/render";
 import { settle } from "@/test/settle";
+
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+const toastMock = toast as unknown as {
+  success: ReturnType<typeof vi.fn>;
+  error: ReturnType<typeof vi.fn>;
+};
 
 const { pushMock } = vi.hoisted(() => ({ pushMock: vi.fn() }));
 
@@ -311,5 +318,110 @@ describe("DiseaseCheckDialog", () => {
     await user.click(await screen.findByRole("button", { name: /upload photo/i }));
     await waitFor(() => expect(uploadBodies).toHaveLength(2));
     expect(uploadBodies[1]).toMatchObject({ batch_id: 202 });
+  });
+
+  it("surfaces a quota-exceeded upload as the failed-upload toast, with no S3 POST", async () => {
+    const user = userEvent.setup();
+    const batchPost = vi.fn();
+    const s3Post = vi.fn();
+    server.use(
+      http.get("/api/buckets", () => HttpResponse.json([BOARD_ROW])),
+      http.post("/api/screening/batches", () => {
+        batchPost();
+        return HttpResponse.json(
+          { id: 11, created_at: "2026-09-17T00:00:00Z", submitted_at: null },
+          { status: 201 },
+        );
+      }),
+      // Per-farm in-flight ceiling reached: the API refuses to presign.
+      http.post("/api/screening/uploads", () =>
+        HttpResponse.json({ detail: "Too many in-flight images for this farm" }, { status: 429 }),
+      ),
+      http.post("https://fake-s3.test/*", () => {
+        s3Post();
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    renderDialog();
+    await user.click(await screen.findByText("Breeding"));
+    const input = document.querySelector('input[type="file"]');
+    expect(input).not.toBeNull();
+    fireEvent.change(input!, {
+      target: { files: [new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0])], "pen.jpg", { type: "image/jpeg" })] },
+    });
+    await user.click(await screen.findByRole("button", { name: /upload photo/i }));
+
+    // The generic failure toast (the quota reason rides the server detail;
+    // the operator remedy is the same: retry later), and nothing was sent
+    // to object storage.
+    await waitFor(() =>
+      expect(toastMock.error).toHaveBeenCalledWith(
+        "Upload failed — check your connection and retry.",
+      ),
+    );
+    await waitFor(() => {
+      expect(batchPost).toHaveBeenCalledTimes(1);
+    });
+    expect(s3Post).not.toHaveBeenCalled();
+  });
+
+  it("keeps the walkthrough usable after a provider-side presign failure (5xx)", async () => {
+    const user = userEvent.setup();
+    let presignAttempts = 0;
+    server.use(
+      http.get("/api/buckets", () => HttpResponse.json([BOARD_ROW])),
+      http.post("/api/screening/batches", () =>
+        HttpResponse.json(
+          { id: 12, created_at: "2026-09-17T00:00:00Z", submitted_at: null },
+          { status: 201 },
+        ),
+      ),
+      http.post("/api/screening/uploads", () => {
+        presignAttempts += 1;
+        if (presignAttempts === 1) {
+          return new HttpResponse(null, { status: 503 });
+        }
+        return HttpResponse.json(
+          {
+            image_id: 41,
+            s3_key: "raw/1/2026-09-17/BREEDING/12-abc.jpg",
+            upload_url: "https://fake-s3.test/raw/1/2026-09-17/BREEDING/12-abc.jpg",
+            upload_method: "POST",
+            upload_fields: POST_FIELDS,
+            max_upload_bytes: 25 * 1024 * 1024,
+            expires_in_seconds: 900,
+          },
+          { status: 201 },
+        );
+      }),
+      http.post("https://fake-s3.test/*", () => new HttpResponse(null, { status: 204 })),
+    );
+
+    renderDialog();
+    await user.click(await screen.findByText("Breeding"));
+    const input = document.querySelector('input[type="file"]');
+    expect(input).not.toBeNull();
+    const pick = () =>
+      fireEvent.change(input!, {
+        target: { files: [new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0])], "pen.jpg", { type: "image/jpeg" })] },
+      });
+
+    pick();
+    await user.click(await screen.findByRole("button", { name: /upload photo/i }));
+    await waitFor(() =>
+      expect(toastMock.error).toHaveBeenCalledWith(
+        "Upload failed — check your connection and retry.",
+      ),
+    );
+
+    // The failed attempt leaves the walkthrough alive: re-picking the same
+    // photo and retrying presigns successfully on the second attempt.
+    toastMock.error.mockClear();
+    pick();
+    await user.click(await screen.findByRole("button", { name: /upload photo/i }));
+    await waitFor(() => {
+      expect(presignAttempts).toBe(2);
+    });
   });
 });

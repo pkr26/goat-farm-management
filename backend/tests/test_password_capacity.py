@@ -77,7 +77,11 @@ async def test_password_capacity_error_maps_to_retryable_429(
     )
     assert response.status_code == 429
     assert response.headers["Retry-After"] == "1"
-    assert response.json() == {"detail": "Password service is busy — please retry shortly."}
+    # The 429 carries the machine-readable code for localized clients.
+    assert response.json() == {
+        "detail": "Password service is busy — please retry shortly.",
+        "code": "RATE_LIMITED",
+    }
 
 
 async def test_same_email_burst_is_reserved_before_password_work(

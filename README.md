@@ -269,10 +269,9 @@ passes. Resume API replicas only after that succeeds.
 ```bash
 # Backend
 cd backend
-./.venv/bin/python -m pytest            # 3,400+ tests, real PostgreSQL (goatfarm_test)
+./.venv/bin/python -m pytest            # 4,700+ tests, real PostgreSQL (goatfarm_test)
 ./.venv/bin/ruff format --check . && ./.venv/bin/ruff check .
-./.venv/bin/python -m mypy --strict app  # strict-green: 0 errors; keep it that way
-./.venv/bin/python scripts/export_openapi.py   # regenerate shared/openapi.json
+./.venv/bin/python -m mypy --strict app scripts  # strict-green: 0 errors; keep it that way
 ./.venv/bin/python scripts/export_openapi.py   # regenerate shared/openapi.json
 
 # Frontend
@@ -1413,6 +1412,20 @@ training corpus**.
   The page's "Export dataset" button downloads it as JSON. When the
   labeled set grows large enough, a fine-tuned classifier can slot in
   behind the same `VisionProvider` seam and the rotation adapts.
+
+**Operational policy — spend the budget where the risk is.** Screen the
+QUARANTINE, PREGNANCY_LATE and DELIVERY pens daily rather than the whole
+herd: those pens carry the disease risk (quarantine) and the
+highest-value animals (pre-kidding does), and a daily photo of them is a
+fraction of a whole-herd sweep. Broad herd-wide passes are for periodic
+audits, not every day. Use the **provider scoreboard** above to pick the
+*cheapest* gate provider that is still accurate enough on your data
+(watch flag rate and cross-check agreement after each rotation) —
+`GOATFARM_SCREENING_PROVIDER_ROTATION` lets you demote an expensive
+provider to cross-check duty while a cheaper one runs the gate. The hard
+backstop is `GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM`: a farm that
+reaches the day's call budget parks its remaining PENDING photos until
+the next day instead of accruing spend.
 
 ## Disease check walkthrough (the upload flow)
 

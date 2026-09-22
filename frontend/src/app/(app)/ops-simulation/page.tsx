@@ -61,6 +61,7 @@ import {
 import { ApiError } from "@/lib/api-client";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
+import { useT, type MessageKey, type TFn } from "@/lib/i18n";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 import { cn } from "@/lib/utils";
@@ -82,23 +83,26 @@ type BucketCode = (typeof BUCKETS)[number];
 
 /** One building per bucket, labelled with the seeded goat names. Mirrors the
  * backend's GOAT_BUILDING_NAMES (models/feed_rules.py); where the API sends
- * an authoritative building_name (task rows), that wins over this map. */
-const BUILDING_NAMES: Record<string, string> = {
-  QUARANTINE: "Quarantine Ward",
-  FOUNDATION: "Foundation / Grow-out",
-  BREEDING: "Breeding Bucket",
-  PREGNANCY_EARLY: "Pregnancy A",
-  PREGNANCY_LATE: "Pregnancy B",
-  DELIVERY: "Delivery Ward",
-  RECOVERY: "Recovery Ward",
-  RESTING: "Resting / Dry-off + Flush",
-  MALE_KIDS: "Male Kids Growing",
-  FEMALE_KIDS: "Female Kids Growing",
-  FEED_STORE: "Feed Store & Mixing Area",
+ * an authoritative building_name (task rows), that wins over this map. The
+ * names themselves live in the i18n catalog (opsSim.building.*) so they
+ * follow the UI language. */
+const BUILDING_NAME_KEYS: Record<string, MessageKey> = {
+  QUARANTINE: "opsSim.building.QUARANTINE",
+  FOUNDATION: "opsSim.building.FOUNDATION",
+  BREEDING: "opsSim.building.BREEDING",
+  PREGNANCY_EARLY: "opsSim.building.PREGNANCY_EARLY",
+  PREGNANCY_LATE: "opsSim.building.PREGNANCY_LATE",
+  DELIVERY: "opsSim.building.DELIVERY",
+  RECOVERY: "opsSim.building.RECOVERY",
+  RESTING: "opsSim.building.RESTING",
+  MALE_KIDS: "opsSim.building.MALE_KIDS",
+  FEMALE_KIDS: "opsSim.building.FEMALE_KIDS",
+  FEED_STORE: "opsSim.building.FEED_STORE",
 };
 
-function buildingName(building: string): string {
-  return BUILDING_NAMES[building] ?? building;
+function buildingName(building: string, t: TFn): string {
+  const key = BUILDING_NAME_KEYS[building];
+  return key ? t(key) : building;
 }
 
 /** One stable colour per bucket, used everywhere a building appears on this
@@ -156,27 +160,30 @@ const BUCKET_COLORS: Record<string, { chip: string; dot: string }> = {
   },
 };
 
-/** Compact chip labels; the full building name rides along in the tooltip. */
-const SHORT_BUILDING_NAMES: Record<string, string> = {
-  QUARANTINE: "Quarantine",
-  FOUNDATION: "Foundation",
-  BREEDING: "Breeding",
-  PREGNANCY_EARLY: "Pregnancy A",
-  PREGNANCY_LATE: "Pregnancy B",
-  DELIVERY: "Delivery",
-  RECOVERY: "Recovery",
-  RESTING: "Resting",
-  MALE_KIDS: "Male Kids",
-  FEMALE_KIDS: "Female Kids",
-  FEED_STORE: "Feed Store",
+/** Compact chip labels (opsSim.buildingShort.*); the full building name rides
+ * along in the tooltip. */
+const SHORT_BUILDING_KEYS: Record<string, MessageKey> = {
+  QUARANTINE: "opsSim.buildingShort.QUARANTINE",
+  FOUNDATION: "opsSim.buildingShort.FOUNDATION",
+  BREEDING: "opsSim.buildingShort.BREEDING",
+  PREGNANCY_EARLY: "opsSim.buildingShort.PREGNANCY_EARLY",
+  PREGNANCY_LATE: "opsSim.buildingShort.PREGNANCY_LATE",
+  DELIVERY: "opsSim.buildingShort.DELIVERY",
+  RECOVERY: "opsSim.buildingShort.RECOVERY",
+  RESTING: "opsSim.buildingShort.RESTING",
+  MALE_KIDS: "opsSim.buildingShort.MALE_KIDS",
+  FEMALE_KIDS: "opsSim.buildingShort.FEMALE_KIDS",
+  FEED_STORE: "opsSim.buildingShort.FEED_STORE",
 };
 
 /** A colour-coded building chip: the visual atom for "where an animal is". */
 function BucketChip({ bucket, className }: { bucket: string; className?: string }) {
+  const t = useT();
   const colors = BUCKET_COLORS[bucket] ?? BUCKET_COLORS.FEED_STORE;
+  const shortKey = SHORT_BUILDING_KEYS[bucket];
   return (
     <span
-      title={buildingName(bucket)}
+      title={buildingName(bucket, t)}
       className={cn(
         "inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs font-medium whitespace-nowrap",
         colors.chip,
@@ -184,7 +191,7 @@ function BucketChip({ bucket, className }: { bucket: string; className?: string 
       )}
     >
       <span aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", colors.dot)} />
-      {SHORT_BUILDING_NAMES[bucket] ?? bucket}
+      {shortKey ? t(shortKey) : bucket}
     </span>
   );
 }
@@ -269,10 +276,11 @@ function makeRow(partial: Partial<HerdRow> = {}): HerdRow {
 }
 
 /** Presets mirror the engine tests' toy herds so a first run is instantly
- * recognisable against the hand-derived golden traces. */
-const PRESETS: { label: string; rows: () => HerdRow[] }[] = [
+ * recognisable against the hand-derived golden traces. Labels resolve
+ * through the i18n catalog (opsSim.preset.*). */
+const PRESETS: { labelKey: MessageKey; rows: () => HerdRow[] }[] = [
   {
-    label: "Toy herd (10 does + 1 buck)",
+    labelKey: "opsSim.preset.toyHerd",
     rows: () => [
       ...Array.from({ length: 10 }, (_, i) =>
         makeRow({ tag: `D${i + 1}`, sex: "F", bucket: "BREEDING", ageMonths: 12 + i + 1 }),
@@ -281,7 +289,7 @@ const PRESETS: { label: string; rows: () => HerdRow[] }[] = [
     ],
   },
   {
-    label: "Mixed herd (pregnancy + quarantine + kids)",
+    labelKey: "opsSim.preset.mixedHerd",
     rows: () => [
       ...Array.from({ length: 6 }, (_, i) =>
         makeRow({ tag: `D${i + 1}`, sex: "F", bucket: "BREEDING", ageMonths: 14 + i }),
@@ -340,16 +348,23 @@ function errorMessage(err: unknown, fallback: string): string {
 }
 
 /** Day chips show what kind of day it was at a glance. */
-function dayBadges(day: DayRecord): string {
+function dayBadges(day: DayRecord, t: TFn): string {
   const parts: string[] = [];
-  if ((day.moves?.length ?? 0) > 0) parts.push(`${day.moves?.length} moves`);
-  if ((day.births?.length ?? 0) > 0) parts.push(`${day.births?.length} births`);
-  if ((day.exits?.length ?? 0) > 0) parts.push(`${day.exits?.length} exits`);
+  if ((day.moves?.length ?? 0) > 0) {
+    parts.push(t("opsSim.badge.moves", { count: day.moves?.length ?? 0 }));
+  }
+  if ((day.births?.length ?? 0) > 0) {
+    parts.push(t("opsSim.badge.births", { count: day.births?.length ?? 0 }));
+  }
+  if ((day.exits?.length ?? 0) > 0) {
+    parts.push(t("opsSim.badge.exits", { count: day.exits?.length ?? 0 }));
+  }
   return parts.join(" · ");
 }
 
 function OpsSimulationPageContent() {
   const vocabulary = farmVocabulary;
+  const t = useT();
 
   const runAction = useSingleFlight();
   const runMutation = useRunDailyOpsSimulationApiOpsSimRunPost();
@@ -375,23 +390,29 @@ function OpsSimulationPageContent() {
   const rowErrors = useMemo(() => {
     const errors: string[] = [];
     const tags = rows.map((row) => row.tag.trim());
-    if (tags.some((tag) => tag === "")) errors.push("Every animal needs a tag.");
+    if (tags.some((tag) => tag === "")) errors.push(t("opsSim.validation.needTag"));
     const duplicates = tags.filter((tag, index) => tag !== "" && tags.indexOf(tag) !== index);
-    if (duplicates.length > 0) errors.push(`Duplicate tags: ${[...new Set(duplicates)].join(", ")}`);
-    if (rows.length === 0) errors.push("Add at least one animal.");
-    if (rows.length > MAX_START_HEAD) errors.push(`At most ${MAX_START_HEAD} head per run.`);
+    if (duplicates.length > 0) {
+      errors.push(
+        t("opsSim.validation.duplicateTags", { tags: [...new Set(duplicates)].join(", ") }),
+      );
+    }
+    if (rows.length === 0) errors.push(t("opsSim.validation.needAnimal"));
+    if (rows.length > MAX_START_HEAD) {
+      errors.push(t("opsSim.validation.maxHead", { max: MAX_START_HEAD }));
+    }
     for (const row of rows) {
-      const label = row.tag.trim() || "an unnamed animal";
+      const label = row.tag.trim() || t("opsSim.validation.unnamed");
       if (row.ageMonths < 0 || row.ageMonths > MAX_AGE_MONTHS) {
-        errors.push(`${label}: age must be 0–${MAX_AGE_MONTHS} months.`);
+        errors.push(t("opsSim.validation.ageRange", { label, max: MAX_AGE_MONTHS }));
       }
       if (row.daysInBucket < 0 || row.daysInBucket > MAX_DAYS_IN_BUCKET) {
-        errors.push(`${label}: days in bucket must be 0–${MAX_DAYS_IN_BUCKET}.`);
+        errors.push(t("opsSim.validation.daysRange", { label, max: MAX_DAYS_IN_BUCKET }));
       }
       if (row.bredDaysAgo.trim() !== "") {
         const bred = Number(row.bredDaysAgo);
         if (!Number.isInteger(bred) || bred < 0 || bred > MAX_BRED_DAYS) {
-          errors.push(`${label}: bred days ago must be a whole number 0–${MAX_BRED_DAYS}.`);
+          errors.push(t("opsSim.validation.bredRange", { label, max: MAX_BRED_DAYS }));
         }
       }
       // Coherence mirrors of the server's DailyOpsInput._check_herd (P3,
@@ -399,7 +420,7 @@ function OpsSimulationPageContent() {
       // rules only — the gestation-day windows stay server-side where the
       // species profile lives.
       if (row.bucket === "MALE_KIDS" && row.sex !== "M") {
-        errors.push(`${label}: only males may start in MALE_KIDS.`);
+        errors.push(t("opsSim.validation.maleKidsOnly", { label }));
       }
       if (
         (row.bucket === "PREGNANCY_EARLY" ||
@@ -407,7 +428,7 @@ function OpsSimulationPageContent() {
           row.bucket === "DELIVERY") &&
         row.sex !== "F"
       ) {
-        errors.push(`${label}: pregnancy buckets are doe-only.`);
+        errors.push(t("opsSim.validation.doeOnly", { label }));
       }
       if (
         (row.bucket === "PREGNANCY_EARLY" ||
@@ -415,19 +436,19 @@ function OpsSimulationPageContent() {
           row.bucket === "DELIVERY") &&
         row.bredDaysAgo.trim() === ""
       ) {
-        errors.push(`${label}: ${row.bucket.toLowerCase()} needs bred days ago.`);
-      }
-      if (row.bucket === "QUARANTINE" && row.daysInBucket > 44) {
         errors.push(
-          `${label}: quarantine releases at protocol day 45; days in bucket cannot exceed 44.`,
+          t("opsSim.validation.needsBred", { label, bucket: row.bucket.toLowerCase() }),
         );
       }
+      if (row.bucket === "QUARANTINE" && row.daysInBucket > 44) {
+        errors.push(t("opsSim.validation.quarantineLimit", { label }));
+      }
       if (row.bredDaysAgo.trim() !== "" && row.sex !== "F") {
-        errors.push(`${label}: bred days ago applies to does only.`);
+        errors.push(t("opsSim.validation.bredDoesOnly", { label }));
       }
     }
     return errors;
-  }, [rows]);
+  }, [rows, t]);
 
   const inputsSignature = useMemo(
     () =>
@@ -449,7 +470,9 @@ function OpsSimulationPageContent() {
       return;
     }
     if (!Number.isInteger(horizonDays) || horizonDays < MIN_HORIZON_DAYS || horizonDays > MAX_HORIZON_DAYS) {
-      toast.error(`Horizon must be ${MIN_HORIZON_DAYS}–${MAX_HORIZON_DAYS} days.`);
+      toast.error(
+        t("opsSim.validation.horizonRange", { min: MIN_HORIZON_DAYS, max: MAX_HORIZON_DAYS }),
+      );
       return;
     }
     await runAction.run(async () => {
@@ -490,7 +513,7 @@ function OpsSimulationPageContent() {
         window.scrollTo({ top: 0, behavior: "smooth" });
       } catch (err) {
         if (!farmScope()) return;
-        toast.error(errorMessage(err, "The simulation could not run."));
+        toast.error(errorMessage(err, t("opsSim.runFailed")));
       }
     });
   }
@@ -520,8 +543,8 @@ function OpsSimulationPageContent() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Ops Simulation"
-        description={`Replay the farm one day at a time — one building per bucket, feed mixed and delivered in three shifts, pens cleaned twice daily, and every ${vocabulary.young} move verified against the legal lifecycle.`}
+        title={t("opsSim.title")}
+        description={t("opsSim.description", { young: vocabulary.young })}
       />
 
       {resultStale && (
@@ -529,54 +552,55 @@ function OpsSimulationPageContent() {
           role="status"
           className="rounded-lg border border-warning/40 bg-warning-tint/60 px-3 py-2 text-sm text-warning-tint-foreground"
         >
-          The starting herd or run settings changed after this simulation —
-          the figures below describe the previous inputs. Run again for the
-          current ones.
+          {t("opsSim.staleNotice")}
         </p>
       )}
 
       {result && (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
-            label="Herd (final day)"
-            value={`${finalHead} head`}
+            label={t("opsSim.stat.herd")}
+            value={t("opsSim.stat.headValue", { count: finalHead })}
             icon={Beef}
-            hint={`from ${result.head_start} at the start`}
+            hint={t("opsSim.stat.fromStart", { count: result.head_start })}
           />
           <StatCard
-            label="Services → conceptions"
+            label={t("opsSim.stat.services")}
             value={`${result.totals.services} → ${result.totals.conceptions}`}
             icon={Baby}
-            hint={`${result.totals.kids_born_alive} kids born alive`}
+            hint={t("opsSim.stat.kidsBorn", { count: result.totals.kids_born_alive })}
           />
           <StatCard
-            label="Bucket moves"
+            label={t("opsSim.stat.moves")}
             value={String(result.totals.moves)}
             icon={Dumbbell}
-            hint={`${result.totals.deaths} died · ${result.totals.culls} culled · ${result.totals.sales} sold`}
+            hint={t("opsSim.stat.exitsHint", {
+              deaths: result.totals.deaths,
+              culled: result.totals.culls,
+              sold: result.totals.sales,
+            })}
           />
           <StatCard
-            label="Feed delivered"
-            value={`${formatKg(totalFeedKg)} kg`}
+            label={t("opsSim.stat.feed")}
+            value={t("opsSim.stat.kgValue", { kg: formatKg(totalFeedKg) })}
             icon={Wheat}
-            hint={`${result.days.length} days · ${Object.keys(result.totals.feed_kg_by_recipe ?? {}).length} recipes`}
+            hint={t("opsSim.stat.feedHint", {
+              days: result.days.length,
+              recipes: Object.keys(result.totals.feed_kg_by_recipe ?? {}).length,
+            })}
           />
         </div>
       )}
 
       <Card>
         <CardHeader>
-          <CardTitle>Run setup</CardTitle>
-          <CardDescription>
-            Where does the herd stand on day 1? Each row is one animal in one
-            bucket (building). The same input and seed always replay the same
-            farm.
-          </CardDescription>
+          <CardTitle>{t("opsSim.setup.title")}</CardTitle>
+          <CardDescription>{t("opsSim.setup.description")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <div className="space-y-2">
-              <Label htmlFor="ops-sim-start">Start date</Label>
+              <Label htmlFor="ops-sim-start">{t("opsSim.setup.startDate")}</Label>
               <Input
                 id="ops-sim-start"
                 type="date"
@@ -585,7 +609,7 @@ function OpsSimulationPageContent() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="ops-sim-horizon">Horizon (days)</Label>
+              <Label htmlFor="ops-sim-horizon">{t("opsSim.setup.horizon")}</Label>
               <NumberField
                 id="ops-sim-horizon"
                 value={horizonDays}
@@ -595,7 +619,7 @@ function OpsSimulationPageContent() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="ops-sim-seed">Seed</Label>
+              <Label htmlFor="ops-sim-seed">{t("opsSim.setup.seed")}</Label>
               <NumberField
                 id="ops-sim-seed"
                 value={seed}
@@ -611,29 +635,27 @@ function OpsSimulationPageContent() {
                 onClick={() => setIncludeLedger((value) => !value)}
               >
                 <ClipboardList />
-                Include Markdown ledger
+                {t("opsSim.setup.includeLedger")}
               </Button>
-              <p className="text-xs text-muted-foreground">
-                A day-by-day audit document you can download and verify by hand.
-              </p>
+              <p className="text-xs text-muted-foreground">{t("opsSim.setup.ledgerHint")}</p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             {PRESETS.map((preset) => (
               <Button
-                key={preset.label}
+                key={preset.labelKey}
                 variant="outline"
                 size="sm"
                 onClick={() => setRows(preset.rows())}
               >
                 <CalendarDays />
-                {preset.label}
+                {t(preset.labelKey)}
               </Button>
             ))}
             <Button variant="outline" size="sm" onClick={() => setRows((r) => [...r, makeRow()])}>
               <Plus />
-              Add animal
+              {t("opsSim.addAnimal")}
             </Button>
           </div>
 
@@ -641,13 +663,13 @@ function OpsSimulationPageContent() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-28">Tag</TableHead>
-                  <TableHead className="w-20">Sex</TableHead>
-                  <TableHead className="w-48">Bucket (building)</TableHead>
-                  <TableHead className="w-24">Age (mo)</TableHead>
-                  <TableHead className="w-28">Days in bucket</TableHead>
-                  <TableHead className="w-32">Bred days ago</TableHead>
-                  <TableHead className="w-24">Creep kid</TableHead>
+                  <TableHead className="w-28">{t("opsSim.col.tag")}</TableHead>
+                  <TableHead className="w-20">{t("opsSim.col.sex")}</TableHead>
+                  <TableHead className="w-48">{t("opsSim.col.bucketBuilding")}</TableHead>
+                  <TableHead className="w-24">{t("opsSim.col.age")}</TableHead>
+                  <TableHead className="w-28">{t("opsSim.col.daysInBucket")}</TableHead>
+                  <TableHead className="w-32">{t("opsSim.col.bredDays")}</TableHead>
+                  <TableHead className="w-24">{t("opsSim.col.creepKid")}</TableHead>
                   <TableHead className="w-16" />
                 </TableRow>
               </TableHeader>
@@ -656,7 +678,12 @@ function OpsSimulationPageContent() {
                   <TableRow key={row.key}>
                     <TableCell>
                       <Input
-                        aria-label={`Tag for row ${index + 1}${row.tag.trim() ? ` (${row.tag.trim()})` : ""}`}
+                        aria-label={t("opsSim.aria.tagForRow", {
+                          row: index + 1,
+                          tag: row.tag.trim()
+                            ? t("opsSim.aria.tagSuffix", { tag: row.tag.trim() })
+                            : "",
+                        })}
                         value={row.tag}
                         onChange={(event) => updateRow(row.key, { tag: event.target.value })}
                         className="w-28"
@@ -670,7 +697,7 @@ function OpsSimulationPageContent() {
                           updateRow(row.key, { sex: value === "M" ? "M" : "F" })
                         }
                       >
-                        <SelectTrigger aria-label={`Sex for ${row.tag || row.key}`}>
+                        <SelectTrigger aria-label={t("opsSim.aria.sexFor", { tag: row.tag || row.key })}>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -686,13 +713,15 @@ function OpsSimulationPageContent() {
                           updateRow(row.key, { bucket: value as BucketCode })
                         }
                       >
-                        <SelectTrigger aria-label={`Bucket for ${row.tag || row.key}`}>
+                        <SelectTrigger
+                          aria-label={t("opsSim.aria.bucketFor", { tag: row.tag || row.key })}
+                        >
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
                           {BUCKETS.map((bucket) => (
                             <SelectItem key={bucket} value={bucket}>
-                              {buildingName(bucket)}
+                              {buildingName(bucket, t)}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -700,7 +729,7 @@ function OpsSimulationPageContent() {
                     </TableCell>
                     <TableCell>
                       <NumberField
-                        aria-label={`Age months for ${row.tag || row.key}`}
+                        aria-label={t("opsSim.aria.ageFor", { tag: row.tag || row.key })}
                         value={row.ageMonths}
                         min={0}
                         max={240}
@@ -710,7 +739,7 @@ function OpsSimulationPageContent() {
                     </TableCell>
                     <TableCell>
                       <NumberField
-                        aria-label={`Days in bucket for ${row.tag || row.key}`}
+                        aria-label={t("opsSim.aria.daysFor", { tag: row.tag || row.key })}
                         value={row.daysInBucket}
                         min={0}
                         onCommitNumber={(n) => updateRow(row.key, { daysInBucket: n })}
@@ -719,7 +748,7 @@ function OpsSimulationPageContent() {
                     </TableCell>
                     <TableCell>
                       <Input
-                        aria-label={`Bred days ago for ${row.tag || row.key}`}
+                        aria-label={t("opsSim.aria.bredFor", { tag: row.tag || row.key })}
                         value={row.bredDaysAgo}
                         onChange={(event) => updateRow(row.key, { bredDaysAgo: event.target.value })}
                         placeholder="—"
@@ -732,14 +761,16 @@ function OpsSimulationPageContent() {
                         onCheckedChange={(checked) =>
                           updateRow(row.key, { dependentKid: checked === true })
                         }
-                        aria-label={`Unweaned kid with dam for ${row.tag || row.key}`}
+                        aria-label={t("opsSim.aria.creepFor", { tag: row.tag || row.key })}
                       />
                     </TableCell>
                     <TableCell>
                       <Button
                         variant="ghost"
                         size="sm"
-                        aria-label={`Remove ${row.tag || "row"}`}
+                        aria-label={t("opsSim.aria.remove", {
+                          tag: row.tag || t("opsSim.rowFallback"),
+                        })}
                         onClick={() => setRows((r) => r.filter((item) => item.key !== row.key))}
                       >
                         ×
@@ -758,12 +789,14 @@ function OpsSimulationPageContent() {
           <div className="flex flex-wrap items-center gap-2">
             <Button onClick={() => void onRun()} disabled={runMutation.isPending || runAction.pending}>
               <Play />
-              {runMutation.isPending ? "Simulating…" : `Run ${horizonDays} days`}
+              {runMutation.isPending
+                ? t("opsSim.simulating")
+                : t("opsSim.runDays", { days: horizonDays })}
             </Button>
             {ledger && (
               <Button variant="outline" onClick={downloadLedger}>
                 <Download />
-                Download ledger
+                {t("opsSim.downloadLedger")}
               </Button>
             )}
           </div>
@@ -773,8 +806,8 @@ function OpsSimulationPageContent() {
       {!result && (
         <EmptyState
           icon={FlaskConical}
-          title="No run yet"
-          description="Pick a preset herd or enter your own, then run the simulation to see the farm's daily schedule, feeding manifest and every bucket move."
+          title={t("opsSim.empty.title")}
+          description={t("opsSim.empty.description")}
         />
       )}
 
@@ -782,17 +815,13 @@ function OpsSimulationPageContent() {
         <>
           <Card>
             <CardHeader>
-              <CardTitle>Day timeline</CardTitle>
-              <CardDescription>
-                Pick a day. The schedule below is exactly what the crews do that
-                day, in order: morning feed and cleaning, the 09:00 duties
-                round, lifecycle events, then the afternoon and night rounds.
-              </CardDescription>
+              <CardTitle>{t("opsSim.timeline.title")}</CardTitle>
+              <CardDescription>{t("opsSim.timeline.description")}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex max-h-28 flex-wrap gap-1 overflow-y-auto rounded-lg border p-2">
                 {result.days.map((day) => {
-                  const badges = dayBadges(day);
+                  const badges = dayBadges(day, t);
                   return (
                     <Button
                       key={day.day}
@@ -801,8 +830,12 @@ function OpsSimulationPageContent() {
                       className="h-8 px-2 text-xs"
                       onClick={() => setSelectedDay(day.day)}
                       aria-pressed={day.day === selectedDay}
-                      aria-label={`Go to day ${day.day}${badges ? ` — ${badges}` : " — routine"}`}
-                      title={badges || `Day ${day.day} — routine only`}
+                      aria-label={
+                        badges
+                          ? t("opsSim.dayButtonAria", { day: day.day, badges })
+                          : t("opsSim.dayRoutineAria", { day: day.day })
+                      }
+                      title={badges || t("opsSim.dayRoutineTitle", { day: day.day })}
                     >
                       {day.day}
                       {badges ? " •" : ""}
@@ -812,10 +845,12 @@ function OpsSimulationPageContent() {
               </div>
 
               <h3 className="text-sm font-semibold">
-                Day {selectedRecord.day} — {selectedRecord.date}
+                {t("opsSim.dayHeading", { day: selectedRecord.day, date: selectedRecord.date })}
                 {(() => {
-                  const badges = dayBadges(selectedRecord);
-                  return badges ? ` (${badges})` : " (routine day)";
+                  const badges = dayBadges(selectedRecord, t);
+                  return badges
+                    ? t("opsSim.dayBadgesSuffix", { badges })
+                    : t("opsSim.routineDaySuffix");
                 })()}
               </h3>
 
@@ -824,10 +859,10 @@ function OpsSimulationPageContent() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="w-16">Time</TableHead>
-                        <TableHead>Duty</TableHead>
-                        <TableHead className="w-40">Building</TableHead>
-                        <TableHead className="w-20">Crew</TableHead>
+                        <TableHead className="w-16">{t("opsSim.col.time")}</TableHead>
+                        <TableHead>{t("opsSim.col.duty")}</TableHead>
+                        <TableHead className="w-40">{t("opsSim.col.building")}</TableHead>
+                        <TableHead className="w-20">{t("opsSim.col.crew")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -842,7 +877,9 @@ function OpsSimulationPageContent() {
                               </span>
                             ) : null}
                           </TableCell>
-                          <TableCell>{task.building_name ?? buildingName(task.building)}</TableCell>
+                          <TableCell>
+                            {task.building_name ?? buildingName(task.building, t)}
+                          </TableCell>
                           <TableCell>{task.role}</TableCell>
                         </TableRow>
                       ))}
@@ -855,19 +892,19 @@ function OpsSimulationPageContent() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Feeding manifest</TableHead>
-                          <TableHead className="text-right">Heads</TableHead>
-                          <TableHead className="text-right">kg/head</TableHead>
-                          <TableHead className="text-right">AM</TableHead>
-                          <TableHead className="text-right">Noon</TableHead>
-                          <TableHead className="text-right">PM</TableHead>
+                          <TableHead>{t("opsSim.col.feedingManifest")}</TableHead>
+                          <TableHead className="text-right">{t("opsSim.col.heads")}</TableHead>
+                          <TableHead className="text-right">{t("opsSim.col.kgPerHead")}</TableHead>
+                          <TableHead className="text-right">{t("opsSim.col.am")}</TableHead>
+                          <TableHead className="text-right">{t("opsSim.col.noon")}</TableHead>
+                          <TableHead className="text-right">{t("opsSim.col.pm")}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {selectedRecord.feeding?.map((line, index) => (
                           <TableRow key={index}>
                             <TableCell>
-                              {buildingName(line.building)} — {line.recipe_display}
+                              {buildingName(line.building, t)} — {line.recipe_display}
                             </TableCell>
                             <TableCell className="text-right tabular-nums">{line.heads}</TableCell>
                             <TableCell className="text-right tabular-nums">
@@ -892,8 +929,8 @@ function OpsSimulationPageContent() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>End-of-day occupancy</TableHead>
-                          <TableHead className="text-right">Head</TableHead>
+                          <TableHead>{t("opsSim.col.occupancy")}</TableHead>
+                          <TableHead className="text-right">{t("opsSim.col.head")}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -908,7 +945,7 @@ function OpsSimulationPageContent() {
                                     (BUCKET_COLORS[row.building] ?? BUCKET_COLORS.FEED_STORE).dot,
                                   )}
                                 />
-                                {buildingName(row.building)}
+                                {buildingName(row.building, t)}
                               </span>
                             </TableCell>
                             <TableCell className="text-right tabular-nums">{row.heads}</TableCell>
@@ -925,10 +962,10 @@ function OpsSimulationPageContent() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Animal</TableHead>
-                        <TableHead>Move</TableHead>
-                        <TableHead className="w-28">Context</TableHead>
-                        <TableHead>Reason</TableHead>
+                        <TableHead>{t("opsSim.col.animal")}</TableHead>
+                        <TableHead>{t("opsSim.col.move")}</TableHead>
+                        <TableHead className="w-28">{t("opsSim.col.context")}</TableHead>
+                        <TableHead>{t("opsSim.col.reason")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -958,8 +995,11 @@ function OpsSimulationPageContent() {
                   {selectedRecord.births?.map((birth) => (
                     <p key={birth.dam_tag} className="text-sm">
                       <Baby className="mr-1 inline size-4 text-primary" />
-                      <span className="font-medium">{birth.dam_tag}</span> kidded{" "}
-                      {birth.live_kids} live of {birth.kids.length}:{" "}
+                      <span className="font-medium">{birth.dam_tag}</span>
+                      {t("opsSim.kiddedSummary", {
+                        live: birth.live_kids,
+                        total: birth.kids.length,
+                      })}
                       {birth.kids
                         .map((kid) => `${kid.tag} (${kid.sex}${kid.status === "ALIVE" ? "" : `, ${kid.status}`})`)
                         .join(", ")}
@@ -977,16 +1017,16 @@ function OpsSimulationPageContent() {
           </Card>
 
           <DataTableCard
-            title="Transition matrix"
-            description="Every simulated move, validated against the same legal bucket graph the live app enforces."
+            title={t("opsSim.matrix.title")}
+            description={t("opsSim.matrix.description")}
           >
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>From</TableHead>
-                  <TableHead>To</TableHead>
-                  <TableHead className="w-32">Context</TableHead>
-                  <TableHead className="text-right">Count</TableHead>
+                  <TableHead>{t("opsSim.col.from")}</TableHead>
+                  <TableHead>{t("opsSim.col.to")}</TableHead>
+                  <TableHead className="w-32">{t("opsSim.col.context")}</TableHead>
+                  <TableHead className="text-right">{t("opsSim.col.count")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1009,19 +1049,19 @@ function OpsSimulationPageContent() {
           </DataTableCard>
 
           <DataTableCard
-            title="Animal journeys"
-            description="One row per animal: where it started, every hop between buildings, and how it ended."
+            title={t("opsSim.journeys.title")}
+            description={t("opsSim.journeys.description")}
           >
             {/* One row per animal ever alive — scroll the body, not the page. */}
             <div className="max-h-96 overflow-y-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-24">Tag</TableHead>
-                    <TableHead className="w-14">Sex</TableHead>
-                    <TableHead className="w-20">Born</TableHead>
-                    <TableHead>Hops</TableHead>
-                    <TableHead className="w-56">Final</TableHead>
+                    <TableHead className="w-24">{t("opsSim.col.tag")}</TableHead>
+                    <TableHead className="w-14">{t("opsSim.col.sex")}</TableHead>
+                    <TableHead className="w-20">{t("opsSim.col.born")}</TableHead>
+                    <TableHead>{t("opsSim.col.hops")}</TableHead>
+                    <TableHead className="w-56">{t("opsSim.col.final")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1029,7 +1069,7 @@ function OpsSimulationPageContent() {
                     <TableRow key={journey.tag}>
                       <TableCell className="font-medium">{journey.tag}</TableCell>
                       <TableCell>{journey.sex}</TableCell>
-                      <TableCell>{journey.born_day ?? "start"}</TableCell>
+                      <TableCell>{journey.born_day ?? t("opsSim.startLabel")}</TableCell>
                       <TableCell>
                         {(journey.hops ?? []).length === 0 ? (
                           "—"
@@ -1042,7 +1082,12 @@ function OpsSimulationPageContent() {
                               <li
                                 key={index}
                                 className="flex flex-wrap items-center gap-1"
-                                aria-label={`Day ${hop.day}: ${buildingName(hop.from_bucket ?? "")} to ${buildingName(hop.to_bucket)} (${hop.context})`}
+                                aria-label={t("opsSim.hopAria", {
+                                  day: hop.day,
+                                  from: buildingName(hop.from_bucket ?? "", t),
+                                  to: buildingName(hop.to_bucket, t),
+                                  context: hop.context,
+                                })}
                               >
                                 <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
                                   d{hop.day}
@@ -1068,11 +1113,16 @@ function OpsSimulationPageContent() {
                                 ).dot,
                               )}
                             />
-                            {buildingName(journey.final_bucket)} (active)
+                            {buildingName(journey.final_bucket, t)}
+                            {t("opsSim.activeSuffix")}
                           </span>
                         ) : (
                           <span>
-                            {journey.exit_kind} on day {journey.exit_day} — {journey.exit_reason}
+                            {t("opsSim.exitSummary", {
+                              kind: journey.exit_kind ?? "—",
+                              day: journey.exit_day ?? "—",
+                              reason: journey.exit_reason,
+                            })}
                           </span>
                         )}
                       </TableCell>
@@ -1085,11 +1135,8 @@ function OpsSimulationPageContent() {
 
           <Card>
             <CardHeader>
-              <CardTitle>How this run works</CardTitle>
-              <CardDescription>
-                Every rule is echoed with the exact numbers it used — verify any
-                day against the ledger.
-              </CardDescription>
+              <CardTitle>{t("opsSim.howItWorks.title")}</CardTitle>
+              <CardDescription>{t("opsSim.howItWorks.description")}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <ol className="list-decimal space-y-3 pl-5 text-sm">
@@ -1110,7 +1157,7 @@ function OpsSimulationPageContent() {
                   <div className="flex flex-wrap items-center gap-2">
                     <Button variant="outline" size="sm" onClick={downloadLedger}>
                       <Download />
-                      Download the day-by-day ledger
+                      {t("opsSim.downloadLedgerFull")}
                     </Button>
                     <Button
                       id="ops-sim-ledger-preview-toggle"
@@ -1119,7 +1166,7 @@ function OpsSimulationPageContent() {
                       aria-pressed={ledgerOpen}
                       onClick={() => setLedgerOpen((value) => !value)}
                     >
-                      {ledgerOpen ? "Hide the ledger preview" : "Preview the ledger (Markdown)"}
+                      {ledgerOpen ? t("opsSim.hideLedger") : t("opsSim.previewLedger")}
                     </Button>
                   </div>
                   {ledgerOpen && (
@@ -1134,8 +1181,12 @@ function OpsSimulationPageContent() {
 
           <p className="flex items-center gap-2 text-xs text-muted-foreground">
             <ClipboardList className="size-4" />
-            Model {result.model_version} · seed {result.seed} ·{" "}
-            {result.days.length} days · {result.head_start} head at the start.
+            {t("opsSim.modelFooter", {
+              model: result.model_version,
+              seed: result.seed,
+              days: result.days.length,
+              head: result.head_start,
+            })}
           </p>
         </>
       )}
@@ -1145,12 +1196,13 @@ function OpsSimulationPageContent() {
 
 export default function OpsSimulationPage() {
   const perms = usePermissions();
+  const t = useT();
   return (
     <PermissionGate
       perms={perms}
       perm="simulation.view"
-      label="Ops Simulation"
-      description="The farm day by day: buildings, duties, feed and every bucket move."
+      label={t("opsSim.title")}
+      description={t("opsSim.gateDescription")}
       cards={2}
     >
       <OpsSimulationPageContent />

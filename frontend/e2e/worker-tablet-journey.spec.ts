@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { expect, test, type APIRequestContext } from "@playwright/test";
 
-import { E2E_EMAIL, E2E_PASSWORD } from "./helpers";
+import { daysAgo, E2E_EMAIL, E2E_PASSWORD, monthsAgo } from "./helpers";
 
 /**
  * Worker tablet journey on a Pixel 7 (ITEM 2 Phase 2, 2026-09-21 playbook):
@@ -65,7 +65,10 @@ test.describe("worker tablet", () => {
     // --- Provision over the API: role, PIN worker, personal duty. ---------
     const role = await ownerApi(request, "/api/team/roles", {
       method: "POST",
-      data: { name: `Tablet ${suffix}`, permissions: ["dashboard.view", "tasks.view", "tasks.complete"] },
+      data: {
+        name: `Tablet ${suffix}`,
+        permissions: ["dashboard.view", "tasks.view", "tasks.complete"],
+      },
     });
     expect(role.status(), await role.text()).toBe(201);
     const roleId = ((await role.json()) as { id: number }).id;
@@ -83,6 +86,20 @@ test.describe("worker tablet", () => {
     expect(worker.status(), await worker.text()).toBe(201);
     const { id: membershipId } = (await worker.json()) as { id: number };
 
+    // A SECOND worker's personal duty must stay invisible on this tablet
+    // (own duties only — the negative half of the scoping assertion).
+    const coworker = await ownerApi(request, "/api/team/workers", {
+      method: "POST",
+      data: {
+        name: `Tab Peer ${suffix}`,
+        email: `peer-${suffix}@goatfarm.test`,
+        password: "tablet-pass-1234",
+        role_id: roleId,
+      },
+    });
+    expect(coworker.status(), await coworker.text()).toBe(201);
+    const { id: peerMembershipId } = (await coworker.json()) as { id: number };
+
     const roster = await request.get(
       `http://localhost:8000/api/auth/worker-roster?farm_id=${farmId}`,
     );
@@ -95,7 +112,8 @@ test.describe("worker tablet", () => {
     };
     const me = teamBody.memberships.find((row) => row.id === membershipId);
     if (!me) throw new Error("membership not found");
-    if (!me) throw new Error("membership not found");
+    const peer = teamBody.memberships.find((row) => row.id === peerMembershipId);
+    if (!peer) throw new Error("peer membership not found");
     const today = new Date().toISOString().slice(0, 10);
     const duty = await ownerApi(request, "/api/tasks", {
       method: "POST",
@@ -108,6 +126,19 @@ test.describe("worker tablet", () => {
     });
     expect(duty.status(), await duty.text()).toBe(201);
     const dutyId = ((await duty.json()) as { id: number }).id;
+
+    // A personal duty of the PEER worker that must never render on this
+    // board (the negative half of the own-duties-only assertion).
+    const peerDuty = await ownerApi(request, "/api/tasks", {
+      method: "POST",
+      data: {
+        title: `Peer duty ${suffix}`,
+        due_date: today,
+        category: "OTHER",
+        assigned_user_id: peer.user_id,
+      },
+    });
+    expect(peerDuty.status(), await peerDuty.text()).toBe(201);
 
     // --- Pin the tablet and sign in by PIN. -------------------------------
     await page.addInitScript((farm) => {
@@ -123,8 +154,10 @@ test.describe("worker tablet", () => {
     await page.getByTestId("pin-sign-in").click();
     await expect(page).toHaveURL(/\/worker$/, { timeout: 20_000 });
 
-    // Own duties only: this worker sees exactly their personal duty.
+    // Own duties only: this worker sees exactly their personal duties —
+    // never the peer's (the board is task_scope'd to the signed-in worker).
     await expect(page.getByText(`Tablet duty ${suffix}`)).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(`Peer duty ${suffix}`)).toHaveCount(0);
     const dutyCount = await page.getByTestId(/^worker-duty-\d+$/).count();
     expect(dutyCount).toBeGreaterThanOrEqual(1);
 
@@ -163,5 +196,125 @@ test.describe("worker tablet", () => {
         () => window.localStorage.getItem("goatfarm:offlineQueue:v1") ?? "[]",
       ),
     ).toBe("[]");
+  });
+
+  test("form-linked duty deep-links to its form and carries returnTo=/worker", async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(180_000);
+    const suffix = `f${Date.now().toString(36)}`;
+    const farmProbe = await ownerApi(request, "/api/auth/farms");
+    const farmId = ((await farmProbe.json()) as unknown as { id: number }[])[0].id;
+
+    // Ultrasound duties are generated (never manually created) and
+    // auto-assigned to the farm's seeded VET preset role — whose permission
+    // set includes breeding.manage, exactly what permittedTaskActionPath
+    // needs to render the deep link. So: vet worker + backdated breeding.
+    const teamPage = (await (await ownerApi(request, "/api/team")).json()) as {
+      roles: { id: number; code: string | null }[];
+    };
+    const vetRole = teamPage.roles.find((r) => r.code === "VET");
+    if (!vetRole) throw new Error("seeded VET role not found");
+
+    const worker = await ownerApi(request, "/api/team/workers", {
+      method: "POST",
+      data: {
+        name: `Form Worker ${suffix}`,
+        email: `form-${suffix}@goatfarm.test`,
+        password: "tablet-pass-1234",
+        role_id: vetRole.id,
+        pin: PIN,
+      },
+    });
+    expect(worker.status(), await worker.text()).toBe(201);
+
+    const breedingDate = daysAgo(40);
+    const doeTag = `E2E-WDOE-${suffix}`.toUpperCase();
+    const buckTag = `E2E-WBUCK-${suffix}`.toUpperCase();
+    const doe = await ownerApi(request, "/api/animals", {
+      method: "POST",
+      data: {
+        tag_number: doeTag,
+        sex: "F",
+        source: "BORN",
+        historical_import_reason: "E2E worker tablet doe fixture",
+        current_bucket: "FOUNDATION",
+        date_of_birth: monthsAgo(20),
+        weight_kg: 24,
+        weight_date: breedingDate,
+      },
+    });
+    expect(doe.status(), await doe.text()).toBe(201);
+    const doeId = ((await doe.json()) as { id: number }).id;
+
+    const buck = await ownerApi(request, "/api/animals", {
+      method: "POST",
+      data: {
+        tag_number: buckTag,
+        sex: "M",
+        source: "BORN",
+        historical_import_reason: "E2E worker tablet buck fixture",
+        current_bucket: "BREEDING",
+        date_of_birth: monthsAgo(20),
+        weight_kg: 30,
+        weight_date: breedingDate,
+      },
+    });
+    expect(buck.status(), await buck.text()).toBe(201);
+    const buckId = ((await buck.json()) as { id: number }).id;
+
+    const breeding = await ownerApi(request, "/api/breeding", {
+      method: "POST",
+      data: {
+        doe_id: doeId,
+        buck_id: buckId,
+        breeding_date: breedingDate,
+        method: "NATURAL",
+      },
+    });
+    expect(breeding.status(), await breeding.text()).toBe(201);
+    const breedingId = ((await breeding.json()) as { id: number }).id;
+
+    // The generated pregnancy-check duty (due ~8 days ago at a 40-day-old
+    // breeding) is VET-role scoped — find its id for the testid assertions.
+    // The same breeding also generates an earlier-due HEAT_WATCH duty (not
+    // form-linked), so disambiguate by category.
+    const board = (await (await ownerApi(request, "/api/tasks")).json()) as {
+      overdue: {
+        id: number;
+        title: string;
+        category: string;
+        breeding_record_id: number | null;
+      }[];
+    };
+    const dutyRow = board.overdue.find(
+      (row) =>
+        row.breeding_record_id === breedingId && row.category === "ULTRASOUND",
+    );
+    if (!dutyRow) throw new Error("generated ultrasound duty not found on the overdue board");
+    const dutyId = dutyRow.id;
+
+    await page.addInitScript((farm) => {
+      window.localStorage.setItem("herdly.tabletFarm", String(farm));
+    }, farmId);
+    await page.goto("/worker/login");
+    await page.getByRole("button", { name: new RegExp(`Form Worker ${suffix}`) }).click();
+    for (const digit of PIN) {
+      await page.getByTestId(`pin-key-${digit}`).click();
+    }
+    await page.getByTestId("pin-sign-in").click();
+    await expect(page).toHaveURL(/\/worker$/, { timeout: 20_000 });
+
+    // The linked duty renders its open-form control (language-stable hook).
+    const openForm = page.getByTestId(`open-form-${dutyId}`);
+    await expect(openForm).toBeVisible({ timeout: 20_000 });
+    await openForm.click();
+
+    // The ultrasound shim redirects to /breeding?ultrasound_id=… PRESERVING
+    // the query, so returnTo=/worker survives: closing the form returns to
+    // the worker board.
+    await expect(page).toHaveURL(/returnTo=%2Fworker/, { timeout: 20_000 });
+    await expect(page).toHaveURL(new RegExp(`ultrasound_id=${breedingId}`));
   });
 });

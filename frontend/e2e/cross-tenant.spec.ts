@@ -148,7 +148,10 @@ test.describe("cross-tenant and horizontal authorization negatives", () => {
       },
     });
     await expectStatus(denied, 403);
-    expect(await denied.json()).toEqual({ detail: "Missing permission: finance.view" });
+    expect(await denied.json()).toEqual({
+      detail: "Missing permission: finance.view",
+      code: "PERMISSION_DENIED",
+    });
   });
 
   test("another farm's owner cannot read this farm's animal: uniform 404s", async ({
@@ -201,6 +204,9 @@ test.describe("cross-tenant and horizontal authorization negatives", () => {
       headers: { "X-Farm-Id": "1" },
     });
     await expectStatus(anonymous, 401);
-    expect(await anonymous.json()).toEqual({ detail: "Missing bearer token" });
+    expect(await anonymous.json()).toEqual({
+      detail: "Missing bearer token",
+      code: "UNAUTHENTICATED",
+    });
   });
 });

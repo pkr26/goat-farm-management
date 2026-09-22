@@ -71,9 +71,10 @@ function animalName(a: AnimalIdentityOut): string {
  * (reads as a load failure) — name the access it needs, the same sentence
  * the section markers below use (RT-P7-1). */
 function WithheldStat({ permission }: { permission: string }) {
+  const t = useT();
   return (
     <span className="text-sm font-normal text-muted-foreground">
-      Requires {permission} access
+      {t("dashboard.withheldStat", { permission })}
     </span>
   );
 }
@@ -91,7 +92,7 @@ function TaskLink({
   task,
   fallbackHref,
   can,
-  label = "Open",
+  label,
   returnTo,
 }: {
   task: TaskOut;
@@ -100,6 +101,7 @@ function TaskLink({
   label?: string;
   returnTo: string;
 }) {
+  const t = useT();
   const permittedAction = permittedTaskActionPath(task.action_url, can);
   if (permittedAction) {
     return (
@@ -107,28 +109,29 @@ function TaskLink({
         href={withReturnTo(permittedAction, returnTo)}
         className={buttonVariants({ variant: "outline", size: "sm" })}
       >
-        {label}
+        {label ?? t("dashboard.openAction")}
       </Link>
     );
   }
   if (can("tasks.view")) {
     return (
       <Link href={fallbackHref} className={buttonVariants({ variant: "outline", size: "sm" })}>
-        View
+        {t("dashboard.viewAction")}
       </Link>
     );
   }
-  return <span className="text-xs text-muted-foreground">Action unavailable</span>;
+  return <span className="text-xs text-muted-foreground">{t("dashboard.actionUnavailable")}</span>;
 }
 
 export default function DashboardPage() {
   const perms = usePermissions();
+  const t = useT();
   return (
     <PermissionGate
       perms={perms}
       perm="dashboard.view"
-      label="Dashboard"
-      description="Herd overview — tasks, breeding dates and recent weights."
+      label={t("dashboard.title")}
+      description={t("dashboard.description")}
       stats={5}
       cards={2}
       announce
@@ -191,19 +194,19 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
           <p className="text-sm text-destructive">
             {query.error instanceof ApiError
               ? query.error.detail
-              : "Could not load the dashboard."}
+              : t("dashboard.loadFailed")}
           </p>
           <Button type="button" variant="outline" onClick={() => void query.refetch()}>
-            Retry dashboard
+            {t("dashboard.retry")}
           </Button>
         </div>
       );
     }
     return (
       <div className="space-y-6">
-        <PageHeader title="Dashboard" description="Herd overview — tasks, breeding dates and recent weights." />
+        <PageHeader title={t("dashboard.title")} description={t("dashboard.description")} />
         <div role="status" aria-live="polite">
-          <span className="sr-only">Loading the dashboard…</span>
+          <span className="sr-only">{t("dashboard.loading")}</span>
           <PageSkeleton stats={5} cards={2} />
         </div>
       </div>
@@ -271,8 +274,8 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
         <StaleDataNotice onRetry={() => void query.refetch()} />
       )}
       <PageHeader
-        title={farm ? `${farm.name} — Dashboard` : "Dashboard"}
-        description="Herd overview — tasks, breeding dates and recent weights."
+        title={farm ? t("dashboard.titleFarm", { farm: farm.name }) : t("dashboard.title")}
+        description={t("dashboard.description")}
       />
       {/* Backend advisory (optional until the contract lands): a single
        * {key, args} object; known keys render a localized banner, unknown
@@ -293,9 +296,10 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
       )}
       {hasBoundedPreview && (
         <p className="order-2 text-xs text-muted-foreground md:order-none">
-          Dashboard operational previews are capped at {payload.preview_limit} rows; recent weights
-          are capped at {payload.recent_weights_limit}. Exact totals are shown, and the operational
-          links open the full registers.
+          {t("dashboard.previewCap", {
+            previewLimit: payload.preview_limit,
+            weightsLimit: payload.recent_weights_limit,
+          })}
         </p>
       )}
 
@@ -308,40 +312,37 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
         canViewAnimals && (
         <Card className="order-3 border-primary/20 bg-gradient-to-br from-primary/[0.06] via-card to-card md:order-none">
           <CardHeader>
-            <CardTitle>Welcome to your new farm</CardTitle>
+            <CardTitle>{t("dashboard.welcome.title")}</CardTitle>
             <CardDescription>
-              Set up in three steps — everything else on this page fills in as you go.
+              {t("dashboard.welcome.description")}
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-3">
             {[
               {
                 step: 1,
-                title: "Add your first animals",
-                description:
-                  "Tag every goat you own — tags are how the whole farm connects.",
+                title: t("dashboard.welcome.step1Title"),
+                description: t("dashboard.welcome.step1Description"),
                 href: "/animals/new",
-                cta: "Add animal",
+                cta: t("dashboard.welcome.step1Cta"),
                 show: can("animals.create"),
                 icon: PawPrint,
               },
               {
                 step: 2,
-                title: "Record a purchase batch",
-                description:
-                  "Buying animals? A batch auto-creates their 45-day quarantine plan.",
+                title: t("dashboard.welcome.step2Title"),
+                description: t("dashboard.welcome.step2Description"),
                 href: "/purchases",
-                cta: "Open purchases",
+                cta: t("dashboard.welcome.step2Cta"),
                 show: can("purchases.view"),
                 icon: ShoppingCart,
               },
               {
                 step: 3,
-                title: "Log today's work",
-                description:
-                  "Feeding, health events and tasks live here — check in each morning.",
+                title: t("dashboard.welcome.step3Title"),
+                description: t("dashboard.welcome.step3Description"),
                 href: "/tasks",
-                cta: "Open tasks",
+                cta: t("dashboard.welcome.step3Cta"),
                 show: can("tasks.view"),
                 icon: ListChecks,
               },
@@ -374,28 +375,28 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
 
       <div className="order-6 grid grid-cols-2 gap-3 [&>*:nth-child(5)]:col-span-2 sm:grid-cols-3 sm:[&>*:nth-child(5)]:col-span-1 md:order-none lg:grid-cols-5">
         <StatCard
-          label="Active animals"
+          label={t("dashboard.stat.active")}
           value={activeStat ?? <WithheldStat permission="animals" />}
           icon={PawPrint}
           tint="success"
         />
         <StatCard
-          label="Females"
+          label={t("dashboard.stat.females")}
           value={femaleStat ?? <WithheldStat permission="animals" />}
           icon={Venus}
         />
         <StatCard
-          label="Males"
+          label={t("dashboard.stat.males")}
           value={maleStat ?? <WithheldStat permission="animals" />}
           icon={Mars}
         />
         <StatCard
-          label="Sold (all time)"
+          label={t("dashboard.stat.sold")}
           value={payload.status_totals.SOLD ?? 0}
           icon={HandCoins}
         />
         <StatCard
-          label="Tasks due + overdue"
+          label={t("dashboard.stat.tasks")}
           value={taskStat ?? <WithheldStat permission="tasks" />}
           icon={ListChecks}
           tint={
@@ -414,29 +415,29 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
           title={
             <span className="flex items-center gap-2 text-destructive">
               <TriangleAlert className="size-4" aria-hidden="true" />
-              Overdue tasks ({overdueTasksTotal})
+              {t("dashboard.overdue.title", { count: overdueTasksTotal ?? 0 })}
             </span>
           }
         >
           <Table>
             <TableHeader className="sr-only">
-              <TableRow><th scope="col">Due</th><th scope="col">Task</th><th scope="col">Open</th></TableRow>
+              <TableRow><th scope="col">{t("dashboard.col.due")}</th><th scope="col">{t("dashboard.col.task")}</th><th scope="col">{t("dashboard.col.open")}</th></TableRow>
             </TableHeader>
             <TableBody>
-              {overdueShown.map((t) => (
-                  <TableRow key={t.id} className="bg-destructive/[0.04]">
+              {overdueShown.map((t2) => (
+                  <TableRow key={t2.id} className="bg-destructive/[0.04]">
                   <TableCell>
-                    {formatDate(t.due_date)}{" "}
+                    {formatDate(t2.due_date)}{" "}
                     <span className="text-destructive">
-                      ({daysBetween(t.due_date, today)}d late)
+                      {t("tasks.daysLate", { days: daysBetween(t2.due_date, today) })}
                     </span>
                   </TableCell>
                   <TableCell>
-                    <span className="block max-w-56 truncate sm:max-w-none">{resolveTaskTitle(t, language)}</span>
+                    <span className="block max-w-56 truncate sm:max-w-none">{resolveTaskTitle(t2, language)}</span>
                   </TableCell>
                   <TableCell className="text-right">
                     <TaskLink
-                      task={t}
+                      task={t2}
                       fallbackHref="/tasks?tab=overdue"
                       returnTo="/dashboard"
                       can={can}
@@ -448,10 +449,10 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
           </Table>
           {overdueShown.length < (overdueTasksTotal ?? overdueShown.length) && (
             <p className="pt-3 text-sm text-muted-foreground">
-              Showing {overdueShown.length} of {overdueTasksTotal}.{" "}
+              {t("dashboard.showingOf", { shown: overdueShown.length, total: overdueTasksTotal ?? 0 })}{" "}
               {canViewTasks && (
                 <Link href="/tasks?tab=overdue" className="text-primary underline">
-                  View all overdue tasks
+                  {t("dashboard.overdue.viewAll")}
                 </Link>
               )}
             </p>
@@ -463,15 +464,15 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
         <DataTableCard
           title={
             !tasksWithheld
-              ? `Today's tasks (${todaysTasksTotal ?? 0})`
-              : "Today's tasks"
+              ? t("dashboard.today.titleCount", { count: todaysTasksTotal ?? 0 })
+              : t("dashboard.today.title")
           }
           actions={canViewTasks ? (
             <Link
               href="/tasks?tab=today"
               className={buttonVariants({ variant: "ghost", size: "sm" })}
             >
-              View all
+              {t("dashboard.today.viewAll")}
             </Link>
           ) : undefined}
         >
@@ -481,29 +482,29 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
                 (RT-P7-1). */
             <EmptyState
               icon={ListChecks}
-              title="Today's tasks require tasks access."
-              description="Ask an admin to grant tasks.view to see today's duties here."
+              title={t("dashboard.today.withheldTitle")}
+              description={t("dashboard.today.withheldDescription")}
             />
           ) : todaysTasks.length === 0 ? (
             <EmptyState
               icon={CircleCheckBig}
-              title="Nothing due today."
+              title={t("dashboard.today.empty")}
               className="py-8"
             />
           ) : (
             <Table>
               <TableHeader className="sr-only">
-                <TableRow><th scope="col">Task</th><th scope="col">Open</th></TableRow>
+                <TableRow><th scope="col">{t("dashboard.col.task")}</th><th scope="col">{t("dashboard.col.open")}</th></TableRow>
               </TableHeader>
               <TableBody>
-                {todaysTasks.map((t) => (
-                  <TableRow key={t.id}>
+                {todaysTasks.map((task) => (
+                  <TableRow key={task.id}>
                     <TableCell>
-                      <span className="block max-w-56 truncate sm:max-w-none">{resolveTaskTitle(t, language)}</span>
+                      <span className="block max-w-56 truncate sm:max-w-none">{resolveTaskTitle(task, language)}</span>
                     </TableCell>
                     <TableCell className="text-right">
                       <TaskLink
-                        task={t}
+                        task={task}
                         fallbackHref="/tasks?tab=today"
                         returnTo="/dashboard"
                         can={can}
@@ -517,7 +518,7 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
           {!tasksWithheld &&
             todaysTasks.length < (todaysTasksTotal ?? todaysTasks.length) && (
             <p className="pt-3 text-sm text-muted-foreground">
-              Showing {todaysTasks.length} of {todaysTasksTotal}.
+              {t("dashboard.showingOf", { shown: todaysTasks.length, total: todaysTasksTotal ?? 0 })}
             </p>
           )}
         </DataTableCard>
@@ -529,30 +530,30 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
         <DataTableCard
           title={
             !breedingWithheld
-              ? `${vocabulary.parturitionCap}s due or overdue (${payload.kiddings_due_total})`
-              : `${vocabulary.parturitionCap}s due or overdue`
+              ? t("dashboard.kiddings.titleCount", { count: payload.kiddings_due_total ?? 0 })
+              : t("dashboard.kiddings.title")
           }
           actions={canViewBreeding ? (
             <Link
               href="/breeding"
               className={buttonVariants({ variant: "ghost", size: "sm" })}
             >
-              Breeding
+              {t("dashboard.breedingLink")}
             </Link>
           ) : undefined}
         >
           {breedingWithheld ? (
             <EmptyState
               icon={Baby}
-              title={`${vocabulary.parturitionCap}s require breeding access.`}
-              description={`Ask an admin to grant breeding.view to see ${vocabulary.parturition}s due here.`}
+              title={t("dashboard.kiddings.withheldTitle")}
+              description={t("dashboard.kiddings.withheldDescription")}
             />
           ) : payload.kiddings_due.length === 0 ? (
-            <EmptyState icon={Baby} title={`No ${vocabulary.parturition}s due.`} description={`Confirmed pregnancies appear here as their due dates approach.`} className="py-8" />
+            <EmptyState icon={Baby} title={t("dashboard.kiddings.empty")} description={t("dashboard.kiddings.emptyDescription")} className="py-8" />
           ) : (
             <Table>
               <TableHeader className="sr-only">
-                <TableRow><th scope="col">{femaleParentLabel}</th><th scope="col">Due</th><th scope="col">Record</th></TableRow>
+                <TableRow><th scope="col">{femaleParentLabel}</th><th scope="col">{t("dashboard.col.due")}</th><th scope="col">{t("dashboard.col.record")}</th></TableRow>
               </TableHeader>
               <TableBody>
                 {payload.kiddings_due.map((r) => (
@@ -563,21 +564,21 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
                           href={withReturnTo(`/animals/${r.doe_id}`, "/dashboard")}
                           className="text-primary underline"
                         >
-                          {r.doe_tag ?? `${femaleParentLabel} #${r.doe_id}`}
+                          {r.doe_tag ?? t("dashboard.kiddings.parentFallback", { id: r.doe_id })}
                         </Link>
                       ) : (
-                        r.doe_tag ?? `${femaleParentLabel} #${r.doe_id}`
+                        r.doe_tag ?? t("dashboard.kiddings.parentFallback", { id: r.doe_id })
                       )}
                     </TableCell>
                     <TableCell>
-                      due {formatDate(r.expected_kidding_date)}
+                      {t("dashboard.kiddings.duePrefix", { date: formatDate(r.expected_kidding_date) })}
                       {/* Overdue pregnancies are mixed into this list; mark
                           them like the overdue-tasks card does. */}
                       {r.expected_kidding_date !== null &&
                         r.expected_kidding_date < today && (
                           <span className="text-destructive">
                             {" "}
-                            ({daysBetween(r.expected_kidding_date, today)}d late)
+                            {t("tasks.daysLate", { days: daysBetween(r.expected_kidding_date, today) })}
                           </span>
                         )}
                     </TableCell>
@@ -589,7 +590,7 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
                           href={`/kidding/new?breeding_id=${r.id}`}
                           className={buttonVariants({ variant: "outline", size: "sm" })}
                         >
-                          Record
+                          {t("dashboard.col.record")}
                         </Link>
                       )}
                     </TableCell>
@@ -600,10 +601,10 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
           )}
           {payload.kiddings_due.length < (payload.kiddings_due_total ?? 0) && (
             <p className="pt-3 text-sm text-muted-foreground">
-              Showing {payload.kiddings_due.length} of {payload.kiddings_due_total}.{" "}
+              {t("dashboard.showingOf", { shown: payload.kiddings_due.length, total: payload.kiddings_due_total ?? 0 })}{" "}
               {can("kidding.view") && (
                 <Link href="/kidding" className="text-primary underline">
-                  View the {vocabulary.parturition} register
+                  {t("dashboard.kiddings.viewRegister")}
                 </Link>
               )}
             </p>
@@ -613,15 +614,15 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
         <DataTableCard
           title={
             !tasksWithheld
-              ? `Ultrasounds due in 7 days (${ultrasoundsDueTotal ?? 0})`
-              : "Ultrasounds due in 7 days"
+              ? t("dashboard.ultrasounds.titleCount", { count: ultrasoundsDueTotal ?? 0 })
+              : t("dashboard.ultrasounds.title")
           }
           actions={can("breeding.view") ? (
             <Link
               href="/breeding"
               className={buttonVariants({ variant: "ghost", size: "sm" })}
             >
-              Breeding
+              {t("dashboard.breedingLink")}
             </Link>
           ) : undefined}
         >
@@ -631,36 +632,36 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
                 pregnancy checks (RT-P7-1). */
             <EmptyState
               icon={ScanLine}
-              title="Ultrasounds require tasks access."
-              description="Ask an admin to grant tasks.view to see pregnancy-check scans due here."
+              title={t("dashboard.ultrasounds.withheldTitle")}
+              description={t("dashboard.ultrasounds.withheldDescription")}
             />
           ) : ultrasoundsDue.length === 0 ? (
-            <EmptyState icon={ScanLine} title="No ultrasounds due." description="Pregnancy-check scans scheduled in the next 7 days appear here." className="py-8" />
+            <EmptyState icon={ScanLine} title={t("dashboard.ultrasounds.empty")} description={t("dashboard.ultrasounds.emptyDescription")} className="py-8" />
           ) : (
             <Table>
               <TableHeader className="sr-only">
-                <TableRow><th scope="col">Due</th><th scope="col">Task</th><th scope="col">Record result</th></TableRow>
+                <TableRow><th scope="col">{t("dashboard.col.due")}</th><th scope="col">{t("dashboard.col.task")}</th><th scope="col">{t("dashboard.ultrasounds.recordResult")}</th></TableRow>
               </TableHeader>
               <TableBody>
-                {ultrasoundsDue.map((t) => (
-                  <TableRow key={t.id}>
+                {ultrasoundsDue.map((task) => (
+                  <TableRow key={task.id}>
                     <TableCell>
-                      {formatDate(t.due_date)}
-                      {t.due_date < today && (
+                      {formatDate(task.due_date)}
+                      {task.due_date < today && (
                         <span className="text-destructive">
                           {" "}
-                          ({daysBetween(t.due_date, today)}d late)
+                          {t("tasks.daysLate", { days: daysBetween(task.due_date, today) })}
                         </span>
                       )}
                     </TableCell>
-                    <TableCell>{resolveTaskTitle(t, language)}</TableCell>
+                    <TableCell>{resolveTaskTitle(task, language)}</TableCell>
                     <TableCell className="text-right">
                       <TaskLink
-                        task={t}
-                        fallbackHref={taskTabHref(t.due_date, today)}
+                        task={task}
+                        fallbackHref={taskTabHref(task.due_date, today)}
                         returnTo="/dashboard"
                         can={can}
-                        label="Record result"
+                        label={t("dashboard.ultrasounds.recordResult")}
                       />
                     </TableCell>
                   </TableRow>
@@ -671,7 +672,7 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
           {!tasksWithheld &&
             ultrasoundsDue.length < (ultrasoundsDueTotal ?? ultrasoundsDue.length) && (
             <p className="pt-3 text-sm text-muted-foreground">
-              Showing {ultrasoundsDue.length} of {ultrasoundsDueTotal}.
+              {t("dashboard.showingOf", { shown: ultrasoundsDue.length, total: ultrasoundsDueTotal ?? 0 })}
             </p>
           )}
         </DataTableCard>
@@ -682,14 +683,14 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
             the herd has nothing ready to move (M-1). */}
         <DataTableCard
           title={
-            !suggestionsWithheld ? `Ready to move (${payload.suggestions_total})` : "Ready to move"
+            !suggestionsWithheld ? t("dashboard.suggestions.titleCount", { count: payload.suggestions_total ?? 0 }) : t("dashboard.suggestions.title")
           }
           actions={canViewAnimals ? (
             <Link
               href="/animals"
               className={buttonVariants({ variant: "ghost", size: "sm" })}
             >
-              View herd
+              {t("dashboard.suggestions.viewHerd")}
             </Link>
           ) : undefined}
           contentClassName="space-y-3"
@@ -697,15 +698,15 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
           {suggestionsWithheld ? (
             <EmptyState
               icon={MoveRight}
-              title="Move suggestions require animal and breeding access."
-              description="Ask an admin to grant animals.view and breeding.view to see which animals are ready to move."
+              title={t("dashboard.suggestions.withheldTitle")}
+              description={t("dashboard.suggestions.withheldDescription")}
             />
           ) : payload.suggestions.length === 0 ? (
-            <EmptyState icon={MoveRight} title="No move suggestions." description="When an animal is ready for the next pen, the move appears here." className="py-8" />
+            <EmptyState icon={MoveRight} title={t("dashboard.suggestions.empty")} description={t("dashboard.suggestions.emptyDescription")} className="py-8" />
           ) : (
             <Table>
               <TableHeader className="sr-only">
-                <TableRow><th scope="col">Animal</th><th scope="col">Reason</th><th scope="col">Move to</th></TableRow>
+                <TableRow><th scope="col">{t("dashboard.col.animal")}</th><th scope="col">{t("dashboard.col.reason")}</th><th scope="col">{t("dashboard.col.moveTo")}</th></TableRow>
               </TableHeader>
               <TableBody>
                 {payload.suggestions.map((s) => (
@@ -736,7 +737,7 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
           )}
           {!suggestionsWithheld && payload.suggestions.length < (payload.suggestions_total ?? 0) && (
             <p className="text-sm text-muted-foreground">
-              Showing {payload.suggestions.length} of {payload.suggestions_total} move suggestions.
+              {t("dashboard.suggestions.showingOf", { shown: payload.suggestions.length, total: payload.suggestions_total ?? 0 })}
             </p>
           )}
           {/* null = withheld (no breeding access); the banner only ever
@@ -748,13 +749,13 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
             <p className="flex items-center gap-2 rounded-lg bg-warning-tint px-3 py-2 text-sm text-warning-tint-foreground">
               <TriangleAlert className="size-4 shrink-0" aria-hidden="true" />
               <span>
-                {payload.cull_candidates_total} cull candidate(s) —{" "}
+                {t("dashboard.cull.bannerPrefix", { count: payload.cull_candidates_total ?? 0 })}{" "}
                 {can("breeding.view") ? (
                   <Link href="/breeding" className="underline">
-                    see breeding page
+                    {t("dashboard.cull.seeBreeding")}
                   </Link>
                 ) : (
-                  "flagged in breeding records"
+                  t("dashboard.cull.flaggedInRecords")
                 )}
               </span>
             </p>
@@ -769,23 +770,22 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
             banner: no alarm fatigue when nobody is held). */}
         {!animalsWithheld && (payload.restricted_animals_total ?? 0) > 0 && (
           <DataTableCard
-            title={`Movement restrictions (${payload.restricted_animals_total})`}
+            title={t("dashboard.restrictions.title", { count: payload.restricted_animals_total ?? 0 })}
             contentClassName="space-y-3"
           >
             <p className="flex items-center gap-2 rounded-lg bg-warning-tint px-3 py-2 text-sm text-warning-tint-foreground">
               <TriangleAlert className="size-4 shrink-0" aria-hidden="true" />
               <span>
-                These animals cannot move, breed or be sold until a vet records a
-                referenced clearance.
+                {t("dashboard.restrictions.banner")}
               </span>
             </p>
             <Table>
               <TableHeader className="sr-only">
                 <TableRow>
-                  <th scope="col">Animal</th>
-                  <th scope="col">Bucket</th>
-                  <th scope="col">Held since</th>
-                  <th scope="col">Reason</th>
+                  <th scope="col">{t("dashboard.col.animal")}</th>
+                  <th scope="col">{t("dashboard.col.bucket")}</th>
+                  <th scope="col">{t("dashboard.col.heldSince")}</th>
+                  <th scope="col">{t("dashboard.col.reason")}</th>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -820,8 +820,7 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
             </Table>
             {payload.restricted_animals.length < (payload.restricted_animals_total ?? 0) && (
               <p className="text-sm text-muted-foreground">
-                Showing {payload.restricted_animals.length} of{" "}
-                {payload.restricted_animals_total} held animals.
+                {t("dashboard.restrictions.showingOf", { shown: payload.restricted_animals.length, total: payload.restricted_animals_total ?? 0 })}
               </p>
             )}
           </DataTableCard>
@@ -832,16 +831,16 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
             like the cull banner: no alarm fatigue when nothing expires. */}
         {!insuranceWithheld && (payload.insurance_expiring_total ?? 0) > 0 && (
           <DataTableCard
-            title={`Insurance renewals due soon (${payload.insurance_expiring_total})`}
+            title={t("dashboard.insurance.title", { count: payload.insurance_expiring_total ?? 0 })}
             contentClassName="space-y-3"
           >
             <Table>
               <TableHeader className="sr-only">
                 <TableRow>
-                  <th scope="col">Policy</th>
-                  <th scope="col">Insurer</th>
-                  <th scope="col">Animal</th>
-                  <th scope="col">Renewal date</th>
+                  <th scope="col">{t("dashboard.col.policy")}</th>
+                  <th scope="col">{t("dashboard.col.insurer")}</th>
+                  <th scope="col">{t("dashboard.col.animal")}</th>
+                  <th scope="col">{t("dashboard.col.renewalDate")}</th>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -858,11 +857,11 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
                        * "(in -5d)" nonsense (2026-09-20 audit P2-18). */}
                       {policy.renewal_date >= today ? (
                         <span className="text-warning-tint-foreground">
-                          (in {daysBetween(today, policy.renewal_date)}d)
+                          {t("dashboard.insurance.inDays", { days: daysBetween(today, policy.renewal_date) })}
                         </span>
                       ) : (
                         <span className="text-destructive">
-                          ({daysBetween(policy.renewal_date, today)}d overdue)
+                          {t("dashboard.insurance.overdue", { days: daysBetween(policy.renewal_date, today) })}
                         </span>
                       )}
                     </TableCell>
@@ -873,7 +872,7 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
             {canViewFinance && (
               <p className="text-sm text-muted-foreground">
                 <Link href="/finance/insurance" className="text-primary underline">
-                  View the insurance register
+                  {t("dashboard.insurance.viewRegister")}
                 </Link>
               </p>
             )}
@@ -882,14 +881,14 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
       </div>
 
       <section className="order-7 space-y-3 md:order-none">
-        <h2 className="font-heading text-lg font-semibold">Herd by bucket</h2>
+        <h2 className="font-heading text-lg font-semibold">{t("dashboard.buckets.title")}</h2>
         {/* null = withheld (no animals access): say so rather than painting an
             empty herd around a hollow donut (RT-P7-1). */}
         {animalsWithheld || bucketCounts === null ? (
           <EmptyState
             icon={Boxes}
-            title="Bucket counts require animals access."
-            description="Ask an admin to grant animals.view to see the herd by bucket here."
+            title={t("dashboard.buckets.withheldTitle")}
+            description={t("dashboard.buckets.withheldDescription")}
           />
         ) : (
           <Card>
@@ -897,7 +896,7 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
               <Donut
                 slices={bucketCounts.map((b) => ({ label: b.name, value: b.count }))}
                 centerValue={totalActive ?? 0}
-                centerLabel="active animals"
+                centerLabel={t("dashboard.buckets.centerLabel")}
                 showLegend={false}
               />
               <ul className="space-y-1">
@@ -946,7 +945,7 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
       </section>
 
       <section className="order-8 space-y-3 md:order-none">
-        <h2 className="font-heading text-lg font-semibold">Recent weight records</h2>
+        <h2 className="font-heading text-lg font-semibold">{t("dashboard.weights.title")}</h2>
         {/* null = withheld (no animals.view); a real 0 renders as a genuine
             empty state, not this permission notice. The combined
             animalsWithheld gate (permission OR sentinel) owns the decision
@@ -954,21 +953,21 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
         {animalsWithheld || payload.recent_weights_total === null ? (
           <EmptyState
             icon={Scale}
-            title="Weight records require animals access."
-            description="Ask an admin to grant animals.view to see recent weight records here."
+            title={t("dashboard.weights.withheldTitle")}
+            description={t("dashboard.weights.withheldDescription")}
           />
         ) : recentWeights.length === 0 ? (
           <EmptyState
             icon={Scale}
-            title="No weight records yet."
-            description="Weights you record will show up here."
+            title={t("dashboard.weights.empty")}
+            description={t("dashboard.weights.emptyDescription")}
           >
             {canViewAnimals && can("animals.create") && (
               <Link
                 href="/animals/new"
                 className={buttonVariants({ variant: "outline", size: "sm" })}
               >
-                Add your first animal
+                {t("dashboard.weights.addFirst")}
               </Link>
             )}
           </EmptyState>
@@ -977,11 +976,11 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Animal</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Weight</TableHead>
+                  <TableHead>{t("dashboard.col.animal")}</TableHead>
+                  <TableHead>{t("dashboard.col.date")}</TableHead>
+                  <TableHead>{t("dashboard.col.weight")}</TableHead>
                   <TableHead>BCS</TableHead>
-                  <TableHead>Notes</TableHead>
+                  <TableHead>{t("dashboard.col.notes")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1011,8 +1010,7 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
         )}
         {recentWeights.length < (payload.recent_weights_total ?? 0) && (
           <p className="text-sm text-muted-foreground">
-            Showing {recentWeights.length} of {payload.recent_weights_total} recent weight
-            records.
+            {t("dashboard.weights.showingOf", { shown: recentWeights.length, total: payload.recent_weights_total ?? 0 })}
           </p>
         )}
       </section>

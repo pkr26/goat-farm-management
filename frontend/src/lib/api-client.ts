@@ -407,17 +407,36 @@ export function authSessionEpochValue(): number {
 export class ApiError extends Error {
   status: number;
   detail: string;
+  /** Machine-readable error code the backend attaches to the four
+   *  highest-stakes statuses (401/403/422/429 — see server-error-phrases);
+   *  null when the response carried none (other statuses, proxy pages). */
+  readonly code: string | null;
   /** Structured FastAPI 422 issues, preserved next to the flattened
    *  `detail` sentence so form surfaces can map them onto their inputs.
    *  Empty for every other error shape/status. */
   readonly validationIssues: ApiValidationIssue[];
 
-  constructor(status: number, detail: string, validationIssues: ApiValidationIssue[] = []) {
+  constructor(
+    status: number,
+    detail: string,
+    validationIssues: ApiValidationIssue[] = [],
+    code: string | null = null,
+  ) {
     super(detail);
     this.status = status;
     this.detail = detail;
     this.validationIssues = validationIssues;
+    this.code = code;
   }
+}
+
+/** The backend's stable error `code` field (string), when present. */
+function extractErrorCode(body: unknown): string | null {
+  if (body && typeof body === "object" && "code" in body) {
+    const code = (body as { code: unknown }).code;
+    if (typeof code === "string" && code.length > 0) return code;
+  }
+  return null;
 }
 
 /** One FastAPI validation error entry: `loc` is the JSON path of the
@@ -823,6 +842,7 @@ async function apiResponseOnce(
       extractDetail(body, resp.statusText || `Request failed (${resp.status}).`, resp.status),
       // Only 422s carry the per-field array the form mapper consumes.
       resp.status === 422 ? extractValidationIssues(body) : [],
+      extractErrorCode(body),
     );
   }
   // Fully consume and validate protected successful JSON bodies before their

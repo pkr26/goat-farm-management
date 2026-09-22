@@ -95,6 +95,7 @@ function DutyCard({
           <Link
             href={withReturnTo(actionPath, "/worker")}
             className="inline-flex min-h-11 items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium"
+            data-testid={`open-form-${task.id}`}
           >
             <ExternalLink aria-hidden className="size-4" /> {t("worker.openForm")}
           </Link>

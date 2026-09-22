@@ -169,6 +169,9 @@ test.describe.serial("frontend proxy domain API contracts", () => {
       sale_price: 425.5,
       buyer_name: "Contract buyer",
       notes: "Verified through the Next rewrite",
+      // The meat-sale age floor requires a provable age: this fixture male
+      // has no birth date, so the sale carries the estimate itself.
+      estimated_dob: farmDate({ months: -24 }),
     } satisfies StatusChangeIn;
 
     const changed = await jsonResponse<AnimalOut>(
@@ -385,6 +388,9 @@ test.describe.serial("frontend proxy domain API contracts", () => {
       target_animals: [
         { id: purchased.id, tag_number: purchased.tag_number, name: purchased.name },
       ],
+      // Purchased stock carries no birth date: age is unknown (null), which
+      // the preview surfaces per target.
+      target_animal_ages_months: [null],
       target_count: 1,
       max_targets: expect.any(Number),
     });
@@ -895,6 +901,9 @@ test.describe.serial("frontend proxy domain API contracts", () => {
     await emptyResponse(
       await request.delete(`/api/simulation/scenarios/${second.id}`, {
         headers: farmHeaders,
+        // Scenario writes carry optimistic concurrency: the delete must
+        // name the revision it believes it is removing.
+        params: { expected_revision: second.revision },
       }),
       204,
     );

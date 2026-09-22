@@ -156,7 +156,7 @@ class ScreeningImage(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
     # Herd bucket (pen) the photo was taken in — from the upload flow or the
     # raw/<farm>/<date>/<bucket>/ key segment; null for legacy whole-farm

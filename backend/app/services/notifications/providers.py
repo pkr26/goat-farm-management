@@ -52,25 +52,33 @@ class ConsoleNotificationProvider:
 
 
 class Msg91Provider:
-    """MSG91 SMS over its flow API. One template-free text per send."""
+    """MSG91 SMS over its flow API. One template-free text per send.
+
+    ``template_id`` (optional) selects a registered DLT template instead of
+    the template-free ``dlt_manual`` route.
+    """
 
     name = "msg91"
 
-    def __init__(self, auth_key: str, sender_id: str) -> None:
+    def __init__(self, auth_key: str, sender_id: str, template_id: str | None = None) -> None:
         self._auth_key = auth_key
         self._sender_id = sender_id
+        self._template_id = template_id
 
     async def send_sms(self, phone: str, message: str) -> DeliveryResult:
+        body: dict[str, object] = {
+            "sender": self._sender_id,
+            "route": "dlt_manual",
+            "recipients": [{"mobiles": phone, "MESSAGE": message}],
+        }
+        if self._template_id:
+            body["template_id"] = self._template_id
         try:
             async with httpx.AsyncClient(timeout=MSG91_TIMEOUT_SECONDS) as client:
                 response = await client.post(
                     MSG91_SEND_URL,
                     headers={"authkey": self._auth_key},
-                    json={
-                        "sender": self._sender_id,
-                        "route": "dlt_manual",
-                        "recipients": [{"mobiles": phone, "MESSAGE": message}],
-                    },
+                    json=body,
                 )
             response.raise_for_status()
             payload = response.json()
@@ -87,5 +95,9 @@ def build_notification_provider(settings: Settings) -> NotificationProvider:
         auth_key = settings.msg91_auth_key
         if auth_key is None:
             raise ValueError("notifications_provider=msg91 requires GOATFARM_MSG91_AUTH_KEY")
-        return Msg91Provider(auth_key.get_secret_value(), settings.msg91_sender_id)
+        return Msg91Provider(
+            auth_key.get_secret_value(),
+            settings.msg91_sender_id,
+            settings.msg91_template_id,
+        )
     return ConsoleNotificationProvider()

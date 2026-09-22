@@ -98,6 +98,12 @@ class Transaction(Base):
         Index("ix_transactions_related_animal_id", "related_animal_id"),
     )
     id: Mapped[int] = mapped_column(primary_key=True)
+    # The farm_id single is kept deliberately (2026-09-21 index review):
+    # the farm-leading composites on this table are FULL indexes, not
+    # partial ones (b1c3d5e7f9a2's docstring overstates that), so this
+    # single is redundant for tenant reads — retained conservatively for
+    # FK-enforcement and unscoped maintenance scans; a later revision may
+    # drop it.
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
     # No single-column date index: every ledger query is tenant-scoped and
     # walks ix_transactions_farm_date_id (see the 2026-09-21 index-hygiene
@@ -298,6 +304,7 @@ class InsurancePremium(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # farm_id single kept deliberately — see the matching note on Transaction.
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
     policy_id: Mapped[int] = mapped_column(ForeignKey("insurance_policies.id"))
     premium: Mapped[Decimal] = mapped_column(Numeric(12, 2))

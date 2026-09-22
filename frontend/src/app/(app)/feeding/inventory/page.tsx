@@ -53,6 +53,7 @@ import { ApiError } from "@/lib/api-client";
 import { mutationError } from "@/lib/mutations";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { formatMoney } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import {
   formatPersistedKg,
@@ -124,6 +125,7 @@ type AddStockValues = z.output<typeof addStockSchema>;
 function AddStockDialog({ item, touch = false }: { item: FeedInventoryOut; touch?: boolean }) {
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
+  const t = useT();
   const mut = useAddStockApiFeedingInventoryItemIdAddPost();
   const addFlight = useSingleFlight();
   const {
@@ -147,8 +149,11 @@ function AddStockDialog({ item, touch = false }: { item: FeedInventoryOut; touch
         if (!farmScope()) return;
         toast.success(
           res.status === 200
-            ? `Stock added — ${item.ingredient} is now at ${formatPersistedKg(res.data.qty_on_hand)} kg.`
-            : `Stock added — ${item.ingredient}.`,
+            ? t("feedingInventory.stockAddedToast", {
+                ingredient: item.ingredient,
+                kg: formatPersistedKg(res.data.qty_on_hand),
+              })
+            : t("feedingInventory.stockAddedSimpleToast", { ingredient: item.ingredient }),
         );
         invalidateFarmData(queryClient);
         reset();
@@ -171,19 +176,19 @@ function AddStockDialog({ item, touch = false }: { item: FeedInventoryOut; touch
         disabled={addFlight.pending}
         onClick={() => setOpen(true)}
       >
-        Add stock
+        {t("feedingInventory.addStock")}
       </Button>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Add stock — {item.ingredient}</DialogTitle>
+          <DialogTitle>
+            {t("feedingInventory.addStockTitle", { ingredient: item.ingredient })}
+          </DialogTitle>
         </DialogHeader>
-        <p className="text-sm text-muted-foreground">
-          Adding stock with a price books a FEED expense automatically.
-        </p>
+        <p className="text-sm text-muted-foreground">{t("feedingInventory.addStockHint")}</p>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
           <fieldset disabled={isSubmitting || addFlight.pending} className="contents">
           <div className="space-y-1.5">
-            <Label htmlFor={`qty-${item.id}`}>Quantity (kg) *</Label>
+            <Label htmlFor={`qty-${item.id}`}>{t("feedingInventory.qtyLabel")}</Label>
             <Input
               id={`qty-${item.id}`}
               type="number"
@@ -200,7 +205,7 @@ function AddStockDialog({ item, touch = false }: { item: FeedInventoryOut; touch
             )}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor={`price-${item.id}`}>Price per kg (₹, optional)</Label>
+            <Label htmlFor={`price-${item.id}`}>{t("feedingInventory.priceLabel")}</Label>
             <Input
               id={`price-${item.id}`}
               type="number"
@@ -220,7 +225,9 @@ function AddStockDialog({ item, touch = false }: { item: FeedInventoryOut; touch
           </div>
           <DialogFooter>
             <Button type="submit" disabled={isSubmitting || addFlight.pending}>
-              {isSubmitting || addFlight.pending ? "Adding…" : "Add"}
+              {isSubmitting || addFlight.pending
+                ? t("feedingInventory.adding")
+                : t("feedingInventory.add")}
             </Button>
           </DialogFooter>
           </fieldset>
@@ -256,6 +263,7 @@ function MixBatchDialog({
 }) {
   const [shortage, setShortage] = useState<string | null>(null);
   const queryClient = useQueryClient();
+  const t = useT();
   const mut = useMixBatchApiFeedingMixPost();
   const mixFlight = flight;
 
@@ -300,7 +308,7 @@ function MixBatchDialog({
       try {
         await mut.mutateAsync({ data: { recipe_code: values.recipe_code, batch_kg: values.batches * 100 } });
         if (!farmScope()) return;
-        toast.success(`Mixed ${values.batches * 100} kg — inventory decremented.`);
+        toast.success(t("feedingInventory.mixedToast", { kg: values.batches * 100 }));
         invalidateFarmData(queryClient);
         reset();
         onOpenChange(false);
@@ -326,32 +334,31 @@ function MixBatchDialog({
     >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Mix a recipe batch</DialogTitle>
+          <DialogTitle>{t("feedingInventory.mixTitle")}</DialogTitle>
         </DialogHeader>
-        <p className="text-sm text-muted-foreground">
-          One batch is 100 kg of mixed feed. Stock is decremented per the recipe&apos;s ingredient
-          lines.
-        </p>
+        <p className="text-sm text-muted-foreground">{t("feedingInventory.mixHint")}</p>
         {shortage && (
           <p className="rounded-md border border-warning/40 bg-warning-tint/50 p-3 text-sm text-warning-tint-foreground">
-            Cannot mix — insufficient stock: {shortage}
+            {t("feedingInventory.cannotMix", { detail: shortage })}
           </p>
         )}
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
           <fieldset disabled={isSubmitting || mixFlight.pending} className="contents">
           <div className="space-y-1.5">
-            <Label htmlFor="mix-recipe">Recipe</Label>
-            {recipesQuery.isLoading && <InlineLoading>Loading recipes…</InlineLoading>}
+            <Label htmlFor="mix-recipe">{t("feedingInventory.recipe")}</Label>
+            {recipesQuery.isLoading && (
+              <InlineLoading>{t("feedingInventory.loadingRecipes")}</InlineLoading>
+            )}
             {recipesQuery.isError && (
               <div role="alert" className="space-y-2 text-sm text-destructive">
-                <p>Could not load recipes. Retry before mixing a batch.</p>
+                <p>{t("feedingInventory.recipesLoadFailed")}</p>
                 <Button
                   type="button"
                   size="sm"
                   variant="outline"
                   onClick={() => void recipesQuery.refetch()}
                 >
-                  Retry recipes
+                  {t("feedingInventory.retryRecipes")}
                 </Button>
               </div>
             )}
@@ -362,7 +369,7 @@ function MixBatchDialog({
               disabled={recipesQuery.isLoading || recipesQuery.isError}
             >
               <SelectTrigger id="mix-recipe" className="w-full">
-                <SelectValue placeholder="recipe…" />
+                <SelectValue placeholder={t("feedingInventory.recipePlaceholder")} />
               </SelectTrigger>
               <SelectContent>
                 {recipes.map((r) => (
@@ -379,7 +386,7 @@ function MixBatchDialog({
             )}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="batches">Batches (1–50, each 100 kg)</Label>
+            <Label htmlFor="batches">{t("feedingInventory.batchesLabel")}</Label>
             <Input
               id="batches"
               type="number"
@@ -407,7 +414,9 @@ function MixBatchDialog({
                 recipesQuery.isError
               }
             >
-              {isSubmitting || mixFlight.pending ? "Mixing…" : "Mix batch"}
+              {isSubmitting || mixFlight.pending
+                ? t("feedingInventory.mixing")
+                : t("feedingInventory.mixBatch")}
             </Button>
           </DialogFooter>
           </fieldset>
@@ -419,12 +428,13 @@ function MixBatchDialog({
 
 export default function InventoryPage() {
   const perms = usePermissions();
+  const t = useT();
   return (
     <PermissionGate
       perms={perms}
       perm="feeding.view"
-      label="Feed inventory"
-      description="Ingredient stock and ready-to-dispense mixed feed."
+      label={t("feedingInventory.title")}
+      description={t("feedingInventory.description")}
       cards={2}
     >
       <InventoryPageContent perms={perms} />
@@ -434,6 +444,7 @@ export default function InventoryPage() {
 
 function InventoryPageContent({ perms }: { perms: PermissionsState }) {
   const { can } = perms;
+  const t = useT();
   const allowed = can("feeding.view");
   const canManage = can("feeding.manage");
   /** One mix dialog shared by the header action and the empty-state CTA. */
@@ -452,11 +463,11 @@ function InventoryPageContent({ perms }: { perms: PermissionsState }) {
     return (
       <div className="space-y-6">
         <PageHeader
-          title="Feed inventory"
-          description="Ingredient stock and ready-to-dispense mixed feed."
+          title={t("feedingInventory.title")}
+          description={t("feedingInventory.description")}
         />
         <div role="status" aria-live="polite">
-          <span className="sr-only">Loading feed inventory…</span>
+          <span className="sr-only">{t("feedingInventory.loading")}</span>
           <PageSkeleton cards={2} />
         </div>
       </div>
@@ -466,8 +477,8 @@ function InventoryPageContent({ perms }: { perms: PermissionsState }) {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Feed inventory"
-        description="Ingredient stock and ready-to-dispense mixed feed."
+        title={t("feedingInventory.title")}
+        description={t("feedingInventory.description")}
         actions={
           canManage && (
             <Button
@@ -475,7 +486,7 @@ function InventoryPageContent({ perms }: { perms: PermissionsState }) {
               disabled={mixFlight.pending}
               onClick={() => setMixOpen(true)}
             >
-              Mix batch
+              {t("feedingInventory.mixBatch")}
             </Button>
           )
         }
@@ -483,25 +494,25 @@ function InventoryPageContent({ perms }: { perms: PermissionsState }) {
 
       <FeedingNav active="inventory" />
 
-      <DataTableCard title="Stock on hand">
+      <DataTableCard title={t("feedingInventory.stockOnHand")}>
         {query.isError ? (
           <div role="alert" className="space-y-3">
             <p className="text-sm text-destructive">
               {query.error instanceof ApiError
                 ? query.error.detail
-                : "Could not load feed inventory."}
+                : t("feedingInventory.loadFailed")}
             </p>
             <Button type="button" variant="outline" onClick={() => void query.refetch()}>
-              Retry inventory
+              {t("feedingInventory.retry")}
             </Button>
           </div>
         ) : items === undefined ? (
-          <InlineLoading className="py-4">Loading feed inventory…</InlineLoading>
+          <InlineLoading className="py-4">{t("feedingInventory.loading")}</InlineLoading>
         ) : items.length === 0 ? (
           <EmptyState
             icon={Package}
-            title="No feed inventory items yet."
-            description="Ingredients appear here once the first feed purchase is recorded."
+            title={t("feedingInventory.empty.title")}
+            description={t("feedingInventory.empty.description")}
           />
         ) : (
           <>
@@ -527,14 +538,17 @@ function InventoryPageContent({ perms }: { perms: PermissionsState }) {
                       {low && (
                         <span className="ml-1.5 inline-flex items-center align-middle text-warning">
                           <TriangleAlert className="size-4" />
-                          <span className="sr-only">low</span>
+                          <span className="sr-only">{t("feedingInventory.low")}</span>
                         </span>
                       )}
                     </span>
                   </div>
                   <p className="text-xs text-muted-foreground tabular-nums">
-                    {item.category} · Reorder at {item.reorder_level ?? "—"} kg · Last price{" "}
-                    {formatMoney(item.last_purchase_price_per_kg)}/kg
+                    {t("feedingInventory.cardMeta", {
+                      category: item.category,
+                      level: item.reorder_level ?? "—",
+                      price: formatMoney(item.last_purchase_price_per_kg),
+                    })}
                   </p>
                   {canManage && (
                     <div className="pt-0.5">
@@ -549,11 +563,11 @@ function InventoryPageContent({ perms }: { perms: PermissionsState }) {
           <Table className="min-w-[640px]">
             <TableHeader>
               <TableRow>
-                <TableHead>Category</TableHead>
-                <TableHead>Ingredient</TableHead>
-                <TableHead className="text-right">On hand (kg)</TableHead>
-                <TableHead className="text-right">Reorder at</TableHead>
-                <TableHead className="text-right">Last price / kg</TableHead>
+                <TableHead>{t("feedingInventory.col.category")}</TableHead>
+                <TableHead>{t("feedingInventory.col.ingredient")}</TableHead>
+                <TableHead className="text-right">{t("feedingInventory.col.onHand")}</TableHead>
+                <TableHead className="text-right">{t("feedingInventory.col.reorderAt")}</TableHead>
+                <TableHead className="text-right">{t("feedingInventory.col.lastPrice")}</TableHead>
                 {canManage && <TableHead />}
               </TableRow>
             </TableHeader>
@@ -572,7 +586,7 @@ function InventoryPageContent({ perms }: { perms: PermissionsState }) {
                       {low && (
                         <span className="ml-2 inline-flex items-center align-middle text-warning">
                           <TriangleAlert className="size-4" />
-                          <span className="sr-only">low</span>
+                          <span className="sr-only">{t("feedingInventory.low")}</span>
                         </span>
                       )}
                     </TableCell>
@@ -597,22 +611,22 @@ function InventoryPageContent({ perms }: { perms: PermissionsState }) {
         )}
       </DataTableCard>
       <DataTableCard
-        title="Ready-to-dispense mixed feed"
-        description="Mixing adds to these recipe balances; recording a recipe dispense deducts from them."
+        title={t("feedingInventory.readyTitle")}
+        description={t("feedingInventory.readyDescription")}
       >
         {finishedQuery.isLoading ? (
-          <InlineLoading className="py-4">Loading mixed-feed stock…</InlineLoading>
+          <InlineLoading className="py-4">{t("feedingInventory.loadingFinished")}</InlineLoading>
         ) : finishedQuery.isError ? (
           <p role="alert" className="text-sm text-destructive">
             {finishedQuery.error instanceof ApiError
               ? finishedQuery.error.detail
-              : "Could not load mixed-feed stock."}
+              : t("feedingInventory.finishedLoadFailed")}
           </p>
         ) : !finishedStock || finishedStock.length === 0 ? (
           <EmptyState
             icon={Package}
-            title="No mixed feed is ready."
-            description="Use Mix batch to turn ingredient stock into a ready recipe balance."
+            title={t("feedingInventory.emptyFinished.title")}
+            description={t("feedingInventory.emptyFinished.description")}
           >
             {canManage && (
               <Button
@@ -622,7 +636,7 @@ function InventoryPageContent({ perms }: { perms: PermissionsState }) {
                 disabled={mixFlight.pending}
                 onClick={() => setMixOpen(true)}
               >
-                Mix your first batch
+                {t("feedingInventory.mixFirstBatch")}
               </Button>
             )}
           </EmptyState>
@@ -630,9 +644,9 @@ function InventoryPageContent({ perms }: { perms: PermissionsState }) {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Recipe</TableHead>
-                <TableHead>Code</TableHead>
-                <TableHead className="text-right">Ready (kg)</TableHead>
+                <TableHead>{t("feedingInventory.col.recipe")}</TableHead>
+                <TableHead>{t("feedingInventory.col.code")}</TableHead>
+                <TableHead className="text-right">{t("feedingInventory.col.ready")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -649,10 +663,7 @@ function InventoryPageContent({ perms }: { perms: PermissionsState }) {
           </Table>
         )}
       </DataTableCard>
-      <p className="text-sm text-muted-foreground">
-        Mixing a recipe batch decrements stock per recipe lines. Purchases with a price book a FEED
-        expense automatically.
-      </p>
+      <p className="text-sm text-muted-foreground">{t("feedingInventory.footnote")}</p>
 
       {canManage && <MixBatchDialog open={mixOpen} onOpenChange={setMixOpen} flight={mixFlight} />}
     </div>

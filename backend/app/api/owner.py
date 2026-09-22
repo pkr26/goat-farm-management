@@ -17,7 +17,6 @@ owned-farm set (never a per-farm request loop), bounded by
 evaluated in the FARM's own timezone inside SQL, not the deployment default.
 """
 
-from datetime import timedelta
 from decimal import Decimal
 from typing import Annotated, Any
 
@@ -50,7 +49,6 @@ from ..schemas.owner import (
     OwnerFarmOverviewOut,
     OwnerOverviewOut,
 )
-from ..utils import today
 
 router = APIRouter(prefix="/api/owner", tags=["owner"], responses=COMMON_ERROR_RESPONSES)
 
@@ -267,7 +265,9 @@ async def owner_benchmarks(
     ).all()
 
     # Daily gain: per animal (max-min weight)/(days between), averaged per
-    # farm — animals weighed once contribute nothing.
+    # farm. Scoped to the owned farms and each farm's local calendar like
+    # every other benchmark; animals weighed once contribute nothing
+    # (HAVING count >= 2 — a single weighing has no interval to gain over).
     weight_window = (
         select(
             WeightRecord.farm_id.label("farm_id"),
@@ -277,8 +277,13 @@ async def owner_benchmarks(
             func.min(WeightRecord.date).label("first_date"),
             func.max(WeightRecord.date).label("last_date"),
         )
-        .where(WeightRecord.date >= today() - timedelta(days=days))
+        .join(Farm, WeightRecord.farm_id == Farm.id)
+        .where(
+            WeightRecord.farm_id.in_(farm_ids),
+            WeightRecord.date >= window_start,
+        )
         .group_by(WeightRecord.farm_id, WeightRecord.animal_id)
+        .having(func.count() >= 2)
         .subquery()
     )
     gain_rows = (
@@ -313,13 +318,15 @@ async def owner_benchmarks(
         )
     ).all()
 
-    # Realized margin per animal sold in the window.
+    # Realized margin per animal sold in the window. Home-bred stock has no
+    # purchase price; treating an absent purchase cost as ₹0 keeps those
+    # sales in the average instead of silently dropping them.
     sale_rows = (
         await db.execute(
             select(
                 Animal.farm_id,
                 func.count(),
-                func.avg(Animal.sale_price - Animal.purchase_price),
+                func.avg(Animal.sale_price - func.coalesce(Animal.purchase_price, 0)),
             )
             .where(
                 Animal.farm_id.in_(farm_ids),

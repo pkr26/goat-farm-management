@@ -1,7 +1,7 @@
 """Notification recipients and the append-only delivery log (ITEM 4).
 
 One row per membership that opted into notifications: the phone number, a
-per-alert-class opt-in bitmap (simple booleans — five classes today), and a
+per-alert-class opt-in bitmap (simple booleans — six classes today), and a
 verification flag (delivery attempts still proceed; the flag records that the
 number was confirmed live by the owner, for audit clarity).
 
@@ -48,6 +48,9 @@ class NotificationRecipient(Base):
     kidding_watch: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     overdue_critical: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     feed_reorder: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    movement_restriction: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
     verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)

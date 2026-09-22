@@ -23,7 +23,7 @@ import pytest
 from app.db import get_sessionmaker
 from app.models import Animal
 
-from .conftest import owner_with_farm
+from .conftest import login_and_rotate, owner_with_farm
 
 
 # ---------------------------------------------------------------------------
@@ -479,3 +479,87 @@ async def test_register_email_probe_lockout_never_blocks_a_fresh_address(
         json={"email": "never-probed-before@farm.in", "password": "freshpass123"},
     )
     assert fresh.status_code == 201, fresh.text
+
+
+# ---------------------------------------------------------------------------
+# ITEM 5 (2026-09-21 playbook): machine-readable ``code`` on mapped errors
+# ---------------------------------------------------------------------------
+async def test_mapped_error_statuses_carry_stable_codes(client: httpx.AsyncClient):
+    """401/403/422 carry a code; 404 deliberately does not (there is nothing
+    machine-actionable to distinguish about "not found")."""
+    # 401 — the request-validation-free auth refusal.
+    unauthenticated = await client.get("/api/auth/me")
+    assert unauthenticated.status_code == 401
+    assert unauthenticated.json()["code"] == "UNAUTHENTICATED"
+
+    owner = await owner_with_farm(client, email="codes-owner@farm.in")
+    role = await client.post(
+        "/api/team/roles",
+        json={"name": "No cross-farm lens", "permissions": ["dashboard.view"]},
+        headers=owner,
+    )
+    assert role.status_code == 201, role.text
+    created = await client.post(
+        "/api/team/workers",
+        json={
+            "email": "codes-worker@farm.in",
+            "role_id": role.json()["id"],
+            "password": "workerpass123",
+            "name": "Codes",
+        },
+        headers=owner,
+    )
+    assert created.status_code == 201, created.text
+    worker = await login_and_rotate(client, "codes-worker@farm.in", "workerpass123")
+
+    # 403 — permission denied (the cross-farm owner lens is ownership-only).
+    forbidden = await client.get("/api/owner/overview", headers=worker)
+    assert forbidden.status_code == 403, forbidden.text
+    assert forbidden.json()["code"] == "PERMISSION_DENIED"
+
+    # 422 (request validation) — the structured detail list is preserved
+    # verbatim; the code rides alongside it.
+    malformed = await client.post(
+        "/api/auth/register", json={"email": "not-an-email", "password": 42}
+    )
+    assert malformed.status_code == 422, malformed.text
+    body = malformed.json()
+    assert body["code"] == "VALIDATION_ERROR"
+    assert isinstance(body["detail"], list) and body["detail"]
+    assert {"type", "loc", "msg"} <= set(body["detail"][0])
+
+    # 422 (deliberate HTTPException rejections) answers the same shape.
+    rejected = await client.get("/api/owner/benchmarks", params={"days": 4000}, headers=owner)
+    assert rejected.status_code == 422, rejected.text
+    assert rejected.json()["code"] == "VALIDATION_ERROR"
+
+    # 404 — no code key at all: only the four mapped statuses carry one.
+    missing = await client.get("/api/animals/999999999", headers=owner)
+    assert missing.status_code == 404
+    assert "code" not in missing.json()
+
+
+async def test_rate_limited_responses_carry_the_code_and_retry_hint(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+):
+    """A 429 carries RATE_LIMITED plus the Retry-After header it always had —
+    the code handler must not swallow response headers."""
+    from app.core.config import get_settings
+    from app.ratelimit import auth_limiter
+
+    monkeypatch.setattr(get_settings(), "auth_rate_limit_enabled", True)
+    auth_limiter.clear()
+    try:
+        throttled = None
+        for _ in range(15):
+            throttled = await client.post(
+                "/api/auth/login",
+                json={"email": "codes-throttle@farm.in", "password": "wrong-pass-1"},
+            )
+            if throttled.status_code == 429:
+                break
+        assert throttled is not None and throttled.status_code == 429, throttled.text
+        assert throttled.json()["code"] == "RATE_LIMITED"
+        assert throttled.headers.get("retry-after")
+    finally:
+        auth_limiter.clear()

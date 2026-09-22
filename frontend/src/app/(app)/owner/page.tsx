@@ -25,24 +25,31 @@ import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/lib/format";
 import { useT } from "@/lib/i18n";
 import { useAuth } from "@/lib/auth-context";
-import { usePermissions } from "@/lib/use-permissions";
 
 const BENCHMARK_WINDOWS = [30, 90, 365] as const;
 
 export default function OwnerPage() {
   const t = useT();
   const router = useRouter();
-  const { selectFarm } = useAuth();
-  const perms = usePermissions();
+  const { selectFarm, farms } = useAuth();
   const [windowDays, setWindowDays] = useState<number>(90);
 
-  const overviewQuery = useOwnerOverviewApiOwnerOverviewGet();
+  // The backend serves owners of >= 1 farm — not just the current farm's
+  // owner — so both the queries and the no-access gate key on the farms
+  // list (role === null marks ownership), never perms.isOwner (which is
+  // current-farm only). Gating the queries also keeps a worker's visit
+  // from firing a doomed 403 request.
+  const ownsAnyFarm = farms.some((f) => f.role === null);
+
+  const overviewQuery = useOwnerOverviewApiOwnerOverviewGet({
+    query: { enabled: ownsAnyFarm },
+  });
   const benchmarksQuery = useOwnerBenchmarksApiOwnerBenchmarksGet(
     { days: windowDays },
-    { query: { enabled: perms.isOwner } },
+    { query: { enabled: ownsAnyFarm } },
   );
 
-  if (!perms.isOwner) {
+  if (!ownsAnyFarm) {
     return (
       <EmptyState
         icon={BarChart3}

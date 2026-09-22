@@ -81,6 +81,10 @@ describe("ADV G2: Content-Security-Policy hardening directives", () => {
     expect(CSP_LIB_SOURCE).toContain("base-uri 'self'");
     expect(CSP_LIB_SOURCE).toContain("form-action 'self'");
     expect(CSP_LIB_SOURCE).toContain("frame-ancestors 'none'");
+    // The worker tablet PWA registers /sw.js and /manifest.webmanifest —
+    // both directives must stay pinned same-origin in the source.
+    expect(CSP_LIB_SOURCE).toContain("worker-src 'self'");
+    expect(CSP_LIB_SOURCE).toContain("manifest-src 'self'");
     // Camera previews use same-page URL.createObjectURL() values before an
     // image reaches S3, so blob: is a narrowly scoped image-only source.
     expect(CSP_LIB_SOURCE).toContain("img-src 'self' data: blob:");

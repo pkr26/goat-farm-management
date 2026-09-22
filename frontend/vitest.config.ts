@@ -34,7 +34,7 @@ export default defineConfig({
       exclude: ["src/**/*.test.{ts,tsx}", "src/api/generated/**", "src/test/**"],
       thresholds: {
         // Global floors sit a few points under the measured totals on main
-        // (2026-09-21: 94.2/93.0/95.2/95.9) so ordinary fluctuation never
+        // (2026-09-22: 93.7/92.5/93.6/95.4) so ordinary fluctuation never
         // fails CI while a real regression still trips them (B7 sanity-check,
         // same honesty fix as the backend fail_under).
         statements: 90,

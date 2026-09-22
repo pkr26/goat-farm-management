@@ -8,10 +8,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef } from "react";
 
 import { InlineLoading } from "@/components/skeletons";
+import { useT } from "@/lib/i18n";
 
 function HealthNewRedirectContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const t = useT();
   const search = searchParams.toString();
   const dispatchedUrl = useRef<string | null>(null);
 
@@ -24,12 +26,13 @@ function HealthNewRedirectContent() {
 
   // A redirect has no page structure to mirror — the shared inline spinner
   // beats a bare "Loading…" paragraph.
-  return <InlineLoading>Opening the health event form…</InlineLoading>;
+  return <InlineLoading>{t("health.newRedirect")}</InlineLoading>;
 }
 
 export default function HealthNewRedirect() {
+  const t = useT();
   return (
-    <Suspense fallback={<InlineLoading>Opening the health event form…</InlineLoading>}>
+    <Suspense fallback={<InlineLoading>{t("health.newRedirect")}</InlineLoading>}>
       <HealthNewRedirectContent />
     </Suspense>
   );

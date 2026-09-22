@@ -1017,7 +1017,7 @@ async def record_event(
     async def mutate() -> HealthEventMutationOut:
         return await _record_event_mutation(payload, db, user, farm, membership)
 
-    return await execute_idempotent(
+    result = await execute_idempotent(
         db,
         http_response=response,
         key=idempotency_key,
@@ -1030,6 +1030,26 @@ async def record_event(
         response_type=HealthEventMutationOut,
         mutate=mutate,
     )
+    if (
+        payload.suspected_scheduled_disease
+        and response.headers.get("Idempotency-Replayed") != "true"
+    ):
+        # ITEM 4 alert hook: a scheduled-disease suspicion places a movement
+        # restriction on every targeted animal (record_health_event). Best
+        # effort, own session — the committed health write must not fail on
+        # it. Replayed idempotent requests skip the fan-out; the day-dedupe
+        # would absorb a repeat anyway.
+        from ..services.notifications import emit_alert
+
+        target = (payload.disease_target or "").strip() or "scheduled disease"
+        await emit_alert(
+            farm.id,
+            "MOVEMENT_RESTRICTION",
+            f"Herdly: suspected {target} recorded in the health log — "
+            "movement restriction placed. Check the restricted animals.",
+            f"movement-restriction:health:{target.lower()}",
+        )
+    return result
 
 
 @router.get("/schedule/{animal_id}")

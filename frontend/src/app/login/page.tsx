@@ -29,6 +29,7 @@ import {
   permittedAppPathFromList,
 } from "@/lib/permission-navigation";
 import { fetchSharedPermissions } from "@/lib/permission-envelope";
+import { mapServerError } from "@/lib/server-error-phrases";
 import { useSingleFlight } from "@/lib/use-single-flight";
 
 
@@ -177,15 +178,18 @@ function LoginPageContent() {
         // Stryker disable next-line ConditionalExpression: the only guarded statement is setServerError, a no-op on an unmounted component
         if (!mounted.current) return;
         // Surface the server's own message for every API error (429 rate
-        // limit, 422 password policy, 5xx); only a network failure gets the
-        // human connection guidance — never dev-flavoured copy.
+        // limit, 422 password policy, 5xx) — mapped through the language
+        // catalog when the backend attached an error code, so a Telugu
+        // worker's rate-limit/validation guidance is Telugu; only a network
+        // failure gets the human connection guidance — never dev-flavoured
+        // copy.
         setServerError(
           err instanceof ApiError
             ? err.status === 401
               ? mfaToken !== null
                 ? t("login.totpCodeInvalid")
                 : t("login.invalidCredentials")
-              : err.detail
+              : mapServerError(t, err.detail, err.status, err.code)
             : t("login.networkError"),
         );
       }

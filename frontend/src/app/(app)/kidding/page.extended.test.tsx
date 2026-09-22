@@ -70,10 +70,13 @@ function makeBreeding(overrides: Partial<BreedingRecordOut>): BreedingRecordOut 
     doe_id: 10,
     buck_id: 20,
     semen_sire_name: null,
-    breeding_date: "2026-03-01",
+    // Relative to today: a pregnancy comfortably inside the species
+    // gestation window. A fixed calendar date eventually drifts past the
+    // 200-day ceiling, flipping every "valid kidding date" assertion.
+    breeding_date: daysFromToday(-150),
     method: "NATURAL",
     heat_cycle_number: 1,
-    ultrasound_date: "2026-04-02",
+    ultrasound_date: daysFromToday(-120),
     ultrasound_result_date: null,
     ultrasound_done: true,
     pregnant: true,

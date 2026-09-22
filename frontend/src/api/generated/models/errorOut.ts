@@ -7,7 +7,11 @@
 
 /**
  * Documented shape of every raised-error response ({"detail": ...}).
+ *
+ * ``code`` is present on the four mapped statuses above (absent otherwise)
+ * so localized clients never have to parse ``detail`` prose.
  */
 export interface ErrorOut {
   detail: string;
+  code?: string | null;
 }

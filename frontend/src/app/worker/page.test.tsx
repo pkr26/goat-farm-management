@@ -8,7 +8,7 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { server } from "@/test/msw-server";
+import { permissionsHandler, server } from "@/test/msw-server";
 import { createTestQueryClient, renderWithProviders } from "@/test/render";
 import { OFFLINE_QUEUE_STORAGE_KEY } from "@/lib/offline-queue";
 
@@ -258,5 +258,45 @@ describe("WorkerBoardPage", () => {
     );
     renderBoard();
     expect(await screen.findByText("No duties right now")).toBeInTheDocument();
+  });
+
+  it("links a form-linked duty to its form with returnTo=/worker when permitted", async () => {
+    server.use(
+      permissionsHandler(["tasks.view", "tasks.complete", "health.manage"]),
+      http.get("/api/tasks", () =>
+        HttpResponse.json({
+          today: [{ ...BOARD(3, "Herd vaccination round", today()), action_url: "/health/new?task_id=3" }],
+          overdue: [],
+          upcoming: [],
+          awaiting: [],
+          completed: [],
+          totals: { today: 1, overdue: 0, upcoming: 0, awaiting: 0, completed: 0 },
+        }),
+      ),
+    );
+    renderBoard();
+
+    const openForm = await screen.findByTestId("open-form-3");
+    expect(openForm).toHaveAttribute("href", "/health/new?task_id=3&returnTo=%2Fworker");
+  });
+
+  it("hides the form link when the worker lacks the target module's permission", async () => {
+    server.use(
+      permissionsHandler(["tasks.view", "tasks.complete"]),
+      http.get("/api/tasks", () =>
+        HttpResponse.json({
+          today: [{ ...BOARD(3, "Herd vaccination round", today()), action_url: "/health/new?task_id=3" }],
+          overdue: [],
+          upcoming: [],
+          awaiting: [],
+          completed: [],
+          totals: { today: 1, overdue: 0, upcoming: 0, awaiting: 0, completed: 0 },
+        }),
+      ),
+    );
+    renderBoard();
+
+    expect(await screen.findByText("Herd vaccination round")).toBeInTheDocument();
+    expect(screen.queryByTestId("open-form-3")).not.toBeInTheDocument();
   });
 });

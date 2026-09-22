@@ -31,12 +31,13 @@ test.describe("purchases", () => {
     await expect(page.getByText("Purchase batch created.")).toBeVisible();
     await expect(review).toBeHidden();
 
-    // The new batch is listed: count 3, 3 animals stubbed, 8 open quarantine
-    // protocol tasks (day 1 … day 45).
+    // The new batch is listed: count 3, 3 animals stubbed, 11 open quarantine
+    // protocol tasks (the 45-day protocol: days 1, 1, 4, 5, 10, 13, 20, 30,
+    // 30, 40 and 45).
     const row = page.getByRole("row", { name: new RegExp(supplier) });
     await expect(row).toBeVisible({ timeout: 15_000 });
     await expect(row.getByRole("cell", { name: "3", exact: true })).toHaveCount(2);
-    await expect(row.getByRole("cell", { name: "8", exact: true })).toBeVisible();
+    await expect(row.getByRole("cell", { name: "11", exact: true })).toBeVisible();
     const batchId = (
       await row.getByRole("cell", { name: /^#\d+$/ }).textContent()
     )?.slice(1);
@@ -57,7 +58,7 @@ test.describe("purchases", () => {
     await expect(animalRow.getByRole("cell", { name: "QUARANTINE" })).toBeVisible();
     await expect(animalRow.getByRole("cell", { name: "ACTIVE" })).toBeVisible();
     await expect(
-      detail.getByRole("heading", { name: "Open quarantine tasks (8)" }),
+      detail.getByRole("heading", { name: "Open quarantine tasks (11)" }),
     ).toBeVisible();
     await expect(
       detail.getByText(/Day 45: 10% zinc sulfate footbath → release to FOUNDATION/),

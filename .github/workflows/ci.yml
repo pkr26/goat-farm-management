@@ -131,9 +131,9 @@ jobs:
         working-directory: backend
         run: ruff check .
 
-      - name: mypy --strict
+      - name: mypy --strict (app + scripts)
         working-directory: backend
-        run: python -m mypy --strict app
+        run: python -m mypy --strict app scripts
 
       - name: OpenAPI snapshot is current
         working-directory: backend

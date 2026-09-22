@@ -72,8 +72,11 @@ export async function signIn(page: Page): Promise<void> {
   }).toPass({ timeout: 15_000 });
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/dashboard$/, { timeout: 20_000 });
-  // Farm is auto-selected and nav only renders once permissions load.
-  await expect(page.locator("nav").getByRole("link", { name: "Animals" })).toBeVisible({
+  // Farm is auto-selected and the app shell only renders once permissions
+  // load. The sidebar is a drawer on phone viewports (closed by default),
+  // so key the readiness wait on the always-visible header account control
+  // instead of a nav link.
+  await expect(page.getByRole("button", { name: /^Account — / })).toBeVisible({
     timeout: 20_000,
   });
 }

@@ -810,6 +810,9 @@ class Settings(BaseSettings):
     notifications_provider: Literal["console", "msg91"] = "console"
     msg91_auth_key: SecretStr | None = None
     msg91_sender_id: str = "HURDLY"
+    # Optional DLT template id for the MSG91 flow API; the template-free
+    # dlt_manual route is used when unset.
+    msg91_template_id: str | None = None
     # Farm-local morning hour (and minute) at which the daily digest fires.
     notifications_digest_hour: int = Field(default=6, ge=0, le=23)
     notifications_digest_minute: int = Field(default=30, ge=0, le=59)
@@ -818,6 +821,14 @@ class Settings(BaseSettings):
     # Quiet hours (farm-local): no sends inside [start, end).
     notifications_quiet_start_hour: int = Field(default=21, ge=0, le=23)
     notifications_quiet_end_hour: int = Field(default=6, ge=0, le=23)
+    # Transport-failure retry: attempts per send (1 disables retrying) and
+    # the linear backoff step between them.
+    notifications_send_retry_attempts: int = Field(default=2, ge=1, le=5)
+    notifications_send_retry_backoff_seconds: float = Field(default=2.0, ge=0.0, le=60.0)
+    # Bounded-batch ceiling for the farm scans inside the notifications
+    # loop (same template as the cleanup loops; 20-farm deployments never
+    # notice it, a misconfigured multitenant box cannot loop unbounded).
+    notifications_loop_batch_size: int = Field(default=100, ge=1, le=1000)
 
     # --- Worker tablet PIN login (ITEM 2, 2026-09-21 playbook) ---------------
     # Short numeric PINs are a convenience credential for a shared farm

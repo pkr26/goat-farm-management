@@ -1,60 +1,42 @@
 /**
  * i18n gate (ITEM 5, 2026-09-21 playbook).
  *
- * Two one-way ratchets:
+ * Three one-way ratchets:
  *
  * 1. **Catalog parity** — every key in `en.ts` must exist in `te.ts` and
- *    vice versa. The MessageKey union enforces this at compile time for
- *    consumers; this test names the invariant explicitly and fails with a
- *    readable diff.
+ *    vice versa (the runtime catalogs; TypeScript alone would not catch a
+ *    missing Telugu key).
  * 2. **English-literal snapshot** — `english-literal-baseline.json` is the
- *    audited inventory of raw English JSX text still awaiting Telugu. The
- *    gate fails when a NEW literal appears (ship the string in BOTH catalogs
- *    and render it through t(...)), and the baseline is expected to only
- *    shrink — regenerating it after localizations records the win.
+ *    audited inventory of raw English JSX text (and user-facing string
+ *    attributes) still awaiting Telugu. The gate fails when a NEW literal
+ *    appears (ship the string in BOTH catalogs and render it through
+ *    t(...)) and when a baseline entry goes STALE (a literal was translated
+ *    — regenerate the baseline so the inventory stays honest).
+ * 3. **Shrink-only ceiling** — the baseline length is pinned. It may be
+ *    lowered (localization wins shrink it) but never raised: hand-growing
+ *    the JSON to whitelist future English cannot pass review quietly.
+ *
+ * Regenerate after translating: `node scripts/scan-english-literals.mjs --write`
+ * (and lower ENGLISH_LITERAL_CEILING to the new length in the same change).
  */
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 import en from "@/lib/i18n/en";
 import te from "@/lib/i18n/te";
+import { scanEnglishLiterals } from "../../../scripts/scan-english-literals.mjs";
 
-const SRC_ROOT = join(import.meta.dirname, "..", "..");
-const SCANNED_DIRS = ["app", "components"] as const;
 const BASELINE_PATH = join(import.meta.dirname, "english-literal-baseline.json");
 
-// JSX text children that are not translatable copy: symbols, brand, units.
-const NON_TEXTUAL = /^(?:[—–\-•.…:|,/()#%*0-9\s]+|EN|తెలుగు|Herdly|₹.*|kg|d)$/;
-
-function allSourceFiles(dir: string): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(dir)) {
-    if (entry === "node_modules" || entry.startsWith(".") || entry === "generated") continue;
-    const full = join(dir, entry);
-    if (statSync(full).isDirectory()) out.push(...allSourceFiles(full));
-    else if (/\.tsx$/.test(entry) && !/\.test\./.test(entry)) out.push(full);
-  }
-  return out;
-}
-
-function scanEnglishLiterals(): string[] {
-  const found = new Set<string>();
-  for (const dir of SCANNED_DIRS) {
-    for (const file of allSourceFiles(join(SRC_ROOT, dir))) {
-      const text = readFileSync(file, "utf8");
-      const rel = file.replace(SRC_ROOT, "");
-      for (const match of text.matchAll(/>\s*([A-Z][A-Za-z0-9 ,'&%/—–-]{3,60})\s*</g)) {
-        const literal = match[1].trim();
-        if (NON_TEXTUAL.test(literal)) continue;
-        found.add(`${rel}: ${literal}`);
-      }
-    }
-  }
-  return [...found].sort();
-}
+/** The baseline may only shrink. Lower this number in the same change that
+ * regenerates the baseline after localization work — never raise it.
+ * (History: 357 at the 2026-09-21 audit → 457 when the scanner learned to
+ * read string attributes; every localization pass since then only lowers
+ * it.) */
+const ENGLISH_LITERAL_CEILING = 457;
 
 describe("i18n gate (ITEM 5)", () => {
   it("the two catalogs carry exactly the same keys", () => {
@@ -68,20 +50,33 @@ describe("i18n gate (ITEM 5)", () => {
     ).toEqual({ missingInTe: [], missingInEn: [] });
   });
 
-  it("no new untranslated English JSX text beyond the audited baseline", () => {
+  it("no untranslated English beyond the audited baseline (added AND stale checked)", () => {
     const baseline: string[] = JSON.parse(readFileSync(BASELINE_PATH, "utf8"));
     const baselineSet = new Set(baseline);
     const current = scanEnglishLiterals();
+    const currentSet = new Set(current);
     const added = current.filter((entry) => !baselineSet.has(entry));
+    const stale = baseline.filter((entry) => !currentSet.has(entry));
     expect(
-      added,
+      { added, stale },
       [
-        "New hardcoded English JSX text. Add the string to BOTH en.ts and te.ts,",
-        "render it through t(...), then (if a baseline literal disappeared)",
-        "regenerate the baseline with:",
-        "  node -e \"require('fs').writeFileSync('src/lib/i18n/english-literal-baseline.json', JSON.stringify(require('./scan'), null, 2))\"",
-        "— or simply update the JSON by removing the literals you translated.",
+        "`added`: new hardcoded English JSX text/attributes — add the string to BOTH",
+        "en.ts and te.ts and render it through t(...).",
+        "`stale`: baseline entries that no longer exist — a literal was translated;",
+        "regenerate with `node scripts/scan-english-literals.mjs --write` and lower",
+        "ENGLISH_LITERAL_CEILING in gate.test.ts to the new baseline length.",
       ].join(" "),
-    ).toEqual([]);
+    ).toEqual({ added: [], stale: [] });
+  });
+
+  it("the baseline only ever shrinks (pinned ceiling)", () => {
+    const baseline: string[] = JSON.parse(readFileSync(BASELINE_PATH, "utf8"));
+    expect(
+      baseline.length,
+      [
+        "the English-literal baseline grew past its pinned ceiling — hand-growing the",
+        "JSON to whitelist new English is not the ratchet; translate the string instead",
+      ].join(" "),
+    ).toBeLessThanOrEqual(ENGLISH_LITERAL_CEILING);
   });
 });

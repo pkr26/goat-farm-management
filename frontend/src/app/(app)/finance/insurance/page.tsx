@@ -66,6 +66,7 @@ import {
   formatFarmDateTime,
   formatMoney,
 } from "@/lib/format";
+import { useT } from "@/lib/i18n";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import {
   isPersistableNonnegativeMoney,
@@ -156,6 +157,7 @@ function AddPolicyDialog({
 }) {
   const mutation = useAddInsurancePolicyApiFinanceInsurancePost();
   const saveFlight = useSingleFlight();
+  const t = useT();
   const [formError, setFormError] = useState<string | null>(null);
   const {
     register,
@@ -194,7 +196,7 @@ function AddPolicyDialog({
           },
         });
         if (!farmScope()) return;
-        toast.success("Policy registered.");
+        toast.success(t("insurance.registeredToast"));
         onSaved();
         onClose();
       } catch (err) {
@@ -221,10 +223,9 @@ function AddPolicyDialog({
     >
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Register policy</DialogTitle>
+          <DialogTitle>{t("insurance.registerPolicy")}</DialogTitle>
           <DialogDescription id="insurance-create-consequence">
-            A future renewal date queues the renewal duty automatically. The policy number must
-            be unique on this farm.
+            {t("insurance.dialog.description")}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
@@ -236,7 +237,7 @@ function AddPolicyDialog({
             )}
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="policy_number">Policy number *</Label>
+                <Label htmlFor="policy_number">{t("insurance.form.policyNumber")}</Label>
                 <Input
                   id="policy_number"
                   maxLength={60}
@@ -251,7 +252,7 @@ function AddPolicyDialog({
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="insurer">Insurer *</Label>
+                <Label htmlFor="insurer">{t("insurance.form.insurer")}</Label>
                 <Input
                   id="insurer"
                   maxLength={120}
@@ -266,7 +267,7 @@ function AddPolicyDialog({
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="sum_insured">Sum insured (₹) *</Label>
+                <Label htmlFor="sum_insured">{t("insurance.form.sumInsured")}</Label>
                 <Input
                   id="sum_insured"
                   type="number"
@@ -284,7 +285,7 @@ function AddPolicyDialog({
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="premium">Premium (₹) *</Label>
+                <Label htmlFor="premium">{t("insurance.form.premium")}</Label>
                 <Input
                   id="premium"
                   type="number"
@@ -302,7 +303,7 @@ function AddPolicyDialog({
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="start_date">Start date *</Label>
+                <Label htmlFor="start_date">{t("insurance.form.startDate")}</Label>
                 <Input
                   id="start_date"
                   type="date"
@@ -318,7 +319,7 @@ function AddPolicyDialog({
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="renewal_date">Renewal date *</Label>
+                <Label htmlFor="renewal_date">{t("insurance.form.renewalDate")}</Label>
                 <Input
                   id="renewal_date"
                   type="date"
@@ -327,7 +328,7 @@ function AddPolicyDialog({
                   {...register("renewal_date")}
                 />
                 <p className="text-xs text-muted-foreground">
-                  May lie ahead — the renewal duty is spawned from it.
+                  {t("insurance.form.renewalHint")}
                 </p>
                 {errors.renewal_date && (
                   <p id="renewal-date-error" role="alert" className="text-sm text-destructive">
@@ -338,31 +339,30 @@ function AddPolicyDialog({
               <div className="space-y-1.5 sm:col-span-2">
                 {canViewAnimals ? (
                   <>
-                    <Label htmlFor="policy-animal">Animal (optional)</Label>
+                    <Label htmlFor="policy-animal">{t("insurance.form.animalOptional")}</Label>
                     <AnimalPicker
                       id="policy-animal"
                       value={animalId || NONE}
                       onValueChange={(value) => setValue("animal_id", value)}
-                      placeholder="No animal"
-                      dialogTitle="Choose an animal for this policy"
-                      staticOptions={[{ value: NONE, label: "— none —" }]}
+                      placeholder={t("insurance.form.noAnimal")}
+                      dialogTitle={t("insurance.form.chooseAnimal")}
+                      staticOptions={[{ value: NONE, label: t("common.none") }]}
                     />
                     <p className="text-xs text-muted-foreground">
-                      Leave unlinked for a herd-level policy.
+                      {t("insurance.form.herdLevelHint")}
                     </p>
                   </>
                 ) : (
                   <>
-                    <p className="text-sm font-medium">Animal (optional)</p>
+                    <p className="text-sm font-medium">{t("insurance.form.animalOptional")}</p>
                     <p className="text-xs text-muted-foreground">
-                      You don&apos;t have animal access, so this policy will be saved as
-                      herd-level.
+                      {t("insurance.form.noAnimalAccess")}
                     </p>
                   </>
                 )}
               </div>
               <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="policy_notes">Notes</Label>
+                <Label htmlFor="policy_notes">{t("insurance.form.notes")}</Label>
                 <Textarea
                   id="policy_notes"
                   rows={2}
@@ -380,10 +380,14 @@ function AddPolicyDialog({
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" disabled={saveBusy} onClick={onClose}>
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button type="submit" disabled={saveBusy}>
-                {saveBusy ? "Saving…" : formError ? "Retry save" : "Register policy"}
+                {saveBusy
+                  ? t("insurance.saving")
+                  : formError
+                    ? t("insurance.retrySave")
+                    : t("insurance.registerPolicy")}
               </Button>
             </DialogFooter>
           </fieldset>
@@ -423,6 +427,7 @@ function RenewPolicyDialog({
 }) {
   const mutation = useRenewPolicyApiFinanceInsurancePolicyIdRenewPost();
   const renewFlight = useSingleFlight();
+  const t = useT();
   const [formError, setFormError] = useState<string | null>(null);
   const {
     register,
@@ -458,7 +463,7 @@ function RenewPolicyDialog({
           },
         });
         if (!farmScope()) return;
-        toast.success("Policy renewed.");
+        toast.success(t("insurance.renewedToast"));
         onSaved();
         onClose();
       } catch (err) {
@@ -480,10 +485,8 @@ function RenewPolicyDialog({
     >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Renew policy {policy.policy_number}</DialogTitle>
-          <DialogDescription>
-            The policy keeps its number and history — only the renewal horizon moves forward.
-          </DialogDescription>
+          <DialogTitle>{t("insurance.renewTitle", { number: policy.policy_number })}</DialogTitle>
+          <DialogDescription>{t("insurance.renewDescription")}</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
           <fieldset disabled={renewBusy} className="contents">
@@ -493,7 +496,7 @@ function RenewPolicyDialog({
               </p>
             )}
             <div className="space-y-1.5">
-              <Label htmlFor="new_renewal_date">New renewal date *</Label>
+              <Label htmlFor="new_renewal_date">{t("insurance.renewNewDate")}</Label>
               <Input
                 id="new_renewal_date"
                 type="date"
@@ -509,7 +512,7 @@ function RenewPolicyDialog({
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="renewal_premium">Corrected premium (₹)</Label>
+              <Label htmlFor="renewal_premium">{t("insurance.renewPremium")}</Label>
               <Input
                 id="renewal_premium"
                 type="number"
@@ -521,7 +524,7 @@ function RenewPolicyDialog({
                 {...register("premium")}
               />
               <p className="text-xs text-muted-foreground">
-                Leave blank to keep the current {formatMoney(policy.premium)} premium.
+                {t("insurance.renewPremiumHint", { amount: formatMoney(policy.premium) })}
               </p>
               {errors.premium && (
                 <p id="renewal-premium-error" role="alert" className="text-sm text-destructive">
@@ -531,10 +534,14 @@ function RenewPolicyDialog({
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" disabled={renewBusy} onClick={onClose}>
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button type="submit" disabled={renewBusy}>
-                {renewBusy ? "Renewing…" : formError ? "Retry renewal" : "Renew policy"}
+                {renewBusy
+                  ? t("insurance.renewing")
+                  : formError
+                    ? t("insurance.retryRenewal")
+                    : t("insurance.renewPolicyButton")}
               </Button>
             </DialogFooter>
           </fieldset>
@@ -555,6 +562,7 @@ function ClaimPolicyDialog({
 }) {
   const mutation = useClaimPolicyApiFinanceInsurancePolicyIdClaimPost();
   const claimFlight = useSingleFlight();
+  const t = useT();
   const [formError, setFormError] = useState<string | null>(null);
 
   async function onConfirm() {
@@ -566,7 +574,7 @@ function ClaimPolicyDialog({
         // insurer settles is booked through the ledger, never here.
         await mutation.mutateAsync({ policyId: policy.id, data: {} });
         if (!farmScope()) return;
-        toast.success(`Claim recorded on policy ${policy.policy_number}.`);
+        toast.success(t("insurance.claimToast", { number: policy.policy_number }));
         onSaved();
         onClose();
       } catch (err) {
@@ -588,17 +596,13 @@ function ClaimPolicyDialog({
     >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Record claim on {policy.policy_number}</DialogTitle>
-          <DialogDescription>
-            The register&apos;s terminal event — the policy keeps its history and
-            cannot be claimed twice. Any payout the insurer settles belongs in
-            the ledger as income, not here.
-          </DialogDescription>
+          <DialogTitle>{t("insurance.claimTitle", { number: policy.policy_number })}</DialogTitle>
+          <DialogDescription>{t("insurance.claimDescription")}</DialogDescription>
         </DialogHeader>
         {formError && <p role="alert" className="text-sm text-destructive">{formError}</p>}
         <DialogFooter>
           <Button type="button" variant="outline" disabled={claimFlight.pending} onClick={onClose}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button
             type="button"
@@ -606,7 +610,7 @@ function ClaimPolicyDialog({
             disabled={claimFlight.pending}
             onClick={() => void onConfirm()}
           >
-            {claimFlight.pending ? "Recording…" : "Record claim"}
+            {claimFlight.pending ? t("insurance.recording") : t("insurance.recordClaim")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -618,6 +622,7 @@ function ClaimPolicyDialog({
  * Native details/summary gives keyboard and screen-reader users the same
  * disclosure control without adding a custom button state machine. */
 function PolicyHistoryDisclosure({ policy }: { policy: InsurancePolicyOut }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   // Premium rows are append-only and the server page is bounded; accumulate
   // pages client-side and offer "Load more" while entries remain.
@@ -671,23 +676,23 @@ function PolicyHistoryDisclosure({ policy }: { policy: InsurancePolicyOut }) {
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
       <summary className="cursor-pointer font-medium text-primary">
-        Premium &amp; claim history
+        {t("insurance.historySummary")}
       </summary>
       {open && (
         <section
-          aria-label={`Premium and claim history for ${policy.policy_number}`}
+          aria-label={t("insurance.historyAria", { number: policy.policy_number })}
           className="mt-2 space-y-2"
         >
           {history.isLoading && premiums.length === 0 && (
             <p role="status" aria-live="polite" className="text-muted-foreground">
-              Loading history…
+              {t("insurance.loadingHistory")}
             </p>
           )}
           {history.isError && (
             <div role="alert" className="flex flex-wrap items-center gap-2 text-destructive">
-              <span>Could not load policy history.</span>
+              <span>{t("insurance.historyLoadFailed")}</span>
               <Button type="button" size="sm" variant="outline" onClick={() => void history.refetch()}>
-                Retry history
+                {t("insurance.retryHistory")}
               </Button>
             </div>
           )}
@@ -695,27 +700,28 @@ function PolicyHistoryDisclosure({ policy }: { policy: InsurancePolicyOut }) {
             <>
               <div>
                 <div className="flex items-baseline justify-between gap-2">
-                  <p className="font-medium">Premium entries</p>
+                  <p className="font-medium">{t("insurance.premiumEntries")}</p>
                   {total !== null && (
                     <span className="text-xs tabular-nums text-muted-foreground">
-                      {premiums.length} of {total}
+                      {t("insurance.ofTotal", { shown: premiums.length, total })}
                     </span>
                   )}
                 </div>
                 {premiums.length === 0 ? (
-                  <p className="text-muted-foreground">No premium entries recorded.</p>
+                  <p className="text-muted-foreground">{t("insurance.noPremiums")}</p>
                 ) : (
-                  <ul className="mt-1 space-y-1" aria-label="Premium entries">
+                  <ul className="mt-1 space-y-1" aria-label={t("insurance.premiumEntriesAria")}>
                     {premiums.map((entry) => (
                       <li key={entry.id} className="rounded bg-muted/50 p-1.5">
                         <span className="font-medium tabular-nums">{formatMoney(entry.premium)}</span>
                         <span className="text-muted-foreground">
-                          {" · Coverage "}
-                          {formatDate(entry.covered_from)}–{formatDate(entry.covered_until)}
-                          {" · Recorded "}
-                          {formatDate(entry.recorded_on)}
+                          {t("insurance.coverageSuffix", {
+                            from: formatDate(entry.covered_from),
+                            until: formatDate(entry.covered_until),
+                          })}
+                          {t("insurance.recordedSuffix", { date: formatDate(entry.recorded_on) })}
                           {entry.recorded_by_id !== null
-                            ? ` by user #${entry.recorded_by_id}`
+                            ? t("insurance.byUserSuffix", { id: entry.recorded_by_id })
                             : ""}
                         </span>
                       </li>
@@ -731,24 +737,24 @@ function PolicyHistoryDisclosure({ policy }: { policy: InsurancePolicyOut }) {
                     disabled={history.isFetching}
                     onClick={() => setOffset(premiums.length)}
                   >
-                    {history.isFetching ? "Loading…" : "Load more"}
+                    {history.isFetching ? t("common.loading") : t("insurance.loadMore")}
                   </Button>
                 )}
               </div>
               <div>
-                <p className="font-medium">Claim</p>
+                <p className="font-medium">{t("insurance.claimSection")}</p>
                 {payload.policy.claim_date ? (
                   <p>
-                    Recorded {formatDate(payload.policy.claim_date)}
+                    {t("insurance.claimRecorded", { date: formatDate(payload.policy.claim_date) })}
                     {payload.policy.claimed_by_id !== null
-                      ? ` by user #${payload.policy.claimed_by_id}`
+                      ? t("insurance.byUserSuffix", { id: payload.policy.claimed_by_id })
                       : ""}
                     {payload.policy.claimed_at
                       ? ` (${formatFarmDateTime(payload.policy.claimed_at)})`
                       : ""}
                   </p>
                 ) : (
-                  <p className="text-muted-foreground">No claim recorded.</p>
+                  <p className="text-muted-foreground">{t("insurance.noClaim")}</p>
                 )}
               </div>
             </>
@@ -761,6 +767,7 @@ function PolicyHistoryDisclosure({ policy }: { policy: InsurancePolicyOut }) {
 
 function InsurancePageContent({ perms }: { perms: PermissionsState }) {
   const enumLabel = useEnumLabel();
+  const t = useT();
   const { can } = perms;
   const allowed = can("finance.view");
   const canManage = can("finance.manage");
@@ -791,10 +798,10 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
           <p className="text-sm text-destructive">
             {query.error instanceof ApiError
               ? query.error.detail
-              : "Could not load the insurance register."}
+              : t("insurance.loadFailed")}
           </p>
           <Button type="button" variant="outline" onClick={() => void query.refetch()}>
-            Retry insurance
+            {t("insurance.retry")}
           </Button>
         </div>
       );
@@ -802,11 +809,11 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
     return (
       <div className="space-y-6">
         <PageHeader
-          title="Insurance"
-          description="Policy register with renewal dates, most urgent first."
+          title={t("insurance.title")}
+          description={t("insurance.description")}
         />
         <div role="status" aria-live="polite">
-          <span className="sr-only">Loading insurance…</span>
+          <span className="sr-only">{t("insurance.loading")}</span>
           <PageSkeleton cards={1} />
         </div>
       </div>
@@ -817,12 +824,12 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
     <div className="space-y-6">
       {query.isError && <StaleDataNotice onRetry={() => void query.refetch()} />}
       <PageHeader
-        title="Insurance"
-        description="Policy register with renewal dates, most urgent first."
+        title={t("insurance.title")}
+        description={t("insurance.description")}
         actions={
           canManage && (
             <Button disabled={settling} onClick={() => setCreating(true)}>
-              <Plus /> Register policy
+              <Plus /> {t("insurance.registerPolicy")}
             </Button>
           )
         }
@@ -833,23 +840,27 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
       {payload.policies.length === 0 ? (
         <EmptyState
           icon={ShieldCheck}
-          title="No policies registered."
-          description="Register a policy to track its sum insured, premium and renewal duty."
+          title={t("insurance.empty.title")}
+          description={t("insurance.empty.description")}
         >
           {canManage && (
             <Button disabled={settling} onClick={() => setCreating(true)}>
-              <Plus /> Register your first policy
+              <Plus /> {t("insurance.registerFirstPolicy")}
             </Button>
           )}
         </EmptyState>
       ) : (
         <DataTableCard
-          title="Policies"
-          description={`${payload.total} polic${payload.total === 1 ? "y" : "ies"} recorded, most urgent renewal first.`}
+          title={t("insurance.policiesTitle")}
+          description={
+            payload.total === 1
+              ? t("insurance.policiesDescriptionOne", { count: payload.total })
+              : t("insurance.policiesDescriptionMany", { count: payload.total })
+          }
         >
           {settling && (
             <p role="status" className="pb-3 text-sm text-muted-foreground">
-              Updating policies…
+              {t("insurance.updating")}
             </p>
           )}
           {/* Below md the 8-column register becomes a card per policy —
@@ -883,15 +894,15 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
                 </p>
                 <dl className="space-y-1 text-sm">
                   <div className="flex items-baseline justify-between gap-3">
-                    <dt className="text-muted-foreground">Sum insured</dt>
+                    <dt className="text-muted-foreground">{t("insurance.col.sumInsured")}</dt>
                     <dd className="tabular-nums">{formatMoney(policy.sum_insured)}</dd>
                   </div>
                   <div className="flex items-baseline justify-between gap-3">
-                    <dt className="text-muted-foreground">Premium</dt>
+                    <dt className="text-muted-foreground">{t("insurance.col.premium")}</dt>
                     <dd className="tabular-nums">{formatMoney(policy.premium)}</dd>
                   </div>
                   <div className="flex items-baseline justify-between gap-3">
-                    <dt className="text-muted-foreground">Renewal date</dt>
+                    <dt className="text-muted-foreground">{t("insurance.col.renewalDate")}</dt>
                     <dd>{formatDate(policy.renewal_date)}</dd>
                   </div>
                 </dl>
@@ -905,7 +916,7 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
                       disabled={settling || policy.status === "claimed"}
                       onClick={() => setRenewing(policy)}
                     >
-                      Renew
+                      {t("insurance.renew")}
                     </Button>
                     <Button
                       size="sm"
@@ -914,7 +925,7 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
                       disabled={settling || policy.status === "claimed"}
                       onClick={() => setClaiming(policy)}
                     >
-                      Claim
+                      {t("insurance.claim")}
                     </Button>
                   </div>
                 )}
@@ -925,14 +936,14 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
           <Table className="min-w-[840px]">
             <TableHeader>
               <TableRow>
-                <TableHead>Policy number</TableHead>
-                <TableHead>Insurer</TableHead>
-                <TableHead>Animal</TableHead>
-                <TableHead className="text-right">Sum insured</TableHead>
-                <TableHead className="text-right">Premium</TableHead>
-                <TableHead>Renewal date</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>History</TableHead>
+                <TableHead>{t("insurance.col.policyNumber")}</TableHead>
+                <TableHead>{t("insurance.col.insurer")}</TableHead>
+                <TableHead>{t("insurance.col.animal")}</TableHead>
+                <TableHead className="text-right">{t("insurance.col.sumInsured")}</TableHead>
+                <TableHead className="text-right">{t("insurance.col.premium")}</TableHead>
+                <TableHead>{t("insurance.col.renewalDate")}</TableHead>
+                <TableHead>{t("insurance.col.status")}</TableHead>
+                <TableHead>{t("insurance.col.history")}</TableHead>
                 {canManage && <TableHead className="text-right" />}
               </TableRow>
             </TableHeader>
@@ -981,7 +992,7 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
                           disabled={settling || policy.status === "claimed"}
                           onClick={() => setRenewing(policy)}
                         >
-                          Renew
+                          {t("insurance.renew")}
                         </Button>
                         <Button
                           size="sm"
@@ -989,7 +1000,7 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
                           disabled={settling || policy.status === "claimed"}
                           onClick={() => setClaiming(policy)}
                         >
-                          Claim
+                          {t("insurance.claim")}
                         </Button>
                       </div>
                     </TableCell>
@@ -1004,7 +1015,7 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
             limit={INSURANCE_PAGE_LIMIT}
             offset={offset}
             onOffsetChange={setOffset}
-            label="policies"
+            label={t("insurance.paginationLabel")}
             disabled={settling}
           />
         </DataTableCard>
@@ -1037,12 +1048,13 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
 
 export default function InsurancePage() {
   const perms = usePermissions();
+  const t = useT();
   return (
     <PermissionGate
       perms={perms}
       perm="finance.view"
-      label="Insurance"
-      description="Policy register with renewal dates, most urgent first."
+      label={t("insurance.title")}
+      description={t("insurance.description")}
       cards={1}
     >
       <InsurancePageContent perms={perms} />

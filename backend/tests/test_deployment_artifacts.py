@@ -1915,6 +1915,54 @@ async def test_screening_worker_restarts_after_only_consecutive_cycle_failures(
 
 
 @pytest.mark.asyncio
+async def test_screening_worker_shutdown_closes_owned_provider_clients(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """B-small (2026-09-21 audit): the worker's shutdown path closes every
+    provider's owned httpx transport — each exit used to leak its pools."""
+    from app import worker
+
+    settings = ScreeningWorkerSettings(
+        screening_enabled=True,
+        s3_bucket="screening",
+        s3_access_key_id="worker-access-key",
+        s3_secret_access_key="worker-secret-key",
+        screening_anthropic_api_key="provider-key",
+    )
+    closed: list[str] = []
+
+    class OwnedProvider:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        async def aclose(self) -> None:
+            closed.append(self.name)
+
+    class TransportlessDouble:
+        # Test doubles without transports carry no aclose: the loop skips them.
+        name = "double"
+
+    providers: list[object] = [
+        OwnedProvider("anthropic"),
+        OwnedProvider("glm"),
+        TransportlessDouble(),
+    ]
+
+    async def idle_cycles(*_args: object) -> int:
+        return 0
+
+    monkeypatch.setattr(worker, "create_sessionmaker", lambda _settings: object())
+    monkeypatch.setattr(worker, "build_provider_rotation", lambda _settings: providers)
+    monkeypatch.setattr(worker, "_run_cycles", idle_cycles)
+    monkeypatch.setattr(worker, "_publish_heartbeat", lambda *_args, **_kwargs: None)
+
+    assert await worker._run_loop(asyncio.Event(), settings) == 0
+    # Every transport-owning provider is closed exactly once, in rotation
+    # order; the aclose-less double is skipped without error.
+    assert closed == ["anthropic", "glm"]
+
+
+@pytest.mark.asyncio
 async def test_screening_worker_main_returns_nonzero_without_overwriting_error_heartbeat(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

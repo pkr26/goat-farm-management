@@ -75,8 +75,10 @@ test.describe("planner", () => {
     await page.getByRole("button", { name: "Add target" }).click();
     // The plan start is the current month; a sale needs lead time, so moving
     // the target into that same month must fail validation client-side.
+    // The target editor renders twice (mobile cards + desktop table), so
+    // scope to the desktop table's input.
     const startMonth = await page.locator("#planner-start").inputValue();
-    await page.getByLabel("Sale month").fill(startMonth);
+    await page.locator("table").getByLabel("Sale month").fill(startMonth);
     await expect(
       page.getByText("Target 1: the month must come after the plan start"),
     ).toBeVisible();

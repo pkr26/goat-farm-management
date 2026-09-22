@@ -82,9 +82,11 @@ test.describe("feeding and finance", () => {
     await signIn(page);
     await page.goto("/finance");
 
-    // Stat card: the value <p> sits below the "Total expense" label <p>.
+    // Stat card: the value <p> sits below the "Total expense (all time)"
+    // label <p> (the label gained the scope suffix when the finance page
+    // started separating all-time from windowed figures).
     const expenseValue = page
-      .getByText("Total expense", { exact: true })
+      .getByText("Total expense (all time)", { exact: true })
       .locator("xpath=following-sibling::p[1]");
     await expect(expenseValue).toBeVisible();
 

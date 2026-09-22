@@ -550,9 +550,19 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
                   </li>
                 ))}
               </ol>
-              <Button type="button" variant="outline" size="sm" onClick={copyRecoveryCodes}>
-                {codesCopied ? t("totp.recoveryCopied") : t("totp.recoveryCopy")}
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={copyRecoveryCodes}>
+                  {codesCopied ? t("totp.recoveryCopied") : t("totp.recoveryCopy")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.print()}
+                >
+                  {t("totp.recoveryPrint")}
+                </Button>
+              </div>
             </div>
           ) : null}
           {user?.totp_state === "ACTIVE" ? (

@@ -13,5 +13,6 @@ export interface NotificationPrefsOut {
   kidding_watch: boolean;
   overdue_critical: boolean;
   feed_reorder: boolean;
+  movement_restriction: boolean;
   verified: boolean;
 }

@@ -123,6 +123,8 @@ class Task(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # farm_id single kept deliberately — see the matching note on
+    # Transaction in models/finance.py (2026-09-21 index review).
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
     title: Mapped[str] = mapped_column(String(MAX_TASK_TITLE_LENGTH))
     # Localization contract for server-generated duties: a stable snake_case

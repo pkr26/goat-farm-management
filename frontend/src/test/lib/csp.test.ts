@@ -78,6 +78,17 @@ describe("buildContentSecurityPolicy", () => {
     expect(policy).toContain("frame-ancestors 'none'");
   });
 
+  it("pins the PWA directives: same-origin service worker and web app manifest", () => {
+    // ITEM 2: the worker tablet registers /sw.js and loads
+    // /manifest.webmanifest — both must be same-origin only, in every
+    // environment, so a regression dropping either directive fails here.
+    for (const isDev of [true, false]) {
+      const policy = buildContentSecurityPolicy({ nonce: NONCE, isDev });
+      expect(policy).toContain("worker-src 'self'");
+      expect(policy).toContain("manifest-src 'self'");
+    }
+  });
+
   it("adds unsafe-eval only for development", () => {
     expect(buildContentSecurityPolicy({ nonce: NONCE, isDev: true })).toContain(
       "script-src 'self' 'nonce-" + NONCE + "' 'strict-dynamic' 'unsafe-eval'",

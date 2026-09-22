@@ -7,6 +7,7 @@ overdue-critical sweep, and the owner-only preferences API (plus the
 screening-confirm alert hook end to end).
 """
 
+import importlib
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -28,6 +29,7 @@ from app.services.notifications import (
     run_digest_for_farm,
     send_notification,
 )
+from app.services.notifications.providers import DeliveryResult, NotificationDeliveryError
 from app.utils import today, utcnow
 
 from .conftest import owner_with_farm, register
@@ -207,6 +209,124 @@ async def test_farm_daily_cap_stops_sends_and_logs_the_reason(client: httpx.Asyn
     assert len(provider.sent) == 2
 
 
+class FlakyProvider:
+    """Fails N transport sends, then delivers; counts every attempt."""
+
+    name = "flaky"
+
+    def __init__(self, failures_before_success: int) -> None:
+        self.failures_before_success = failures_before_success
+        self.calls = 0
+
+    async def send_sms(self, phone: str, message: str) -> DeliveryResult:
+        self.calls += 1
+        if self.calls <= self.failures_before_success:
+            raise NotificationDeliveryError(f"gateway 502 (attempt {self.calls})")
+        return DeliveryResult(ok=True, message_id=f"flaky-{self.calls}")
+
+
+class RefusingProvider:
+    """Terminal provider answer: the request was seen and rejected."""
+
+    name = "refusing"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def send_sms(self, phone: str, message: str) -> DeliveryResult:
+        self.calls += 1
+        return DeliveryResult(ok=False, error="DLT template rejected")
+
+
+async def test_transport_blip_is_retried_and_still_delivers(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client, email="notif-retry@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+    membership_id = await _membership_id(client, owner)
+    settings = Settings(**DEFAULTS, notifications_send_retry_backoff_seconds=0.0)
+    provider = FlakyProvider(failures_before_success=1)
+
+    async with get_sessionmaker()() as db:
+        farm = await _farm(db, farm_id)
+        recipient = await _recipient(db, farm_id, membership_id)
+        outcome = await send_notification(
+            db,
+            settings,
+            provider,
+            farm=farm,
+            recipient=recipient,
+            alert_class="SCREENING_FLAG",
+            message="m",
+            payload="finding:retry:1",
+            now_local=midday(farm),
+        )
+        await db.commit()
+
+    assert outcome.status == "SENT" and outcome.fresh
+    assert provider.calls == 2  # one blip, one recovery — no day-dedupe hole
+
+
+async def test_persistent_transport_failure_records_failed(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client, email="notif-dead@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+    membership_id = await _membership_id(client, owner)
+    settings = Settings(**DEFAULTS, notifications_send_retry_backoff_seconds=0.0)
+    provider = FlakyProvider(failures_before_success=99)
+
+    async with get_sessionmaker()() as db:
+        farm = await _farm(db, farm_id)
+        recipient = await _recipient(db, farm_id, membership_id)
+        outcome = await send_notification(
+            db,
+            settings,
+            provider,
+            farm=farm,
+            recipient=recipient,
+            alert_class="SCREENING_FLAG",
+            message="m",
+            payload="finding:dead:1",
+            now_local=midday(farm),
+        )
+        await db.commit()
+        row = (
+            await db.execute(select(NotificationLog).where(NotificationLog.status == "FAILED"))
+        ).scalar_one()
+
+    assert outcome.status == "FAILED" and outcome.fresh
+    assert provider.calls == 2  # the configured attempt budget, not a loop
+    assert row.error is not None and "gateway 502" in row.error
+
+
+async def test_terminal_provider_refusal_is_not_retried(client: httpx.AsyncClient) -> None:
+    owner = await owner_with_farm(client, email="notif-refuse@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+    membership_id = await _membership_id(client, owner)
+    settings = Settings(**DEFAULTS)
+    provider = RefusingProvider()
+
+    async with get_sessionmaker()() as db:
+        farm = await _farm(db, farm_id)
+        recipient = await _recipient(db, farm_id, membership_id)
+        outcome = await send_notification(
+            db,
+            settings,
+            provider,
+            farm=farm,
+            recipient=recipient,
+            alert_class="SCREENING_FLAG",
+            message="m",
+            payload="finding:refused:1",
+            now_local=midday(farm),
+        )
+        await db.commit()
+
+    assert outcome.status == "FAILED" and outcome.fresh
+    assert provider.calls == 1  # the provider answered; retrying re-rejects
+
+
 # --- digest ------------------------------------------------------------------
 
 
@@ -253,6 +373,39 @@ async def test_farms_ready_for_digest_matches_the_local_minute() -> None:
         await db.commit()
         ready = await farms_ready_for_digest(db, settings, now)
     assert [f.id for f in ready] == [farm.id]
+
+
+async def test_farms_ready_for_digest_respects_the_loop_batch_size() -> None:
+    """The digest loop pages farms by id; a small batch never reaches past the
+    first page even when every farm's local minute matches."""
+    settings = Settings(
+        **DEFAULTS,
+        notifications_digest_hour=6,
+        notifications_digest_minute=30,
+        notifications_loop_batch_size=1,
+    )
+    now = datetime(2026, 9, 21, 1, 0, tzinfo=UTC)
+    from app.models import User
+
+    async with get_sessionmaker()() as db:
+        farm_ids = []
+        for name in ("Batch First", "Batch Second"):
+            owner_row = User(
+                email=f"tz-{name.lower().replace(' ', '-')}@farm.in",
+                password_hash="not-used",
+                created_at=utcnow(),
+            )
+            db.add(owner_row)
+            await db.flush()
+            farm = Farm(name=name, owner_id=owner_row.id, timezone="Asia/Kolkata")
+            db.add(farm)
+            await db.flush()
+            farm_ids.append(farm.id)
+        await db.commit()
+        ready = await farms_ready_for_digest(db, settings, now)
+    # Both farms sit on the same digest minute, but the batch stops after the
+    # first farm by id; the second is the NEXT loop iteration's work.
+    assert [f.id for f in ready] == [min(farm_ids)]
 
 
 # --- daily scans + sweep -------------------------------------------------------
@@ -397,11 +550,22 @@ async def test_preferences_api_is_owner_only_and_persists(client: httpx.AsyncCli
             "kidding_watch": False,
             "overdue_critical": False,
             "feed_reorder": False,
+            "movement_restriction": True,
+            "verified": True,
         },
         headers=owner,
     )
     assert saved.status_code == 200, saved.text
     assert saved.json()["phone"] == "+919888877777"
+    assert saved.json()["movement_restriction"] is True
+    assert saved.json()["verified"] is True
+
+    # The new opt-in and the owner's verification flag persist: a fresh GET
+    # answers the stored row, not the echo of the request just made.
+    fetched = await client.get(f"/api/team/workers/{membership_id}/notifications", headers=owner)
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.json()["movement_restriction"] is True
+    assert fetched.json()["verified"] is True
 
     # A worker (even one viewing the roster) cannot edit preferences.
     worker = await register(client, "notif-worker@farm.in")
@@ -511,6 +675,214 @@ async def test_screening_confirm_hook_fires_the_alert(client: httpx.AsyncClient)
             (
                 await db.execute(
                     select(NotificationLog).where(NotificationLog.alert_class == "SCREENING_FLAG")
+                )
+            ).scalars()
+        )
+    assert len(rows) == 1 and rows[0].status == "SENT"
+
+
+class _MovementHooks:
+    """Enable the alert fan-out with a capturing provider (hook-test helper)."""
+
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, str]] = []
+
+    def __enter__(self) -> "_MovementHooks":
+        from app.core.config import get_settings
+
+        self._settings = get_settings()
+        self._settings.notifications_enabled = True
+        # An empty quiet window (start == end) is never inside, whatever the
+        # farm-local hour the hook runs at.
+        self._settings.notifications_quiet_start_hour = 4
+        self._settings.notifications_quiet_end_hour = 4
+
+        hooks = importlib.import_module("app.services.notifications.hooks")
+        self._hooks = hooks
+        self._original = hooks.build_notification_provider
+        capturing = self
+
+        class CapturingProvider(ConsoleNotificationProvider):
+            async def send_sms(self, phone: str, message: str):
+                capturing.sent.append((phone, message))
+                return await super().send_sms(phone, message)
+
+        hooks.build_notification_provider = lambda _s: CapturingProvider()
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self._hooks.build_notification_provider = self._original
+        self._settings.notifications_enabled = False
+        self._settings.notifications_quiet_start_hour = 21
+        self._settings.notifications_quiet_end_hour = 6
+
+
+async def _movement_recipient(db, farm_id: int, membership_id: int, *, opted_in: bool) -> None:
+    db.add(
+        NotificationRecipient(
+            farm_id=farm_id,
+            membership_id=membership_id,
+            phone="+919999999999",
+            daily_digest=False,
+            screening_flags=False,
+            kidding_watch=False,
+            overdue_critical=False,
+            feed_reorder=False,
+            movement_restriction=opted_in,
+        )
+    )
+    await db.commit()
+
+
+async def _movement_animal(farm_id: int, tag: str) -> None:
+    from app.models import Animal
+
+    async with get_sessionmaker()() as db:
+        db.add(
+            Animal(
+                farm_id=farm_id,
+                tag_number=tag,
+                sex="F",
+                status="ACTIVE",
+                source="PURCHASED",
+                current_bucket="FOUNDATION",
+            )
+        )
+        await db.commit()
+
+
+async def test_movement_restriction_hook_fires_on_scheduled_disease_event(
+    client: httpx.AsyncClient,
+) -> None:
+    """ITEM 4 hook (a): recording a suspected scheduled disease in the health
+    log fans a MOVEMENT_RESTRICTION alert to the opted-in recipients."""
+    owner = await owner_with_farm(client, email="notif-move@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+    membership_id = await _membership_id(client, owner)
+    await _movement_animal(farm_id, "MOVE-1")
+    async with get_sessionmaker()() as db:
+        await _movement_recipient(db, farm_id, membership_id, opted_in=True)
+    from app.models import Animal
+
+    async with get_sessionmaker()() as db:
+        animal_id = (
+            await db.execute(select(Animal.id).where(Animal.tag_number == "MOVE-1"))
+        ).scalar_one()
+
+    with _MovementHooks() as hooks:
+        event = await client.post(
+            "/api/health/events",
+            json={
+                "animal_id": animal_id,
+                "date": today().isoformat(),
+                "type": "TREATMENT",
+                "disease_target": "PPR",
+                "suspected_scheduled_disease": True,
+                "notes": "Vet suspects PPR; authority notified.",
+            },
+            headers=owner,
+        )
+
+    assert event.status_code == 201, event.text
+    assert len(hooks.sent) == 1
+    assert "PPR" in hooks.sent[0][1]
+    assert "movement restriction" in hooks.sent[0][1]
+    async with get_sessionmaker()() as db:
+        rows = list(
+            (
+                await db.execute(
+                    select(NotificationLog).where(
+                        NotificationLog.alert_class == "MOVEMENT_RESTRICTION"
+                    )
+                )
+            ).scalars()
+        )
+    assert len(rows) == 1 and rows[0].status == "SENT"
+
+
+async def test_movement_restriction_hook_skips_recipients_not_opted_in(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client, email="notif-move-off@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+    membership_id = await _membership_id(client, owner)
+    await _movement_animal(farm_id, "MOVE-OFF")
+    async with get_sessionmaker()() as db:
+        await _movement_recipient(db, farm_id, membership_id, opted_in=False)
+
+    with _MovementHooks() as hooks:
+        from app.models import Animal
+
+        async with get_sessionmaker()() as db:
+            animal_id = (
+                await db.execute(select(Animal.id).where(Animal.tag_number == "MOVE-OFF"))
+            ).scalar_one()
+        event = await client.post(
+            "/api/health/events",
+            json={
+                "animal_id": animal_id,
+                "date": today().isoformat(),
+                "type": "TREATMENT",
+                "disease_target": "FMD",
+                "suspected_scheduled_disease": True,
+            },
+            headers=owner,
+        )
+
+    assert event.status_code == 201, event.text
+    assert hooks.sent == []
+    async with get_sessionmaker()() as db:
+        rows = list(
+            (
+                await db.execute(
+                    select(NotificationLog).where(
+                        NotificationLog.alert_class == "MOVEMENT_RESTRICTION"
+                    )
+                )
+            ).scalars()
+        )
+    assert rows == []
+
+
+async def test_mortality_hook_fires_on_scheduled_disease_death(
+    client: httpx.AsyncClient,
+) -> None:
+    """ITEM 4 hook (b): a DEAD status change carrying a scheduled-disease
+    suspicion alerts with the animal's own identity, not just the disease."""
+    owner = await owner_with_farm(client, email="notif-dead-hook@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+    membership_id = await _membership_id(client, owner)
+    await _movement_animal(farm_id, "DEAD-MOVE-1")
+    async with get_sessionmaker()() as db:
+        await _movement_recipient(db, farm_id, membership_id, opted_in=True)
+        from app.models import Animal
+
+        animal_id = (
+            await db.execute(select(Animal.id).where(Animal.tag_number == "DEAD-MOVE-1"))
+        ).scalar_one()
+
+    with _MovementHooks() as hooks:
+        status_change = await client.post(
+            f"/api/animals/{animal_id}/status",
+            json={
+                "new_status": "DEAD",
+                "suspected_scheduled_disease": True,
+                "suspected_disease": "anthrax",
+            },
+            headers=owner,
+        )
+
+    assert status_change.status_code == 200, status_change.text
+    assert len(hooks.sent) == 1
+    assert "DEAD-MOVE-1" in hooks.sent[0][1]
+    assert "anthrax" in hooks.sent[0][1]
+    async with get_sessionmaker()() as db:
+        rows = list(
+            (
+                await db.execute(
+                    select(NotificationLog).where(
+                        NotificationLog.alert_class == "MOVEMENT_RESTRICTION"
+                    )
                 )
             ).scalars()
         )

@@ -40,6 +40,33 @@ describe("mapServerError", () => {
     ).toBe("serverErrors.idempotencyConflict");
   });
 
+  it("backend error codes win over wording and status rules", () => {
+    expect(mapServerError((k) => k, "any wording at all", 403, "PERMISSION_DENIED")).toBe(
+      "serverErrors.permissionDenied",
+    );
+    expect(mapServerError((k) => k, "field x failed validation", 422, "VALIDATION_ERROR")).toBe(
+      "serverErrors.validationRejected",
+    );
+    expect(mapServerError((k) => k, "unauthenticated", 401, "UNAUTHENTICATED")).toBe(
+      "serverErrors.sessionExpired",
+    );
+    expect(mapServerError((k) => k, "busy", 429, "RATE_LIMITED")).toBe(
+      "serverErrors.tooManyAttempts",
+    );
+  });
+
+  it("an unknown code falls through to the phrase and status rules", () => {
+    expect(mapServerError((k) => k, "Task is not pending", 409, "SOME_NEW_CODE")).toBe(
+      "serverErrors.taskNotPending",
+    );
+    expect(mapServerError((k) => k, "Completely unmapped", 429, null)).toBe(
+      "serverErrors.tooManyAttempts",
+    );
+    expect(mapServerError((k) => k, "Completely unmapped", 500, undefined)).toBe(
+      "Completely unmapped",
+    );
+  });
+
   it("429 always maps to the throttle message, whatever the wording", () => {
     expect(mapServerError((k) => k, "Slow down please", 429)).toBe("serverErrors.tooManyAttempts");
     expect(mapServerError((k) => k, "Completely different text", 429)).toBe(

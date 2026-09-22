@@ -11,4 +11,5 @@ import type { RequestValidationIssueOut } from './requestValidationIssueOut';
  */
 export interface RequestValidationErrorOut {
   detail: RequestValidationIssueOut[];
+  code?: string | null;
 }

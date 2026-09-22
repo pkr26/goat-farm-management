@@ -409,7 +409,7 @@ describe("LoginPage — server error handling", () => {
     expect(pushMock).not.toHaveBeenCalled();
   });
 
-  it("surfaces the rate-limit detail on a 429 instead of 'backend running?'", async () => {
+  it("maps a 429 to the localized throttle message instead of 'backend running?'", async () => {
     server.use(
       http.post("/api/auth/login", () =>
         HttpResponse.json(
@@ -423,9 +423,15 @@ describe("LoginPage — server error handling", () => {
     renderWithProviders(<LoginPage />);
     await submitValidForm(user);
 
+    // The 429 status rule (and the backend's RATE_LIMITED code when present)
+    // renders through the catalog, so a Telugu worker's throttle guidance is
+    // Telugu — never the raw English server sentence nor the network hint.
     expect(
-      await screen.findByText("Too many attempts — please try again later."),
+      await screen.findByText("Too many attempts — wait a few minutes and try again."),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Too many attempts — please try again later."),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByText("Network is weak — please check your connection and try again."),
     ).not.toBeInTheDocument();

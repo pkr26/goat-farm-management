@@ -221,3 +221,93 @@ async def test_owner_benchmarks_rank_farms_over_the_window(client: httpx.AsyncCl
     # days bounds are enforced.
     bad = await client.get("/api/owner/benchmarks", params={"days": 4000}, headers=owner)
     assert bad.status_code == 422
+
+
+async def _weigh_twice(farm_id: int, animal_id: int, start_kg: float, end_kg: float) -> None:
+    """Two weighings 10 days apart inside the benchmark window."""
+    from app.models import WeightRecord
+
+    async with get_sessionmaker()() as db:
+        db.add(
+            WeightRecord(
+                farm_id=farm_id,
+                animal_id=animal_id,
+                date=today() - timedelta(days=10),
+                weight_kg=start_kg,
+            )
+        )
+        db.add(WeightRecord(farm_id=farm_id, animal_id=animal_id, date=today(), weight_kg=end_kg))
+        await db.commit()
+
+
+async def test_owner_benchmarks_weight_gain_is_scoped_per_owned_farm(
+    client: httpx.AsyncClient,
+) -> None:
+    """The weight-gain subquery filters to the owned farms and requires two
+    weighings per animal: per-farm averages never cross-contaminate, an animal
+    weighed once contributes nothing, and a third unowned farm's extreme gains
+    cannot leak into the owner's figures."""
+    owner = await owner_with_farm(client, email="bench-isolate@farm.in")
+    farm_a = int(owner["X-Farm-Id"])
+    farm_b_headers = await create_farm(client, owner, name="Gain Ranch")
+    farm_b = int(farm_b_headers["X-Farm-Id"])
+
+    gain_a = await make_animal(client, owner, tag="GAIN-A")
+    once_a = await make_animal(client, owner, tag="GAIN-A-ONCE")
+    gain_b = await make_animal(client, farm_b_headers, tag="GAIN-B")
+    await _weigh_twice(farm_a, gain_a["id"], 20.0, 22.0)  # +2 kg over 11 days
+    await _weigh_twice(farm_b, gain_b["id"], 20.0, 30.0)  # +10 kg over 11 days
+
+    # A single weighing has no interval to gain over: HAVING count >= 2 keeps
+    # it out of the average entirely (its 100 kg must not move farm A's figure).
+    from app.models import WeightRecord
+
+    async with get_sessionmaker()() as db:
+        db.add(
+            WeightRecord(
+                farm_id=farm_a,
+                animal_id=once_a["id"],
+                date=today() - timedelta(days=5),
+                weight_kg=100.0,
+            )
+        )
+        await db.commit()
+
+    # A different owner's farm with gains an order of magnitude beyond either
+    # owned farm's: if the farm scoping ever regressed, its 480 kg would swamp
+    # both owned averages.
+    other = await owner_with_farm(client, email="bench-other@farm.in")
+    farm_c = int(other["X-Farm-Id"])
+    gain_c = await make_animal(client, other, tag="GAIN-C")
+    await _weigh_twice(farm_c, gain_c["id"], 0.5, 480.0)
+
+    resp = await client.get("/api/owner/benchmarks", params={"days": 90}, headers=owner)
+    assert resp.status_code == 200, resp.text
+    farms = {row["farm_id"]: row for row in resp.json()["farms"]}
+    # Exactly the owned farms: the unowned farm never appears as a benchmark row.
+    assert set(farms) == {farm_a, farm_b}
+    assert farms[farm_a]["avg_daily_gain_kg"] == pytest.approx(2.0 / 11.0, abs=0.001)
+    assert farms[farm_b]["avg_daily_gain_kg"] == pytest.approx(10.0 / 11.0, abs=0.001)
+
+
+async def test_owner_benchmarks_profit_keeps_home_bred_sold_animals(
+    client: httpx.AsyncClient,
+) -> None:
+    """A SOLD animal with no purchase price books margin = sale price: the
+    coalesce(0) keeps home-bred stock in the average instead of dropping it."""
+    owner = await owner_with_farm(client, email="bench-profit@farm.in")
+    home_bred = await make_animal(client, owner, tag="BENCH-HOME")
+    async with get_sessionmaker()() as db:
+        animal = await db.get(Animal, home_bred["id"])
+        assert animal is not None
+        assert animal.purchase_price is None  # the fixture buys nothing
+        animal.status = "SOLD"
+        animal.status_date = today()
+        animal.sale_price = Decimal("15000.00")
+        await db.commit()
+
+    resp = await client.get("/api/owner/benchmarks", params={"days": 90}, headers=owner)
+    assert resp.status_code == 200, resp.text
+    row = resp.json()["farms"][0]
+    assert row["animals_sold"] == 1
+    assert row["profit_per_animal_sold"] == 15000.0

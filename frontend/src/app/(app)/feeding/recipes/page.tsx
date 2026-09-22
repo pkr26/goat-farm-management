@@ -27,16 +27,18 @@ import {
 import { ApiError } from "@/lib/api-client";
 import { FeedingNav } from "@/components/feeding-nav";
 import { useEnumLabel } from "@/lib/enum-labels";
+import { useT } from "@/lib/i18n";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 
 export default function RecipesPage() {
   const perms = usePermissions();
+  const t = useT();
   return (
     <PermissionGate
       perms={perms}
       perm="feeding.view"
-      label="TMR recipes"
-      description="Total mixed ration formulas and the bucket each one feeds."
+      label={t("feedingRecipes.title")}
+      description={t("feedingRecipes.description")}
       cards={2}
     >
       <RecipesPageContent perms={perms} />
@@ -46,6 +48,7 @@ export default function RecipesPage() {
 
 function RecipesPageContent({ perms }: { perms: PermissionsState }) {
   const enumLabel = useEnumLabel();
+  const t = useT();
   const { can } = perms;
   const allowed = can("feeding.view");
 
@@ -57,10 +60,12 @@ function RecipesPageContent({ perms }: { perms: PermissionsState }) {
       return (
         <div role="alert" className="space-y-3">
           <p className="text-sm text-destructive">
-            {query.error instanceof ApiError ? query.error.detail : "Could not load recipes."}
+            {query.error instanceof ApiError
+              ? query.error.detail
+              : t("feedingRecipes.loadFailed")}
           </p>
           <Button type="button" variant="outline" onClick={() => void query.refetch()}>
-            Retry recipes
+            {t("feedingRecipes.retry")}
           </Button>
         </div>
       );
@@ -68,11 +73,11 @@ function RecipesPageContent({ perms }: { perms: PermissionsState }) {
     return (
       <div className="space-y-6">
         <PageHeader
-          title="TMR recipes"
-          description="Total mixed ration formulas and the bucket each one feeds."
+          title={t("feedingRecipes.title")}
+          description={t("feedingRecipes.description")}
         />
         <div role="status" aria-live="polite">
-          <span className="sr-only">Loading recipes…</span>
+          <span className="sr-only">{t("feedingRecipes.loading")}</span>
           <PageSkeleton cards={2} />
         </div>
       </div>
@@ -83,8 +88,8 @@ function RecipesPageContent({ perms }: { perms: PermissionsState }) {
     <div className="space-y-6">
       {query.isError && <StaleDataNotice onRetry={() => void query.refetch()} />}
       <PageHeader
-        title="TMR recipes"
-        description="Total mixed ration formulas and the bucket each one feeds."
+        title={t("feedingRecipes.title")}
+        description={t("feedingRecipes.description")}
       />
 
       <FeedingNav active="recipes" />
@@ -92,8 +97,8 @@ function RecipesPageContent({ perms }: { perms: PermissionsState }) {
       {payload.recipes.length === 0 && (
         <EmptyState
           icon={Wheat}
-          title="No recipes configured."
-          description="The recipe catalog is provisioned by the farm's feed setup; contact an administrator."
+          title={t("feedingRecipes.empty.title")}
+          description={t("feedingRecipes.empty.description")}
         />
       )}
 
@@ -114,9 +119,9 @@ function RecipesPageContent({ perms }: { perms: PermissionsState }) {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Ingredient</TableHead>
-                    <TableHead className="text-right">kg / 100 kg</TableHead>
-                    <TableHead>Category</TableHead>
+                    <TableHead>{t("feedingRecipes.col.ingredient")}</TableHead>
+                    <TableHead className="text-right">{t("feedingRecipes.col.kgPer100")}</TableHead>
+                    <TableHead>{t("feedingRecipes.col.category")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -136,12 +141,12 @@ function RecipesPageContent({ perms }: { perms: PermissionsState }) {
         ))}
       </div>
 
-      <DataTableCard title="Bucket → recipe allocation (reference)">
+      <DataTableCard title={t("feedingRecipes.allocationTitle")}>
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Bucket</TableHead>
-              <TableHead>Feed</TableHead>
+              <TableHead>{t("feedingRecipes.col.bucket")}</TableHead>
+              <TableHead>{t("feedingRecipes.col.feed")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

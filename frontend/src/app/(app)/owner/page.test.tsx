@@ -15,9 +15,15 @@ import { createTestQueryClient, renderWithProviders } from "@/test/render";
 
 import OwnerPage from "./page";
 
-const { pushMock, selectFarm } = vi.hoisted(() => ({
+const { pushMock, selectFarm, farmsRef } = vi.hoisted(() => ({
   pushMock: vi.fn(),
   selectFarm: vi.fn(),
+  farmsRef: {
+    current: [
+      { id: 1, name: "Calm Farm", timezone: "Asia/Kolkata", role: null },
+      { id: 2, name: "Trouble Farm", timezone: "Asia/Kolkata", role: null },
+    ] as Array<{ id: number; name: string; timezone: string; role: string | null }>,
+  },
 }));
 
 vi.mock("next/navigation", () => ({
@@ -29,7 +35,7 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/auth-context", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  useAuth: () => ({ selectFarm }),
+  useAuth: () => ({ selectFarm, farms: farmsRef.current }),
 }));
 
 const OVERVIEW = {
@@ -93,6 +99,8 @@ const BENCHMARKS = {
   ],
 };
 
+let ownerApiHits = 0;
+
 function renderPage() {
   return renderWithProviders(<OwnerPage />, createTestQueryClient());
 }
@@ -100,9 +108,20 @@ function renderPage() {
 beforeEach(() => {
   pushMock.mockClear();
   selectFarm.mockClear();
+  farmsRef.current = [
+    { id: 1, name: "Calm Farm", timezone: "Asia/Kolkata", role: null },
+    { id: 2, name: "Trouble Farm", timezone: "Asia/Kolkata", role: null },
+  ];
+  ownerApiHits = 0;
   server.use(
-    http.get("/api/owner/overview", () => HttpResponse.json(OVERVIEW)),
-    http.get("/api/owner/benchmarks", () => HttpResponse.json(BENCHMARKS)),
+    http.get("/api/owner/overview", () => {
+      ownerApiHits += 1;
+      return HttpResponse.json(OVERVIEW);
+    }),
+    http.get("/api/owner/benchmarks", () => {
+      ownerApiHits += 1;
+      return HttpResponse.json(BENCHMARKS);
+    }),
   );
 });
 
@@ -164,14 +183,31 @@ describe("OwnerPage", () => {
   });
 
   it("shows owners-only state to a worker and never queries the API", async () => {
+    farmsRef.current = [{ id: 3, name: "Employed Farm", timezone: "Asia/Kolkata", role: "Worker" }];
     server.use(permissionsHandler(["dashboard.view", "animals.view"]));
     renderPage();
 
     expect(
       await screen.findByText("The cross-farm console is available to farm owners only."),
     ).toBeInTheDocument();
-    // The overview request must never have been answered from this test's
-    // fixture: the query is disabled for non-owners.
+    // Both queries are disabled for non-owners: no request may leave the
+    // page, not even one that would 403.
+    expect(ownerApiHits).toBe(0);
     expect(screen.queryByText("Trouble Farm")).not.toBeInTheDocument();
+  });
+
+  it("serves an owner who is currently switched into a farm they do not own", async () => {
+    // owns-any-farm (role === null on ANY list entry), not the current
+    // farm's is_owner: an owner acting as a manager of another farm keeps
+    // the console.
+    farmsRef.current = [
+      { id: 9, name: "Managed Farm", timezone: "Asia/Kolkata", role: "Manager" },
+      { id: 1, name: "Calm Farm", timezone: "Asia/Kolkata", role: null },
+    ];
+    server.use(permissionsHandler(["dashboard.view"]));
+    renderPage();
+
+    expect((await screen.findAllByText("Trouble Farm")).length).toBeGreaterThan(0);
+    expect(ownerApiHits).toBeGreaterThan(0);
   });
 });

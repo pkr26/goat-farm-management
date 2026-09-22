@@ -63,6 +63,36 @@ describe("enqueue + read", () => {
     expect(offlineQueueDepth()).toBe(100);
   });
 
+  it("bounds stored bytes at 256 KiB by trimming oldest-first", () => {
+    // ~100 KB bodies: two fit (~206 KB serialized), the third pushes past
+    // the cap and the OLDEST is dropped to make room (FIFO trim, not a
+    // rejected write).
+    const big = "r".repeat(100 * 1024);
+    for (const path of ["/api/tasks/1/skip", "/api/tasks/2/skip", "/api/tasks/3/skip"]) {
+      expect(
+        enqueueOfflineMutation(path, { method: "POST", body: `{"reason":"${big}"}` }, SCOPES),
+      ).toBe(true);
+    }
+    const records = readOfflineQueue(storage());
+    expect(records.length).toBe(2);
+    expect(records[0]?.path).toBe("/api/tasks/2/skip");
+    expect(records[1]?.path).toBe("/api/tasks/3/skip");
+    expect(JSON.stringify(records).length).toBeLessThanOrEqual(256 * 1024);
+  });
+
+  it("a single record larger than the whole byte budget never wedges the store", () => {
+    const huge = "r".repeat(300 * 1024);
+    expect(
+      enqueueOfflineMutation("/api/tasks/1/skip", { method: "POST", body: `{"reason":"${huge}"}` }, SCOPES),
+    ).toBe(false);
+    expect(offlineQueueDepth()).toBe(0);
+    // The store stays writable afterwards.
+    expect(
+      enqueueOfflineMutation("/api/tasks/2/skip", { method: "POST", body: '{"reason":"ok"}' }, SCOPES),
+    ).toBe(true);
+    expect(offlineQueueDepth()).toBe(1);
+  });
+
   it("fails closed on a malformed store: dropped wholesale, not misparsed", () => {
     storage().setItem(OFFLINE_QUEUE_STORAGE_KEY, '{"not":"an array"}');
     expect(readOfflineQueue(storage())).toEqual([]);

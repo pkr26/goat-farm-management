@@ -1469,4 +1469,19 @@ async def change_status(
     # card forever (the register has no edit path to close it by hand).
     await lapse_policies_for_animal(db, farm, animal)
     await db.commit()
+    if payload.new_status == AnimalStatus.DEAD.value and payload.suspected_scheduled_disease:
+        # ITEM 4 alert hook: a scheduled-disease restriction is the same-day
+        # regulatory signal the owner opted into. Best-effort, own session —
+        # the committed mortality write must not fail on it.
+        from ..services.notifications import emit_alert
+
+        await emit_alert(
+            farm.id,
+            "MOVEMENT_RESTRICTION",
+            (
+                f"Herdly: {animal.tag_number} placed under movement restriction "
+                f"(suspected {payload.suspected_disease or 'scheduled disease'})."
+            ),
+            f"movement-restriction:{animal.id}:{animal.restriction_version}",
+        )
     return await _animal_out(db, animal, today(farm.timezone), farm.timezone, perms)

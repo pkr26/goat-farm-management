@@ -1049,7 +1049,7 @@ async def worker_roster(
     )
 
 
-@router.post("/worker-login")
+@router.post("/worker-login", dependencies=[Depends(_require_json_content_type)])
 async def worker_login(
     payload: WorkerLoginIn,
     request: Request,

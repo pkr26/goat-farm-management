@@ -27,7 +27,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
-import { farmVocabulary } from "@/lib/farm-vocabulary";
+import { enumLabel } from "@/lib/enum-labels";
+import { useLanguage, useT } from "@/lib/i18n";
 import { withReturnTo } from "@/lib/permission-navigation";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { badgeVariants } from "@/components/ui/badge";
@@ -43,17 +44,6 @@ function pct(value: number | null): string {
   return value === null ? "—" : `${Math.round(value * 10) / 10}%`;
 }
 
-/** Enum key → sentence case for status rows ("DEAD" → "Dead"). */
-function humanizeStatus(status: string): string {
-  const spaced = status.replaceAll("_", " ").toLowerCase();
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
-}
-
-/** Display-case a vocabulary noun for label positions ("kids" → "Kids"). */
-function cap(noun: string): string {
-  return noun.charAt(0).toUpperCase() + noun.slice(1);
-}
-
 /** Clinical outcomes: the API leaves these out of `status_counts` for viewers
  * without health.view (dashboard.py `_CLINICAL_OUTCOME_STATUSES`), the same
  * way it nulls out the mortality figures. Nothing here may assume they are
@@ -64,7 +54,8 @@ const CLINICAL_OUTCOME_STATUSES = ["DEAD", "CULLED"] as const;
  * blank (reads as a load failure) nor "—" (reads as "not enough data") nor 0
  * (a wrong number) — say which access it needs, like the cull row does. */
 function Withheld({ permission }: { permission: string }) {
-  return <span className="text-muted-foreground">Requires {permission} access</span>;
+  const t = useT();
+  return <span className="text-muted-foreground">{t("reports.withheld", { permission })}</span>;
 }
 
 function SummaryRow({ label, value }: { label: string; value: ReactNode }) {
@@ -78,12 +69,13 @@ function SummaryRow({ label, value }: { label: string; value: ReactNode }) {
 
 export default function ReportsPage() {
   const perms = usePermissions();
+  const t = useT();
   return (
     <PermissionGate
       perms={perms}
       perm="reports.view"
-      label="Reports"
-      description="Key herd, breeding and mortality numbers at a glance."
+      label={t("reports.title")}
+      description={t("reports.description")}
       cards={2}
     >
       <ReportsPageContent perms={perms} />
@@ -92,7 +84,8 @@ export default function ReportsPage() {
 }
 
 function ReportsPageContent({ perms }: { perms: PermissionsState }) {
-  const vocabulary = farmVocabulary;
+  const { language } = useLanguage();
+  const t = useT();
   const { can } = perms;
   const allowed = can("reports.view");
   const canViewAnimals = can("animals.view");
@@ -106,10 +99,10 @@ function ReportsPageContent({ perms }: { perms: PermissionsState }) {
       return (
         <div role="alert" className="space-y-3">
           <p className="text-sm text-destructive">
-            {query.error instanceof ApiError ? query.error.detail : "Could not load the reports."}
+            {query.error instanceof ApiError ? query.error.detail : t("reports.loadFailed")}
           </p>
           <Button type="button" variant="outline" onClick={() => void query.refetch()}>
-            Retry reports
+            {t("reports.retry")}
           </Button>
         </div>
       );
@@ -117,11 +110,11 @@ function ReportsPageContent({ perms }: { perms: PermissionsState }) {
     return (
       <div className="space-y-6">
         <PageHeader
-          title="Reports"
-          description="Key herd, breeding and mortality numbers at a glance."
+          title={t("reports.title")}
+          description={t("reports.description")}
         />
         <div role="status" aria-live="polite">
-          <span className="sr-only">Loading reports…</span>
+          <span className="sr-only">{t("reports.loading")}</span>
           <PageSkeleton cards={2} />
         </div>
       </div>
@@ -149,28 +142,28 @@ function ReportsPageContent({ perms }: { perms: PermissionsState }) {
     <div className="space-y-6">
       {query.isError && <StaleDataNotice onRetry={() => void query.refetch()} />}
       <PageHeader
-        title="Reports"
-        description="Key herd, breeding and mortality numbers at a glance."
+        title={t("reports.title")}
+        description={t("reports.description")}
         actions={can("finance.view") ? (
           <Link href="/finance" className={buttonVariants({ variant: "outline" })}>
-            Financial summary →
+            {t("reports.financialSummary")}
           </Link>
         ) : undefined}
       />
 
       <DataTableCard
         title={
-          animalsWithheld ? "Herd summary" : `Herd summary (${totalActive} active)`
+          animalsWithheld ? t("reports.summary.title") : t("reports.summary.titleCount", { count: totalActive ?? 0 })
         }
-        description="Headcount and average weight per bucket, plus sex and status totals."
+        description={t("reports.summary.description")}
         contentClassName="grid gap-4 lg:grid-cols-2"
       >
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Bucket</TableHead>
-              <TableHead className="text-right">Heads</TableHead>
-              <TableHead className="text-right">Avg weight</TableHead>
+              <TableHead>{t("reports.col.bucket")}</TableHead>
+              <TableHead className="text-right">{t("reports.col.heads")}</TableHead>
+              <TableHead className="text-right">{t("reports.col.avgWeight")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -201,13 +194,13 @@ function ReportsPageContent({ perms }: { perms: PermissionsState }) {
         <Table>
           <TableBody>
             <SummaryRow
-              label="Females (active)"
+              label={t("reports.summary.femalesActive")}
               value={
                 !animalsWithheld && sexCounts !== null ? (sexCounts.F ?? 0) : <Withheld permission="animals" />
               }
             />
             <SummaryRow
-              label="Males (active)"
+              label={t("reports.summary.malesActive")}
               value={
                 !animalsWithheld && sexCounts !== null ? (sexCounts.M ?? 0) : <Withheld permission="animals" />
               }
@@ -215,7 +208,7 @@ function ReportsPageContent({ perms }: { perms: PermissionsState }) {
             {Object.entries(payload.status_counts).map(([status, count]) => (
               <SummaryRow
                   key={status}
-                  label={`${humanizeStatus(status)} (all time)`}
+                  label={`${enumLabel("status", status, language)} ${t("reports.summary.allTimeSuffix")}`}
                   value={count}
                 />
             ))}
@@ -227,7 +220,7 @@ function ReportsPageContent({ perms }: { perms: PermissionsState }) {
               ).map((status) => (
                 <SummaryRow
                   key={status}
-                  label={`${humanizeStatus(status)} (all time)`}
+                  label={`${enumLabel("status", status, language)} ${t("reports.summary.allTimeSuffix")}`}
                   value={<Withheld permission="health" />}
                 />
               ))}
@@ -236,33 +229,30 @@ function ReportsPageContent({ perms }: { perms: PermissionsState }) {
       </DataTableCard>
 
       <DataTableCard
-        title="Breeding performance"
-        description={
-          `Conception, ${vocabulary.parturition} and twinning rates across all breeding records. ` +
-          "A pregnancy confirmed by ultrasound counts as a conception even if it was later lost."
-        }
+        title={t("reports.breeding.title")}
+        description={t("reports.breeding.description")}
       >
         <Table>
           <TableBody>
-            <SummaryRow label="Breeding records" value={breeding.total_records} />
+            <SummaryRow label={t("reports.breeding.records")} value={breeding.total_records} />
             {/* The API nulls these four rates without breeding.view, which is
                 indistinguishable on the wire from "not enough data" — the
                 meaning "—" carries here. Name the withholding instead. */}
             <SummaryRow
-              label="Conception rate (ultrasound-confirmed / completed)"
+              label={t("reports.breeding.conceptionRate")}
               value={
                 !breedingWithheld ? pct(breeding.conception_rate) : <Withheld permission="breeding" />
               }
             />
             <SummaryRow
-              label="First-cycle success"
+              label={t("reports.breeding.firstCycle")}
               value={
                 !breedingWithheld ? pct(breeding.first_cycle_rate) : <Withheld permission="breeding" />
               }
             />
-            <SummaryRow label={`${cap(vocabulary.parturition)}s recorded`} value={breeding.kiddings} />
+            <SummaryRow label={t("reports.breeding.kiddingsRecorded")} value={breeding.kiddings} />
             <SummaryRow
-              label={`Alive ${vocabulary.youngPlural} per ${vocabulary.parturition}`}
+              label={t("reports.breeding.aliveYoungPerParturition")}
               value={
                 /* The same OR as its siblings: the sentinel alone (stale
                    permission cache) or the revoked permission alone (stale
@@ -274,15 +264,15 @@ function ReportsPageContent({ perms }: { perms: PermissionsState }) {
               }
             />
             <SummaryRow
-              label={`Twin rate (≥2 ${vocabulary.youngPlural})`}
+              label={t("reports.breeding.twinRate")}
               value={!breedingWithheld ? pct(breeding.twin_rate) : <Withheld permission="breeding" />}
             />
             <TableRow>
-              <TableCell>Cull candidates</TableCell>
+              <TableCell>{t("reports.breeding.cullCandidates")}</TableCell>
               <TableCell className="text-right tabular-nums">
                 {/* null = withheld (no breeding access) — never render it as a 0 count */}
                 {breeding.cull_candidates_total ?? (
-                  <span className="text-muted-foreground">Requires breeding access</span>
+                  <span className="text-muted-foreground">{t("reports.withheld", { permission: "breeding" })}</span>
                 )}
                 {breeding.cull_candidates.length > 0 && (
                   <span className="ml-2 inline-flex flex-wrap gap-1">
@@ -309,14 +299,17 @@ function ReportsPageContent({ perms }: { perms: PermissionsState }) {
                 {breeding.cull_candidates_total !== null &&
                   breeding.cull_candidates.length < breeding.cull_candidates_total && (
                   <span className="ml-2 text-xs text-muted-foreground">
-                    Showing {breeding.cull_candidates.length} of {breeding.cull_candidates_total};
-                    this report preview is capped at {breeding.cull_candidates_limit}.{" "}
+                    {t("reports.breeding.showingCapped", {
+                      shown: breeding.cull_candidates.length,
+                      total: breeding.cull_candidates_total,
+                      limit: breeding.cull_candidates_limit,
+                    })}{" "}
                     {can("breeding.view") ? (
                       <Link href="/breeding" className="underline">
-                        Review the full operational list
+                        {t("reports.breeding.reviewFull")}
                       </Link>
                     ) : (
-                      "The full list requires breeding access."
+                      t("reports.breeding.fullListWithheld")
                     )}
                   </span>
                 )}
@@ -327,8 +320,8 @@ function ReportsPageContent({ perms }: { perms: PermissionsState }) {
       </DataTableCard>
 
       <DataTableCard
-        title="Mortality"
-        description="Deaths, stillbirths and monthly losses for the herd."
+        title={t("reports.mortality.title")}
+        description={t("reports.mortality.description")}
         contentClassName="grid gap-4 lg:grid-cols-2"
       >
         <Table>
@@ -336,19 +329,19 @@ function ReportsPageContent({ perms }: { perms: PermissionsState }) {
             {/* null = withheld (no health access); 0 is a real count, so only
                 null/undefined may fall through to the withheld marker. */}
             <SummaryRow
-              label="Total deaths (herd)"
+              label={t("reports.mortality.totalDeaths")}
               value={mortality.total_deaths ?? <Withheld permission="health" />}
             />
             <SummaryRow
-              label={`${cap(vocabulary.youngPlural)} born (recorded)`}
+              label={t("reports.mortality.kidsBorn")}
               value={mortality.total_kids_born}
             />
             <SummaryRow
-              label="Stillborn"
+              label={t("reports.mortality.stillborn")}
               value={mortality.stillborn ?? <Withheld permission="health" />}
             />
             <SummaryRow
-              label="Stillborn rate"
+              label={t("reports.mortality.stillbornRate")}
               value={
                 !healthWithheld ? pct(mortality.stillborn_rate) : <Withheld permission="health" />
               }
@@ -358,8 +351,8 @@ function ReportsPageContent({ perms }: { perms: PermissionsState }) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Month</TableHead>
-              <TableHead className="text-right">Deaths</TableHead>
+              <TableHead>{t("reports.mortality.month")}</TableHead>
+              <TableHead className="text-right">{t("reports.mortality.deaths")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -368,7 +361,7 @@ function ReportsPageContent({ perms }: { perms: PermissionsState }) {
                 <TableCell colSpan={2} className="text-muted-foreground">
                   {/* The API sends an empty list when it withholds the monthly
                       breakdown — don't claim there were no deaths. */}
-                  {!healthWithheld ? "No deaths recorded." : <Withheld permission="health" />}
+                  {!healthWithheld ? t("reports.mortality.noDeaths") : <Withheld permission="health" />}
                 </TableCell>
               </TableRow>
             ) : (

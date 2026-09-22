@@ -83,7 +83,12 @@ function expectTokenOut(
   body: TokenOut,
   expected: { email: string; name: string | null; userId?: number },
 ): void {
-  expect(body).toEqual({
+  // The TOTP challenge token is null (login) or the key is omitted entirely
+  // (change-password shaped responses) — endpoints serialize the optional
+  // field inconsistently, so strip it and assert it separately.
+  const { mfa_token: challengeToken, ...comparable } = body;
+  expect(challengeToken ?? null).toBeNull();
+  expect(comparable).toEqual({
     access_token: expect.stringMatching(/^[^.]+\.[^.]+\.[^.]+$/),
     token_type: "bearer",
     user: {
@@ -91,6 +96,7 @@ function expectTokenOut(
       email: expected.email,
       name: expected.name,
       must_change_password: expect.any(Boolean),
+      totp_state: null,
     },
   });
   expect(body.user.id).toBeGreaterThan(0);
@@ -117,6 +123,8 @@ function expectMembershipOut(
     is_active: true,
     can_reset_password: true,
     reset_password_block_reason: null,
+    // False unless a tablet PIN was provisioned for this membership.
+    pin_set: false,
   });
   expect(body.id).toBeGreaterThan(0);
   expect(body.user_id).toBeGreaterThan(0);
@@ -295,6 +303,7 @@ test.describe("frontend proxy auth and team API contracts", () => {
       email: owner.email,
       name: owner.name,
       must_change_password: expect.any(Boolean),
+      totp_state: null,
     });
 
     const exportResponse = await request.get("/api/auth/account/export", {
@@ -339,7 +348,10 @@ test.describe("frontend proxy auth and team API contracts", () => {
       "/api/auth/login",
       401,
     );
-    expect(oldLogin).toStrictEqual({ detail: "Invalid email or password." });
+    expect(oldLogin).toStrictEqual({
+      detail: "Invalid email or password.",
+      code: "UNAUTHENTICATED",
+    });
 
     const newLoginPayload: LoginIn = { email: owner.email, password: changedPassword };
     const newLoginResponse = await request.post("/api/auth/login", { data: newLoginPayload });
@@ -378,7 +390,10 @@ test.describe("frontend proxy auth and team API contracts", () => {
     const loginPayload: LoginIn = { email: user.email, password: user.password };
     const loginResponse = await request.post("/api/auth/login", { data: loginPayload });
     const login = await jsonResponse<{ detail: string }>(loginResponse, "/api/auth/login", 401);
-    expect(login).toStrictEqual({ detail: "Invalid email or password." });
+    expect(login).toStrictEqual({
+      detail: "Invalid email or password.",
+      code: "UNAUTHENTICATED",
+    });
   });
 
   test("persists worker resets and the full custom-role create/update/delete lifecycle", async ({
@@ -483,7 +498,10 @@ test.describe("frontend proxy auth and team API contracts", () => {
       "/api/auth/login",
       401,
     );
-    expect(oldWorkerLogin).toStrictEqual({ detail: "Invalid email or password." });
+    expect(oldWorkerLogin).toStrictEqual({
+      detail: "Invalid email or password.",
+      code: "UNAUTHENTICATED",
+    });
 
     const resetLoginPayload: LoginIn = { email: workerEmail, password: resetPassword };
     const resetLoginResponse = await request.post("/api/auth/login", {
@@ -504,6 +522,7 @@ test.describe("frontend proxy auth and team API contracts", () => {
       email: workerEmail,
       name: workerName,
       must_change_password: expect.any(Boolean),
+      totp_state: null,
     });
 
     const roleSuffix = uniqueSuffix();

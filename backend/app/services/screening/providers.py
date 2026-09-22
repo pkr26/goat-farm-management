@@ -46,8 +46,15 @@ async def _post_with_one_retry(
         response = await client.post(url, headers=headers, json=json)
         response.raise_for_status()
         return response
-    except (httpx.TimeoutException, httpx.TransportError) as exc:
-        raise ProviderError(f"gate call failed: {exc}") from exc
+    except (httpx.TimeoutException, httpx.TransportError):
+        # Transient transport failure (timeout, reset, DNS blip): one
+        # immediate retry before the whole image attempt is written off.
+        try:
+            retried = await client.post(url, headers=headers, json=json)
+            retried.raise_for_status()
+            return retried
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"gate call failed: {exc}") from exc
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code < 500:
             raise

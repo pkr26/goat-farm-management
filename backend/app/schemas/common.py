@@ -167,10 +167,28 @@ WeightKgFloat = Annotated[PositiveFloat, Field(le=1000)]
 NonNegativeWeightKgFloat = Annotated[NonNegativeFloat, Field(le=1000)]
 
 
+# Machine-readable error codes for the highest-stakes failure classes
+# (ITEM 5, 2026-09-21 playbook): clients map these through their locale
+# catalogs instead of matching English server prose. The code is derived
+# from the status only, so it is stable across wording changes; ``detail``
+# remains the human-readable (English) text and is always present.
+ERROR_CODES_BY_STATUS: dict[int, str] = {
+    401: "UNAUTHENTICATED",
+    403: "PERMISSION_DENIED",
+    422: "VALIDATION_ERROR",
+    429: "RATE_LIMITED",
+}
+
+
 class ErrorOut(BaseModel):
-    """Documented shape of every raised-error response ({"detail": ...})."""
+    """Documented shape of every raised-error response ({"detail": ...}).
+
+    ``code`` is present on the four mapped statuses above (absent otherwise)
+    so localized clients never have to parse ``detail`` prose.
+    """
 
     detail: str
+    code: str | None = None
 
 
 class RequestValidationIssueOut(BaseModel):
@@ -185,6 +203,7 @@ class RequestValidationErrorOut(BaseModel):
     """422 shape emitted for malformed request bodies, paths, and queries."""
 
     detail: list[RequestValidationIssueOut]
+    code: str | None = None
 
 
 # Router-level OpenAPI response declarations: handlers systematically raise

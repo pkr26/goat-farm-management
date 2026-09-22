@@ -272,6 +272,33 @@ describe("ScreeningPage", () => {
     expect(nav.state.search).toContain("image_id=2");
   });
 
+  it("renders a failed provider run with its fixed reason code, never raw errors", async () => {
+    installHappyHandlers();
+    const failedDetail = {
+      ...DETAIL,
+      runs: [
+        { ...DETAIL.runs[0], run_status: "ERROR", verdict: null, detail: null, error: "screening provider call failed (PROVIDER_ERROR)" },
+      ],
+      findings: [],
+    };
+    server.use(
+      http.get("/api/screening/images/2", () => HttpResponse.json(failedDetail)),
+    );
+    const view = renderPage();
+    const user = userEvent.setup();
+
+    await user.click((await screen.findByRole("button", { name: "Open screening photo #2 details" })));
+    await view.commitNavigation();
+
+    expect(await screen.findByText("Photo review")).toBeInTheDocument();
+    // The ERROR badge plus the tenant-safe reason line (B6: a fixed code,
+    // not the provider's exception text).
+    expect(await screen.findByText("ERROR")).toBeInTheDocument();
+    expect(
+      screen.getByText("screening provider call failed (PROVIDER_ERROR)"),
+    ).toBeInTheDocument();
+  });
+
   it("confirms a finding, refetches the board and toasts the verdict", async () => {
     installHappyHandlers();
     const reviewBodies: object[] = [];

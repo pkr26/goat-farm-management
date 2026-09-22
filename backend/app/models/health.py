@@ -142,6 +142,8 @@ class HealthEvent(Base):
     created_at: Mapped[datetime] = mapped_column(
         default=utcnow, server_default=text("timezone('UTC', now())")
     )
+    # farm_id single kept deliberately — see the matching note on
+    # Transaction in models/finance.py (2026-09-21 index review).
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
     animal_id: Mapped[int | None] = mapped_column(
         ForeignKey("animals.id"), index=True

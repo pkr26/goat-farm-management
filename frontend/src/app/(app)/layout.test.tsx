@@ -14,7 +14,7 @@ import { StrictMode, useState } from "react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useAuth } from "@/lib/auth-context";
-import { permissionsHandler, server, TEST_USER } from "@/test/msw-server";
+import { permissionsHandler, server, TEST_FARMS, TEST_USER } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
 // The server wrapper only reads the sidebar cookie; every behavioural
@@ -488,7 +488,14 @@ describe("AppLayout — permission-gated nav", () => {
   });
 
   it("shows only the permitted subset to a restricted worker", async () => {
-    server.use(permissionsHandler(["dashboard.view", "animals.view", "tasks.view"]));
+    // A worker holds a membership role, not ownership (farms role !== null);
+    // the default TEST_FARMS fixture is owner-shaped.
+    server.use(
+      permissionsHandler(["dashboard.view", "animals.view", "tasks.view"]),
+      http.get("/api/auth/farms", () =>
+        HttpResponse.json([{ ...TEST_FARMS[0], role: "Worker" }]),
+      ),
+    );
 
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
@@ -527,6 +534,9 @@ describe("AppLayout — permission-gated nav", () => {
         "finance.view",
         "reports.view",
       ]),
+      http.get("/api/auth/farms", () =>
+        HttpResponse.json([{ ...TEST_FARMS[0], role: "Worker" }]),
+      ),
     );
 
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
@@ -660,7 +670,12 @@ describe("AppLayout — permission-gated nav", () => {
   });
 
   it("keeps a group heading only while the worker can reach something under it", async () => {
-    server.use(permissionsHandler(["dashboard.view", "animals.view", "tasks.view"]));
+    server.use(
+      permissionsHandler(["dashboard.view", "animals.view", "tasks.view"]),
+      http.get("/api/auth/farms", () =>
+        HttpResponse.json([{ ...TEST_FARMS[0], role: "Worker" }]),
+      ),
+    );
 
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 

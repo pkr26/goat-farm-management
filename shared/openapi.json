@@ -24888,6 +24888,17 @@
           "detail": {
             "type": "string",
             "title": "Detail"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
           }
         },
         "type": "object",
@@ -24895,7 +24906,7 @@
           "detail"
         ],
         "title": "ErrorOut",
-        "description": "Documented shape of every raised-error response ({\"detail\": ...})."
+        "description": "Documented shape of every raised-error response ({\"detail\": ...}).\n\n``code`` is present on the four mapped statuses above (absent otherwise)\nso localized clients never have to parse ``detail`` prose."
       },
       "EventFill": {
         "properties": {
@@ -29491,6 +29502,16 @@
             "type": "boolean",
             "title": "Feed Reorder",
             "default": false
+          },
+          "movement_restriction": {
+            "type": "boolean",
+            "title": "Movement Restriction",
+            "default": false
+          },
+          "verified": {
+            "type": "boolean",
+            "title": "Verified",
+            "default": false
           }
         },
         "additionalProperties": false,
@@ -29499,7 +29520,7 @@
           "phone"
         ],
         "title": "NotificationPrefsIn",
-        "description": "Owner-managed notification preferences for one membership."
+        "description": "Owner-managed notification preferences for one membership.\n\n``verified`` records the owner's assertion that the number was confirmed\nwith the worker (there is deliberately no SMS round-trip: notifications\nare never an account-recovery channel)."
       },
       "NotificationPrefsOut": {
         "properties": {
@@ -29531,6 +29552,10 @@
             "type": "boolean",
             "title": "Feed Reorder"
           },
+          "movement_restriction": {
+            "type": "boolean",
+            "title": "Movement Restriction"
+          },
           "verified": {
             "type": "boolean",
             "title": "Verified"
@@ -29545,6 +29570,7 @@
           "kidding_watch",
           "overdue_critical",
           "feed_reorder",
+          "movement_restriction",
           "verified"
         ],
         "title": "NotificationPrefsOut"
@@ -36580,6 +36606,18 @@
             },
             "title": "Detail",
             "type": "array"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Code"
           }
         },
         "required": [

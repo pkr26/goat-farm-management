@@ -439,6 +439,43 @@ async def test_planner_assumptions_only_patch_keeps_column_anchor_authoritative(
     assert fetched.json()["assumptions"]["meta"]["start_year_month"] == START
 
 
+async def test_backward_plan_close_gaps_price_tracks_the_loop_bound(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B9 pin: with gap closing on, the charged pass count is derived from
+    CLOSE_GAPS_MAX_ITERATIONS (the before/after stage passes, plus the closer's
+    initial evaluation, one engine pass per iteration, and the zero-progress
+    rollback re-evaluation) — the price cannot drift from the loop bound again."""
+    from app.simulation.planner import CLOSE_GAPS_MAX_ITERATIONS
+
+    owner = await owner_with_farm(client)
+    assumptions = await default_assumptions(client, owner)
+    charged: list[int] = []
+    monkeypatch.setattr(
+        planner_api, "_charge_run_budget", lambda _farm, _user, cost: charged.append(cost)
+    )
+    targets = [{"year_month": "2028-01", "animal_class": "male_grower", "count": 25.0}]
+
+    flat = await client.post(
+        "/api/planner/plan",
+        json=_plan_document(assumptions, targets, close_gaps=False, risk_runs=0),
+        headers=owner,
+    )
+    assert flat.status_code == 200, flat.text
+    with_gaps = await client.post(
+        "/api/planner/plan",
+        json=_plan_document(assumptions, targets, close_gaps=True, risk_runs=0),
+        headers=owner,
+    )
+    assert with_gaps.status_code == 200, with_gaps.text
+
+    # The flat plan prices exactly the two deterministic stage passes; the
+    # same horizon must then price close_gaps at 2 + (2 + CLOSE_GAPS_MAX_ITERATIONS).
+    assert charged[0] % 2 == 0
+    horizon = charged[0] // 2
+    assert charged == [2 * horizon, (2 + 2 + CLOSE_GAPS_MAX_ITERATIONS) * horizon]
+
+
 async def test_backward_plan_ceiling_rejection_is_not_charged(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
