@@ -15,10 +15,12 @@ import { OFFLINE_QUEUE_STORAGE_KEY } from "@/lib/offline-queue";
 import WorkerLoginPage from "./login/page";
 import WorkerBoardPage from "./page";
 
-const { pushMock, replaceMock, signOutMock } = vi.hoisted(() => ({
+const { pushMock, replaceMock, signOutMock, selectFarmMock, getFarmsMock } = vi.hoisted(() => ({
   pushMock: vi.fn(),
   replaceMock: vi.fn(),
   signOutMock: vi.fn(),
+  selectFarmMock: vi.fn(),
+  getFarmsMock: vi.fn<() => { id: number; name: string; location: null; timezone: string; role: null }[]>(() => []),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -39,10 +41,10 @@ vi.mock("@/lib/auth-context", async (importOriginal) => ({
     farmId: 3,
     farms: [{ id: 3, name: "Tablet Farm", location: null, timezone: "Asia/Kolkata", role: null }],
     loading: false,
-    selectFarm: vi.fn(),
+    selectFarm: selectFarmMock,
     refreshFarms: vi.fn(),
     updateUser: vi.fn(),
-    getFarms: vi.fn(() => []),
+    getFarms: getFarmsMock,
   }),
 }));
 
@@ -96,6 +98,8 @@ beforeEach(() => {
   pushMock.mockClear();
   replaceMock.mockClear();
   signOutMock.mockClear();
+  selectFarmMock.mockClear();
+  getFarmsMock.mockReset().mockReturnValue([]);
   signIn.mockReset();
   window.localStorage.clear();
 });
@@ -258,6 +262,117 @@ describe("WorkerLoginPage", () => {
     await user.click(screen.getByTestId("pin-sign-in"));
     expect(await screen.findByText("Wrong PIN — try again.")).toBeInTheDocument();
     expect(signIn).not.toHaveBeenCalled();
+  });
+
+  it("answers an offline PIN attempt with a connection message, never 'Wrong PIN'", async () => {
+    window.localStorage.setItem("herdly.tabletFarm", "3");
+    server.use(
+      http.get("/api/auth/worker-roster", () => HttpResponse.json(ROSTER)),
+      // HttpResponse.error() is the MSW-native network failure: the request
+      // never reached the server, so the PIN was never judged.
+      http.post("/api/auth/worker-login", () => HttpResponse.error()),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<WorkerLoginPage />, createTestQueryClient());
+    await user.click(await screen.findByRole("button", { name: "Ravi" }));
+    for (const digit of ["1", "2", "3", "4"]) {
+      fireEvent.click(
+        screen.getByRole("button", { name: new RegExp(`pin ${digit}`, "i") }),
+      );
+    }
+    await user.click(screen.getByTestId("pin-sign-in"));
+    expect(
+      await screen.findByText(/No connection — the PIN never reached the server/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Wrong PIN/)).not.toBeInTheDocument();
+    expect(signIn).not.toHaveBeenCalled();
+  });
+
+  it("answers a rate-limited attempt with the wait message", async () => {
+    window.localStorage.setItem("herdly.tabletFarm", "3");
+    server.use(
+      http.get("/api/auth/worker-roster", () => HttpResponse.json(ROSTER)),
+      http.post("/api/auth/worker-login", () =>
+        HttpResponse.json(
+          { detail: "Too many attempts.", code: "RATE_LIMITED" },
+          { status: 429 },
+        ),
+      ),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<WorkerLoginPage />, createTestQueryClient());
+    await user.click(await screen.findByRole("button", { name: "Ravi" }));
+    for (const digit of ["1", "2", "3", "4"]) {
+      fireEvent.click(
+        screen.getByRole("button", { name: new RegExp(`pin ${digit}`, "i") }),
+      );
+    }
+    await user.click(screen.getByTestId("pin-sign-in"));
+    expect(
+      await screen.findByText("Too many attempts — wait a few minutes and try again."),
+    ).toBeInTheDocument();
+    expect(signIn).not.toHaveBeenCalled();
+  });
+
+  it("selects the pinned farm after sign-in when the worker belongs to several farms", async () => {
+    window.localStorage.setItem("herdly.tabletFarm", "3");
+    // Membership discovery ordered another farm first; the tablet's pinned
+    // farm must still win over the list[0] auto-select fallback.
+    getFarmsMock.mockReturnValue([
+      { id: 9, name: "Other Farm", location: null, timezone: "Asia/Kolkata", role: null },
+      { id: 3, name: "Tablet Farm", location: null, timezone: "Asia/Kolkata", role: null },
+    ]);
+    server.use(
+      http.get("/api/auth/worker-roster", () => HttpResponse.json(ROSTER)),
+      http.post("/api/auth/worker-login", () =>
+        HttpResponse.json({
+          access_token: "tablet-token",
+          token_type: "bearer",
+          user: { id: 7, email: "pin@farm.in", name: "Lakshmi", must_change_password: false },
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<WorkerLoginPage />, createTestQueryClient());
+    await user.click(await screen.findByRole("button", { name: "Lakshmi" }));
+    for (const digit of ["4", "3", "2", "1"]) {
+      fireEvent.click(
+        screen.getByRole("button", { name: new RegExp(`pin ${digit}`, "i") }),
+      );
+    }
+    await user.click(screen.getByTestId("pin-sign-in"));
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/worker"));
+    expect(selectFarmMock).toHaveBeenCalledWith(3, "Asia/Kolkata");
+  });
+
+  it("keeps the discovery fallback when the worker is not a member of the pinned farm", async () => {
+    window.localStorage.setItem("herdly.tabletFarm", "3");
+    getFarmsMock.mockReturnValue([
+      { id: 9, name: "Other Farm", location: null, timezone: "Asia/Kolkata", role: null },
+    ]);
+    server.use(
+      http.get("/api/auth/worker-roster", () => HttpResponse.json(ROSTER)),
+      http.post("/api/auth/worker-login", () =>
+        HttpResponse.json({
+          access_token: "tablet-token",
+          token_type: "bearer",
+          user: { id: 7, email: "pin@farm.in", name: "Lakshmi", must_change_password: false },
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<WorkerLoginPage />, createTestQueryClient());
+    await user.click(await screen.findByRole("button", { name: "Lakshmi" }));
+    for (const digit of ["4", "3", "2", "1"]) {
+      fireEvent.click(
+        screen.getByRole("button", { name: new RegExp(`pin ${digit}`, "i") }),
+      );
+    }
+    await user.click(screen.getByTestId("pin-sign-in"));
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/worker"));
+    expect(selectFarmMock).not.toHaveBeenCalled();
   });
 });
 

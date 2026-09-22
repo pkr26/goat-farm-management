@@ -19,6 +19,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { farmToday, formatDate, formatFarmDateTime, setActiveFarmTimezone } from "./format";
+import { stubIntlRejectsTimeZone } from "@/test/intl-stub";
 
 describe("formatDate — out-of-range calendar values (suspected bug)", () => {
   it("renders an em dash for month 13 instead of 'undefined'", () => {
@@ -86,14 +87,21 @@ describe("farm timezones Intl rejects but the backend accepts (suspected bug)", 
   afterEach(() => setActiveFarmTimezone(null));
 
   it("falls back to the product default instead of throwing RangeError", () => {
-    setActiveFarmTimezone("Factory");
-    const instant = new Date("2026-08-08T20:00:00Z");
+    // ICU tzdata drift makes a real rejection version-dependent (Node 24
+    // full-ICU accepts "Factory" as UTC), so the rejection is stubbed.
+    const intl = stubIntlRejectsTimeZone("Factory");
+    try {
+      setActiveFarmTimezone("Factory");
+      const instant = new Date("2026-08-08T20:00:00Z");
 
-    expect(() => farmToday(instant)).not.toThrow();
-    expect(farmToday(instant)).toBe("2026-08-09");
-    // Threw RangeError before the guard, taking the whole page down.
-    expect(() => formatFarmDateTime("2026-08-05T14:07:00")).not.toThrow();
-    expect(formatFarmDateTime("2026-08-05T14:07:00")).toBe("5 Aug 2026, 7:37 pm");
+      expect(() => farmToday(instant)).not.toThrow();
+      expect(farmToday(instant)).toBe("2026-08-09");
+      // Threw RangeError before the guard, taking the whole page down.
+      expect(() => formatFarmDateTime("2026-08-05T14:07:00")).not.toThrow();
+      expect(formatFarmDateTime("2026-08-05T14:07:00")).toBe("5 Aug 2026, 7:37 pm");
+    } finally {
+      intl.mockRestore();
+    }
   });
 
   it("falls back for a stale or garbage zone too", () => {

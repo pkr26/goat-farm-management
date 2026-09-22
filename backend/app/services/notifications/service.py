@@ -35,6 +35,7 @@ from .providers import (
     DeliveryResult,
     NotificationDeliveryError,
     NotificationProvider,
+    redact_phone_numbers,
 )
 
 logger = logging.getLogger(__name__)
@@ -185,7 +186,9 @@ async def send_notification(
                 local_date=local_date,
                 status=status,
                 provider_message_id=message_id,
-                error=error,
+                # Provider payloads can echo the recipient's number (MSG91);
+                # it never belongs in the durable log.
+                error=None if error is None else redact_phone_numbers(error)[:500],
             )
         )
         return SendOutcome(status=status, fresh=True)
@@ -203,7 +206,7 @@ async def send_notification(
         )
     except NotificationDeliveryError as exc:
         logger.warning("notification transport failed (farm=%s): %s", farm.id, exc)
-        return record("FAILED", error=str(exc)[:500])
+        return record("FAILED", error=str(exc))
     if result.ok:
         return record("SENT", message_id=result.message_id)
     return record("FAILED", error=result.error)
@@ -321,11 +324,15 @@ async def run_digest_for_farm(
 async def farms_ready_for_digest(
     db: AsyncSession, settings: Settings, now_utc: datetime
 ) -> list[Farm]:
-    """Farms whose local wall clock is inside the digest minute right now.
+    """Farms whose local wall clock is at or past the digest time today.
 
-    The loop runs every minute; a farm fires when local HH:MM equals the
-    configured digest time. Idempotence across restarts comes from the log's
-    day dedupe (`digest:<local-date>` payload)."""
+    The loop ticks roughly every minute and can drift past a farm's digest
+    minute, so readiness is a catch-up window — same-day local time >= the
+    configured digest time — not exact-minute equality (a farm whose minute
+    was jumped over would otherwise get no digest that day). The once-per-day
+    guard is the log's day dedupe: a farm with a settled DAILY_DIGEST row for
+    its local today is done. Quiet-hours placeholders (SKIPPED_QUIET) do not
+    settle the day — the digest fires once the window opens."""
     results: list[Farm] = []
     farms = list(
         (
@@ -336,10 +343,24 @@ async def farms_ready_for_digest(
     )
     for farm in farms:
         local = now_utc.astimezone(ZoneInfo(farm.timezone))
-        if (local.hour, local.minute) == (
+        if (local.hour, local.minute) < (
             settings.notifications_digest_hour,
             settings.notifications_digest_minute,
         ):
+            continue
+        settled = (
+            await db.execute(
+                select(NotificationLog.id)
+                .where(
+                    NotificationLog.farm_id == farm.id,
+                    NotificationLog.alert_class == "DAILY_DIGEST",
+                    NotificationLog.local_date == local.date().isoformat(),
+                    NotificationLog.status != "SKIPPED_QUIET",
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if settled is None:
             results.append(farm)
     return results
 

@@ -15,6 +15,7 @@ import {
   setActiveFarmTimezone,
   todayInTimeZone,
 } from "@/lib/format";
+import { stubIntlRejectsTimeZone } from "@/test/intl-stub";
 
 const CANONICAL = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -74,9 +75,16 @@ describe("ADV C3: timezone boundaries (IST vs UTC day split)", () => {
   });
 
   it("a hostile/invalid farm timezone falls back to the product default", () => {
-    setActiveFarmTimezone("Factory");
-    const now = new Date("2026-08-30T18:30:00Z");
-    expect(farmToday(now)).toBe(todayInTimeZone("Asia/Kolkata", now));
+    // "Factory" is a real zoneinfo/PostgreSQL zone; whether Intl rejects it
+    // depends on the runtime's ICU tzdata, so the rejection is stubbed.
+    const intl = stubIntlRejectsTimeZone("Factory");
+    try {
+      setActiveFarmTimezone("Factory");
+      const now = new Date("2026-08-30T18:30:00Z");
+      expect(farmToday(now)).toBe(todayInTimeZone("Asia/Kolkata", now));
+    } finally {
+      intl.mockRestore();
+    }
   });
 
   it("farmToday never emits a non-canonical string", () => {

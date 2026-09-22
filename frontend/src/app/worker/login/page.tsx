@@ -20,9 +20,10 @@ import { EmptyState } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { apiFetch } from "@/lib/api-client";
+import { apiFetch, ApiError } from "@/lib/api-client";
 import { useAuth, type FarmEntry } from "@/lib/auth-context";
 import { useT } from "@/lib/i18n";
+import { mapServerError } from "@/lib/server-error-phrases";
 import { TABLET_FARM_STORAGE_KEY, readTabletFarmId, writeTabletFarmId } from "@/app/worker/layout";
 
 type RosterEntry = { membership_id: number; display_name: string };
@@ -34,7 +35,7 @@ type SetupStep = "credentials" | "code" | "choose-farm";
 export default function WorkerLoginPage() {
   const t = useT();
   const router = useRouter();
-  const { signIn, signOut, farmId, farms } = useAuth();
+  const { signIn, signOut, farmId, farms, selectFarm, getFarms } = useAuth();
   const [tabletFarmId, setTabletFarmId] = useState<number | null>(null);
   const [selected, setSelected] = useState<RosterEntry | null>(null);
   const [pin, setPin] = useState("");
@@ -96,11 +97,29 @@ export default function WorkerLoginPage() {
         email: body.user.email,
         name: body.user.name,
       });
+      // signIn's farm discovery auto-selects list[0] when nothing is stored;
+      // a pinned tablet belongs on ITS farm. getFarms() reads the list this
+      // signIn just committed (React state has not re-rendered yet), and a
+      // worker who is not actually a member of the pinned farm keeps the
+      // discovery fallback rather than being forced into a farm they lack.
+      const pinned = getFarms().find((farm) => farm.id === tabletFarmId);
+      if (pinned) selectFarm(pinned.id, pinned.timezone);
       toast.success(`${selected.display_name} ✓`);
       router.replace("/worker");
-    } catch {
+    } catch (error) {
       setPin("");
-      setError(t("worker.login.wrongPin"));
+      // 401 is the server judging the PIN; any other ApiError carries the
+      // server's own mapped message (429 rate limit, 5xx, …). A non-ApiError
+      // (TypeError/AbortError) never reached the server at all — saying
+      // "Wrong PIN" for an offline tablet sends the worker re-typing a
+      // perfectly good PIN.
+      setError(
+        error instanceof ApiError
+          ? error.status === 401
+            ? t("worker.login.wrongPin")
+            : mapServerError(t, error.detail, error.status, error.code)
+          : t("worker.login.networkError"),
+      );
     } finally {
       setBusy(false);
     }

@@ -131,6 +131,19 @@ function revokedFarmIdFromStorage(value: string | null): number | null {
   return Number.isSafeInteger(stored) && stored > 0 ? stored : null;
 }
 
+/** This tab's own read of the revoke tombstone (storage events only fire in
+ * OTHER tabs, so a freshly opened tab must look at the raw value itself). */
+function readStoredFarmRevokedId(): number | null {
+  try {
+    if (typeof window === "undefined") return null;
+    return revokedFarmIdFromStorage(
+      window.localStorage.getItem(FARM_STORAGE_KEY),
+    );
+  } catch {
+    return null;
+  }
+}
+
 function isAuthSessionChangedError(error: unknown): boolean {
   return (
     typeof error === "object" &&
@@ -295,6 +308,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setFarms(list);
     const preferred = farmIdRef.current ?? readStoredFarmId();
     if (preferred === null && list.length > 0) {
+      if (readStoredFarmRevokedId() !== null) {
+        // A revoke tombstone says "your farm was revoked — choose explicitly"
+        // in EVERY tab, including one opened after the revocation. Falling
+        // back to list[0] here would auto-land this tab on a farm the
+        // revoked tab deliberately refused to enter, splitting the tabs
+        // across farms. farmId stays null so the shell sends everyone to
+        // /farm-select; the tombstone is consumed by the explicit selection
+        // that follows (selectFarm overwrites the key) or by sign-out
+        // teardown — never by removeItem, which other tabs read as a
+        // session teardown.
+        queryClient.cancelQueries();
+        queryClient.clear();
+        setCurrentFarmId(null);
+        setActiveFarmTimezone(null);
+        return;
+      }
       // No choice exists anywhere (first sign-in on this device): the
       // server's ordering is the only signal, so auto-select list[0] and let
       // single-farm operators skip the picker entirely.

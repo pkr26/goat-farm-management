@@ -26,6 +26,7 @@ from app.services.notifications import (
     feed_reorder_daily,
     kidding_watch_daily,
     overdue_critical_sweep,
+    redact_phone_numbers,
     run_digest_for_farm,
     send_notification,
 )
@@ -230,12 +231,62 @@ class RefusingProvider:
 
     name = "refusing"
 
-    def __init__(self) -> None:
+    def __init__(self, error: str = "DLT template rejected") -> None:
         self.calls = 0
+        self._error = error
 
     async def send_sms(self, phone: str, message: str) -> DeliveryResult:
         self.calls += 1
-        return DeliveryResult(ok=False, error="DLT template rejected")
+        return DeliveryResult(ok=False, error=self._error)
+
+
+def test_redact_phone_numbers_strips_mobiles_but_keeps_short_ids() -> None:
+    assert (
+        redact_phone_numbers("MSG91 rejected mobile +919876543210: template mismatch (code 4021)")
+        == "MSG91 rejected mobile <redacted>: template mismatch (code 4021)"
+    )
+    assert (
+        redact_phone_numbers("balance low for account 918765432099")
+        == "balance low for account <redacted>"
+    )
+    # Short ids, codes and ports survive — enough for diagnosis.
+    assert redact_phone_numbers("error 5007, batch 12345, port 5432") == (
+        "error 5007, batch 12345, port 5432"
+    )
+
+
+async def test_provider_error_echoing_the_recipient_phone_is_stored_redacted(
+    client: httpx.AsyncClient,
+) -> None:
+    """MSG91 error payloads may name the recipient's mobile; the durable log
+    keeps the diagnostic text but never the number."""
+    owner = await owner_with_farm(client, email="notif-redact@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+    membership_id = await _membership_id(client, owner)
+    settings = Settings(**DEFAULTS)
+    provider = RefusingProvider(error="Invalid mobile 919876543210 requested (code 4021)")
+
+    async with get_sessionmaker()() as db:
+        farm = await _farm(db, farm_id)
+        recipient = await _recipient(db, farm_id, membership_id)
+        outcome = await send_notification(
+            db,
+            settings,
+            provider,
+            farm=farm,
+            recipient=recipient,
+            alert_class="SCREENING_FLAG",
+            message="m",
+            payload="finding:redact:1",
+            now_local=midday(farm),
+        )
+        await db.commit()
+        row = (
+            await db.execute(select(NotificationLog).where(NotificationLog.status == "FAILED"))
+        ).scalar_one()
+
+    assert outcome.status == "FAILED"
+    assert row.error == "Invalid mobile <redacted> requested (code 4021)"
 
 
 async def test_transport_blip_is_retried_and_still_delivers(
@@ -358,10 +409,11 @@ async def test_digest_sends_each_recipient_their_own_scope(client: httpx.AsyncCl
     assert "no duties today" in provider.sent[0][1]
 
 
-async def test_farms_ready_for_digest_matches_the_local_minute() -> None:
+async def test_farms_ready_for_digest_fires_at_or_past_the_local_digest_time() -> None:
+    """Catch-up window: the loop ticks roughly every minute and can drift
+    past a farm's digest minute, so readiness is "same-day local time at or
+    past the configured digest time", not exact-minute equality."""
     settings = Settings(**DEFAULTS, notifications_digest_hour=6, notifications_digest_minute=30)
-    # 01:00 UTC == 06:30 Asia/Kolkata.
-    now = datetime(2026, 9, 21, 1, 0, tzinfo=UTC)
     from app.models import User
 
     async with get_sessionmaker()() as db:
@@ -371,8 +423,61 @@ async def test_farms_ready_for_digest_matches_the_local_minute() -> None:
         farm = Farm(name="TZ Farm", owner_id=tz_owner.id, timezone="Asia/Kolkata")
         db.add(farm)
         await db.commit()
-        ready = await farms_ready_for_digest(db, settings, now)
-    assert [f.id for f in ready] == [farm.id]
+        # 01:00 UTC == 06:30 local: the configured minute itself.
+        on_time = await farms_ready_for_digest(
+            db, settings, datetime(2026, 9, 21, 1, 0, tzinfo=UTC)
+        )
+        # 01:17 UTC == 06:47 local: the loop ticked late — still fires.
+        late = await farms_ready_for_digest(db, settings, datetime(2026, 9, 21, 1, 17, tzinfo=UTC))
+        # 00:59 UTC == 06:29 local: one minute early — no digest yet.
+        early = await farms_ready_for_digest(db, settings, datetime(2026, 9, 21, 0, 59, tzinfo=UTC))
+        # 19:00 UTC == 00:30 local the NEXT day: same wall-clock minute as a
+        # 00:30 digest would be, but before 06:30 — must not fire.
+        past_midnight = await farms_ready_for_digest(
+            db, settings, datetime(2026, 9, 21, 19, 0, tzinfo=UTC)
+        )
+    assert [f.id for f in on_time] == [farm.id]
+    assert [f.id for f in late] == [farm.id]
+    assert early == []
+    assert past_midnight == []
+
+
+async def test_digest_catch_up_window_sends_late_but_exactly_once(
+    client: httpx.AsyncClient,
+) -> None:
+    """A quiet-hours placeholder does not settle the day (the digest fires
+    once the window opens), and a settled DAILY_DIGEST row closes the
+    catch-up window — exactly one digest per farm per local day."""
+    owner = await owner_with_farm(client, email="digest-once@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+    membership_id = await _membership_id(client, owner)
+    settings = Settings(
+        **DEFAULTS,
+        notifications_digest_hour=6,
+        notifications_digest_minute=30,
+        notifications_quiet_start_hour=6,
+        notifications_quiet_end_hour=7,
+    )
+    provider = RecordingProvider()
+
+    async with get_sessionmaker()() as db:
+        farm = await _farm(db, farm_id)
+        await _recipient(db, farm_id, membership_id)
+        tz = ZoneInfo(farm.timezone)
+        quiet_local = datetime.now(tz).replace(hour=6, minute=45, second=0, microsecond=0)
+        # 06:45: past the 06:30 digest time but inside quiet hours.
+        quiet = await run_digest_for_farm(db, settings, provider, farm, now_local=quiet_local)
+        assert (quiet.sent, quiet.skipped) == (0, 1)
+        # SKIPPED_QUIET is not a delivery outcome: the farm stays ready.
+        still_ready = await farms_ready_for_digest(db, settings, quiet_local.astimezone(UTC))
+        assert farm_id in [f.id for f in still_ready]
+        # 07:15: quiet window over; the late tick catches up and sends.
+        later_local = quiet_local.replace(hour=7, minute=15)
+        sent = await run_digest_for_farm(db, settings, provider, farm, now_local=later_local)
+        assert sent.sent == 1
+        done = await farms_ready_for_digest(db, settings, later_local.astimezone(UTC))
+    assert farm_id not in [f.id for f in done]
+    assert len(provider.sent) == 1
 
 
 async def test_farms_ready_for_digest_respects_the_loop_batch_size() -> None:

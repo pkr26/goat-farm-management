@@ -388,34 +388,42 @@ async def _notifications_loop() -> None:
 
     provider = build_notification_provider(settings)
     last_sweep_hour: int | None = None
-    while True:
-        await asyncio.sleep(60)
-        try:
-            now = utcnow().replace(tzinfo=UTC)
-            async with get_sessionmaker()() as db:
-                for farm in await farms_ready_for_digest(db, settings, now):
-                    summary = await run_digest_for_farm(db, settings, provider, farm)
-                    if summary.sent or summary.skipped:
-                        logger.info(
-                            "digest farm=%s sent=%d skipped=%d",
-                            farm.id,
-                            summary.sent,
-                            summary.skipped,
-                        )
-                if last_sweep_hour != now.hour:
-                    last_sweep_hour = now.hour
-                    from sqlalchemy import select as _select
+    try:
+        while True:
+            await asyncio.sleep(60)
+            try:
+                now = utcnow().replace(tzinfo=UTC)
+                async with get_sessionmaker()() as db:
+                    for farm in await farms_ready_for_digest(db, settings, now):
+                        summary = await run_digest_for_farm(db, settings, provider, farm)
+                        if summary.sent or summary.skipped:
+                            logger.info(
+                                "digest farm=%s sent=%d skipped=%d",
+                                farm.id,
+                                summary.sent,
+                                summary.skipped,
+                            )
+                    if last_sweep_hour != now.hour:
+                        last_sweep_hour = now.hour
+                        from sqlalchemy import select as _select
 
-                    for farm in (await db.execute(_select(Farm))).scalars():
-                        await overdue_critical_sweep(db, settings, provider, farm)
-                        # Day-dedupe makes these daily in effect (payload is
-                        # the farm-local date): hourly runs are idempotent.
-                        await kidding_watch_daily(db, settings, provider, farm)
-                        await feed_reorder_daily(db, settings, provider, farm)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("notifications loop iteration failed")
+                        for farm in (await db.execute(_select(Farm))).scalars():
+                            await overdue_critical_sweep(db, settings, provider, farm)
+                            # Day-dedupe makes these daily in effect (payload is
+                            # the farm-local date): hourly runs are idempotent.
+                            await kidding_watch_daily(db, settings, provider, farm)
+                            await feed_reorder_daily(db, settings, provider, farm)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("notifications loop iteration failed")
+    finally:
+        # Close the provider's owned httpx transport on shutdown, mirroring
+        # the screening worker. Test doubles without transports are skipped.
+        aclose = getattr(provider, "aclose", None)
+        if aclose is not None:
+            with suppress(Exception):
+                await aclose()
 
 
 async def _cadence_materialization_loop(

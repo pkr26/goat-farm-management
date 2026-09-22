@@ -9,6 +9,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { formatDate, formatFarmDateTime, formatMoney, setActiveFarmTimezone } from "./format";
+import { stubIntlRejectsTimeZone } from "@/test/intl-stub";
 
 describe("formatMoney — Indian grouping across magnitudes", () => {
   it("leaves values below 1000 ungrouped", () => {
@@ -248,8 +249,15 @@ describe("formatFarmDateTime — instants, offsets and fallbacks", () => {
   });
 
   it("renders in the default farm timezone when Intl rejects the farm's", () => {
-    // Python's zoneinfo and PostgreSQL accept "Factory"; Intl throws on it.
-    setActiveFarmTimezone("Factory");
-    expect(formatFarmDateTime("2026-08-05T20:00:00")).toBe("6 Aug 2026, 1:30 am");
+    // Python's zoneinfo and PostgreSQL accept "Factory"; whether Intl throws
+    // on it depends on the runtime's ICU tzdata (Node 24 full-ICU accepts it
+    // as UTC), so the rejection this test defends is stubbed.
+    const intl = stubIntlRejectsTimeZone("Factory");
+    try {
+      setActiveFarmTimezone("Factory");
+      expect(formatFarmDateTime("2026-08-05T20:00:00")).toBe("6 Aug 2026, 1:30 am");
+    } finally {
+      intl.mockRestore();
+    }
   });
 });

@@ -706,9 +706,11 @@ describe("AuthProvider cross-tab storage signals", () => {
     expect(localStorage.getItem(FARM_STORAGE_KEY)).toBe("2");
   });
 
-  it("a tombstoned persisted selection boots as no selection at all", async () => {
-    // readStoredFarmId must treat "revoked:1" exactly like a missing key: the
-    // bootstrap neither selects the dead farm nor sees a session teardown.
+  it("a tombstoned persisted selection boots to /farm-select, never an auto-landing on another farm", async () => {
+    // readStoredFarmId still treats "revoked:1" as no stored selection, but
+    // the tombstone itself suppresses the list[0] auto-select: the revoked
+    // tab deliberately refused that fallback, and a fresh tab must converge
+    // on the same explicit choice (2026-09-22 audit).
     localStorage.setItem(FARM_STORAGE_KEY, "revoked:1");
     server.use(
       http.get("/api/auth/farms", () =>
@@ -719,8 +721,33 @@ describe("AuthProvider cross-tab storage signals", () => {
     renderWithProviders(<Probe />);
 
     await expectLoaded();
-    expect(screen.getByTestId("farmId")).toHaveTextContent("2");
+    expect(screen.getByTestId("farmId")).toHaveTextContent("none");
     expect(screen.getByTestId("user")).toHaveTextContent(TEST_USER.email);
+    // The membership list survives so /farm-select can offer the pick.
+    expect(screen.getByTestId("farms")).toHaveTextContent("2");
+    // The tombstone is NOT cleared with removeItem — a key removal reads as
+    // a session teardown in the other tabs. It is consumed by the explicit
+    // selection below (or by sign-out teardown).
+    expect(localStorage.getItem(FARM_STORAGE_KEY)).toBe("revoked:1");
+  });
+
+  it("an explicit selection after a tombstone replaces it and converges the tabs", async () => {
+    localStorage.setItem(FARM_STORAGE_KEY, "revoked:1");
+    server.use(
+      http.get("/api/auth/farms", () =>
+        HttpResponse.json([{ id: 2, name: "Farm Two", location: null, role: null }]),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<Probe />);
+    await expectLoaded();
+    expect(screen.getByTestId("farmId")).toHaveTextContent("none");
+
+    await user.click(screen.getByRole("button", { name: "select-2" }));
+
+    expect(screen.getByTestId("farmId")).toHaveTextContent("2");
+    expect(localStorage.getItem(FARM_STORAGE_KEY)).toBe("2");
   });
 });
 

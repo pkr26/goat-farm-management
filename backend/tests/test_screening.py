@@ -18,6 +18,7 @@ import logging
 import struct
 from dataclasses import dataclass, field
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
@@ -2106,10 +2107,11 @@ async def test_direct_upload_intake_limits_reclaim_stale_batches_and_preflight_s
 async def test_daily_call_budget_per_farm_parks_over_budget_photos(
     client: httpx.AsyncClient,
 ) -> None:
-    """ITEM 6 (2026-09-21 playbook): once a farm's provider calls for the UTC
-    day reach the configured budget, its photos stay PENDING — never claimed,
-    never billed — and drain again next day. Spend is measured in ScreeningRun
-    rows, so every call (gate, crop cascade, errors) counts."""
+    """ITEM 6 (2026-09-21 playbook): once a farm's provider calls for its
+    local day plus the worst-case reservation for one more image reach the
+    configured budget, its photos stay PENDING — never claimed, never billed
+    — and drain again next day. Spend is measured in ScreeningRun rows, so
+    every call (gate, crop cascade, errors) counts."""
     headers = await owner_with_farm(client, email="budget-cap@farm.in")
     farm_id = int(headers["X-Farm-Id"])
     storage = FakeStorage()
@@ -2122,15 +2124,18 @@ async def test_daily_call_budget_per_farm_parks_over_budget_photos(
 
     provider = CountingProvider(name="budget")
     settings = _cycle_settings(max_images_per_cycle=10)
-    settings.screening_daily_call_budget_per_farm = 1
+    # Crop detection off → each claimed image reserves gate + one call per
+    # specialist kind + cross-check = 7 calls; the budget must exceed that
+    # reservation for the first cycle to claim at all.
+    settings.screening_daily_call_budget_per_farm = 8
     async with get_sessionmaker()() as db:
         await _register_fake_objects(db, farm_id, storage)
         first = await run_screening_cycle(db, settings, storage, ProviderRotation([provider]))
     assert first.claimed == 2  # both claimed while the farm was under budget
     async with get_sessionmaker()() as db:
         runs = list((await db.execute(select(ScreeningRun))).scalars())
-    # Two landscape/portrait photos → at least one run each; the budget (1)
-    # is spent after the first provider call of the day.
+    # Two landscape/portrait photos → at least one run each; spent (>= 2)
+    # plus the 7-call reservation overshoots the budget of 8.
     assert len(runs) >= 1
 
     # Next cycle: the farm is over budget, so a freshly registered photo is
@@ -2162,6 +2167,133 @@ async def test_daily_call_budget_per_farm_parks_over_budget_photos(
     assert parked.status == "PENDING"
     assert parked.screening_attempts == 0
     assert parked.error is None
+
+
+async def _budget_ledger_runs(
+    db: Any, farm_id: int, storage: FakeStorage, created_ats: list[dt.datetime]
+) -> None:
+    """File settled provider calls (one ScreeningRun each) at given times."""
+    ledger = ScreeningImage(
+        farm_id=farm_id,
+        bucket="BREEDING",
+        s3_bucket=storage.bucket,
+        s3_key=f"raw/{farm_id}/2026-09-17/ledger.jpg",
+        captured_date=dt.date(2026, 9, 17),
+        status="HEALTHY",
+    )
+    db.add(ledger)
+    await db.flush()
+    for created_at in created_ats:
+        db.add(
+            ScreeningRun(
+                farm_id=farm_id,
+                image_id=ledger.id,
+                stage="GATE",
+                run_status="OK",
+                verdict="healthy",
+                provider="budget-ledger",
+                model="ledger-model",
+                prompt_version="v1",
+                latency_ms=5,
+                created_at=created_at,
+            )
+        )
+    await db.commit()
+
+
+async def test_daily_call_budget_window_is_the_farm_local_day(
+    client: httpx.AsyncClient,
+) -> None:
+    """The budget window opens at the FARM's local midnight, not UTC's.
+
+    For an Asia/Kolkata farm (+05:30), calls made at 00:30 local land on the
+    previous UTC date — they must still count against today's budget. Calls
+    from 23:30 local yesterday count against neither day."""
+    headers = await owner_with_farm(client, email="budget-tz@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    storage = FakeStorage()
+    storage.objects[f"raw/{farm_id}/{dt.date.today().isoformat()}/window.jpg"] = _jpeg_bytes(
+        2000, 1000
+    )
+
+    kolkata = ZoneInfo("Asia/Kolkata")
+    local_midnight = dt.datetime.combine(
+        utcnow().replace(tzinfo=dt.UTC).astimezone(kolkata).date(),
+        dt.time.min,
+        tzinfo=kolkata,
+    )
+
+    def at(local_when: dt.datetime) -> dt.datetime:
+        return local_when.astimezone(dt.UTC).replace(tzinfo=None)
+
+    settings = _cycle_settings(max_images_per_cycle=10)
+    # Crop detection off → 7-call reservation; farm-local spend of 4 plus
+    # the reservation overshoots 10.
+    settings.screening_daily_call_budget_per_farm = 10
+    async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
+        await _budget_ledger_runs(
+            db,
+            farm_id,
+            storage,
+            # Four runs at 00:30 local today (19:00 UTC yesterday — invisible
+            # to a UTC-day window) ...
+            [at(local_midnight + dt.timedelta(minutes=30))] * 4
+            # ... and ten at 23:30 local yesterday (outside every window).
+            + [at(local_midnight - dt.timedelta(minutes=30))] * 10,
+        )
+        summary = await run_screening_cycle(
+            db, settings, storage, ProviderRotation([CountingProvider(name="tz-budget")])
+        )
+    # Only the four farm-local-today runs count: 4 + 7 > 10 parks the farm.
+    assert summary.claimed == 0
+
+    # Raise the budget so the farm fits iff yesterday's ten runs really are
+    # excluded: local spend 4 + reservation 7 <= 18, but 14 + 7 > 18.
+    settings.screening_daily_call_budget_per_farm = 18
+    async with get_sessionmaker()() as db:
+        reopened = await run_screening_cycle(
+            db, settings, storage, ProviderRotation([CountingProvider(name="tz-budget-2")])
+        )
+    assert reopened.claimed == 1
+
+
+async def test_daily_call_budget_reservation_parks_a_farm_near_the_cap(
+    client: httpx.AsyncClient,
+) -> None:
+    """The budget is charged per provider call, not per claimed image: a farm
+    whose settled spend is still UNDER the cap is parked when that spend plus
+    the worst-case reservation for one more claimed image would overshoot."""
+    headers = await owner_with_farm(client, email="budget-reserve@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    storage = FakeStorage()
+    pending_key = f"raw/{farm_id}/{dt.date.today().isoformat()}/near-cap.jpg"
+    storage.objects[pending_key] = _jpeg_bytes(2000, 1000)
+
+    settings = _cycle_settings(max_images_per_cycle=10)
+    # Crop detection off → one image can cost 7 calls; 4 settled + 7 > 10.
+    settings.screening_daily_call_budget_per_farm = 10
+    async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
+        await _budget_ledger_runs(db, farm_id, storage, [utcnow()] * 4)
+        parked = await run_screening_cycle(
+            db, settings, storage, ProviderRotation([CountingProvider(name="reserve")])
+        )
+        row = (
+            await db.execute(select(ScreeningImage).where(ScreeningImage.s3_key == pending_key))
+        ).scalar_one()
+    # Raw spend (4) is under the cap (10), yet the reservation parks the farm.
+    assert parked.claimed == 0
+    assert row.status == "PENDING"
+    assert row.screening_attempts == 0
+
+    # 4 + 7 fits inside 11 exactly: the same farm claims again.
+    settings.screening_daily_call_budget_per_farm = 11
+    async with get_sessionmaker()() as db:
+        claimed = await run_screening_cycle(
+            db, settings, storage, ProviderRotation([CountingProvider(name="reserve-2")])
+        )
+    assert claimed.claimed == 1
 
 
 async def test_tenant_facing_errors_carry_reason_codes_not_raw_text(

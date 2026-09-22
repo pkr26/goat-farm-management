@@ -8,6 +8,7 @@ from .providers import (
     NotificationDeliveryError,
     NotificationProvider,
     build_notification_provider,
+    redact_phone_numbers,
 )
 from .service import (
     ALERT_CLASSES,
@@ -36,6 +37,7 @@ __all__ = [
     "kidding_watch_daily",
     "notify_alert_class",
     "overdue_critical_sweep",
+    "redact_phone_numbers",
     "run_digest_for_farm",
     "send_notification",
 ]

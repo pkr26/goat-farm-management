@@ -1355,6 +1355,8 @@ const en = {
   "worker.login.signIn": "Sign in",
   "worker.login.backToFarms": "Change farm",
   "worker.login.wrongPin": "Wrong PIN — try again.",
+  "worker.login.networkError":
+    "No connection — the PIN never reached the server. Check the network and try again.",
   "worker.login.loadFailed": "Could not load the worker list. Check your connection.",
   "worker.login.retry": "Retry",
   "worker.needFarm.title": "No farm on this tablet",

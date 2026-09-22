@@ -62,9 +62,10 @@ export function setActiveFarmTimezone(timezone: string | null | undefined): void
 }
 
 /** Every formatter built from a farm timezone must go through this. The zone
- * arrives from the API, and Intl rejects names Python's zoneinfo and
- * PostgreSQL both accept ("Factory"), so an unguarded constructor throws
- * RangeError mid-render for everyone on that farm. */
+ * arrives from the API, and Intl can reject names Python's zoneinfo and
+ * PostgreSQL both accept ("Factory" on runtimes whose ICU tzdata predates
+ * its inclusion), so an unguarded constructor throws RangeError mid-render
+ * for everyone on that farm. */
 function farmTimeZoneFormat(
   locale: string,
   options: Intl.DateTimeFormatOptions,

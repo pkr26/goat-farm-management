@@ -9,6 +9,7 @@ quiet hours live in ``service.py`` so every provider shares them.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -20,6 +21,16 @@ logger = logging.getLogger(__name__)
 
 MSG91_SEND_URL = "https://control.msg91.com/api/v5/flow/"
 MSG91_TIMEOUT_SECONDS = 10.0
+
+_PHONE_LIKE_DIGITS = re.compile(r"\+?\d{10,}")
+
+
+def redact_phone_numbers(text: str) -> str:
+    """Strip phone-shaped digit runs from provider error text before storage.
+
+    MSG91 error payloads can echo the recipient's mobile number; the log only
+    needs enough of the message for diagnosis. Short ids and codes survive."""
+    return _PHONE_LIKE_DIGITS.sub("<redacted>", text)
 
 
 @dataclass(frozen=True)
@@ -60,10 +71,26 @@ class Msg91Provider:
 
     name = "msg91"
 
-    def __init__(self, auth_key: str, sender_id: str, template_id: str | None = None) -> None:
+    def __init__(
+        self,
+        auth_key: str,
+        sender_id: str,
+        template_id: str | None = None,
+        *,
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
         self._auth_key = auth_key
         self._sender_id = sender_id
         self._template_id = template_id
+        self._client = client or httpx.AsyncClient(timeout=MSG91_TIMEOUT_SECONDS)
+        # aclose() below must never close a caller-owned client (tests share
+        # one transport across providers).
+        self._owns_client = client is None
+
+    async def aclose(self) -> None:
+        """Close the owned httpx transport (notifications loop shutdown)."""
+        if self._owns_client:
+            await self._client.aclose()
 
     async def send_sms(self, phone: str, message: str) -> DeliveryResult:
         body: dict[str, object] = {
@@ -74,12 +101,11 @@ class Msg91Provider:
         if self._template_id:
             body["template_id"] = self._template_id
         try:
-            async with httpx.AsyncClient(timeout=MSG91_TIMEOUT_SECONDS) as client:
-                response = await client.post(
-                    MSG91_SEND_URL,
-                    headers={"authkey": self._auth_key},
-                    json=body,
-                )
+            response = await self._client.post(
+                MSG91_SEND_URL,
+                headers={"authkey": self._auth_key},
+                json=body,
+            )
             response.raise_for_status()
             payload = response.json()
             # MSG91 answers {"type": "success", "message": "..."} on accept.

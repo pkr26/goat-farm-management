@@ -127,6 +127,21 @@ describe("isOfflineQueueableFailure", () => {
     expect(isOfflineQueueableFailure({ name: "AbortError" })).toBe(true);
     expect(isOfflineQueueableFailure({ status: 403, detail: "no" })).toBe(false);
   });
+
+  it("never queues a definitive 4xx, even while the browser reports offline", () => {
+    // Connectivity can drop right after the server's rejection arrived;
+    // queueing it would tell the worker "Saved" for a write the server
+    // already refused. Only genuine outages (transport, 5xx) queue.
+    const onLine = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    try {
+      expect(isOfflineQueueableFailure({ status: 422, detail: "rejected" })).toBe(false);
+      expect(isOfflineQueueableFailure({ status: 409 })).toBe(false);
+      expect(isOfflineQueueableFailure({ status: 503 })).toBe(true);
+      expect(isOfflineQueueableFailure(new TypeError("fetch failed"))).toBe(true);
+    } finally {
+      onLine.mockRestore();
+    }
+  });
 });
 
 describe("drainOfflineQueue", () => {
@@ -186,6 +201,75 @@ describe("drainOfflineQueue", () => {
     expect(outcome.remaining).toBe(1);
     // The other worker's record survives for their session.
     expect(readOfflineQueue()[0]?.actorScope).toBe("8");
+  });
+
+  it("keeps a completion enqueued while a slow replay was in flight", async () => {
+    enqueueOfflineMutation("/api/tasks/1/complete", { method: "POST" }, SCOPES);
+    const fetchImpl = vi.fn().mockImplementation(async () => {
+      // The worker taps another completion through on a flaky connection
+      // while this replay is on the wire; the drain's write-back merges
+      // against live storage instead of clobbering it with a stale snapshot.
+      enqueueOfflineMutation("/api/tasks/2/complete", { method: "POST" }, SCOPES);
+      return {};
+    });
+    const outcome = await drainOfflineQueue(SCOPES, fetchImpl);
+    expect(outcome).toEqual({ replayed: 1, remaining: 1 });
+    expect(readOfflineQueue(storage()).map((r) => r.path)).toEqual([
+      "/api/tasks/2/complete",
+    ]);
+  });
+
+  it("keeps FIFO order between a backed-off record and a mid-drain enqueue", async () => {
+    enqueueOfflineMutation("/api/tasks/1/complete", { method: "POST" }, SCOPES);
+    const error = Object.assign(new Error("boom"), { status: 503 });
+    const fetchImpl = vi.fn().mockImplementation(async () => {
+      enqueueOfflineMutation("/api/tasks/2/complete", { method: "POST" }, SCOPES);
+      throw error;
+    });
+    const outcome = await drainOfflineQueue(SCOPES, fetchImpl);
+    expect(outcome).toEqual({ replayed: 0, remaining: 2 });
+    expect(readOfflineQueue(storage()).map((r) => r.path)).toEqual([
+      "/api/tasks/1/complete",
+      "/api/tasks/2/complete",
+    ]);
+  });
+
+  it("a concurrent drain invocation neither replays nor clobbers records", async () => {
+    enqueueOfflineMutation("/api/tasks/1/complete", { method: "POST" }, SCOPES);
+    let release!: (value: unknown) => void;
+    const parked = new Promise((resolve) => {
+      release = resolve;
+    });
+    const slowFetch = vi.fn().mockImplementation(() => parked);
+    const first = drainOfflineQueue(SCOPES, slowFetch);
+    // The shell's immediate drain racing the interval trigger: it returns
+    // without re-firing the write under the same Idempotency-Key and
+    // without touching storage.
+    const secondFetch = vi.fn().mockResolvedValue({});
+    const second = await drainOfflineQueue(SCOPES, secondFetch);
+    expect(second).toEqual({ replayed: 0, remaining: 1 });
+    expect(secondFetch).not.toHaveBeenCalled();
+
+    release({});
+    const firstOutcome = await first;
+    expect(firstOutcome).toEqual({ replayed: 1, remaining: 0 });
+    expect(slowFetch).toHaveBeenCalledTimes(1);
+    expect(offlineQueueDepth()).toBe(0);
+  });
+
+  it("the next drain replays a mid-drain enqueue in FIFO order", async () => {
+    enqueueOfflineMutation("/api/tasks/1/complete", { method: "POST" }, SCOPES);
+    const first = vi.fn().mockImplementation(async () => {
+      enqueueOfflineMutation("/api/tasks/3/complete", { method: "POST" }, SCOPES);
+      return {};
+    });
+    await drainOfflineQueue(SCOPES, first);
+
+    const second = vi.fn().mockResolvedValue({});
+    const outcome = await drainOfflineQueue(SCOPES, second);
+    expect(outcome).toEqual({ replayed: 1, remaining: 0 });
+    expect(second).toHaveBeenCalledTimes(1);
+    expect(second.mock.calls[0]?.[0]).toBe("/api/tasks/3/complete");
   });
 });
 

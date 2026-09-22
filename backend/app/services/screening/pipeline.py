@@ -27,8 +27,9 @@ import logging
 import re
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple, cast
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import exists, func, literal, or_, select, update
+from sqlalchemy import exists, func, literal, or_, select, union, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -379,6 +380,41 @@ async def _terminate_budget_exhausted_processing(
     return int(result.rowcount or 0)
 
 
+def _worst_case_calls_per_image(settings: ScreeningRuntimeSettings) -> int:
+    """Claim-time reservation: the most provider calls one image can cost.
+
+    One detection call plus, per crop, the full cascade (gate + one call per
+    specialist kind + cross-check). Without crop detection the whole photo
+    runs a single cascade. Actual spend stays the ScreeningRun ledger; this
+    only decides whether one more claim would overshoot the daily budget."""
+    cascade_calls = 2 + len(SpecialistKind)  # gate + specialists + cross-check
+    if settings.screening_crop_detection_enabled:
+        return 1 + settings.screening_max_crops_per_image * cascade_calls
+    return cascade_calls
+
+
+async def _farm_local_day_starts(db: AsyncSession, now: dt.datetime) -> dict[str, dt.datetime]:
+    """Each farm timezone's local midnight today, as naive UTC.
+
+    ``ScreeningRun.created_at`` is a naive UTC TIMESTAMP and ``now`` is naive
+    UTC, so a farm's budget window opens at its own local midnight converted
+    back to naive UTC — not at UTC midnight, which would reset the budget
+    mid-local-day for farms far from UTC. Keyed by the stored timezone string
+    so the budget query can join farms on it; corrupt legacy timezone rows
+    fall back to the same default the business-date helpers use."""
+    day_starts: dict[str, dt.datetime] = {}
+    for (timezone_name,) in (await db.execute(select(Farm.timezone).distinct())).all():
+        try:
+            tz = ZoneInfo(timezone_name)
+        except ZoneInfoNotFoundError:
+            tz = ZoneInfo("Asia/Kolkata")
+        local_midnight = dt.datetime.combine(
+            now.replace(tzinfo=dt.UTC).astimezone(tz).date(), dt.time.min, tzinfo=tz
+        )
+        day_starts[timezone_name] = local_midnight.astimezone(dt.UTC).replace(tzinfo=None)
+    return day_starts
+
+
 async def _claim_retry_rows(
     db: AsyncSession,
     limit: int,
@@ -386,6 +422,7 @@ async def _claim_retry_rows(
     abandoned_after: dt.timedelta,
     stale_after: dt.timedelta,
     daily_call_budget_per_farm: int = 0,
+    claim_reservation: int = 1,
 ) -> tuple[list[ScreeningImage], int, int]:
     """PENDING uploads, stale PROCESSING claims and aged ERROR rows, oldest first.
 
@@ -425,25 +462,34 @@ async def _claim_retry_rows(
         )
     )
     # ITEM 6 (2026-09-21 playbook): the per-farm daily provider-call budget.
-    # Spend is measured as the farm's ScreeningRun rows since UTC midnight —
-    # every provider call records exactly one run — so a farm whose budget is
-    # spent simply has no claimable rows this cycle; its photos stay PENDING
-    # and drain tomorrow. Counted per call: a multi-crop cascade costs its
-    # real size, and errored calls count too (the provider was paid).
+    # Spend is measured as the farm's ScreeningRun rows since its own local
+    # midnight — every provider call records exactly one run — and a farm is
+    # over budget when settled spend plus the worst-case reservation for one
+    # more claimed image would exceed the cap, so a multi-crop cascade
+    # claimed near the cap cannot overshoot by its full run count. Errored
+    # calls count too (the provider was paid). An over-budget farm simply has
+    # no claimable rows this cycle; its photos stay PENDING and drain
+    # tomorrow, when its local-day window reopens.
     budget = daily_call_budget_per_farm
     budget_ok: ColumnElement[bool]
-    if budget > 0:
-        # Naive UTC midnight: ScreeningRun.created_at is a naive UTC
-        # TIMESTAMP, and utcnow() here is naive too.
-        utc_day_start = dt.datetime.combine(now.date(), dt.time.min)
-        over_budget_farms = (
-            select(ScreeningRun.farm_id)
-            .where(ScreeningRun.created_at >= utc_day_start)
-            .group_by(ScreeningRun.farm_id)
-            .having(func.count() >= budget)
-            .subquery()
-        )
-        budget_ok = ~ScreeningImage.farm_id.in_(select(over_budget_farms.c.farm_id))
+    if budget > 0 and claim_reservation > budget:
+        # One image's worst case alone exceeds the cap: nothing may claim.
+        budget_ok = literal(False)
+    elif budget > 0:
+        day_starts = await _farm_local_day_starts(db, now)
+        if not day_starts:
+            budget_ok = ~literal(False)
+        else:
+            over_budget_parts = [
+                select(ScreeningRun.farm_id)
+                .join(Farm, Farm.id == ScreeningRun.farm_id)
+                .where(ScreeningRun.created_at >= day_start, Farm.timezone == timezone_name)
+                .group_by(ScreeningRun.farm_id)
+                .having(func.count() > budget - claim_reservation)
+                for timezone_name, day_start in day_starts.items()
+            ]
+            over_budget_farms = union(*over_budget_parts).subquery()
+            budget_ok = ~ScreeningImage.farm_id.in_(select(over_budget_farms.c.farm_id))
     else:
         budget_ok = ~literal(False)
 
@@ -576,6 +622,7 @@ async def run_screening_cycle(
         abandoned_after,
         stale_after,
         settings.screening_daily_call_budget_per_farm,
+        _worst_case_calls_per_image(settings),
     )
     summary.retried_errors += error_retries
     summary.retried_flagged += flagged_retries

@@ -163,8 +163,14 @@ export function isOfflineQueueableMutation(path: string, method?: string): boole
 }
 
 /** Does the failure mean "send it later"? Network-level failures and the
- * browser's offline flag do; HTTP error statuses are answers, not outages. */
+ * browser's offline flag do; HTTP error statuses are answers, not outages.
+ * A definitive 4xx stays unqueueable even when the offline flag is set —
+ * connectivity can drop right after the server's rejection arrived, and
+ * queueing that write would tell the worker "Saved" for something the
+ * server already refused. */
 export function isOfflineQueueableFailure(error: unknown): boolean {
+  const status = (error as { status?: unknown } | null)?.status;
+  if (typeof status === "number" && status >= 400 && status < 500) return false;
   if (typeof navigator !== "undefined" && navigator.onLine === false) return true;
   return (
     typeof error === "object" &&
@@ -187,8 +193,17 @@ export type DrainOutcome = {
  * preserved; 409s mean the server already applied the write under this key —
  * done, drop it.
  *
+ * Concurrency: drains are fired by the online/focus/interval triggers AND the
+ * worker shell's immediate drain, so invocations can overlap. A module-level
+ * in-flight guard keeps a second drain from interleaving replays, and the
+ * write-back is merge-safe: it re-reads live storage and removes only the
+ * records THIS drain resolved, so a completion enqueued while a slow replay
+ * was on the wire is never clobbered by a stale snapshot.
+ *
  * The replay function is injectable for tests.
  */
+let drainInFlight = false;
+
 export async function drainOfflineQueue(
   scopes: QueueScopes,
   fetchImpl: (path: string, init: RequestInit) => Promise<unknown> = (path, init) =>
@@ -196,50 +211,60 @@ export async function drainOfflineQueue(
 ): Promise<DrainOutcome> {
   const storage = availableLocalStorage();
   if (storage === null) return { replayed: 0, remaining: 0 };
-  const records = readOfflineQueue(storage);
-  let replayed = 0;
-  let index = 0;
-  let stopped = false;
-  while (index < records.length) {
-    const record = records[index];
-    if (record.actorScope !== scopes.actorScope || record.farmScope !== scopes.farmScope) {
-      // Not ours: leave it queued for whoever owns it.
-      index += 1;
-      continue;
-    }
-    if (stopped) {
-      index += 1;
-      continue;
-    }
-    try {
-      await fetchImpl(record.path, {
-        method: record.method,
-        body: record.body ?? undefined,
-        headers: record.headers,
-      });
-      records.splice(index, 1);
-      replayed += 1;
-    } catch (error) {
-      const status = (error as { status?: unknown } | null)?.status;
-      if (status === 409) {
-        // The server already committed this exact keyed write: done.
-        records.splice(index, 1);
-        replayed += 1;
-        continue;
-      }
-      if (typeof status === "number" && status >= 400 && status < 500) {
-        // A definitive client rejection (403/404/422): retrying cannot fix
-        // it; drop the record rather than wedging the queue forever.
-        records.splice(index, 1);
-        continue;
-      }
-      // 5xx or transport failure: back off — keep the record, stop here.
-      stopped = true;
-      index += 1;
-    }
+  if (drainInFlight) {
+    // The in-flight drain (or the next trigger after it) owns the replay;
+    // re-entering here would double-fire replays under the same key.
+    return { replayed: 0, remaining: readOfflineQueue(storage).length };
   }
-  writeQueue(storage, records);
-  return { replayed, remaining: records.length };
+  drainInFlight = true;
+  try {
+    const records = readOfflineQueue(storage);
+    let replayed = 0;
+    const resolvedIds = new Set<string>();
+    let stopped = false;
+    for (const record of records) {
+      if (record.actorScope !== scopes.actorScope || record.farmScope !== scopes.farmScope) {
+        // Not ours: leave it queued for whoever owns it.
+        continue;
+      }
+      if (stopped) continue;
+      try {
+        await fetchImpl(record.path, {
+          method: record.method,
+          body: record.body ?? undefined,
+          headers: record.headers,
+        });
+        resolvedIds.add(record.id);
+        replayed += 1;
+      } catch (error) {
+        const status = (error as { status?: unknown } | null)?.status;
+        if (status === 409) {
+          // The server already committed this exact keyed write: done.
+          resolvedIds.add(record.id);
+          replayed += 1;
+          continue;
+        }
+        if (typeof status === "number" && status >= 400 && status < 500) {
+          // A definitive client rejection (403/404/422): retrying cannot fix
+          // it; drop the record rather than wedging the queue forever.
+          resolvedIds.add(record.id);
+          continue;
+        }
+        // 5xx or transport failure: back off — keep the record, stop here.
+        stopped = true;
+      }
+    }
+    // Merge against LIVE storage: anything enqueued after the snapshot (a
+    // completion recorded mid-drain) is not in resolvedIds and survives;
+    // only the records this drain actually settled are removed.
+    const next = readOfflineQueue(storage).filter(
+      (record) => !resolvedIds.has(record.id),
+    );
+    writeQueue(storage, next);
+    return { replayed, remaining: next.length };
+  } finally {
+    drainInFlight = false;
+  }
 }
 
 let workersRunning = false;

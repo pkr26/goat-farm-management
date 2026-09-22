@@ -1325,6 +1325,8 @@ const te: Partial<Record<MessageKey, string>> = {
   "worker.login.signIn": "సైన్ ఇన్",
   "worker.login.backToFarms": "ఫారం మార్చు",
   "worker.login.wrongPin": "పిన్ తప్పు — మళ్లీ ప్రయత్నించండి.",
+  "worker.login.networkError":
+    "కనెక్షన్ లేదు — పిన్ సర్వర్‌కు చేరలేదు. నెట్‌వర్క్ సరిచూసి మళ్లీ ప్రయత్నించండి.",
   "worker.login.loadFailed": "కార్మికుల జాబితా లోడ్ కాలేదు. కనెక్షన్ చెక్ చేయండి.",
   "worker.login.retry": "మళ్లీ ప్రయత్నించు",
   "worker.needFarm.title": "ఈ టాబ్లెట్‌లో ఫారం లేదు",
