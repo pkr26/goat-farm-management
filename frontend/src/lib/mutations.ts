@@ -9,16 +9,13 @@ import { useT } from "@/lib/i18n";
  *  stable error codes (validation, denials, rate limits) or the detail is one
  *  of the pinned highest-stakes phrases (duty conflicts, …); the fallback is
  *  the caller's — translated where the surface is wired to the language
- *  catalog (`t("common.somethingWentWrong")`). */
+ *  catalog (`t("common.somethingWentWrong")`). Every write surface renders
+ *  through this hook (2026-09-22: the legacy non-hook variant that returned
+ *  raw English server text was retired). */
 export function useMutationError(): (err: unknown, fallback?: string) => string {
   const t = useT();
   return (err: unknown, fallback = t("common.somethingWentWrong")) =>
     err instanceof ApiError
       ? mapServerError(t, err.detail, err.status, err.code)
       : fallback;
-}
-
-/** Language-neutral variant for non-hook call sites (keeps the old shape). */
-export function mutationError(err: unknown, fallback = "Something went wrong"): string {
-  return err instanceof ApiError ? err.detail : fallback;
 }

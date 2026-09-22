@@ -54,6 +54,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
+import { mapServerError } from "@/lib/server-error-phrases";
 import { useAuth } from "@/lib/auth-context";
 import { daysBetween, farmToday, formatDate, formatFarmDateTime } from "@/lib/format";
 import { useLanguage, useT } from "@/lib/i18n";
@@ -193,7 +194,7 @@ function DashboardPageContent({ perms }: { perms: PermissionsState }) {
         <div role="alert" className="space-y-3 rounded-lg border border-destructive/40 p-4">
           <p className="text-sm text-destructive">
             {query.error instanceof ApiError
-              ? query.error.detail
+              ? mapServerError(t, query.error.detail, query.error.status, query.error.code)
               : t("dashboard.loadFailed")}
           </p>
           <Button type="button" variant="outline" onClick={() => void query.refetch()}>

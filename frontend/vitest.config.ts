@@ -45,8 +45,11 @@ export default defineConfig({
         // previously hid an entire page at 0% — the screening review queue.
         // Each surface now carries its own floor, well under its measured
         // level (app/(app) ~97/96, components ~82/83, lib ~97/97) but far
-        // above zero, so no page can ever again ship untested.
-        "src/app/(app)/**": { statements: 80, branches: 60, functions: 80, lines: 80 },
+        // above zero, so no page can ever again ship untested. The route
+        // group's parentheses must be escaped: picomatch parses bare
+        // `(app)` as an extglob alternation, which matches NOTHING — the
+        // unescaped key was dead config until 2026-09-22.
+        "src/app/[(]app[)]/**": { statements: 80, branches: 60, functions: 80, lines: 80 },
         "src/app/**": { statements: 55, branches: 50, functions: 55, lines: 55 },
         "src/components/**": { statements: 75, branches: 70, functions: 80, lines: 75 },
         "src/lib/**": { statements: 85, branches: 85, functions: 85, lines: 85 },

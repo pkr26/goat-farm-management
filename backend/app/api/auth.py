@@ -1043,7 +1043,15 @@ async def worker_roster(
     ).all()
     return WorkerRosterOut(
         items=[
-            WorkerRosterEntryOut(membership_id=int(row.id), display_name=row.User.display_name)
+            WorkerRosterEntryOut(
+                membership_id=int(row.id),
+                # User.display_name falls back to the email when name is
+                # NULL — this endpoint is unauthenticated, so a nameless
+                # worker must never surface their email here. The fallback
+                # reuses the membership id this payload already publishes,
+                # disclosing nothing new and keeping taps distinguishable.
+                display_name=row.User.name or f"Worker {row.id}",
+            )
             for row in rows
         ]
     )

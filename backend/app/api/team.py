@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -941,10 +942,21 @@ async def _create_worker_after_idempotency_gate(
                 response_type=MembershipOut,
             )
         if replay is None:
-            password = payload.password or ""
-            error = password_policy_error(password)
-            if error:
-                raise HTTPException(status_code=400, detail=error)
+            # Exactly one credential per worker. An owner-chosen password is
+            # force-rotated through the must-change fence; a tablet PIN is
+            # fence-free by design (deps.py would otherwise lock the account
+            # off the tablet). Allowing BOTH would leave an owner-chosen,
+            # never-rotated password live on a PIN-usable account; allowing
+            # NEITHER mints a worker nobody can sign in as.
+            if (payload.password is None) == (payload.pin is None):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Give the worker exactly one credential: a password or a tablet PIN.",
+                )
+            if payload.password is not None:
+                error = password_policy_error(payload.password)
+                if error:
+                    raise HTTPException(status_code=400, detail=error)
             if payload.pin is not None:
                 _validate_worker_pin(payload.pin)
             await _preflight_worker_create(db, farm, payload)
@@ -956,10 +968,20 @@ async def _create_worker_after_idempotency_gate(
     if replay is not None:
         return replay
 
-    password_hash = await _hash_team_password(
-        payload.password or "",
-        actor_id=prepared.actor_id,
-    )
+    if payload.password is not None:
+        password_hash = await _hash_team_password(
+            payload.password,
+            actor_id=prepared.actor_id,
+        )
+    else:
+        # PIN-only worker: users.password_hash is NOT NULL, so store the hash
+        # of an unguessable random secret — the web password flow can never
+        # succeed for this account. The owner can still grant one later via
+        # reset-password (which re-arms the must-change fence).
+        password_hash = await _hash_team_password(
+            secrets.token_urlsafe(32),
+            actor_id=prepared.actor_id,
+        )
     # The PIN rides the same per-owner Argon admission as the password; a
     # PIN-provisioned worker skips the must-change-password fence because the
     # tablet has no password-rotation surface (deps.py would otherwise lock
@@ -1011,9 +1033,12 @@ async def _create_worker_after_idempotency_gate(
             name=(payload.name or "").strip() or None,
             password_hash=password_hash,
             # Owner-provisioned credential: force the holder's first-change
-            # rotation before any domain mutation — EXCEPT PIN-provisioned
-            # tablet workers (see the pin_hash comment above).
-            must_change_password=pin_hash is None,
+            # rotation before any domain mutation. A PIN alongside the
+            # password does NOT waive the fence — only a PIN-only worker
+            # (no password to rotate) skips it; the tablet surface has no
+            # password-rotation UI and deps.py would otherwise lock the
+            # account out of every domain route.
+            must_change_password=bool(payload.password),
         )
         db.add(worker)
         try:

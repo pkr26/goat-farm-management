@@ -11,6 +11,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 
 import type { FarmCreateIn } from "@/api/generated/models";
+import { InlineLoading } from "@/components/skeletons";
 import { LanguageToggle } from "@/components/language-toggle";
 import { Logo } from "@/components/logo";
 import { Badge } from "@/components/ui/badge";
@@ -25,8 +26,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiFetch, ApiError, authSessionEpochValue } from "@/lib/api-client";
-import { useT } from "@/lib/i18n";
+import { useT, type TFn } from "@/lib/i18n";
 import { useAuth, type FarmEntry } from "@/lib/auth-context";
+import { mapServerError } from "@/lib/server-error-phrases";
 import {
   firstPermittedPathFromList,
   permittedAppPathFromList,
@@ -36,31 +38,35 @@ import { useSingleFlight } from "@/lib/use-single-flight";
 import { farmTypeLabel } from "@/lib/farm-vocabulary";
 
 
-const farmSchema = z.object({
-  name: z
-    .string()
-    .trim()
-    .min(1, "Name is required")
-    .max(120, "Farm name must be at most 120 characters"),
-  location: z
-    .string()
-    .trim()
-    .max(120, "Location must be at most 120 characters")
-    .optional(),
-  timezone: z
-    .string()
-    .trim()
-    .min(1, "Timezone is required")
-    .max(64, "Timezone must be at most 64 characters")
-    // Do not use Intl as an IANA validator here: browser tzdata can lag the
-    // server and reject a newly introduced, otherwise valid zone. These are
-    // the two tzdata placeholders the API explicitly forbids in every version.
-    .refine(
-      (timezone) => timezone !== "Factory" && timezone !== "localtime",
-      "Enter a real location timezone",
-    ),
-});
-type FarmValues = z.infer<typeof farmSchema>;
+/** Localized twin of the old module-scope schema (ITEM 5): validation copy
+ * reaches Telugu-first operators in their language, not only the chrome. */
+function makeFarmSchema(t: TFn) {
+  return z.object({
+    name: z
+      .string()
+      .trim()
+      .min(1, t("farmSelect.errors.nameRequired"))
+      .max(120, t("farmSelect.errors.nameTooLong")),
+    location: z
+      .string()
+      .trim()
+      .max(120, t("farmSelect.errors.locationTooLong"))
+      .optional(),
+    timezone: z
+      .string()
+      .trim()
+      .min(1, t("farmSelect.errors.timezoneRequired"))
+      .max(64, t("farmSelect.errors.timezoneTooLong"))
+      // Do not use Intl as an IANA validator here: browser tzdata can lag the
+      // server and reject a newly introduced, otherwise valid zone. These are
+      // the two tzdata placeholders the API explicitly forbids in every version.
+      .refine(
+        (timezone) => timezone !== "Factory" && timezone !== "localtime",
+        t("farmSelect.errors.timezoneInvalid"),
+      ),
+  });
+}
+type FarmValues = z.infer<ReturnType<typeof makeFarmSchema>>;
 
 function FarmSelectPageContent() {
   const router = useRouter();
@@ -79,7 +85,7 @@ function FarmSelectPageContent() {
     reset,
     formState: { errors, isSubmitting },
   } = useForm<FarmValues>({
-    resolver: zodResolver(farmSchema),
+    resolver: zodResolver(makeFarmSchema(t)),
     defaultValues: { name: "", location: "", timezone: "Asia/Kolkata" },
   });
 
@@ -125,7 +131,9 @@ function FarmSelectPageContent() {
     } catch (error) {
       if (!mounted.current || authSessionEpochValue() !== sessionEpoch) return;
       setServerError(
-        error instanceof ApiError ? error.detail : "Could not load permissions for this farm.",
+        error instanceof ApiError
+          ? mapServerError(t, error.detail, error.status, error.code)
+          : t("farmSelect.permissionsFailed"),
       );
       // The operator stays here and must be able to retry.
       setSelectingFarmId(null);
@@ -155,7 +163,9 @@ function FarmSelectPageContent() {
       } catch (err) {
         if (!mounted.current || authSessionEpochValue() !== sessionEpoch) return;
         setServerError(
-          err instanceof ApiError ? err.detail : "Could not create the farm.",
+          err instanceof ApiError
+            ? mapServerError(t, err.detail, err.status, err.code)
+            : t("farmSelect.createFailed"),
         );
         return;
       }
@@ -179,7 +189,7 @@ function FarmSelectPageContent() {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-3 bg-muted/40">
         <Loader2 className="size-6 animate-spin text-primary" />
-        <p role="status" aria-live="polite" className="text-muted-foreground">Loading…</p>
+        <p role="status" aria-live="polite" className="text-muted-foreground">{t("common.loading")}</p>
       </main>
     );
   }
@@ -244,7 +254,7 @@ function FarmSelectPageContent() {
                     {selectingFarmId === farm.id ? t("farmSelect.opening") : farm.name}
                   </span>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {farm.location ?? "—"} · {farm.role ?? "Owner"}
+                    {farm.location ?? "—"} · {farm.role ?? t("farmSelect.ownerRole")}
                   </p>
                   {/* Full-strength muted token: the /80 tint sat under 4.5:1
                   (sub-AA microtext, 2026-09-21 audit). */}
@@ -264,7 +274,7 @@ function FarmSelectPageContent() {
         <Card>
           <CardHeader>
             <CardTitle>{t("farmSelect.createTitle")}</CardTitle>
-            <CardDescription>Owners can manage multiple farms.</CardDescription>
+            <CardDescription>{t("farmSelect.multiOwner")}</CardDescription>
           </CardHeader>
           <CardContent>
             <form
@@ -280,7 +290,7 @@ function FarmSelectPageContent() {
                 <Input
                   id="name"
                   maxLength={120}
-                  placeholder="e.g. Your farm name"
+                  placeholder={t("farmSelect.namePlaceholder")}
                   aria-invalid={Boolean(errors.name) || undefined}
                   aria-describedby={errors.name ? "farm-name-error" : undefined}
                   {...register("name")}
@@ -292,11 +302,11 @@ function FarmSelectPageContent() {
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="location">Location (optional)</Label>
+                <Label htmlFor="location">{t("farmSelect.locationLabel")}</Label>
                 <Input
                   id="location"
                   maxLength={120}
-                  placeholder="Village, district or landmark"
+                  placeholder={t("farmSelect.locationPlaceholder")}
                   aria-invalid={Boolean(errors.location) || undefined}
                   aria-describedby={errors.location ? "farm-location-error" : undefined}
                   {...register("location")}
@@ -334,7 +344,7 @@ function FarmSelectPageContent() {
                   <option value="Australia/Sydney" />
                 </datalist>
                 <p id="timezone-hint" className="text-xs text-muted-foreground">
-                  IANA name used for due dates and daily records, for example Asia/Kolkata.
+                  {t("farmSelect.timezoneHint")}
                 </p>
                 {errors.timezone && (
                   <p id="timezone-error" role="alert" className="text-sm text-destructive">
@@ -361,7 +371,7 @@ function FarmSelectPageContent() {
 
 export default function FarmSelectPage() {
   return (
-    <Suspense fallback={<p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>}>
+    <Suspense fallback={<InlineLoading className="justify-center py-10" />}>
       <FarmSelectPageContent />
     </Suspense>
   );

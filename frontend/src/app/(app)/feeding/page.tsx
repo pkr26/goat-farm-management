@@ -59,7 +59,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
-import { mutationError } from "@/lib/mutations";
+import { useMutationError } from "@/lib/mutations";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { farmToday, formatDate } from "@/lib/format";
 import { useLanguage, useT } from "@/lib/i18n";
@@ -155,6 +155,7 @@ type SettingValues = z.output<typeof settingSchema>;
 
 /** Per-bucket kg/head override (feeding.manage). */
 function KgPerHeadDialog({ line }: { line: PlanLineOut }) {
+  const mutationErrorMessage = useMutationError();
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
   const t = useT();
@@ -202,7 +203,7 @@ function KgPerHeadDialog({ line }: { line: PlanLineOut }) {
         setOpen(false);
       } catch (err) {
         if (!farmScope()) return;
-        toast.error(mutationError(err, t("common.somethingWentWrong")));
+        toast.error(mutationErrorMessage(err, t("common.somethingWentWrong")));
       }
     });
   }
@@ -304,6 +305,7 @@ type DispenseInput = z.input<typeof dispenseSchema>;
 type DispenseValues = z.output<typeof dispenseSchema>;
 
 function FeedingPageContent({ perms }: { perms: PermissionsState }) {
+  const mutationErrorMessage = useMutationError();
   const { can } = perms;
   const t = useT();
   const { language } = useLanguage();
@@ -483,7 +485,7 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
         setDispenseOpen(false);
       } catch (err) {
         if (!farmScope()) return;
-        toast.error(mutationError(err, t("common.somethingWentWrong")));
+        toast.error(mutationErrorMessage(err, t("common.somethingWentWrong")));
       }
     });
   }

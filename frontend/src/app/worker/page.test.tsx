@@ -15,9 +15,10 @@ import { OFFLINE_QUEUE_STORAGE_KEY } from "@/lib/offline-queue";
 import WorkerLoginPage from "./login/page";
 import WorkerBoardPage from "./page";
 
-const { pushMock, replaceMock } = vi.hoisted(() => ({
+const { pushMock, replaceMock, signOutMock } = vi.hoisted(() => ({
   pushMock: vi.fn(),
   replaceMock: vi.fn(),
+  signOutMock: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -33,7 +34,7 @@ vi.mock("@/lib/auth-context", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   useAuth: () => ({
     signIn,
-    signOut: vi.fn(),
+    signOut: signOutMock,
     user: { id: 7, email: "pin@farm.in", name: "Pin Worker" },
     farmId: 3,
     farms: [{ id: 3, name: "Tablet Farm", location: null, timezone: "Asia/Kolkata", role: null }],
@@ -94,6 +95,7 @@ function today() {
 beforeEach(() => {
   pushMock.mockClear();
   replaceMock.mockClear();
+  signOutMock.mockClear();
   signIn.mockReset();
   window.localStorage.clear();
 });
@@ -133,6 +135,108 @@ describe("WorkerLoginPage", () => {
     expect(
       await screen.findByText("No farm on this tablet"),
     ).toBeInTheDocument();
+  });
+
+  it("runs the manager setup flow: credentials → TOTP code → pick farm → pin + sign out", async () => {
+    server.use(
+      http.get("/api/auth/worker-roster", () => HttpResponse.json(ROSTER)),
+    );
+    server.use(
+      http.post("/api/auth/login", async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        expect(body).toEqual({ email: "owner@farm.in", password: "owner-pass-123" });
+        // Password accepted, second factor demanded (LoginOut mfa arm).
+        return HttpResponse.json({ mfa_token: "challenge-token" });
+      }),
+    );
+    server.use(
+      http.post("/api/auth/totp/challenge", async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        expect(body).toEqual({ mfa_token: "challenge-token", code: "123456" });
+        return HttpResponse.json({
+          access_token: "manager-token",
+          token_type: "bearer",
+          user: { id: 1, email: "owner@farm.in", name: "Owner", must_change_password: false },
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<WorkerLoginPage />, createTestQueryClient());
+
+    // Unpinned tablet → setup entry point.
+    await user.click(await screen.findByTestId("worker-setup-start"));
+
+    // Credentials step.
+    await user.type(screen.getByLabelText("Email"), "owner@farm.in");
+    await user.type(screen.getByLabelText("Password"), "owner-pass-123");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    // TOTP challenge step (recovery codes ride the same endpoint).
+    const codeBox = await screen.findByTestId("worker-setup-code");
+    expect(codeBox).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Verification code"), "123456");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    // Farm choice from the signed-in manager's farm list.
+    expect(await screen.findByTestId("worker-setup-farms")).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Tablet Farm" }));
+
+    // The farm is pinned and the manager's session does not linger.
+    await waitFor(() => expect(signOutMock).toHaveBeenCalled());
+    expect(window.localStorage.getItem("herdly.tabletFarm")).toBe("3");
+    // The roster takes over as the workers' door.
+    expect(await screen.findByRole("button", { name: "Lakshmi" })).toBeInTheDocument();
+  });
+
+  it("pins the farm straight through when the manager has no TOTP", async () => {
+    server.use(
+      http.get("/api/auth/worker-roster", () => HttpResponse.json(ROSTER)),
+    );
+    server.use(
+      http.post("/api/auth/login", () =>
+        HttpResponse.json({
+          access_token: "manager-token",
+          token_type: "bearer",
+          user: { id: 1, email: "owner@farm.in", name: "Owner", must_change_password: false },
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<WorkerLoginPage />, createTestQueryClient());
+
+    await user.click(await screen.findByTestId("worker-setup-start"));
+    await user.type(screen.getByLabelText("Email"), "owner@farm.in");
+    await user.type(screen.getByLabelText("Password"), "owner-pass-123");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    await user.click(await screen.findByRole("button", { name: "Tablet Farm" }));
+    await waitFor(() => expect(signOutMock).toHaveBeenCalled());
+    expect(window.localStorage.getItem("herdly.tabletFarm")).toBe("3");
+    expect(signIn).toHaveBeenCalledWith(
+      "manager-token",
+      expect.objectContaining({ email: "owner@farm.in" }),
+    );
+  });
+
+  it("answers a failed manager sign-in with its own message", async () => {
+    server.use(
+      http.post("/api/auth/login", () =>
+        HttpResponse.json({ detail: "Invalid email or password." }, { status: 401 }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<WorkerLoginPage />, createTestQueryClient());
+
+    await user.click(await screen.findByTestId("worker-setup-start"));
+    await user.type(screen.getByLabelText("Email"), "owner@farm.in");
+    await user.type(screen.getByLabelText("Password"), "wrong-pass");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(
+      await screen.findByText("Sign-in failed. Check your details and try again."),
+    ).toBeInTheDocument();
+    expect(signIn).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem("herdly.tabletFarm")).toBeNull();
   });
 
   it("answers a wrong PIN with its own message", async () => {

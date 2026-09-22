@@ -73,12 +73,14 @@ test.describe("worker tablet", () => {
     expect(role.status(), await role.text()).toBe(201);
     const roleId = ((await role.json()) as { id: number }).id;
 
+    // PIN-only worker: the API accepts exactly one credential per worker
+    // (a password would ride the must-change fence and never reach the
+    // tablet door).
     const worker = await ownerApi(request, "/api/team/workers", {
       method: "POST",
       data: {
         name: `Tab Worker ${suffix}`,
         email: `tab-${suffix}@goatfarm.test`,
-        password: "tablet-pass-1234",
         role_id: roleId,
         pin: PIN,
       },
@@ -222,7 +224,6 @@ test.describe("worker tablet", () => {
       data: {
         name: `Form Worker ${suffix}`,
         email: `form-${suffix}@goatfarm.test`,
-        password: "tablet-pass-1234",
         role_id: vetRole.id,
         pin: PIN,
       },

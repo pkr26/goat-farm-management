@@ -67,7 +67,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
-import { mutationError } from "@/lib/mutations";
+import { useMutationError } from "@/lib/mutations";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { useAuth } from "@/lib/auth-context";
 import { useT } from "@/lib/i18n";
@@ -202,6 +202,7 @@ interface WorkerControlsProps {
 }
 
 function useWorkerControls({ m, roles, can, isOwner, onReset, authority }: WorkerControlsProps) {
+  const mutationErrorMessage = useMutationError();
   const invalidate = useInvalidateTeam();
   const roleMutation = useChangeRoleApiTeamWorkersMembershipIdRolePost();
   const statusMutation = useSetWorkerStatusApiTeamWorkersMembershipIdStatusPut();
@@ -251,7 +252,7 @@ function useWorkerControls({ m, roles, can, isOwner, onReset, authority }: Worke
       await invalidate();
     } catch (err) {
       if (!farmScope()) return;
-      const message = mutationError(err);
+      const message = mutationErrorMessage(err);
       setActionError({ action: "role", message, roleId });
       toast.error(message);
     } finally {
@@ -280,7 +281,7 @@ function useWorkerControls({ m, roles, can, isOwner, onReset, authority }: Worke
       await invalidate();
     } catch (err) {
       if (!farmScope()) return;
-      const message = mutationError(err);
+      const message = mutationErrorMessage(err);
       setActionError({ action: "status", message, desiredActive });
       toast.error(message);
     } finally {
@@ -614,6 +615,7 @@ function AddWorkerDialog({
   roles: RoleOut[];
   authority: TeamAuthority;
 }) {
+  const mutationErrorMessage = useMutationError();
   const invalidate = useInvalidateTeam();
   const createMutation = useCreateWorkerApiTeamWorkersPost();
   const createFlight = useSingleFlight();
@@ -657,7 +659,7 @@ function AddWorkerDialog({
         reset();
       } catch (err) {
         if (!farmScope()) return;
-        const message = mutationError(err);
+        const message = mutationErrorMessage(err);
         setFormError(message);
         toast.error(message);
       }
@@ -831,6 +833,7 @@ function ResetPasswordDialog({
   onClose: () => void;
   authority: TeamAuthority;
 }) {
+  const mutationErrorMessage = useMutationError();
   const resetMutation = useResetPasswordApiTeamWorkersMembershipIdResetPasswordPost();
   const resetFlight = useSingleFlight();
   const [formError, setFormError] = useState<string | null>(null);
@@ -858,7 +861,7 @@ function ResetPasswordDialog({
         onClose();
       } catch (err) {
         if (!farmScope()) return;
-        const message = mutationError(err);
+        const message = mutationErrorMessage(err);
         setFormError(message);
         toast.error(message);
       }
@@ -944,6 +947,7 @@ function NotificationPrefsDialog({
   authority: TeamAuthority;
   onClose: () => void;
 }) {
+  const mutationErrorMessage = useMutationError();
   const t = useT();
   const prefsQuery = useGetNotificationPrefsApiTeamWorkersMembershipIdNotificationsGet(
     membership.id,
@@ -973,7 +977,7 @@ function NotificationPrefsDialog({
             <DialogTitle>{t("team.notifications.title", { name })}</DialogTitle>
           </DialogHeader>
           <p role="alert" className="text-sm text-destructive">
-            {mutationError(prefsQuery.error)}
+            {mutationErrorMessage(prefsQuery.error)}
           </p>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
@@ -1010,6 +1014,7 @@ function NotificationPrefsForm({
   authority: TeamAuthority;
   onClose: () => void;
 }) {
+  const mutationErrorMessage = useMutationError();
   const t = useT();
   const queryClient = useQueryClient();
   const saveMutation = useSetNotificationPrefsApiTeamWorkersMembershipIdNotificationsPut();
@@ -1086,7 +1091,7 @@ function NotificationPrefsForm({
         onClose();
       } catch (err) {
         if (!farmScope()) return;
-        const message = mutationError(err);
+        const message = mutationErrorMessage(err);
         setFormError(message);
         toast.error(message);
       }
@@ -1231,6 +1236,7 @@ function RoleDialog({
   onClose: () => void;
   authority: TeamAuthority;
 }) {
+  const mutationErrorMessage = useMutationError();
   const invalidate = useInvalidateTeam();
   const createMutation = useCreateRoleApiTeamRolesPost();
   const updateMutation = useUpdateRoleApiTeamRolesRoleIdPut();
@@ -1307,7 +1313,7 @@ function RoleDialog({
         // revision, so invalidation remounts a truthful editor instead of
         // preserving stale permissions and overwriting the other admin.
         if (err instanceof ApiError && err.status === 409) await invalidate();
-        const message = mutationError(err);
+        const message = mutationErrorMessage(err);
         setFormError(message);
         toast.error(message);
       }
@@ -1484,6 +1490,7 @@ function RoleCard({
   onEdit: (role: RoleOut) => void;
   authority: TeamAuthority;
 }) {
+  const mutationErrorMessage = useMutationError();
   const invalidate = useInvalidateTeam();
   const deleteMutation = useDeleteRoleApiTeamRolesRoleIdDelete();
   const deleteLock = useRef(false);
@@ -1519,7 +1526,7 @@ function RoleCard({
       await invalidate();
     } catch (err) {
       if (!farmScope()) return;
-      const message = mutationError(err);
+      const message = mutationErrorMessage(err);
       setDeleteError(message);
       toast.error(message);
     } finally {

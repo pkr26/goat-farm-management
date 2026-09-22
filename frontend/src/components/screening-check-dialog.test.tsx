@@ -50,6 +50,50 @@ const POST_FIELDS = {
   "x-amz-algorithm": "AWS4-HMAC-SHA256",
 };
 
+/** jsdom's File implements Blob#arrayBuffer but not Blob#stream, so Node's
+ * fetch (the wire MSW intercepts) cannot serialize its bytes as a multipart
+ * file part — a browser always has stream(). Bridge the realm with a real
+ * ReadableStream so the generated part carries the file's name/type like
+ * production; the byte payload itself stays a realm artifact we do not
+ * assert on. */
+function browserGradeFile(bytes: Uint8Array<ArrayBuffer>, name: string, type: string): File {
+  const file = new File([bytes], name, { type });
+  Object.defineProperty(file, "stream", {
+    value: () =>
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(bytes);
+          controller.close();
+        },
+      }),
+  });
+  return file;
+}
+
+/** Assert the S3 POST's multipart wire shape from the raw body: field ORDER
+ * (every signed field must precede `file`), field values, and the multipart
+ * content type with a boundary. Undici's request.formData() cannot re-parse
+ * a jsdom-originated file part (its parser rejects the cross-realm File),
+ * so the assertions ride the pre-parsed wire text instead. */
+function expectS3MultipartWire(posted: { contentType: string | null; raw: string }) {
+  expect(posted.contentType).toMatch(/^multipart\/form-data; boundary=/);
+  const names = [...posted.raw.matchAll(/Content-Disposition: form-data; name="([^"]+)"/g)].map(
+    (match) => match[1],
+  );
+  expect(names).toEqual([...Object.keys(POST_FIELDS), "file"]);
+  for (const [name, value] of Object.entries(POST_FIELDS)) {
+    const partIndex = posted.raw.indexOf(`name="${name}"`);
+    expect(partIndex).toBeGreaterThanOrEqual(0);
+    expect(posted.raw.slice(partIndex)).toContain(value);
+  }
+  // The file part is a real attachment: it carries its own Content-Type
+  // header (the component must NOT set a request-level Content-Type — the
+  // browser supplies the boundary).
+  const fileIndex = posted.raw.indexOf('name="file"');
+  expect(fileIndex).toBeGreaterThan(posted.raw.indexOf('name="x-amz-algorithm"'));
+  expect(posted.raw.slice(fileIndex)).toContain("Content-Type: image/jpeg");
+}
+
 function renderDialog(onOpenChange = vi.fn()) {
   return renderWithProviders(
     <DiseaseCheckDialog open onOpenChange={onOpenChange} onFinished={vi.fn()} />,
@@ -111,7 +155,7 @@ describe("DiseaseCheckDialog", () => {
       http.post("https://fake-s3.test/*", async ({ request }) => {
         s3Post({
           contentType: request.headers.get("content-type"),
-          form: await request.formData(),
+          raw: await request.text(),
         });
         return new HttpResponse(null, { status: 204 });
       }),
@@ -126,9 +170,7 @@ describe("DiseaseCheckDialog", () => {
     fireEvent.change(input!, {
       target: {
         files: [
-          new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0])], "pen.jpg", {
-            type: "image/jpeg",
-          }),
+          browserGradeFile(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]), "pen.jpg", "image/jpeg"),
         ],
       },
     });
@@ -148,20 +190,9 @@ describe("DiseaseCheckDialog", () => {
     await waitFor(() => {
       expect(s3Post).toHaveBeenCalledTimes(1);
     });
-    const posted = s3Post.mock.calls[0]?.[0] as {
-      contentType: string | null;
-      form: FormData;
-    };
-    expect(posted.contentType).toMatch(/^multipart\/form-data; boundary=/);
-    expect([...posted.form.keys()]).toEqual([...Object.keys(POST_FIELDS), "file"]);
-    expect(posted.form.get("key")).toBe(POST_FIELDS.key);
-    expect(posted.form.get("Content-Type")).toBe("image/jpeg");
-    const uploadedFile = posted.form.get("file");
-    // MSW parses multipart with a different File realm, so assert the wire
-    // shape instead of relying on jsdom's `instanceof File` identity.
-    expect(uploadedFile).not.toBeNull();
-    expect(typeof uploadedFile).not.toBe("string");
-    expect(uploadedFile).toMatchObject({ type: "image/jpeg" });
+    expectS3MultipartWire(
+      s3Post.mock.calls[0]?.[0] as { contentType: string | null; raw: string },
+    );
     // The footer counter reflects the uploaded photo.
     expect(await screen.findByText(/1/)).toBeInTheDocument();
 
@@ -169,9 +200,7 @@ describe("DiseaseCheckDialog", () => {
     fireEvent.change(input!, {
       target: {
         files: [
-          new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0])], "pen2.jpg", {
-            type: "image/jpeg",
-          }),
+          browserGradeFile(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]), "pen2.jpg", "image/jpeg"),
         ],
       },
     });

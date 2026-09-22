@@ -57,7 +57,7 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/lib/api-client";
-import { mutationError } from "@/lib/mutations";
+import { useMutationError } from "@/lib/mutations";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import {
   addDays,
@@ -155,6 +155,7 @@ function AddPolicyDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const mutationErrorMessage = useMutationError();
   const mutation = useAddInsurancePolicyApiFinanceInsurancePost();
   const saveFlight = useSingleFlight();
   const t = useT();
@@ -201,7 +202,7 @@ function AddPolicyDialog({
         onClose();
       } catch (err) {
         if (!farmScope()) return;
-        const message = mutationError(err);
+        const message = mutationErrorMessage(err);
         setFormError(message);
         toast.error(message);
       }
@@ -425,6 +426,7 @@ function RenewPolicyDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const mutationErrorMessage = useMutationError();
   const mutation = useRenewPolicyApiFinanceInsurancePolicyIdRenewPost();
   const renewFlight = useSingleFlight();
   const t = useT();
@@ -468,7 +470,7 @@ function RenewPolicyDialog({
         onClose();
       } catch (err) {
         if (!farmScope()) return;
-        const message = mutationError(err);
+        const message = mutationErrorMessage(err);
         setFormError(message);
         toast.error(message);
       }
@@ -560,6 +562,7 @@ function ClaimPolicyDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const mutationErrorMessage = useMutationError();
   const mutation = useClaimPolicyApiFinanceInsurancePolicyIdClaimPost();
   const claimFlight = useSingleFlight();
   const t = useT();
@@ -579,7 +582,7 @@ function ClaimPolicyDialog({
         onClose();
       } catch (err) {
         if (!farmScope()) return;
-        const message = mutationError(err);
+        const message = mutationErrorMessage(err);
         setFormError(message);
         toast.error(message);
       }

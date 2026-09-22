@@ -30,6 +30,15 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Outside the `(app)` group on purpose: no sidebar, no `NAV_GROUPS` entries.
   Big targets (≥44px), Telugu-first default (`herdly.language` unset → `te`
   on first mount of the worker shell).
+- Tablet pinning is a first-class flow on `/worker/login` ("Set up this
+  tablet"): a manager signs in (password + TOTP/recovery code) and picks the
+  farm, which writes `herdly.tabletFarm` (via `writeTabletFarmId` in the
+  worker layout) and immediately signs the manager out. Do not reintroduce
+  any other writer for that key.
+- Duty actions for the shared board render through
+  `src/components/task-row-actions.tsx` (extracted 2026-09-22): extend that
+  component instead of forking a per-page copy. The worker board's DutyCard
+  keeps its own offline-aware completion wrapper by design.
 - Duty mutations go through the offline-aware wrapper in
   `src/app/worker/page.tsx`: fresh `Idempotency-Key` per attempt, transport
   failures enqueue via `src/lib/offline-queue.ts` (actor+farm scoped, FIFO,

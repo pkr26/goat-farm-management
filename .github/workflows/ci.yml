@@ -233,7 +233,7 @@ jobs:
       - name: Vitest (coverage thresholds enforced)
         working-directory: frontend
         # test:coverage = `vitest run --coverage`; without --coverage the
-        # thresholds configured in vitest.config.ts (85/80/85/85
+        # thresholds configured in vitest.config.ts (90/87/90/90
         # statements/branches/functions/lines) were never evaluated, so a
         # coverage regression could not fail this job. ~6 minutes locally
         # with two workers, but 4-6x slower on the 2-core shared runners —

@@ -12,7 +12,9 @@ import type { WorkerRosterEntryOut } from './workerRosterEntryOut';
  * Deliberately unauthenticated: the tablet's first screen has no session.
  * The accepted tradeoff (documented in README's worker-tablet section) is
  * that display names of PIN-enabled workers are enumerable per farm id;
- * names only — no emails, no roles, no counts of anything else.
+ * names only — no emails, no roles, no counts of anything else. A worker
+ * provisioned without a name is listed as "Worker <membership_id>", never
+ * their email.
  */
 export interface WorkerRosterOut {
   items: WorkerRosterEntryOut[];

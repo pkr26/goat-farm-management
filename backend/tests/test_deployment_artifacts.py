@@ -3050,6 +3050,80 @@ def test_compose_pins_capability_hardening_and_db_role_wiring() -> None:
             assert service.get("cap_add") is None, name
 
 
+def test_production_compose_forwards_every_new_playbook_knob() -> None:
+    """The production compose interpolates env explicitly (no env_file:), so a
+    knob defined in Settings and .env.example but absent here is silently
+    untunable in production — the config-guard even validates its name, hiding
+    the gap. Two sharp edges found in the 2026-09-22 verification:
+
+    - GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM was only on the API
+      service while its sole enforcement point is the screening worker's
+      pipeline claim path — an operator lowering the cap saw no effect.
+    - The notifications/worker-PIN tunables (digest time, cap, quiet hours,
+      retry/backoff, loop batch, PIN throttles, MSG91 template) existed in
+      config but never reached any container.
+
+    Pin every one of them to the service that actually reads them, with the
+    compose fallback equal to the Settings default so behavior is identical
+    whether or not the operator's env file sets them.
+    """
+    from app.core.config import Settings
+
+    production = yaml.safe_load((REPO_ROOT / "docker-compose.production.yml").read_text())
+    api_env = production["services"]["backend"]["environment"]
+    worker_env = production["services"]["screening-worker"]["environment"]
+
+    # The budget is enforced ONLY in the worker pipeline, so the worker must
+    # receive it; keeping it on the API too is harmless documentation.
+    settings = Settings()
+    assert worker_env["GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM"] == (
+        "${GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM:-"
+        f"{settings.screening_daily_call_budget_per_farm}}}"
+    )
+    assert "GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM" in api_env
+
+    api_only_knobs = {
+        "GOATFARM_MSG91_TEMPLATE_ID": settings.msg91_template_id,
+        "GOATFARM_NOTIFICATIONS_DIGEST_HOUR": settings.notifications_digest_hour,
+        "GOATFARM_NOTIFICATIONS_DIGEST_MINUTE": settings.notifications_digest_minute,
+        "GOATFARM_NOTIFICATIONS_FARM_DAILY_CAP": settings.notifications_farm_daily_cap,
+        "GOATFARM_NOTIFICATIONS_QUIET_START_HOUR": settings.notifications_quiet_start_hour,
+        "GOATFARM_NOTIFICATIONS_QUIET_END_HOUR": settings.notifications_quiet_end_hour,
+        "GOATFARM_NOTIFICATIONS_SEND_RETRY_ATTEMPTS": settings.notifications_send_retry_attempts,
+        "GOATFARM_NOTIFICATIONS_SEND_RETRY_BACKOFF_SECONDS": (
+            settings.notifications_send_retry_backoff_seconds
+        ),
+        "GOATFARM_NOTIFICATIONS_LOOP_BATCH_SIZE": settings.notifications_loop_batch_size,
+        "GOATFARM_WORKER_PIN_RATE_LIMIT_MAX_ATTEMPTS": (
+            settings.worker_pin_rate_limit_max_attempts
+        ),
+        "GOATFARM_WORKER_PIN_RATE_LIMIT_WINDOW_SECONDS": (
+            settings.worker_pin_rate_limit_window_seconds
+        ),
+    }
+    for knob, default in api_only_knobs.items():
+        assert knob in api_env, knob
+        fallback = "" if default is None else str(default)
+        assert api_env[knob] == "${" + knob + ":-" + fallback + "}", knob
+
+    # Every GOATFARM_* knob documented in .env.example's notifications and
+    # worker-PIN sections must be forwarded by the production compose.
+    env_example = (REPO_ROOT / "backend" / ".env.example").read_text().splitlines()
+    documented = {
+        line.split("=")[0]
+        for line in env_example
+        if line.startswith(("GOATFARM_MSG91_", "GOATFARM_NOTIFICATIONS_", "GOATFARM_WORKER_PIN_"))
+    }
+    for knob in documented:
+        assert knob in api_env, (
+            f".env.example documents {knob} but the API service never receives it"
+        )
+
+    # The MSG91 sender default is the product name, not the HURDLY typo.
+    assert api_env["GOATFARM_MSG91_SENDER_ID"] == "${GOATFARM_MSG91_SENDER_ID:-HERDLY}"
+    assert settings.msg91_sender_id == "HERDLY"
+
+
 def test_compose_env_guard_rejects_names_compose_would_otherwise_drop(tmp_path: Path) -> None:
     """The root deployment file gets a name check before migrations run."""
     guard = REPO_ROOT / "backend" / "scripts" / "compose_env_guard.py"

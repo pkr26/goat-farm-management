@@ -328,6 +328,7 @@ async def owner_benchmarks(
                 func.count(),
                 func.avg(Animal.sale_price - func.coalesce(Animal.purchase_price, 0)),
             )
+            .join(Farm, Animal.farm_id == Farm.id)
             .where(
                 Animal.farm_id.in_(farm_ids),
                 Animal.status == AnimalStatus.SOLD.value,

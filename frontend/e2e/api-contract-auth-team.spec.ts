@@ -85,8 +85,12 @@ function expectTokenOut(
 ): void {
   // The TOTP challenge token is null (login) or the key is omitted entirely
   // (change-password shaped responses) — endpoints serialize the optional
-  // field inconsistently, so strip it and assert it separately.
-  const { mfa_token: challengeToken, ...comparable } = body;
+  // field inconsistently, so strip it and assert it separately. The mfa arm
+  // lives on LoginOut in the generated contract; read it through the wider
+  // shape so the assertable fields stay strictly typed.
+  const { mfa_token: challengeToken, ...comparable } = body as TokenOut & {
+    mfa_token?: unknown;
+  };
   expect(challengeToken ?? null).toBeNull();
   expect(comparable).toEqual({
     access_token: expect.stringMatching(/^[^.]+\.[^.]+\.[^.]+$/),

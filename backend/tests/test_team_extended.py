@@ -1115,12 +1115,18 @@ async def test_create_worker_existing_account_requires_consent_flow(
     ).status_code == 401
 
 
-async def test_create_worker_new_account_requires_password(client: httpx.AsyncClient) -> None:
+async def test_create_worker_new_account_requires_a_credential(client: httpx.AsyncClient) -> None:
+    # Neither a password nor a tablet PIN: an unusable worker. (A PIN alone
+    # is legal — see tests/test_worker_pin_auth.py; both at once is rejected
+    # there too, so an owner-chosen password always rides the fence.)
     owner = await owner_with_farm(client)
     rid = await role_id(client, owner, "CLEANER")
     resp = await add_worker(client, owner, rid, "new@farm.in", password=None)
     assert resp.status_code == 400
-    assert resp.json()["detail"] == "Password must be at least 8 characters."
+    assert (
+        resp.json()["detail"]
+        == "Give the worker exactly one credential: a password or a tablet PIN."
+    )
 
 
 @pytest.mark.parametrize(

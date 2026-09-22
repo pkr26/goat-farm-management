@@ -311,3 +311,45 @@ async def test_owner_benchmarks_profit_keeps_home_bred_sold_animals(
     row = resp.json()["farms"][0]
     assert row["animals_sold"] == 1
     assert row["profit_per_animal_sold"] == 15000.0
+
+
+async def test_owner_benchmarks_sold_counts_stay_per_farm_with_many_farms(
+    client: httpx.AsyncClient,
+) -> None:
+    """Regression: the sales aggregate once referenced Farm.timezone without
+    joining Farm, compiling to ``FROM animals, farms`` — every sold animal was
+    counted once per farm row in the database and the sale window was evaluated
+    against every farm's timezone. With several farms present, each owned farm
+    must count only its own sales."""
+    owner = await owner_with_farm(client, email="bench-sales@farm.in")
+    farm_a = int(owner["X-Farm-Id"])
+    farm_b_headers = await create_farm(client, owner, name="Sales Ranch")
+    farm_b = int(farm_b_headers["X-Farm-Id"])
+    # A second owner's farm so the cross join would multiply by three.
+    other = await owner_with_farm(client, email="bench-sales-other@farm.in")
+
+    sold_a = await make_animal(client, owner, tag="SALES-A")
+    sold_b = await make_animal(client, farm_b_headers, tag="SALES-B")
+    async with get_sessionmaker()() as db:
+        for animal_row in (sold_a, sold_b):
+            animal = await db.get(Animal, animal_row["id"])
+            assert animal is not None
+            animal.status = "SOLD"
+            animal.status_date = today()
+            animal.sale_price = Decimal("9000.00")
+            animal.purchase_price = Decimal("4000.00")
+        await db.commit()
+
+    resp = await client.get("/api/owner/benchmarks", params={"days": 90}, headers=owner)
+    assert resp.status_code == 200, resp.text
+    farms = {row["farm_id"]: row for row in resp.json()["farms"]}
+    assert set(farms) == {farm_a, farm_b}
+    assert farms[farm_a]["animals_sold"] == 1
+    assert farms[farm_b]["animals_sold"] == 1
+    assert farms[farm_a]["profit_per_animal_sold"] == 5000.0
+    assert farms[farm_b]["profit_per_animal_sold"] == 5000.0
+
+    # The other owner sees only their own (empty) farm — never the sold stock.
+    other_resp = await client.get("/api/owner/benchmarks", params={"days": 90}, headers=other)
+    assert other_resp.status_code == 200, other_resp.text
+    assert other_resp.json()["farms"][0]["animals_sold"] == 0

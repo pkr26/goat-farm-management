@@ -8,7 +8,9 @@ from .common import BoundedId, PostgresText, StrictBool, StrictInputModel, Stric
 
 class WorkerCreateIn(EmailMixin):
     email: str = Field(max_length=MAX_EMAIL_LENGTH)
-    # Required when creating a new account (owner-provisioned workers).
+    # Exactly one credential per worker (enforced by the handler): an
+    # owner-provisioned password (force-rotated via the must-change fence)
+    # or the tablet PIN below — never both, never neither.
     password: PasswordString | None = Field(default=None, max_length=128)
     name: PostgresText | None = Field(default=None, max_length=120)
     role_id: BoundedId

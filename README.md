@@ -432,6 +432,8 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
   # gateway, e.g. 198.18.243.1 for a host-local terminator); verify it from
   # the edge access log and never substitute the whole Docker subnet.
   GOATFARM_TRUSTED_PROXY_HOSTS=198.18.243.10,198.18.243.1
+  # Farm cap for the 20-farm owner operation (ITEM 0/8).
+  GOATFARM_MAX_FARMS_PER_USER=25
   # Set both CSP lists and bucket CORS when screening is enabled.
   GOATFARM_SCREENING_ENABLED=false
   ```
@@ -720,16 +722,25 @@ day's duties as large cards, and an offline queue — completions recorded in a
 dead zone carry their `Idempotency-Key` in localStorage and replay exactly
 once when connectivity returns. PIN model:
 
+- One-time setup runs ON the tablet: `/worker/login` offers "Set up this
+  tablet", where a manager/owner signs in (password + TOTP or recovery code)
+  and picks the farm to pin (`herdly.tabletFarm`). Pinning ends the
+  manager's session immediately — the shared device then offers only the
+  worker PIN door.
 - PINs are per-MEMBERSHIP Argon2 credentials, provisioned/reset by the farm
   owner only (`POST /api/team/workers` with `pin`,
   `POST /api/team/workers/{id}/reset-pin`); rotation revokes every session.
+  Exactly one credential per worker: a password (force-rotated via the
+  must-change fence) or a tablet PIN — never both; a PIN-only worker's web
+  password is an unguessable random hash, so the web login door stays shut.
 - A PIN never bypasses the second factor (TOTP-active accounts get 403) and
   never admits an owner (owners hold no membership). Login-grade throttling:
   per (IP, farm, membership) plus a farm-wide spray scope at 10×.
 - `GET /api/auth/worker-roster?farm_id=…` is deliberately unauthenticated so
   the tablet's first screen works without a session. Tradeoff: the DISPLAY
   NAMES of PIN-enabled workers are enumerable per farm id — names only, never
-  emails or roles, hard-throttled per IP (30/5 min).
+  emails or roles (a worker provisioned without a name is listed as
+  "Worker \<membership_id\>"), hard-throttled per IP (30/5 min).
 - Shared-device discipline: "End shift" signs out AND wipes the offline
   queue; queued writes are actor+farm scoped, so one worker's saved duties
   can never be replayed under the next worker's session.

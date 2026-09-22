@@ -36547,7 +36547,7 @@
           "items"
         ],
         "title": "WorkerRosterOut",
-        "description": "Who can tap-and-PIN on this farm's tablet.\n\nDeliberately unauthenticated: the tablet's first screen has no session.\nThe accepted tradeoff (documented in README's worker-tablet section) is\nthat display names of PIN-enabled workers are enumerable per farm id;\nnames only \u2014 no emails, no roles, no counts of anything else."
+        "description": "Who can tap-and-PIN on this farm's tablet.\n\nDeliberately unauthenticated: the tablet's first screen has no session.\nThe accepted tradeoff (documented in README's worker-tablet section) is\nthat display names of PIN-enabled workers are enumerable per farm id;\nnames only \u2014 no emails, no roles, no counts of anything else. A worker\nprovisioned without a name is listed as \"Worker <membership_id>\", never\ntheir email."
       },
       "WorkerStatusIn": {
         "properties": {

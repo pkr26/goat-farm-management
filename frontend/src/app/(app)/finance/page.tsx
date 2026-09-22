@@ -66,7 +66,7 @@ import { PageSkeleton } from "@/components/skeletons";
 import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
 import { ApiError } from "@/lib/api-client";
-import { mutationError } from "@/lib/mutations";
+import { useMutationError } from "@/lib/mutations";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { useAuth } from "@/lib/auth-context";
 import { enumLabel } from "@/lib/enum-labels";
@@ -260,6 +260,7 @@ function CorrectionDialog({
   onPendingChange: (pending: boolean) => void;
   onSaved: () => void;
 }) {
+  const mutationErrorMessage = useMutationError();
   const mutation = useCorrectTransactionApiFinanceTransactionsTransactionIdCorrectPost();
   const correctionFlight = useSingleFlight();
   const { language } = useLanguage();
@@ -334,7 +335,7 @@ function CorrectionDialog({
         onClose();
       } catch (error) {
         if (!farmScope()) return;
-        const message = mutationError(error);
+        const message = mutationErrorMessage(error);
         setFormError(message);
         toast.error(message);
       } finally {
@@ -571,6 +572,7 @@ function CorrectionDialog({
 }
 
 function FinancePageContent({ perms }: { perms: PermissionsState }) {
+  const mutationErrorMessage = useMutationError();
   const { can } = perms;
   const allowed = can("finance.view");
   const canManage = can("finance.manage");
@@ -730,7 +732,7 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
         reset(txnDefaults());
       } catch (err) {
         if (addAttempt.current !== attempt || !farmScope()) return;
-        const message = mutationError(err);
+        const message = mutationErrorMessage(err);
         setFormError(message);
         toast.error(message);
       }

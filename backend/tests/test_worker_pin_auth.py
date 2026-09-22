@@ -29,7 +29,8 @@ OWNER_EMAIL = "pin-owner@farm.in"
 async def _make_pin_worker(
     client: httpx.AsyncClient, owner: dict, *, pin: str = "4321", email: str
 ) -> tuple[int, int]:
-    """Create a PIN-enabled worker; returns (membership_id, farm_id)."""
+    """Create a PIN-only worker (no password — exactly-one credential); returns
+    (membership_id, farm_id)."""
     role = await client.post(
         "/api/team/roles",
         json={"name": f"Tablet role {email}", "permissions": ["tasks.view", "tasks.complete"]},
@@ -42,7 +43,6 @@ async def _make_pin_worker(
         json={
             "name": "Pin Worker",
             "email": email,
-            "password": "worker-pass-123",
             "role_id": role_id,
             "pin": pin,
         },
@@ -139,6 +139,120 @@ async def test_password_only_worker_is_not_on_the_roster(client: httpx.AsyncClie
         "/api/auth/worker-roster", params={"farm_id": int(owner["X-Farm-Id"])}
     )
     assert [i["membership_id"] for i in roster.json()["items"]] == []
+
+
+async def test_worker_create_requires_exactly_one_credential(
+    client: httpx.AsyncClient,
+) -> None:
+    """Both credentials at once would leave the owner-chosen password
+    un-rotated on a PIN-usable account; neither mints an unusable worker.
+    The 2026-09-22 verification caught the both-at-once case sailing
+    through with the must-change fence silently skipped."""
+    owner = await owner_with_farm(client, email="pin-owner-exactly@farm.in")
+    role = await client.post(
+        "/api/team/roles",
+        json={"name": "Exactly one role", "permissions": ["tasks.view"]},
+        headers=owner,
+    )
+    role_id = role.json()["id"]
+
+    both = await client.post(
+        "/api/team/workers",
+        json={
+            "name": "Both Credentials",
+            "email": "pin-worker-both@farm.in",
+            "password": "worker-pass-123",
+            "role_id": role_id,
+            "pin": "4321",
+        },
+        headers=owner,
+    )
+    assert both.status_code == 400, both.text
+    assert "exactly one credential" in both.json()["detail"]
+
+    neither = await client.post(
+        "/api/team/workers",
+        json={
+            "name": "No Credentials",
+            "email": "pin-worker-neither@farm.in",
+            "role_id": role_id,
+        },
+        headers=owner,
+    )
+    assert neither.status_code == 400, neither.text
+    assert "exactly one credential" in neither.json()["detail"]
+
+    # Nothing was provisioned by the refused attempts.
+    roster = await client.get(
+        "/api/auth/worker-roster", params={"farm_id": int(owner["X-Farm-Id"])}
+    )
+    assert roster.json()["items"] == []
+
+
+async def test_pin_only_worker_has_no_usable_web_password(
+    client: httpx.AsyncClient,
+) -> None:
+    """A PIN-only worker's stored password hash is of an unguessable random
+    secret: the web password flow must refuse every guess, and the
+    must-change fence stays off (there is no owner-chosen password to
+    rotate)."""
+    owner = await owner_with_farm(client, email="pin-owner-nopw@farm.in")
+    membership_id, farm_id = await _make_pin_worker(client, owner, email="pin-worker-nopw@farm.in")
+
+    async with get_sessionmaker()() as db:
+        from app.models import User
+
+        user = (
+            await db.execute(select(User).where(User.email == "pin-worker-nopw@farm.in"))
+        ).scalar_one()
+        assert user.must_change_password is False
+        assert user.password_hash  # NOT NULL column holds the random sentinel
+
+    # No web password exists to guess: the classic owner-chosen convention
+    # and the PIN itself both fail closed at the login door.
+    for guess in ("worker-pass-123", "4321", "password", "pin-worker-nopw"):
+        web = await client.post(
+            "/api/auth/login", json={"email": "pin-worker-nopw@farm.in", "password": guess}
+        )
+        assert web.status_code == 401, (guess, web.text)
+
+    # The tablet path still works untouched.
+    assert (await _worker_login(client, farm_id, membership_id, "4321")).status_code == 200
+
+
+async def test_roster_never_exposes_emails_for_nameless_workers(
+    client: httpx.AsyncClient,
+) -> None:
+    """User.display_name falls back to the email when name is NULL; the roster
+    is unauthenticated, so a nameless PIN worker must surface the public
+    membership id instead — never the email (2026-09-22 verification)."""
+    owner = await owner_with_farm(client, email="pin-owner-nameless@farm.in")
+    role = await client.post(
+        "/api/team/roles",
+        json={"name": "Nameless role", "permissions": ["tasks.view"]},
+        headers=owner,
+    )
+    role_id = role.json()["id"]
+    created = await client.post(
+        "/api/team/workers",
+        json={
+            "email": "pin-worker-nameless@farm.in",
+            "role_id": role_id,
+            "pin": "4321",
+        },
+        headers=owner,
+    )
+    assert created.status_code == 201, created.text
+    membership_id = created.json()["id"]
+
+    roster = await client.get(
+        "/api/auth/worker-roster", params={"farm_id": int(owner["X-Farm-Id"])}
+    )
+    assert roster.status_code == 200, roster.text
+    items = roster.json()["items"]
+    assert [item["membership_id"] for item in items] == [membership_id]
+    assert items[0]["display_name"] == f"Worker {membership_id}"
+    assert "pin-worker-nameless@farm.in" not in roster.text
 
 
 async def test_wrong_pin_locks_the_identity_out_but_not_the_farm(

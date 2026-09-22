@@ -50,7 +50,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
-import { mutationError } from "@/lib/mutations";
+import { useMutationError } from "@/lib/mutations";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { formatMoney } from "@/lib/format";
 import { useT } from "@/lib/i18n";
@@ -123,6 +123,7 @@ type AddStockValues = z.output<typeof addStockSchema>;
 
 /** Add stock for one inventory row (feeding.manage). */
 function AddStockDialog({ item, touch = false }: { item: FeedInventoryOut; touch?: boolean }) {
+  const mutationErrorMessage = useMutationError();
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
   const t = useT();
@@ -160,7 +161,7 @@ function AddStockDialog({ item, touch = false }: { item: FeedInventoryOut; touch
         setOpen(false);
       } catch (err) {
         if (!farmScope()) return;
-        toast.error(mutationError(err));
+        toast.error(mutationErrorMessage(err));
       }
     });
   }
@@ -261,6 +262,7 @@ function MixBatchDialog({
   /** Lifted so every opener can disable itself while a mix write is in flight. */
   flight: ReturnType<typeof useSingleFlight>;
 }) {
+  const mutationErrorMessage = useMutationError();
   const [shortage, setShortage] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const t = useT();
@@ -318,7 +320,7 @@ function MixBatchDialog({
         if (err instanceof ApiError && err.status === 400) {
           setShortage(err.detail);
         } else {
-          toast.error(mutationError(err));
+          toast.error(mutationErrorMessage(err));
         }
       }
     });

@@ -55,7 +55,7 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/lib/api-client";
-import { mutationError } from "@/lib/mutations";
+import { useMutationError } from "@/lib/mutations";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { MAX_AGE_MONTHS, MAX_BATCH_COUNT, MAX_TRANSPORT_HOURS } from "@/lib/backend-caps";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
@@ -365,6 +365,7 @@ function BatchDetailDialog({
 }
 
 function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
+  const mutationErrorMessage = useMutationError();
   const vocabulary = farmVocabulary;
   const { can } = perms;
   const allowed = can("purchases.view");
@@ -529,7 +530,7 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
         // Stryker restore ObjectLiteral, BooleanLiteral
       } catch (err) {
         if (createAttempt.current !== attempt || !farmScope()) return;
-        toast.error(mutationError(err));
+        toast.error(mutationErrorMessage(err));
       }
     });
   }

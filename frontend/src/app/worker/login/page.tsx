@@ -3,39 +3,56 @@
 /**
  * Worker tablet sign-in (ITEM 2 Phase 2): tap your name, enter your PIN.
  *
- * The farm is pinned once by a manager (localStorage); the roster endpoint is
- * unauthenticated, so this page works before any session exists. Success runs
- * the normal signIn() so the whole app's session machinery is shared.
+ * The farm is pinned once by a manager through the setup flow below (the
+ * roster endpoint is unauthenticated, so the PIN pad works before any session
+ * exists). Success runs the normal signIn() so the whole app's session
+ * machinery is shared.
  */
 
 import { ClipboardList, Delete, Fingerprint } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import type { LoginOut, TokenOut } from "@/api/generated/models";
 import { useWorkerRosterApiAuthWorkerRosterGet } from "@/api/generated/endpoints";
 import { EmptyState } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { apiFetch } from "@/lib/api-client";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth, type FarmEntry } from "@/lib/auth-context";
 import { useT } from "@/lib/i18n";
-import { TABLET_FARM_STORAGE_KEY, readTabletFarmId } from "@/app/worker/layout";
+import { TABLET_FARM_STORAGE_KEY, readTabletFarmId, writeTabletFarmId } from "@/app/worker/layout";
 
 type RosterEntry = { membership_id: number; display_name: string };
+
+type SetupStep = "credentials" | "code" | "choose-farm";
 
 
 
 export default function WorkerLoginPage() {
   const t = useT();
   const router = useRouter();
-  const { signIn, farmId } = useAuth();
+  const { signIn, signOut, farmId, farms } = useAuth();
   const [tabletFarmId, setTabletFarmId] = useState<number | null>(null);
   const [selected, setSelected] = useState<RosterEntry | null>(null);
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Manager setup state: the tablet starts unpinned, a manager/owner signs in
+  // once (password + optional TOTP/recovery code) and picks the farm.
+  const [setupStep, setSetupStep] = useState<SetupStep | null>(null);
+  const [mfaToken, setMfaToken] = useState<string | null>(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  // True while the signed-in user is the setup manager, not a worker: keeps
+  // the returning-session redirect below out of the middle of setup.
+  const setupRef = useRef(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage exists only client-side; reading it during render would break SSR hydration
     setTabletFarmId(readTabletFarmId());
   }, []);
 
@@ -48,7 +65,12 @@ export default function WorkerLoginPage() {
 
   // A returning session with a farm goes straight to the board.
   useEffect(() => {
-    if (farmId !== null && tabletFarmId !== null && farmId === tabletFarmId) {
+    if (
+      !setupRef.current &&
+      farmId !== null &&
+      tabletFarmId !== null &&
+      farmId === tabletFarmId
+    ) {
       router.replace("/worker");
     }
   }, [farmId, tabletFarmId, router]);
@@ -84,6 +106,67 @@ export default function WorkerLoginPage() {
     }
   }
 
+  async function submitSetupCredentials() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const body = await apiFetch<LoginOut>("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
+      });
+      if (body.mfa_token) {
+        setMfaToken(body.mfa_token);
+        setSetupStep("code");
+        return;
+      }
+      if (!body.access_token || !body.user) {
+        setError(t("worker.setup.failed"));
+        return;
+      }
+      setupRef.current = true;
+      await signIn(body.access_token, body.user);
+      setSetupStep("choose-farm");
+    } catch {
+      setError(t("worker.setup.failed"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitSetupCode() {
+    if (busy || mfaToken === null) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const body = await apiFetch<TokenOut>("/api/auth/totp/challenge", {
+        method: "POST",
+        body: JSON.stringify({ mfa_token: mfaToken, code }),
+      });
+      setupRef.current = true;
+      await signIn(body.access_token, body.user);
+      setMfaToken(null);
+      setSetupStep("choose-farm");
+    } catch {
+      setCode("");
+      setError(t("worker.setup.failed"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function pinFarm(farm: FarmEntry) {
+    writeTabletFarmId(farm.id);
+    setTabletFarmId(farm.id);
+    setSetupStep(null);
+    setMfaToken(null);
+    toast.success(t("worker.setup.pinnedToast"));
+    // The manager's session must not linger on a shared tablet: ending it
+    // (which also wipes any offline queue) leaves only the worker PIN door.
+    await signOut();
+    setupRef.current = false;
+  }
+
   function pressDigit(digit: string) {
     if (busy) return;
     const next = (pin + digit).slice(0, 12);
@@ -92,13 +175,138 @@ export default function WorkerLoginPage() {
   }
 
   if (tabletFarmId === null) {
+    if (setupStep === "choose-farm") {
+      return (
+        <div className="mx-auto max-w-xl space-y-4 p-6" data-testid="worker-setup-farms">
+          <h1 className="text-2xl font-semibold">{t("worker.setup.chooseFarm")}</h1>
+          {farms.length === 0 ? (
+            <EmptyState
+              icon={ClipboardList}
+              title={t("worker.setup.noFarms")}
+              description={t("worker.setup.description")}
+            />
+          ) : (
+            <ul className="grid gap-3 sm:grid-cols-2">
+              {farms.map((farm) => (
+                <li key={farm.id}>
+                  <Button
+                    variant="outline"
+                    className="h-16 w-full justify-center text-lg"
+                    data-testid={`setup-farm-${farm.id}`}
+                    onClick={() => void pinFarm(farm)}
+                  >
+                    {farm.name}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      );
+    }
+
+    if (setupStep === "code") {
+      return (
+        <div className="mx-auto max-w-sm space-y-4 p-6" data-testid="worker-setup-code">
+          <h1 className="text-2xl font-semibold">{t("worker.setup.code")}</h1>
+          <p className="text-muted-foreground">{t("worker.setup.codeHint")}</p>
+          <form
+            className="space-y-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitSetupCode();
+            }}
+          >
+            <Label htmlFor="worker-setup-code">{t("worker.setup.code")}</Label>
+            <Input
+              id="worker-setup-code"
+              className="h-14 text-center text-2xl tracking-[0.3em]"
+              value={code}
+              onChange={(event) => setCode(event.target.value)}
+              autoComplete="one-time-code"
+              inputMode="text"
+              autoFocus
+            />
+            {error && (
+              <p role="alert" className="text-destructive">
+                {error}
+              </p>
+            )}
+            <Button type="submit" className="h-14 w-full text-lg" disabled={busy || code.length < 6}>
+              {t("worker.setup.continue")}
+            </Button>
+          </form>
+        </div>
+      );
+    }
+
+    if (setupStep === "credentials") {
+      return (
+        <div className="mx-auto max-w-sm space-y-4 p-6" data-testid="worker-setup-credentials">
+          <h1 className="text-2xl font-semibold">{t("worker.setup.title")}</h1>
+          <p className="text-muted-foreground">{t("worker.setup.description")}</p>
+          <form
+            className="space-y-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitSetupCredentials();
+            }}
+          >
+            <div className="space-y-2">
+              <Label htmlFor="worker-setup-email">{t("worker.setup.email")}</Label>
+              <Input
+                id="worker-setup-email"
+                type="email"
+                className="h-14 text-lg"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                autoComplete="username"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="worker-setup-password">{t("worker.setup.password")}</Label>
+              <Input
+                id="worker-setup-password"
+                type="password"
+                className="h-14 text-lg"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete="current-password"
+                required
+              />
+            </div>
+            {error && (
+              <p role="alert" className="text-destructive">
+                {error}
+              </p>
+            )}
+            <Button type="submit" className="h-14 w-full text-lg" disabled={busy}>
+              {t("worker.setup.continue")}
+            </Button>
+          </form>
+        </div>
+      );
+    }
+
     return (
       <div className="flex min-h-dvh items-center justify-center p-6">
         <EmptyState
           icon={ClipboardList}
           title={t("worker.needFarm.title")}
           description={t("worker.needFarm.description")}
-        />
+        >
+          <Button
+            className="mt-2"
+            data-testid="worker-setup-start"
+            onClick={() => {
+              setError(null);
+              setSetupStep("credentials");
+            }}
+          >
+            <Fingerprint aria-hidden /> {t("worker.setup.title")}
+          </Button>
+        </EmptyState>
       </div>
     );
   }

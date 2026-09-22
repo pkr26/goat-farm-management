@@ -809,7 +809,7 @@ class Settings(BaseSettings):
     notifications_enabled: bool = False
     notifications_provider: Literal["console", "msg91"] = "console"
     msg91_auth_key: SecretStr | None = None
-    msg91_sender_id: str = "HURDLY"
+    msg91_sender_id: str = "HERDLY"
     # Optional DLT template id for the MSG91 flow API; the template-free
     # dlt_manual route is used when unset.
     msg91_template_id: str | None = None

@@ -38,6 +38,17 @@ function readTabletFarmId(): number | null {
   }
 }
 
+/** Persist the tablet's farm after a manager picks it in the setup flow. A
+ * blocked/corrupted store simply leaves the tablet unpinned: the next load
+ * falls back to the setup screen instead of a half-pinned roster. */
+export function writeTabletFarmId(farmId: number): void {
+  try {
+    window.localStorage.setItem(TABLET_FARM_STORAGE_KEY, String(farmId));
+  } catch {
+    /* storage blocked: setup reruns next load */
+  }
+}
+
 export function WorkerShell({ children }: { children: ReactNode }) {
   const { user, farmId, farms, signOut, loading } = useAuth();
   const perms = usePermissions();
@@ -74,6 +85,7 @@ export function WorkerShell({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount-time truth sync: no online/offline event fires on first paint
     setOnline(navigator.onLine);
     const onOnline = () => setOnline(true);
     const onOffline = () => setOnline(false);
@@ -94,6 +106,7 @@ export function WorkerShell({ children }: { children: ReactNode }) {
         : null;
     const stop = startOfflineQueueWorkers(scopes);
     const tick = window.setInterval(() => setDepth(offlineQueueDepth()), 1500);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the badge must reflect the queue depth this session inherited, not wait 1.5s
     setDepth(offlineQueueDepth());
     // Arriving online with a queue: drain immediately.
     void drainOfflineQueue(scopes() ?? { actorScope: "", farmScope: "" });
