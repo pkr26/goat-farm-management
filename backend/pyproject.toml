@@ -14,7 +14,7 @@ dependencies = [
     "asyncpg==0.31.0",
     "alembic==1.19.0",
     "pydantic==2.13.4",
-    "pydantic-settings==2.14.2",
+    "pydantic-settings==2.15.0",
     "python-dotenv==1.2.2",
     "PyJWT==2.13.0",
     "cryptography==50.0.0",
