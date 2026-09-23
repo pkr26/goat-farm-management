@@ -9,12 +9,18 @@ venv/
 *.egg-info/
 scratch/
 
+# Mutation-testing harness: per-test coverage contexts DB is 193 MB and
+# regenerable (see MUTATION_TESTING_REPORT.md); campaign *.log files are
+# transient console output mirrored by results.jsonl.
+backend/mutation/*.log
+
 # Node / frontend
 node_modules/
 .next/
 out/
 coverage/
 .coverage
+.coverage-mut
 coverage.xml
 playwright-report/
 test-results/
