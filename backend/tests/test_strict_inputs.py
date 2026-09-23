@@ -15,6 +15,7 @@ from app.schemas.finance import TransactionCorrectionIn, TransactionIn
 from app.schemas.health import HealthEventIn, MovementRestrictionClearIn
 from app.schemas.kidding import KiddingCreateIn, KidIn
 from app.schemas.purchases import PurchaseBatchIn
+from app.schemas.screening import ScreeningBatchCreateIn
 from app.schemas.simulation import RunIn, ScenarioCreateIn, ScenarioUpdateIn
 from app.schemas.tasks import TaskCreateIn, TaskRejectIn, TaskSkipIn
 from app.schemas.team import PasswordResetIn, RoleChangeIn, RoleIn, WorkerCreateIn
@@ -53,6 +54,7 @@ REQUEST_MODELS: tuple[type[BaseModel], ...] = (
     ScenarioCreateIn,
     ScenarioUpdateIn,
     RunIn,
+    ScreeningBatchCreateIn,
 )
 
 
@@ -82,6 +84,15 @@ def test_unknown_health_field_is_rejected() -> None:
                 "withdrawl_until": date.today().isoformat(),
             }
         )
+
+
+def test_screening_batch_create_rejects_any_field() -> None:
+    """The bodyless batch-intake fingerprint accepts exactly zero fields —
+    with none declared, extra="forbid" turns any supplied key into the same
+    422-class validation error every other request model gives."""
+    assert ScreeningBatchCreateIn.model_validate({}) == ScreeningBatchCreateIn()
+    with pytest.raises(ValidationError, match="extra_forbidden"):
+        ScreeningBatchCreateIn.model_validate({"batch_id": 1})
 
 
 @pytest.mark.parametrize("bad_id", [True, False, "1", 1.0])

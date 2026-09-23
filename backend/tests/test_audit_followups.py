@@ -11,6 +11,7 @@ an operator (or attacker) would:
 """
 
 import asyncio
+import logging
 import os
 import subprocess
 import sys
@@ -452,7 +453,7 @@ async def test_register_email_probe_lockout_never_blocks_a_fresh_address(
     owner = await owner_with_farm(client)
     me = await client.get("/api/auth/me", headers=owner)
     owner_email = me.json()["email"]
-    email_key = f"register-email:{owner_email.lower()}"
+    email_key = auth_api._register_email_probe_key(owner_email)
 
     # 49 prior duplicate-email probes (per-IP usage stays at 1).
     for _ in range(49):
@@ -479,6 +480,49 @@ async def test_register_email_probe_lockout_never_blocks_a_fresh_address(
         json={"email": "never-probed-before@farm.in", "password": "freshpass123"},
     )
     assert fresh.status_code == 201, fresh.text
+
+
+async def test_register_email_probe_throttle_log_never_contains_the_raw_address(
+    client: httpx.AsyncClient, monkeypatch, caplog: pytest.LogCaptureFixture
+):
+    """The probe bucket key is logged verbatim on a throttle decision, so it
+    is a sha256 of the address — the raw email is PII and must never reach the
+    log stream (same rule as every other token-derived limiter key)."""
+    from app.api import auth as auth_api
+    from app.core.config import Settings
+    from app.ratelimit import SlidingWindowRateLimiter
+
+    settings = Settings(
+        auth_rate_limit_enabled=True,
+        auth_rate_limit_max_attempts=50,
+        auth_rate_limit_window_seconds=300,
+    )
+    monkeypatch.setattr(auth_api, "get_settings", lambda: settings)
+    monkeypatch.setattr(auth_api, "register_email_limiter", SlidingWindowRateLimiter())
+    monkeypatch.setattr(auth_api, "auth_limiter", SlidingWindowRateLimiter())
+
+    owner = await owner_with_farm(client)
+    me = await client.get("/api/auth/me", headers=owner)
+    owner_email = me.json()["email"]
+    email_key = auth_api._register_email_probe_key(owner_email)
+    # Saturate the probe bucket directly so the very next HTTP probe throttles.
+    for _ in range(50):
+        auth_api.register_email_limiter.record("register-email", email_key, 300, max_attempts=50)
+
+    with caplog.at_level(logging.INFO, logger="goatfarm.auth"):
+        throttled = await client.post(
+            "/api/auth/register", json={"email": owner_email, "password": "probepass123"}
+        )
+    assert throttled.status_code == 429, throttled.text
+    lines = [
+        record.getMessage()
+        for record in caplog.records
+        if "register-email throttled" in record.getMessage()
+    ]
+    assert len(lines) == 1, caplog.records
+    # The hashed key identifies the bucket; the raw address appears nowhere.
+    assert email_key in lines[0]
+    assert all(owner_email not in record.getMessage() for record in caplog.records)
 
 
 # ---------------------------------------------------------------------------

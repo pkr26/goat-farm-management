@@ -39,13 +39,14 @@ WORKDIR /app
 # code changes), then copy the app source. Any change under backend/app/ no
 # longer busts the pip install layer.
 COPY backend/pyproject.toml backend/uv.lock ./
+COPY backend/pins/uv.txt ./pins/uv.txt
 # `pip install .` resolves pyproject ranges and ignores uv.lock. Install the
-# pinned uv client, then require the committed lock (including artifact
+# hash-pinned uv client, then require the committed lock (including artifact
 # hashes) without development tools or the not-yet-copied local project.
 # `--no-cache` keeps uv's wheel cache out of this layer — the venv already
 # holds every installed wheel, so the cache shipped every wheel twice
 # (~90 MB+ of dead image weight; P3, 2026-09-20 audit).
-RUN pip install --no-cache-dir uv==0.12.1 \
+RUN pip install --no-cache-dir --require-hashes -r pins/uv.txt \
     && uv sync --locked --no-dev --no-install-project --no-cache \
     && groupadd --system --gid 10001 goatfarm \
     && useradd --system --uid 10001 --gid goatfarm goatfarm \
@@ -58,6 +59,7 @@ COPY backend/scripts/healthcheck.py ./healthcheck.py
 COPY backend/scripts/screening_worker_healthcheck.py ./screening_worker_healthcheck.py
 COPY backend/scripts/compose_env_guard.py ./scripts/compose_env_guard.py
 COPY backend/scripts/rekey_totp_secrets.py ./scripts/rekey_totp_secrets.py
+COPY backend/scripts/totp_breakglass.py ./scripts/totp_breakglass.py
 
 # pip and uv are build-time tools: the runtime executes only /app/.venv.
 # pip vendors its own dependency copies (msgpack, setuptools, requests, …)

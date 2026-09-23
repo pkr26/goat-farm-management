@@ -2747,6 +2747,93 @@ def test_ci_cancels_only_superseded_pull_requests() -> None:
         assert "cancel-in-progress: true" not in workflow
 
 
+def test_bootstrap_tools_are_hash_pinned() -> None:
+    """The tooling bootstraps that resolve from a registry at run time — uv
+    before uv.lock exists, pip-audit's own environment, pnpm via Corepack —
+    are hash-pinned, not merely version-pinned: TLS/registry integrity is
+    deliberately not part of the trust model for anything else, so it cannot
+    be for these either (2026-09-22 external audit, low #3)."""
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text()
+    uv_pin = (REPO_ROOT / "backend" / "pins" / "uv.txt").read_text()
+    pip_audit_lock = (REPO_ROOT / "backend" / "pins" / "pip-audit.txt").read_text()
+    ci = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    package_json = (REPO_ROOT / "frontend" / "package.json").read_text()
+
+    # uv: pip's one remaining fetch installs with full artifact hashes.
+    assert "pip install --no-cache-dir --require-hashes -r pins/uv.txt" in dockerfile
+    assert "pip install uv==" not in dockerfile
+    assert "uv==" in uv_pin
+    assert uv_pin.count("--hash=sha256:") >= 2  # linux x86_64 + aarch64 wheels
+    # Both CI jobs (backend + e2e) bootstrap the same way, and the scheduled
+    # security workflow matches them.
+    security = (REPO_ROOT / ".github" / "workflows" / "security.yml").read_text()
+    assert ci.count("--require-hashes -r pins/uv.txt") == 2
+    assert "--require-hashes -r pins/uv.txt" in security
+    assert "uv==0.12.1" not in ci and "uv==0.12.1" not in security
+
+    # pip-audit: a committed lock installed under --require-hashes, not a
+    # run-time resolution. Every resolved dependency line ("# via"
+    # annotations) must carry at least one artifact hash.
+    assert "--require-hashes -r pins/pip-audit.txt" in ci
+    assert "--require-hashes -r pins/pip-audit.txt" in security
+    assert "pip-audit==" in pip_audit_lock
+    assert pip_audit_lock.count("--hash=sha256:") >= pip_audit_lock.count("# via")
+    assert "uvx --from pip-audit==" not in ci and "uvx --from pip-audit==" not in security
+
+    # pnpm: Corepack verifies the +sha512 integrity suffix from packageManager.
+    assert re.search(
+        r'"packageManager": "pnpm@\d+\.\d+\.\d+\+sha512-[A-Za-z0-9+/=]+"', package_json
+    )
+
+
+def test_every_app_service_runs_with_a_read_only_root_filesystem() -> None:
+    """backend/migrate/screening-worker run read-only in both compose files
+    (PYTHONDONTWRITEBYTECODE=1 removed the last justification for a writable
+    FS); the frontend follows with its incremental/image cache on tmpfs, and
+    CI's docker job boots the built frontend under exactly these flags
+    (2026-09-22 external audit, low #4)."""
+    for name in ("docker-compose.yml", "docker-compose.production.yml"):
+        services = yaml.safe_load((REPO_ROOT / name).read_text())["services"]
+        for service in ("backend", "migrate", "screening-worker", "frontend"):
+            spec = services[service]
+            assert spec.get("read_only") is True, (name, service)
+            assert any(str(mount).startswith("/tmp") for mount in spec["tmpfs"]), (
+                name,
+                service,
+            )
+        frontend_mounts = [str(mount) for mount in services["frontend"]["tmpfs"]]
+        assert any(mount.startswith("/app/.next/cache") for mount in frontend_mounts), name
+        # The screening worker's heartbeat (default /tmp/goatfarm-screening-
+        # worker.json) must stay writable wherever it defaults. Compose values
+        # are raw interpolation strings: judge the default after ":-".
+        worker_env = services["screening-worker"]["environment"]
+        heartbeat = worker_env.get("GOATFARM_SCREENING_WORKER_HEARTBEAT_PATH")
+        if heartbeat is not None:
+            default = str(heartbeat).split(":-", 1)[-1].rstrip("}")
+            assert default.startswith("/tmp"), (name, heartbeat)
+
+
+def test_breakglass_runbook_targets_the_migration_service_not_a_missing_db() -> None:
+    """The old runbook step (`exec db psql`) could only fail during a real
+    lockout: the production Compose file has no db service by design and the
+    backend image ships no psql. The documented path must be the shipped
+    script through the one-shot migrate service (2026-09-22 external audit,
+    low #5)."""
+    readme = (REPO_ROOT / "README.md").read_text()
+    production_services = yaml.safe_load((REPO_ROOT / "docker-compose.production.yml").read_text())[
+        "services"
+    ]
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text()
+
+    assert "db" not in production_services  # why `exec db psql` fails
+    assert "exec db psql" not in readme
+    assert "totp_breakglass.py --email" in readme
+    assert "run --rm --no-deps migrate" in readme
+    # The script ships in the image the migrate service runs.
+    assert "COPY backend/scripts/totp_breakglass.py ./scripts/totp_breakglass.py" in dockerfile
+    assert "!backend/scripts/totp_breakglass.py" in (REPO_ROOT / ".dockerignore").read_text()
+
+
 def test_release_requires_green_ci_for_a_tagged_main_commit() -> None:
     """A protected tag alone must not publish bits that CI never tested."""
     workflow = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text()

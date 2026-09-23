@@ -5,6 +5,7 @@ encryption of the shared secret."""
 import base64
 import hashlib
 import json
+import logging
 import runpy
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -15,12 +16,13 @@ from typing import Any
 import httpx
 import pytest
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app import security
+from app.api import auth as auth_api
 from app.core.config import get_settings
 from app.db import get_sessionmaker
-from app.models import User
+from app.models import TotpRecoveryCode, User
 from app.ratelimit import auth_limiter
 from app.security import (
     TOTP_ENVELOPE_PREFIX,
@@ -31,8 +33,10 @@ from app.security import (
     decrypt_totp_secret_with_metadata,
     encrypt_totp_secret,
     generate_totp_secret_b32,
+    issue_token,
     verify_totp_code,
 )
+from app.utils import utcnow
 
 from .conftest import OWNER_PW, owner_with_farm, register
 
@@ -80,6 +84,167 @@ def test_rekey_totals_keep_unavailable_diagnostics_bounded() -> None:
 
     assert totals.unavailable_count == preview_limit + 7
     assert totals.unavailable_preview_ids == list(range(preview_limit))
+
+
+# ---------------------------------------------------------------------------
+# Break-glass reset (lost authenticator AND lost recovery codes): the script
+# the README runbook points at, exercised against the real database — the
+# production path runs it through the one-shot `migrate` Compose service
+# because the production stack has no `db` service and no psql binary.
+# ---------------------------------------------------------------------------
+_BREAKGLASS_SCRIPT = str(Path(__file__).resolve().parents[1] / "scripts" / "totp_breakglass.py")
+
+
+def _load_breakglass() -> dict[str, Any]:
+    return runpy.run_path(_BREAKGLASS_SCRIPT, run_name="totp_breakglass_test")
+
+
+async def _breakglass_user(email: str) -> User:
+    async with get_sessionmaker()() as db:
+        return (await db.execute(select(User).where(User.email == email))).scalar_one()
+
+
+async def test_breakglass_dry_run_reports_work_and_changes_nothing(
+    client: httpx.AsyncClient, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A dry run that finds a second factor must exit nonzero (automation
+    must never mistake a counted reset for a completed one) and leave every
+    credential untouched."""
+    script = _load_breakglass()
+    headers = await register(client, "breakglass-dry@farm.in")
+    await _enroll_and_activate(client, headers)
+    before = await _breakglass_user("breakglass-dry@farm.in")
+
+    rc = await script["_breakglass"]("breakglass-dry@farm.in", apply=False)
+
+    assert rc == 2
+    after = await _breakglass_user("breakglass-dry@farm.in")
+    assert after.totp_state == before.totp_state == "ACTIVE"
+    assert after.totp_secret_enc == before.totp_secret_enc
+    assert after.token_version == before.token_version
+    out = capsys.readouterr()
+    assert "user_id=" in out.out
+    assert "unused_recovery_codes=10" in out.out
+    assert "--apply" in out.err
+    login = await client.post(
+        "/api/auth/login",
+        json={"email": "breakglass-dry@farm.in", "password": OWNER_PW},
+    )
+    assert login.status_code == 200, login.text
+    assert login.json()["mfa_token"]
+
+
+async def test_breakglass_apply_drops_the_factor_and_signs_out_every_session(
+    client: httpx.AsyncClient, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--apply performs exactly the documented reset: factor gone, recovery
+    codes wiped, token_version bumped — and a challenge token minted BEFORE
+    the reset dies with it."""
+    script = _load_breakglass()
+    headers = await register(client, "breakglass-apply@farm.in")
+    await _enroll_and_activate(client, headers)
+    before = await _breakglass_user("breakglass-apply@farm.in")
+    login = await client.post(
+        "/api/auth/login",
+        json={"email": "breakglass-apply@farm.in", "password": OWNER_PW},
+    )
+    stale_mfa_token = login.json()["mfa_token"]
+
+    # Case-insensitive email match, as documented.
+    rc = await script["_breakglass"]("BREAKGLASS-APPLY@farm.in", apply=True)
+
+    assert rc == 0
+    after = await _breakglass_user("breakglass-apply@farm.in")
+    assert after.totp_state is None
+    assert after.totp_secret_enc is None
+    assert after.totp_last_step is None
+    assert after.token_version == before.token_version + 1
+    async with get_sessionmaker()() as db:
+        remaining_codes = (
+            await db.execute(
+                select(func.count())
+                .select_from(TotpRecoveryCode)
+                .where(TotpRecoveryCode.user_id == after.id)
+            )
+        ).scalar_one()
+    assert remaining_codes == 0
+    out = capsys.readouterr()
+    assert "recovery codes deleted=10" in out.out
+    # The pre-reset challenge is refused (token_version moved under it)…
+    stale = await client.post(
+        "/api/auth/totp/challenge", json={"mfa_token": stale_mfa_token, "code": "000000"}
+    )
+    assert stale.status_code == 401, stale.text
+    # …and a fresh password login needs no second factor any more.
+    fresh = await client.post(
+        "/api/auth/login",
+        json={"email": "breakglass-apply@farm.in", "password": OWNER_PW},
+    )
+    assert fresh.status_code == 200, fresh.text
+    assert fresh.json()["mfa_token"] is None
+    assert fresh.json()["access_token"]
+
+
+async def test_breakglass_refuses_unknown_and_tombstoned_accounts(
+    client: httpx.AsyncClient, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The script recovers exactly one live account: unknown emails and
+    tombstoned accounts are refused with an explanation and no side effects.
+    (Tombstones are created directly: the profile-scrubbing CHECK constraint
+    means a deleted row can never still carry an ACTIVE second factor.)"""
+    script = _load_breakglass()
+    assert await script["_breakglass"]("nobody@farm.in", apply=True) == 2
+    assert "No account matches" in capsys.readouterr().err
+
+    async with get_sessionmaker()() as db:
+        # Tombstone rows are profile-scrubbed by the schema itself
+        # (ck_users_deleted_profile_scrubbed forces deleted-%@deleted.invalid),
+        # so mirror the sanctioned test pattern from test_account_tombstones.
+        db.add(
+            User(
+                email="deleted-breakglass-0001@deleted.invalid",
+                password_hash="argon2-placeholder",
+                deleted_at=utcnow(),
+            )
+        )
+        await db.commit()
+
+    assert await script["_breakglass"]("deleted-breakglass-0001@deleted.invalid", apply=True) == 2
+    assert "No account matches" in capsys.readouterr().err
+
+
+async def test_breakglass_without_a_second_factor_is_a_clean_success(
+    client: httpx.AsyncClient, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Nothing to break: exit 0 with an explicit message, not an error."""
+    script = _load_breakglass()
+    await register(client, "breakglass-nofactor@farm.in")
+
+    rc = await script["_breakglass"]("breakglass-nofactor@farm.in", apply=True)
+
+    assert rc == 0
+    assert "No second factor present" in capsys.readouterr().out
+
+
+def test_breakglass_main_plumbs_arguments_and_exit_codes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """main() passes the parsed email/--apply through to _breakglass and
+    propagates its exit code (the rekey-style plumbing contract)."""
+    script = _load_breakglass()
+    seen: dict[str, Any] = {}
+
+    async def fake_breakglass(email: str, *, apply: bool) -> int:
+        seen.update(email=email, apply=apply)
+        return 2
+
+    monkeypatch.setitem(script["main"].__globals__, "_breakglass", fake_breakglass)
+
+    assert script["main"](["--email", "owner@example.in", "--apply"]) == 2
+    assert seen == {"email": "owner@example.in", "apply": True}
+
+    with pytest.raises(SystemExit):
+        script["_parse_args"]([])
 
 
 @pytest.fixture(autouse=True)
@@ -544,6 +709,101 @@ async def test_challenge_brute_force_is_throttled(
         "/api/auth/totp/challenge", json={"mfa_token": mfa_token, "code": code}
     )
     assert locked.status_code == 429
+
+
+async def test_challenge_garbage_mfa_tokens_are_throttled_before_verification(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A garbage mfa_token costs one RS256 verify; the pre-verification budget
+    (mirror of the refresh cookie's) refuses a repeat of the SAME failed token
+    before PyJWT runs again, emits a security event per classified-invalid
+    token, and never judges a valid challenge by a neighbour's garbage."""
+    monkeypatch.setattr(get_settings(), "auth_rate_limit_enabled", True)
+    headers = await register(client, "totp-preverify@farm.in")
+    secret, _codes = await _enroll_and_activate(client, headers)
+    login = await client.post(
+        "/api/auth/login", json={"email": "totp-preverify@farm.in", "password": OWNER_PW}
+    )
+    valid_token = login.json()["mfa_token"]
+    limit = get_settings().auth_rate_limit_max_attempts
+    window = get_settings().auth_rate_limit_window_seconds
+
+    real_decode = auth_api._decode_payload_result
+    decode_calls = 0
+
+    def counted_decode(token: str, expected_kind: str) -> object:
+        nonlocal decode_calls
+        decode_calls += 1
+        return real_decode(token, expected_kind)
+
+    monkeypatch.setattr(auth_api, "_decode_payload_result", counted_decode)
+    with caplog.at_level(logging.INFO, logger="goatfarm.audit"):
+        for _ in range(limit):
+            resp = await client.post(
+                "/api/auth/totp/challenge", json={"mfa_token": "garbage", "code": "000000"}
+            )
+            assert resp.status_code == 401
+        assert decode_calls == limit
+        # Each failed verification is an alertable event, not a silent 401.
+        failures = [
+            record.getMessage()
+            for record in caplog.records
+            if "event='auth.totp.challenge_failed'" in record.getMessage()
+        ]
+        assert len([m for m in failures if "failed verification" in m]) == limit, failures
+        # Re-presenting the SAME garbage is refused before another RSA verify.
+        repeat = await client.post(
+            "/api/auth/totp/challenge", json={"mfa_token": "garbage", "code": "000000"}
+        )
+    assert repeat.status_code == 429
+    assert repeat.headers["Retry-After"] == str(window)
+    assert "Too many" in repeat.json()["detail"]
+    assert decode_calls == limit, "a known-bad challenge token must not be verified again"
+    assert auth_limiter.is_blocked(
+        auth_api.TOTP_CHALLENGE_PREVERIFY_SCOPE,
+        auth_api._mfa_token_key("garbage"),
+        limit,
+        window,
+    )
+
+    # ...but a different token from the same address is judged on its own
+    # merits: the valid challenge still reaches PyJWT and completes the login.
+    code, _step = _current_code(secret, drift=1)
+    challenge = await client.post(
+        "/api/auth/totp/challenge", json={"mfa_token": valid_token, "code": code}
+    )
+    assert challenge.status_code == 200, challenge.text
+
+
+async def test_challenge_expired_but_genuine_mfa_token_is_never_charged(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A signature-valid but expired challenge is a returning client, not
+    probing: it keeps getting a plain 401 and never fills the pre-verification
+    budget — the ``_refresh_token_expired_but_genuine`` exemption mirrored on
+    the mfa path."""
+    monkeypatch.setattr(get_settings(), "auth_rate_limit_enabled", True)
+    headers = await register(client, "totp-expired@farm.in")
+    await _enroll_and_activate(client, headers)
+    me = await client.get("/api/auth/me", headers=headers)
+    limit = get_settings().auth_rate_limit_max_attempts
+    window = get_settings().auth_rate_limit_window_seconds
+
+    # Past the decoder's 60s leeway, so it classifies as expired-but-genuine.
+    expired_token = issue_token(me.json()["id"], "mfa", -120, extra_claims={"ver": 0})
+    for _ in range(limit + 2):
+        resp = await client.post(
+            "/api/auth/totp/challenge", json={"mfa_token": expired_token, "code": "000000"}
+        )
+        assert resp.status_code == 401, resp.text
+        assert resp.json()["detail"] == "Invalid or expired challenge."
+    assert not auth_limiter.is_blocked(
+        auth_api.TOTP_CHALLENGE_PREVERIFY_SCOPE,
+        auth_api._mfa_token_key(expired_token),
+        limit,
+        window,
+    )
+    assert not auth_limiter.has_attempts(auth_api.TOTP_CHALLENGE_INVALID_SCOPE, "127.0.0.1")
 
 
 async def test_confirm_brute_force_is_throttled(

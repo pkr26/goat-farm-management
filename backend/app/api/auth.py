@@ -118,6 +118,19 @@ ALREADY_REGISTERED = "That email is already registered."
 # shared auth limiter's bounded bookkeeping (its cardinality ceiling is
 # load-bearing for the invalid-token and login budgets).
 register_email_limiter = SlidingWindowRateLimiter()
+
+
+def _register_email_probe_key(email: str) -> str:
+    """Bucket key for one probed address — a hash, never the raw address.
+
+    The key is logged verbatim on every throttle decision, so it must not
+    embed the email itself; hashing matches every other token-derived limiter
+    key (``_refresh_token_key``, ``deps.record_invalid_token_verification``).
+    The scope string in the log message already names the bucket.
+    """
+    return hashlib.sha256(email.lower().encode("utf-8")).hexdigest()
+
+
 TOO_MANY_ATTEMPTS = "Too many attempts — please try again later."
 UNTRUSTED_COOKIE_ORIGIN = "Untrusted origin for cookie-authenticated request."
 
@@ -797,7 +810,9 @@ async def register(
     # already disclosed by the explicit 400, is_blocked allocates nothing for
     # unseen keys, and every still-admissible request (the timing-equalized
     # path) hashes exactly as before.
-    email_probe_key = f"register-email:{payload.email.lower()}"
+    # The probe key is a hash of the address, never the address itself: the
+    # key is logged verbatim on a throttle decision, and the raw email is PII.
+    email_probe_key = _register_email_probe_key(payload.email)
     s_limits = get_settings()
 
     def _charge_email_probe() -> None:
@@ -1009,6 +1024,12 @@ async def worker_roster(
     owner-operator tradeoff (README, worker tablet app).
     """
     s = get_settings()
+    if not s.worker_roster_enabled:
+        # GOATFARM_WORKER_ROSTER_ENABLED=false: deployments with no shared
+        # tablets close the enumeration oracle (README, worker tablet app).
+        # Kept out of the docstring so the OpenAPI snapshot — and the orval
+        # client regeneration-locked to it — stays byte-identical.
+        raise HTTPException(status_code=404, detail="Worker roster is disabled.")
     if s.auth_rate_limit_enabled and auth_limiter.is_blocked(
         WORKER_ROSTER_SCOPE,
         _client_key(request),
@@ -1921,6 +1942,15 @@ TOTP_CONFIRM_USER_SCOPE = "totp-confirm"
 # burst cannot lock out a legitimate disable (and vice versa).
 TOTP_DISABLE_USER_SCOPE = "totp-disable"
 TOTP_RECOVERY_REGEN_SCOPE = "totp-recovery-regen"
+# Garbage mfa_tokens each cost an RS256 verify, so the challenge path carries
+# the same pre-verification budget as /refresh (REFRESH_PREVERIFY_SCOPE): a
+# per-token bucket keyed on a hash of the PRESENTED token refuses a repeat of
+# known-bad material before PyJWT, and the wider per-IP ledger bounds rotating
+# garbage. Both are written only after the presented token actually fails
+# verification, so a shared-NAT neighbour's history can never 429 a
+# still-valid challenge.
+TOTP_CHALLENGE_PREVERIFY_SCOPE = "totp-challenge-preverify"
+TOTP_CHALLENGE_INVALID_SCOPE = "totp-challenge-invalid"
 # Worker-tablet PIN login (ITEM 2, 2026-09-21 playbook): one scope for the
 # exact (IP, farm, membership) identity and one spray scope for the whole
 # (IP, farm) pair so spraying many memberships cannot multiply the budget.
@@ -2423,6 +2453,90 @@ async def totp_recovery_regenerate(
     return TotpRecoveryCodesOut(codes=codes)
 
 
+def _mfa_token_key(token: str) -> str:
+    """Bucket key for one specific presented challenge token (never the raw value)."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _check_mfa_preverification_budget(token: str) -> None:
+    """Bound JWT verification work before decoding the supplied challenge token.
+
+    Keyed on the PRESENTED token, not the client address — authenticity is
+    unknowable before decoding, so a shared-IP history must never reject a
+    credential this budget has not itself classified
+    (``_check_refresh_preverification_budget`` states the same rule for
+    refresh cookies, and ``deps`` for access tokens).
+    The wider per-IP ceiling still bounds verification CPU, but only where it
+    cannot harm a valid challenge: it is consulted after a token has actually
+    failed, in ``_raise_invalid_mfa_challenge``.
+    """
+    settings = get_settings()
+    if not settings.auth_rate_limit_enabled:
+        return
+    invalid_limit = settings.auth_rate_limit_max_attempts
+    window = settings.auth_rate_limit_window_seconds
+    if auth_limiter.is_blocked(
+        TOTP_CHALLENGE_PREVERIFY_SCOPE,
+        _mfa_token_key(token),
+        invalid_limit,
+        window,
+    ):
+        logger.info("mfa challenge pre-verification throttled (repeatedly invalid token)")
+        metrics.record_auth_rate_limit_rejection(TOTP_CHALLENGE_PREVERIFY_SCOPE)
+        raise _too_many_attempts()
+
+
+def _raise_invalid_mfa_challenge(request: Request, token: str, generic: HTTPException) -> NoReturn:
+    """Record one classified-invalid challenge token and reject it.
+
+    Both ledgers are written only once the presented token has actually
+    failed, so neither can reject an unclassified credential:
+
+    * the per-token bucket makes a repeat of THIS bad challenge cheap to
+      refuse before the next RSA verification
+      (``_check_mfa_preverification_budget``);
+    * the per-IP bucket remains the CPU backstop, but it can only turn *this
+      already-invalid* request into a 429 — a valid challenge arriving from
+      the same address is never judged by a neighbour's history.
+
+    This mirrors ``_raise_invalid_refresh``; like the access-token path in
+    ``deps.current_user``, the failure is also emitted as a security event.
+    """
+    security_event(
+        "auth.totp.challenge_failed",
+        "challenge token failed verification",
+    )
+    settings = get_settings()
+    if settings.auth_rate_limit_enabled:
+        rate_key = _client_key(request)
+        limit = settings.auth_rate_limit_max_attempts
+        window = settings.auth_rate_limit_window_seconds
+        ip_limit = _refresh_preverification_limit(limit)
+        # Per-IP gate BEFORE the per-token record (RT-M-5): once the address
+        # is already throttled, appending yet another unique per-token key
+        # only pressures the limiter's key ceiling — it cannot change this
+        # request's outcome.
+        if auth_limiter.is_blocked(TOTP_CHALLENGE_INVALID_SCOPE, rate_key, ip_limit, window):
+            auth_limiter.record(
+                TOTP_CHALLENGE_INVALID_SCOPE, rate_key, window, max_attempts=ip_limit
+            )
+            logger.info("totp-challenge-invalid throttled (key=%s)", rate_key)
+            metrics.record_auth_rate_limit_rejection(TOTP_CHALLENGE_INVALID_SCOPE)
+            raise _too_many_attempts()
+        auth_limiter.record(
+            TOTP_CHALLENGE_PREVERIFY_SCOPE,
+            _mfa_token_key(token),
+            window,
+            max_attempts=limit,
+        )
+        auth_limiter.record(TOTP_CHALLENGE_INVALID_SCOPE, rate_key, window, max_attempts=ip_limit)
+        if auth_limiter.is_blocked(TOTP_CHALLENGE_INVALID_SCOPE, rate_key, ip_limit, window):
+            logger.info("totp-challenge-invalid throttled (key=%s)", rate_key)
+            metrics.record_auth_rate_limit_rejection(TOTP_CHALLENGE_INVALID_SCOPE)
+            raise _too_many_attempts()
+    raise generic
+
+
 @router.post("/totp/challenge")
 async def totp_challenge(
     payload: TotpChallengeIn,
@@ -2432,10 +2546,15 @@ async def totp_challenge(
 ) -> TokenOut:
     """Exchange a login-issued challenge token + current code for the full
     session. Single-use, version-bound, strictly throttled per account."""
+    _check_mfa_preverification_budget(payload.mfa_token)
     body, expired = _decode_payload_result(payload.mfa_token, "mfa")
     generic = HTTPException(status_code=401, detail="Invalid or expired challenge.")
     if body is None:
-        raise generic
+        # Only material that failed verification is charged: a signature-valid
+        # but expired challenge (body present, expired=True) is a returning
+        # client, not probing — the same exemption ``_refresh_token_expired_but_genuine``
+        # gives the refresh path.
+        _raise_invalid_mfa_challenge(request, payload.mfa_token, generic)
     try:
         challenge_user_id = int(body["sub"])
         challenge_ver = body["ver"]

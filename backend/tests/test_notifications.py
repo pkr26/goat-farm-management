@@ -8,6 +8,7 @@ screening-confirm alert hook end to end).
 """
 
 import importlib
+import logging
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -689,6 +690,43 @@ async def test_preferences_api_is_owner_only_and_persists(client: httpx.AsyncCli
     # A non-member cannot even resolve the worker: 403 (owner check) or 404
     # (membership lookup) — both refuse the write.
     assert forbidden.status_code in (403, 404)
+
+
+async def test_notification_prefs_audit_event_never_logs_the_phone(
+    client: httpx.AsyncClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The preferences audit line names the membership only: a worker's phone
+    number is PII, and team.py's audit stream logs ids, never contact material
+    (``redact_phone_numbers`` keeps the same rule for SMS bodies)."""
+    owner = await owner_with_farm(client, email="notif-audit@farm.in")
+    membership_id = await _membership_id(client, owner)
+
+    with caplog.at_level(logging.INFO, logger="goatfarm.audit"):
+        saved = await client.put(
+            f"/api/team/workers/{membership_id}/notifications",
+            json={
+                "phone": "+919888877777",
+                "daily_digest": True,
+                "screening_flags": True,
+                "kidding_watch": False,
+                "overdue_critical": False,
+                "feed_reorder": False,
+                "movement_restriction": True,
+                "verified": True,
+            },
+            headers=owner,
+        )
+    assert saved.status_code == 200, saved.text
+    events = [
+        record.getMessage()
+        for record in caplog.records
+        if record.getMessage().startswith("security_event")
+    ]
+    matching = [m for m in events if "event='team.worker.notification_prefs'" in m]
+    assert len(matching) == 1, events
+    assert f"membership_id={membership_id}" in matching[0]
+    assert "phone" not in matching[0]
+    assert "+919888877777" not in matching[0]
 
 
 async def test_screening_confirm_hook_fires_the_alert(client: httpx.AsyncClient) -> None:

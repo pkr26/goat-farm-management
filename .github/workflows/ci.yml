@@ -114,7 +114,10 @@ jobs:
       - name: Install backend (+ dev tools)
         working-directory: backend
         run: |
-          python -m pip install --no-cache-dir uv==0.12.1
+          # --require-hashes: the uv bootstrap itself is the one artifact pip
+          # fetches before any lock exists; version pinning alone still trusts
+          # registry/TLS integrity for it (same gap the Dockerfile closes).
+          python -m pip install --no-cache-dir --require-hashes -r pins/uv.txt
           # --frozen installs uv.lock as-is and never compares it to
           # pyproject.toml, so a dependency bump that was not re-locked would
           # be silently dropped here and in the production image. --check fails
@@ -185,7 +188,14 @@ jobs:
         run: |
           uv export --frozen --extra dev --no-emit-project --format requirements.txt \
             --output-file /tmp/goatfarm-requirements.txt
-          uvx --from pip-audit==2.10.1 pip-audit --requirement /tmp/goatfarm-requirements.txt
+          # pip-audit is itself a bootstrap tool resolved from PyPI at run
+          # time, so it gets the same treatment as uv: a fully hash-locked
+          # pin (pins/pip-audit.txt, transitive closure included) installed
+          # with --require-hashes instead of a bare version pin.
+          uv venv /tmp/pip-audit-venv
+          uv pip install --python /tmp/pip-audit-venv/bin/python \
+            --require-hashes -r pins/pip-audit.txt
+          /tmp/pip-audit-venv/bin/pip-audit --requirement /tmp/goatfarm-requirements.txt
 
   frontend:
     runs-on: ubuntu-latest
@@ -320,7 +330,8 @@ jobs:
       - name: Install backend
         working-directory: backend
         run: |
-          python -m pip install --no-cache-dir uv==0.12.1
+          # Same hash-pinned uv bootstrap as the backend job (see its comment).
+          python -m pip install --no-cache-dir --require-hashes -r pins/uv.txt
           # --frozen installs uv.lock as-is and never compares it to
           # pyproject.toml, so a dependency bump that was not re-locked would
           # be silently dropped here and in the production image. --check fails
@@ -421,3 +432,33 @@ jobs:
             -d '{"email":"container-smoke@example.com","password":"containerpass123"}' \
             http://localhost:8000/api/auth/register)"
           test "$(jq -r '.access_token | type' <<<"$response")" = "string"
+
+      - name: Exercise the frontend image under its production runtime flags
+        # Both compose files run the frontend with a read-only root
+        # filesystem and tmpfs at /tmp + /app/.next/cache. This smoke keeps
+        # that honest: it boots the built image under exactly those flags and
+        # proves the two surfaces that could silently break — the local
+        # liveness route and the image optimizer's sharp transformation
+        # (whose only runtime write target is the /app/.next/cache tmpfs).
+        run: |
+          docker run --rm --detach --name goatfarm-frontend-smoke \
+            --read-only --tmpfs /tmp:size=64m --tmpfs /app/.next/cache:size=128m \
+            --network host \
+            goatfarm-frontend:ci
+          cleanup_frontend() {
+            docker logs goatfarm-frontend-smoke || true
+            docker stop goatfarm-frontend-smoke || true
+          }
+          trap cleanup_frontend EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://localhost:3000/healthz >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "Frontend image did not become healthy under --read-only" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          curl --fail --silent --output /dev/null \
+            "http://localhost:3000/_next/image?url=%2Ficon-worker-192.png&w=128&q=75"

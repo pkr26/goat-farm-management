@@ -141,6 +141,32 @@ async def test_password_only_worker_is_not_on_the_roster(client: httpx.AsyncClie
     assert [i["membership_id"] for i in roster.json()["items"]] == []
 
 
+async def test_worker_roster_can_be_disabled_entirely(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GOATFARM_WORKER_ROSTER_ENABLED=false closes the enumeration oracle:
+    every farm id answers 404 before a roster row is read, with no existence
+    signal distinguishing known from unknown farms (the flag is checked ahead
+    of both the throttle and the query)."""
+    from app.core.config import get_settings
+
+    owner = await owner_with_farm(client, email="roster-off@farm.in")
+    _membership_id, farm_id = await _make_pin_worker(
+        client, owner, email="roster-off-worker@farm.in"
+    )
+    enabled = await client.get("/api/auth/worker-roster", params={"farm_id": farm_id})
+    assert enabled.status_code == 200, enabled.text
+    assert enabled.json()["items"]
+
+    monkeypatch.setattr(get_settings(), "worker_roster_enabled", False)
+    disabled = await client.get("/api/auth/worker-roster", params={"farm_id": farm_id})
+    assert disabled.status_code == 404, disabled.text
+    assert "items" not in disabled.json()
+    # Unknown farms answer identically — the disabled endpoint is not an oracle.
+    unknown = await client.get("/api/auth/worker-roster", params={"farm_id": farm_id + 12345})
+    assert unknown.status_code == 404
+
+
 async def test_worker_create_requires_exactly_one_credential(
     client: httpx.AsyncClient,
 ) -> None:

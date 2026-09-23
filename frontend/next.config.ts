@@ -1,6 +1,13 @@
 import { fileURLToPath } from "node:url";
 
 import { backendRewrites } from "./src/lib/backend-rewrites";
+import { assertImageDecodeSafetyForBuild } from "./src/lib/image-deps-guard";
+
+// Deploy-time sharp/libheif gate (libheif/AVIF decode trap): evaluated at
+// config-load so CI's `pnpm build` and the Docker builder stage both refuse
+// an unsafe next+sharp combination before it can become an artifact. Dev and
+// test contexts only warn. Contract details: src/lib/image-deps-guard.ts.
+assertImageDecodeSafetyForBuild();
 
 /** Baseline hardening headers on every response. HSTS is production-only.
  *

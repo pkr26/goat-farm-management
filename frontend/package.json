@@ -55,7 +55,7 @@
     "typescript": "^5.9.3",
     "vitest": "4.1.11"
   },
-  "packageManager": "pnpm@9.15.9",
+  "packageManager": "pnpm@9.15.9+sha512-aARhQYk8ZvrQHAeSMRKOmvuJ74fiaR1p5NQO7iKJiClf1GghgbrlW1hBjDolO95lpQXsfF+UA+zlzDzTfc8lMQ==",
   "pnpm": {
     "overrides": {
       "fast-uri": ">=3.1.6",

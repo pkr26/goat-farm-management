@@ -1425,7 +1425,8 @@ async def set_notification_prefs(
         farm_id=farm.id,
         actor_id=user.id,
         summary="updated worker notification preferences",
-        targets={"membership_id": membership.id, "phone": payload.phone},
+        # The worker's phone number is PII: only ids belong in this stream.
+        targets={"membership_id": membership.id},
     )
     return _prefs_out(recipient)
 

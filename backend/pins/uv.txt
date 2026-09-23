@@ -1,0 +1,13 @@
+# Bootstrap pin for uv itself — the one package pip must fetch from PyPI over
+# TLS before any hash-locked uv.lock material exists. A bare version pin still
+# trusts registry/TLS integrity for that first artifact; --require-hashes
+# closes that gap exactly the way uv.lock closes it for everything after.
+# Hashes are the universal linux wheels (glibc manylinux2014 + musllinux in
+# one file per arch): the Dockerfile (linux containers) and CI (ubuntu) are
+# the only consumers, so non-linux artifacts are deliberately absent — a
+# stray use elsewhere fails closed instead of silently trusting TLS.
+# Bump procedure: refresh the hashes from pypi.org/pypi/uv/<version>/json
+# (files uv-<version>-py3-none-manylinux_2_17_{x86_64,aarch64}*).
+uv==0.12.1 \
+    --hash=sha256:27211df9b277f440dea438a4e525ba40250fb721ad39b8927eefc2d91f9aea15 \
+    --hash=sha256:9331dda0dc4990512c232f86e1d3a7b83c13f459777fcc2bd46030911b40eaaa

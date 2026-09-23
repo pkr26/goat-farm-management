@@ -311,6 +311,17 @@ the multi-arch manifests to ghcr.io with SLSA provenance and SPDX SBOM
 attestations, and cuts a GitHub release with the per-architecture SPDX SBOMs
 and the published image digests attached.
 Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
+The three tooling bootstraps that resolve from a registry at run time are
+themselves hash-pinned, not merely version-pinned: uv via
+`backend/pins/uv.txt` installed with `--require-hashes` (Dockerfile and both
+CI backend installs), the pip-audit toolchain via the committed
+`backend/pins/pip-audit.txt` lock, and pnpm via the `+sha512` Corepack
+integrity suffix in `frontend/package.json`. `next build` additionally
+enforces the sharp/libheif decode-safety contract
+(`frontend/src/lib/image-deps-guard.ts`): bumping next past the pinned
+HEIF-disabled release fails the build unless the installed sharp bundles a
+fixed libheif (`sharp.versions.heif` ≥ 1.23.2) — or upstream disables HEIF
+decoding again and the version is added to the safe set.
 
 ## Production
 
@@ -337,6 +348,18 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
 >    wall-clock time IS your real RTO.
 > 5. **[ops]** Expected run cost: ~₹2–4k/month VPS + LLM screening spend
 >    (capped per farm by `GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM`).
+> 6. **[ops]** Verify your TLS terminator APPENDS the connecting address to
+>    `X-Forwarded-For` (nginx: `proxy_add_x_forwarded_for`; Caddy's default
+>    reverse_proxy does). The edge's auth flood zone keys on the RIGHTMOST
+>    `X-Forwarded-For` entry and the backend's proxy trust walks the same
+>    chain, so a pass-through terminator that drops the header collapses
+>    every client into one bucket (fleet-wide auth lockout) and one that
+>    forwards a client-supplied chain verbatim lets attackers rotate
+>    buckets. Also add the terminator's exact address to
+>    `GOATFARM_TRUSTED_PROXY_HOSTS` so the backend recovers real client IPs.
+>    Prove it once after deploy: two different source IPs must produce two
+>    different `X-Forwarded-For` chains at the edge, and repeated auth
+>    failures from one IP must 429 while another IP still authenticates.
 
 
 - Unauthenticated ops endpoints: `GET /healthz` (liveness: process up) and
@@ -740,7 +763,12 @@ once when connectivity returns. PIN model:
   the tablet's first screen works without a session. Tradeoff: the DISPLAY
   NAMES of PIN-enabled workers are enumerable per farm id — names only, never
   emails or roles (a worker provisioned without a name is listed as
-  "Worker \<membership_id\>"), hard-throttled per IP (30/5 min).
+  "Worker \<membership_id\>"), hard-throttled per IP (30/5 min). Deployments
+  with no shared tablets can close the enumeration oracle entirely:
+  `GOATFARM_WORKER_ROSTER_ENABLED=false` (default true) makes the endpoint
+  answer 404 before any roster row is read. The tablet sign-in flow depends
+  on the roster (its tap-to-sign-in screen has no manual id entry), so only
+  turn this off on sites where no tablet will ever use worker PIN login.
 - Shared-device discipline: "End shift" signs out AND wipes the offline
   queue; queued writes are actor+farm scoped, so one worker's saved duties
   can never be replayed under the next worker's session.
@@ -756,16 +784,41 @@ emits the `auth.totp.recovery_code_used` security event — alert on it: that
 login did not prove possession of the authenticator device.
 
 If BOTH the authenticator device and every unused recovery code are lost,
-the documented DB-side reset (run against your own database, e.g. via
-`docker compose -f docker-compose.production.yml exec db psql -U goatfarm`):
+run the shipped break-glass script against the external database through the
+production stack's one-shot `migrate` service — the only container carrying
+the DDL-role `GOATFARM_MIGRATION_DATABASE_URL` and the database CA. (The
+production Compose file has no `db` service by design and the backend image
+ships no `psql`, so hand-typed `psql` against "the compose database" fails
+exactly when it is needed.)
+
+```sh
+# Inspect first (dry run — exits 2 while there is work left on purpose):
+docker compose --env-file /secure/goatfarm.production.env \
+  -f docker-compose.production.yml run --rm --no-deps migrate \
+  python scripts/totp_breakglass.py --email owner@example.in
+# Reset:
+docker compose --env-file /secure/goatfarm.production.env \
+  -f docker-compose.production.yml run --rm --no-deps migrate \
+  python scripts/totp_breakglass.py --email owner@example.in --apply
+```
+
+From a checkout with the backend installed, the same script runs as
+`backend/.venv/bin/python scripts/totp_breakglass.py --email … [--apply]`.
+It matches the one LIVE account for the lowercase email under a row lock
+(refusing ambiguous or tombstoned matches) and performs exactly this reset
+in one transaction:
 
 ```sql
 -- Break-glass: drop the second factor for one account.
 UPDATE users SET totp_secret_enc = NULL, totp_state = NULL, totp_last_step = NULL,
                  token_version = token_version + 1
- WHERE email = 'owner@example.in';
-DELETE FROM totp_recovery_codes WHERE user_id = (SELECT id FROM users WHERE email = 'owner@example.in');
+ WHERE id = <the one live account matching the email>;
+DELETE FROM totp_recovery_codes WHERE user_id = <the same account>;
 ```
+
+A dry run that finds a second factor deliberately exits nonzero — a counted
+reset must never look like a completed recovery (the same convention as
+`rekey_totp_secrets.py`).
 
 The `token_version` bump signs out every existing session for that account,
 so the reset itself cannot be ridden by a stolen bearer token. Re-enroll

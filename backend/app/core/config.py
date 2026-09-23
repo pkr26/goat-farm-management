@@ -81,6 +81,12 @@ NON_APP_ENV_VARS = frozenset(
         "GOATFARM_EDGE_PUBLIC_SCHEME",
         "GOATFARM_EDGE_PROXY_IP",
         "GOATFARM_EDGE_MAX_BODY_SIZE",
+        # Auth flood-zone shaping (P2-15): consumed and grammar-validated by
+        # docker/edge-entrypoint.sh. Discovered 2026-09-22 missing from this
+        # allowlist — the guard was rejecting the very .env.example the repo
+        # ships.
+        "GOATFARM_EDGE_AUTH_RATE",
+        "GOATFARM_EDGE_AUTH_BURST",
         "GOATFARM_DOCKER_SUBNET",
         "GOATFARM_DOCKER_DATA_SUBNET",
         "GOATFARM_ALLOW_DEV_PUBLIC_BIND",
@@ -837,6 +843,11 @@ class Settings(BaseSettings):
     worker_pin_min_length: int = Field(default=4, ge=4, le=12)
     worker_pin_rate_limit_max_attempts: int = Field(default=10, ge=1, le=100)
     worker_pin_rate_limit_window_seconds: int = Field(default=300, ge=30, le=3600)
+    # The unauthenticated roster behind the tablet's tap-your-name screen is
+    # an enumeration oracle by documented design (names only, hard-throttled).
+    # Deployments with no shared tablets can close it entirely; the endpoint
+    # then answers 404 before any roster row is read.
+    worker_roster_enabled: bool = True
     # VLM cost scales with pixels: normalize every image to this longest-edge
     # before it is ever sent to a provider.
     screening_image_max_edge_px: int = Field(default=1_568, ge=256, le=4_096)
