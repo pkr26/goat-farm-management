@@ -397,6 +397,39 @@ describe("SimulationPage numeric input wiring", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Run simulation" })).toBeDisabled();
   });
+
+  it("accepts a count of exactly 100,000 and rejects 100,001", async () => {
+    // 2026-09-23 mutation campaign: the ceiling boundary was unpinned — a
+    // ±1 drift in either direction is only visible at the exact edge.
+    await renderLoaded({
+      defaults: {
+        ...DEFAULTS,
+        events: [
+          {
+            month: 1,
+            kind: "sale",
+            animal_class: "male_kid",
+            count: 100_000,
+            price_per_head: null,
+          },
+          {
+            month: 2,
+            kind: "sale",
+            animal_class: "male_kid",
+            count: 100_001,
+            price_per_head: null,
+          },
+        ],
+      },
+    });
+
+    expect(
+      screen.getByText("Event 2: count must be greater than 0 and at most 100,000."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Event 1: count must be greater than 0 and at most 100,000."),
+    ).not.toBeInTheDocument();
+  });
 });
 
 describe("SimulationPage stored herd event validation", () => {

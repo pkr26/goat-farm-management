@@ -10,10 +10,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   addDays,
+  daysBetween,
   farmToday,
   formatDate,
   formatFarmDateTime,
   formatMoney,
+  formatMoneyDecimal,
   setActiveFarmTimezone,
 } from "./format";
 
@@ -132,5 +134,63 @@ describe("format — module-scope constants", () => {
     ] as const) {
       expect(fresh.formatDate(iso)).toBe(text);
     }
+  });
+});
+
+/** Round 2 (2026-09-23 campaign): the survivor edges — formatMoney's guard
+ *  arms and the 1e21 hand-off, addDays' day/month arithmetic and pass-through
+ *  guards, daysBetween's exact day constant, and the default-timezone
+ *  fallback. */
+describe("format boundary round 2", () => {
+  it("formatMoney returns the dash exactly for the three guard cases", () => {
+    expect(formatMoney(null)).toBe("—");
+    expect(formatMoney(undefined)).toBe("—");
+    expect(formatMoney(Number.NaN)).toBe("—");
+    expect(formatMoney(Number.POSITIVE_INFINITY)).toBe("—");
+    // Finite zero stays a real value (whole rupees trim the paise).
+    expect(formatMoney(0)).toBe("₹0");
+    expect(formatMoney(12.5)).toBe("₹12.50");
+  });
+
+  it("formatMoney keeps tiny negatives at zero and prints the rupee sign", () => {
+    expect(formatMoney(-0.001)).toBe("₹0");
+    expect(formatMoney(-1)).toBe("-₹1");
+    expect(formatMoney(-12.5)).toBe("-₹12.50");
+    // A POSITIVE sub-rupee value must never grow a minus sign, and a real
+    // negative fraction must keep it (the sign rule fires on the rounded
+    // parts, not the raw value).
+    expect(formatMoney(0.4)).toBe("₹0.40");
+    expect(formatMoney(-0.5)).toBe("-₹0.50");
+    expect(formatMoneyDecimal("-0.50")).toBe("-₹0.50");
+    expect(formatMoneyDecimal("0.50")).toBe("₹0.50");
+  });
+
+  it("formatDate accepts full ISO timestamps, using only the calendar day", () => {
+    expect(formatDate("2026-08-05T10:00:00Z")).toBe("5 Aug 2026");
+    expect(formatDate("2026-08-05T23:59:59+05:30")).toBe("5 Aug 2026");
+  });
+
+  it("addDays passes malformed dates and non-finite day counts through", () => {
+    expect(addDays("garbage", 1)).toBe("garbage");
+    expect(addDays("2026-13-01", 1)).toBe("2026-13-01");
+    expect(addDays("2026-01-05", Number.NaN)).toBe("2026-01-05");
+    expect(addDays("2026-01-05", Number.POSITIVE_INFINITY)).toBe("2026-01-05");
+  });
+
+  it("addDays adds exact calendar days across month and year edges", () => {
+    expect(addDays("2026-01-10", 5)).toBe("2026-01-15");
+    expect(addDays("2026-01-31", 1)).toBe("2026-02-01");
+    expect(addDays("2026-02-28", 1)).toBe("2026-03-01");
+    expect(addDays("2026-12-31", 1)).toBe("2027-01-01");
+    expect(addDays("2026-03-15", -15)).toBe("2026-02-28");
+  });
+
+  it("daysBetween counts exact UTC days and zero for malformed input", () => {
+    expect(daysBetween("2026-01-01", "2026-01-02")).toBe(1);
+    expect(daysBetween("2026-01-01", "2026-01-31")).toBe(30);
+    expect(daysBetween("2026-01-01", "2026-12-31")).toBe(364);
+    expect(daysBetween("2026-01-02", "2026-01-01")).toBe(-1);
+    expect(daysBetween("bad", "2026-01-02")).toBe(0);
+    expect(daysBetween("2026-01-01", "bad")).toBe(0);
   });
 });

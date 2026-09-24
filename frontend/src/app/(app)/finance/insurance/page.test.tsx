@@ -292,6 +292,23 @@ describe("InsurancePage", () => {
       expect(await within(dialog).findByText("Start date can't be in the future")).toBeInTheDocument();
       expect(postBody).toBeNull();
     });
+
+    it("links the premium aria-describedby to its error only while invalid", async () => {
+      // 2026-09-23 mutation campaign: the anchor id must appear exactly when
+      // the field is invalid — never on a clean field.
+      const user = userEvent.setup();
+      await renderLoaded();
+      const dialog = await openCreate(user);
+      const premium = within(dialog).getByLabelText(/^premium/i);
+
+      expect(premium).not.toHaveAttribute("aria-describedby");
+      expect(premium.getAttribute("aria-invalid")).toBeNull();
+
+      await user.click(within(dialog).getByRole("button", { name: /register policy/i }));
+      expect(await within(dialog).findByText("Premium is required")).toBeInTheDocument();
+      expect(premium.getAttribute("aria-describedby")).toBe("premium-error");
+      expect(premium.getAttribute("aria-invalid")).toBe("true");
+    });
   });
 
   describe("renew action", () => {

@@ -281,3 +281,197 @@ describe("wipeOfflineQueue", () => {
     expect(offlineQueueDepth()).toBe(0);
   });
 });
+
+/** Mutation-hardening (2026-09-23 campaign): per-field fail-closed reads (a
+ *  record failing ANY single wellFormed arm is dropped — not just a wrong
+ *  version), the exact 256 KiB byte ceiling, the rewrite that cleans a
+ *  partially corrupt store, and enqueue's false under blocked storage. */
+describe("wellFormed per-field fail-closed reads", () => {
+  const BASE = {
+    v: 1,
+    id: "id-1",
+    path: "/api/tasks/1/complete",
+    method: "POST",
+    body: null,
+    headers: { "Idempotency-Key": "k" },
+    queuedAt: 1_000,
+    actorScope: "7",
+    farmScope: "3",
+  };
+
+  function withOverride(override: Record<string, unknown>) {
+    storage().setItem(
+      OFFLINE_QUEUE_STORAGE_KEY,
+      JSON.stringify([{ ...BASE, ...override }]),
+    );
+    return readOfflineQueue(storage());
+  }
+
+  it("drops a record failing any single field check", () => {
+    const cases: Array<[string, Record<string, unknown>]> = [
+      ["non-object record", { }],
+      ["wrong version", { v: 2 }],
+      ["empty id", { id: "" }],
+      ["non-string id", { id: 7 }],
+      ["non-api path", { path: "https://evil.test/api" }],
+      ["non-string method", { method: 5 }],
+      ["non-string body", { body: 42 }],
+      ["null headers", { headers: null }],
+      ["non-numeric queuedAt", { queuedAt: "soon" }],
+      ["non-finite queuedAt", { queuedAt: Number.NaN }],
+      ["non-string actorScope", { actorScope: 7 }],
+      ["non-string farmScope", { farmScope: 3 }],
+    ];
+    for (const [name, override] of cases) {
+      // "non-object record" replaces the whole entry.
+      if (name === "non-object record") {
+        storage().setItem(OFFLINE_QUEUE_STORAGE_KEY, JSON.stringify(["just a string"]));
+        expect(readOfflineQueue(storage()), name).toEqual([]);
+        continue;
+      }
+      expect(withOverride(override), name).toEqual([]);
+    }
+  });
+
+  it("accepts the untouched record and every optional-body spelling", () => {
+    expect(withOverride({})).toHaveLength(1);
+    expect(withOverride({ body: "{}" })).toHaveLength(1);
+  });
+
+  it("rewrites the store so a partially corrupt queue cannot reappear", () => {
+    const good = { ...BASE };
+    const bad = { ...BASE, id: "" };
+    storage().setItem(OFFLINE_QUEUE_STORAGE_KEY, JSON.stringify([good, bad]));
+    const records = readOfflineQueue(storage());
+    expect(records).toHaveLength(1);
+    // The corrupt twin must be gone from STORAGE, not just filtered in
+    // memory.
+    expect(JSON.parse(storage().getItem(OFFLINE_QUEUE_STORAGE_KEY) ?? "[]")).toHaveLength(1);
+  });
+
+  it("survives at exactly 256 KiB and wipes one byte over", () => {
+    const limit = 256 * 1024;
+    const one = JSON.stringify([{ ...BASE }]);
+    // The wrapper adds 2 chars for the array; pad the body to hit the limit
+    // exactly (plain spaces need no JSON escaping, so length grows 1:1).
+    const pad = limit - one.length;
+    const exact = [{ ...BASE, body: "x".repeat(Math.max(0, pad)) }];
+    // Recompute: body replaced null (4 chars) with pad+2 quotes; adjust.
+    let json = JSON.stringify(exact);
+    const body = "x".repeat(Math.max(0, pad + (limit - json.length)));
+    const fixed = [{ ...BASE, body }];
+    expect(JSON.stringify(fixed).length).toBe(limit);
+    storage().setItem(OFFLINE_QUEUE_STORAGE_KEY, JSON.stringify(fixed));
+    expect(readOfflineQueue(storage())).toHaveLength(1);
+
+    const over = [{ ...BASE, body: "x".repeat(body.length + 1) }];
+    expect(JSON.stringify(over).length).toBe(limit + 1);
+    storage().setItem(OFFLINE_QUEUE_STORAGE_KEY, JSON.stringify(over));
+    expect(readOfflineQueue(storage())).toEqual([]);
+    expect(storage().getItem(OFFLINE_QUEUE_STORAGE_KEY)).toBeNull();
+  });
+
+  it("enqueue returns false when storage is blocked entirely", () => {
+    const original = Object.getOwnPropertyDescriptor(window, "localStorage");
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      get() {
+        throw new DOMException("blocked", "SecurityError");
+      },
+    });
+    try {
+      expect(
+        enqueueOfflineMutation("/api/tasks/1/complete", { method: "POST" }, SCOPES),
+      ).toBe(false);
+    } finally {
+      if (original) Object.defineProperty(window, "localStorage", original);
+    }
+  });
+});
+
+/** Same hardening round: failure-classification and drain boundaries at
+ *  their exact edges, multi-record queues through every skip path, and the
+ *  write-side byte ceiling at exactly 256 KiB. */
+describe("failure classification and drain boundaries", () => {
+  it("classifies statuses at their exact edges", () => {
+    const offline = (status: number) =>
+      Object.assign(new Error("x"), { status, name: "TypeError" });
+    // 4xx are answers: unqueueable at both edges.
+    expect(isOfflineQueueableFailure(offline(400))).toBe(false);
+    expect(isOfflineQueueableFailure(offline(499))).toBe(false);
+    // 399 and 500 are NOT 4xx: the transport/name arm decides.
+    expect(isOfflineQueueableFailure(offline(399))).toBe(true);
+    expect(isOfflineQueueableFailure(offline(500))).toBe(true);
+  });
+
+  it("drain drops 400/499 but keeps-and-stops on 399/500", async () => {
+    for (const [status, dropped] of [
+      [400, true],
+      [499, true],
+      [399, false],
+      [500, false],
+    ] as const) {
+      storage().removeItem(OFFLINE_QUEUE_STORAGE_KEY);
+      enqueueOfflineMutation("/api/tasks/1/complete", { method: "POST" }, SCOPES);
+      const outcome = await drainOfflineQueue(
+        SCOPES,
+        vi.fn().mockRejectedValue(Object.assign(new Error("x"), { status })),
+      );
+      expect(outcome.remaining, String(status)).toBe(dropped ? 0 : 1);
+      expect(offlineQueueDepth(), String(status)).toBe(dropped ? 0 : 1);
+    }
+  });
+
+  it("a foreign record is skipped, never a wall: later own records still replay", async () => {
+    enqueueOfflineMutation("/api/tasks/1/complete", { method: "POST" }, OTHER);
+    enqueueOfflineMutation("/api/tasks/2/skip", { method: "POST" }, SCOPES);
+    const fetchImpl = vi.fn().mockResolvedValue({});
+    const outcome = await drainOfflineQueue(SCOPES, fetchImpl);
+    expect(outcome).toEqual({ replayed: 1, remaining: 1 });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe("/api/tasks/2/skip");
+  });
+
+  it("a 409 or a definitive 4xx resolves that record and the queue keeps draining", async () => {
+    enqueueOfflineMutation("/api/tasks/1/complete", { method: "POST" }, SCOPES);
+    enqueueOfflineMutation("/api/tasks/2/skip", { method: "POST" }, SCOPES);
+    enqueueOfflineMutation("/api/tasks/3/verify", { method: "POST" }, SCOPES);
+    const error409 = Object.assign(new Error("conflict"), { status: 409 });
+    const error404 = Object.assign(new Error("gone"), { status: 404 });
+    const fetchImpl = vi
+      .fn()
+      .mockRejectedValueOnce(error409)
+      .mockRejectedValueOnce(error404)
+      .mockResolvedValue({});
+    const outcome = await drainOfflineQueue(SCOPES, fetchImpl);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    // The 404 resolves without replay credit: 2 replays, nothing wedged.
+    expect(outcome).toEqual({ replayed: 2, remaining: 0 });
+  });
+
+  it("enqueue accepts a first record that lands exactly at the byte ceiling", () => {
+    const limit = 256 * 1024;
+    const probe = { method: "POST", body: null as string | null, headers: {} };
+    // Serialized wrapper for a single record with a null body; then pad the
+    // body so the total lands exactly on the ceiling.
+    enqueueOfflineMutation("/api/tasks/1/complete", probe, SCOPES);
+    const base = storage().getItem(OFFLINE_QUEUE_STORAGE_KEY) ?? "[]";
+    const pad = limit - base.length;
+    storage().removeItem(OFFLINE_QUEUE_STORAGE_KEY);
+    // Padding the body replaces the 4-char `null` literal with 2 quotes
+    // plus the pad, hence the +2 correction.
+    const ok = enqueueOfflineMutation(
+      "/api/tasks/1/complete",
+      { method: "POST", body: "x".repeat(Math.max(0, pad + 2)), headers: {} },
+      SCOPES,
+    );
+    expect(ok).toBe(true);
+    expect((storage().getItem(OFFLINE_QUEUE_STORAGE_KEY) ?? "").length).toBe(limit);
+    expect(offlineQueueDepth()).toBe(1);
+  });
+
+  it("a null entry inside the stored array is dropped without throwing", () => {
+    storage().setItem(OFFLINE_QUEUE_STORAGE_KEY, "[null]");
+    expect(readOfflineQueue(storage())).toEqual([]);
+  });
+});

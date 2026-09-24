@@ -9,10 +9,14 @@ import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { setCurrentFarmId } from "@/lib/api-client";
 import { server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
 import AnimalProfilePage from "./page";
+
+const toastMocks = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+vi.mock("sonner", () => ({ toast: toastMocks }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
@@ -230,4 +234,92 @@ describe("AnimalProfilePage — phenotype edit dialog", () => {
     await screen.findByText("Details");
     expect(screen.queryByRole("button", { name: "Edit phenotype" })).not.toBeInTheDocument();
   });
+it("prefills Not recorded for a null horned status and resets on reopen", async () => {
+  const user = userEvent.setup();
+  useProfile({ horned: null, coat_color: null });
+  renderWithProviders(<AnimalProfilePage />);
+
+  await user.click(await screen.findByRole("button", { name: "Edit phenotype" }));
+  let dialog = await screen.findByRole("dialog");
+  expect(within(dialog).getByLabelText("Horned")).toHaveTextContent("Not recorded");
+  expect(within(dialog).getByLabelText("Coat colour")).toHaveTextContent("Not recorded");
+  // No error paragraph exists before any failure.
+  expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+
+  // Pick values, cancel, reopen: the reopen resets from the animal record.
+  await user.click(within(dialog).getByLabelText("Horned"));
+  await user.click(await screen.findByRole("option", { name: "Yes" }));
+  await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+  await user.click(await screen.findByRole("button", { name: "Edit phenotype" }));
+  dialog = await screen.findByRole("dialog");
+  expect(within(dialog).getByLabelText("Horned")).toHaveTextContent("Not recorded");
+});
+
+it("shows the busy label, locks the buttons, and closes on fresh success", async () => {
+  let release!: () => void;
+  server.use(
+    http.patch("/api/animals/1", async () => {
+      await new Promise<void>((resolve) => (release = resolve));
+      return HttpResponse.json(ANIMAL);
+    }),
+  );
+  const user = userEvent.setup();
+  useProfile({});
+  renderWithProviders(<AnimalProfilePage />);
+
+  await user.click(await screen.findByRole("button", { name: "Edit phenotype" }));
+  const dialog = await screen.findByRole("dialog");
+  await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+  const busy = within(dialog).getByRole("button", { name: /saving|loading/i });
+  expect(busy).toBeDisabled();
+  expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeDisabled();
+
+  release();
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+});
+
+it("a farm switch mid-flight swallows the late success", async () => {
+  let releasePatch!: () => void;
+  server.use(
+    http.patch("/api/animals/1", async () => {
+      await new Promise<void>((resolve) => (releasePatch = resolve));
+      return HttpResponse.json(ANIMAL);
+    }),
+  );
+  const user = userEvent.setup();
+  useProfile({});
+  toastMocks.success.mockClear();
+  renderWithProviders(<AnimalProfilePage />);
+
+  await user.click(await screen.findByRole("button", { name: "Edit phenotype" }));
+  const dialog = await screen.findByRole("dialog");
+  await user.click(within(dialog).getByRole("button", { name: "Save" }));
+  setCurrentFarmId("2");
+  releasePatch();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+
+  expect(toastMocks.success).not.toHaveBeenCalled();
+  // The fence skips the toast AND the close: a stale success must not
+  // dismiss a dialog that now belongs to another farm's page.
+  expect(screen.getByRole("dialog")).toBeInTheDocument();
+});
+
+it("a fresh failure surfaces inline and stays in the dialog", async () => {
+  server.use(
+    http.patch("/api/animals/1", () =>
+      HttpResponse.json({ detail: "Restriction version mismatch" }, { status: 409 }),
+    ),
+  );
+  const user = userEvent.setup();
+  useProfile({});
+  renderWithProviders(<AnimalProfilePage />);
+
+  await user.click(await screen.findByRole("button", { name: "Edit phenotype" }));
+  const dialog = await screen.findByRole("dialog");
+  await user.click(within(dialog).getByRole("button", { name: "Save" }));
+  expect(await within(dialog).findByText("Restriction version mismatch")).toBeInTheDocument();
+  expect(within(dialog).getByRole("alert")).toBeInTheDocument();
+});
+
 });

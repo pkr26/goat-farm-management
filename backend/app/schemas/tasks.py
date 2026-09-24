@@ -32,6 +32,7 @@ TaskCategoryStr = Literal[
     "BUCK_ROTATION",
     "INSURANCE",
     "WATER",
+    "FAMACHA",
 ]
 
 # Manual duties are intentionally operational checklists. Workflow categories

@@ -864,3 +864,136 @@ describe("useAuth", () => {
     consoleError.mockRestore();
   });
 });
+
+/** Mutation-hardening (2026-09-23 campaign): exact numeric contracts that
+ *  survived the dedicated suites — the bootstrap retry budget of exactly 3,
+ *  the stored-farm-id parser's safe-integer/positivity guard, and the
+ *  revocation tombstone parser. */
+describe("AuthProvider numeric boundaries", () => {
+  beforeEach(() => {
+    pushMock.mockClear();
+    replaceMock.mockClear();
+    navState.pathname = "/dashboard";
+    setAccessToken(null);
+    setCurrentFarmId(null);
+    localStorage.clear();
+  });
+
+  it("retries a transient refresh failure exactly three times, then signs out", async () => {
+    let refreshCalls = 0;
+    server.use(
+      http.post("/api/auth/refresh", () => {
+        refreshCalls += 1;
+        return new HttpResponse(null, { status: 503 });
+      }),
+    );
+    renderWithProviders(<Probe />);
+
+    // Two 750 ms backoffs: the default 1 s waitFor window is not enough.
+    await waitFor(
+      () => expect(screen.getByTestId("loading")).toHaveTextContent("false"),
+      { timeout: 8_000 },
+    );
+    expect(screen.getByTestId("user")).toHaveTextContent("none");
+    expect(refreshCalls).toBe(3);
+  });
+
+  it("a transient refresh that recovers on the third attempt signs in", async () => {
+    let refreshCalls = 0;
+    server.use(
+      http.post("/api/auth/refresh", () => {
+        refreshCalls += 1;
+        if (refreshCalls < 3) return new HttpResponse(null, { status: 503 });
+        return HttpResponse.json({
+          access_token: "recovered-token",
+          user: TEST_USER,
+        });
+      }),
+    );
+    renderWithProviders(<Probe />);
+
+    await waitFor(
+      () => expect(screen.getByTestId("user")).toHaveTextContent(TEST_USER.email),
+      { timeout: 8_000 },
+    );
+    expect(refreshCalls).toBe(3);
+  });
+
+  it("parses the stored farm id strictly: only safe positive integers", async () => {
+    // A NEGATIVE stored value parses to null, so the first-farm auto-select
+    // runs (an accepting parser would keep -3 as "preferred", find no match,
+    // and land on /farm-select instead).
+    server.use(
+      http.get("/api/auth/farms", () =>
+        HttpResponse.json([
+          { id: 1, name: "Farm One", location: null, role: null },
+          { id: 2, name: "Farm Two", location: null, role: null },
+        ]),
+      ),
+    );
+    localStorage.setItem(FARM_STORAGE_KEY, "-3");
+    let view = renderWithProviders(<Probe />);
+    await expectLoaded();
+    expect(screen.getByTestId("farmId")).toHaveTextContent("1");
+    view.unmount();
+
+    // A stored id that is positive but NOT in a single-farm list stays a
+    // "preferred" id and must NOT degrade into the list[0] auto-select
+    // (that degradation is reserved for unparseable values).
+    server.use(
+      http.get("/api/auth/farms", () =>
+        HttpResponse.json([{ id: 5, name: "Solo", location: null, role: null }]),
+      ),
+    );
+    localStorage.setItem(FARM_STORAGE_KEY, "1");
+    view = renderWithProviders(<Probe />);
+    await expectLoaded();
+    expect(screen.getByTestId("farmId")).toHaveTextContent("none");
+    view.unmount();
+
+    localStorage.setItem(FARM_STORAGE_KEY, "5");
+    view = renderWithProviders(<Probe />);
+    await expectLoaded();
+    expect(screen.getByTestId("farmId")).toHaveTextContent("5");
+    view.unmount();
+
+    // ZERO is not a farm id: it parses to null and the single-farm
+    // auto-select takes over (a ">=" parser would keep 0 "preferred",
+    // find no match, and block the auto-select).
+    localStorage.setItem(FARM_STORAGE_KEY, "0");
+    view = renderWithProviders(<Probe />);
+    await expectLoaded();
+    expect(screen.getByTestId("farmId")).toHaveTextContent("5");
+    view.unmount();
+  });
+
+  it("a malformed tombstone (revoked:0) never drops the selection", async () => {
+    server.use(
+      http.get("/api/auth/farms", () =>
+        HttpResponse.json([
+          { id: 1, name: "Farm One", location: null, role: null },
+          { id: 2, name: "Farm Two", location: null, role: null },
+        ]),
+      ),
+    );
+    localStorage.setItem(FARM_STORAGE_KEY, "1");
+    renderWithProviders(<Probe />);
+    await expectLoaded();
+    expect(screen.getByTestId("farmId")).toHaveTextContent("1");
+
+    await act(async () => {
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: FARM_STORAGE_KEY,
+          newValue: "revoked:0",
+          oldValue: "1",
+          storageArea: window.localStorage,
+        }),
+      );
+    });
+    // Zero is not a farm id: the tombstone parse must reject it and leave
+    // this tab's selection untouched.
+    expect(screen.getByTestId("farmId")).toHaveTextContent("1");
+    expect(screen.getByTestId("user")).not.toHaveTextContent("none");
+  });
+});

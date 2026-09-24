@@ -31549,7 +31549,8 @@
               "REBREED",
               "BUCK_ROTATION",
               "INSURANCE",
-              "WATER"
+              "WATER",
+              "FAMACHA"
             ],
             "title": "Category"
           }
@@ -35007,7 +35008,8 @@
               "REBREED",
               "BUCK_ROTATION",
               "INSURANCE",
-              "WATER"
+              "WATER",
+              "FAMACHA"
             ],
             "title": "Category"
           },

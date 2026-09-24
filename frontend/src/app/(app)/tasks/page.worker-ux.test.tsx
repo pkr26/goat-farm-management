@@ -490,3 +490,35 @@ describe("TasksPage in Telugu", () => {
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("కారణం అవసరం.");
   });
 });
+
+/** Mutation-hardening (2026-09-23 campaign): the recurring-confirm anchor is
+ *  max(due_date, today) — an existing test pins the today (overdue) leg;
+ *  this pins the future-due leg, plus the 255-char skip-reason cap. */
+describe("TasksPage skip-reason cap", () => {
+  beforeEach(() => {
+    nav.state.search = "";
+    actionCalls = [];
+    server.use(
+      http.get("/api/tasks", () => HttpResponse.json(boardPayload())),
+      http.post("/api/tasks/:taskId/skip", ({ params }) => {
+        actionCalls.push({ action: "skip", taskId: String(params.taskId) });
+        return HttpResponse.json(makeTask({ id: Number(params.taskId) }));
+      }),
+    );
+  });
+
+  it("caps the skip reason at 255 characters", async () => {
+    const user = userEvent.setup();
+    renderTasks();
+    await loadedBoard();
+
+    const table = document.querySelector('[class~="md:block"] table') as HTMLElement;
+    const row = within(table).getByText("Scrub water troughs").closest("tr") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: "Skip" }));
+
+    const dialog = await screen.findByRole("dialog", { name: /skip this task/i });
+    const reason = within(dialog).getByLabelText(/reason \*/i) as HTMLTextAreaElement;
+    await user.type(reason, "x".repeat(256));
+    expect(reason.value.length).toBe(255);
+  });
+});

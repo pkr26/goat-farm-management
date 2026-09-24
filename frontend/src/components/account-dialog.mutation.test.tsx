@@ -235,3 +235,137 @@ describe("AccountDialog action labels", () => {
     await act(async () => rejectExport?.(new Error("offline")));
   });
 });
+
+/** Mutation-hardening round 2 (2026-09-23 deep-mutation campaign): pins the
+ *  password-schema numeric bounds (zod min/max no test exercised at their
+ *  boundaries) and the DOM maxLength caps on every password field. The
+ *  fireEvent.change route bypasses maxLength so the schema's own .max(128)
+ *  is the only guard under test. */
+describe("AccountDialog password schema boundaries", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.authSessionEpochValue.mockReturnValue(1);
+    mocks.mutateAsync.mockResolvedValue({ status: 200 });
+  });
+
+  async function submitWith(
+    user: ReturnType<typeof userEvent.setup>,
+    values: { current: string; next: string; confirm: string },
+  ) {
+    // A validation failure keeps the dialog open; reuse it instead of
+    // looking for the trigger button again.
+    const existing = screen.queryByRole("dialog", { name: "Account & password" });
+    const dialog = existing ?? (await openAccount(user));
+    fireEvent.change(within(dialog).getByLabelText("Current password for password change"), {
+      target: { value: values.current },
+    });
+    fireEvent.change(within(dialog).getByLabelText("New password"), {
+      target: { value: values.next },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Confirm new password"), {
+      target: { value: values.confirm },
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Change password" }));
+    return dialog;
+  }
+
+  it("accepts a single-character current password (min(1) boundary)", async () => {
+    const user = userEvent.setup();
+    render(<AccountDialog name="Owner" email="owner@example.test" />);
+    await submitWith(user, { current: "x", next: "long-enough-12", confirm: "long-enough-12" });
+    await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledOnce());
+  });
+
+  it("accepts a single-character confirm password (min(1) boundary)", async () => {
+    const user = userEvent.setup();
+    render(<AccountDialog name="Owner" email="owner@example.test" />);
+    // confirm !== new triggers the refine, so pin the min boundary via the
+    // standalone field error instead of the submit path.
+    const dialog = await openAccount(user);
+    await user.type(within(dialog).getByLabelText("New password"), "long-enough-12");
+    await user.click(within(dialog).getByRole("button", { name: "Change password" }));
+    expect(await within(dialog).findByText("Confirm the new password")).toBeTruthy();
+  });
+
+  it("rejects 129-character current/new/confirm values and accepts exactly 128", async () => {
+    const c129 = "c".repeat(129);
+    const c128 = "c".repeat(128);
+    const next = "n".repeat(128);
+
+    const user = userEvent.setup();
+    render(<AccountDialog name="Owner" email="owner@example.test" />);
+
+    let dialog = await submitWith(user, { current: c129, next, confirm: next });
+    expect(await within(dialog).findByText(/Too big: expected string to have <=128/)).toBeTruthy();
+    expect(mocks.mutateAsync).not.toHaveBeenCalled();
+
+    vi.clearAllMocks();
+    dialog = await submitWith(user, { current: c128, next: c129, confirm: next });
+    expect(await within(dialog).findByText(/Too big: expected string to have <=128/)).toBeTruthy();
+    expect(mocks.mutateAsync).not.toHaveBeenCalled();
+
+    vi.clearAllMocks();
+    dialog = await submitWith(user, { current: c128, next, confirm: c129 });
+    expect(await within(dialog).findByText(/Too big: expected string to have <=128/)).toBeTruthy();
+    expect(mocks.mutateAsync).not.toHaveBeenCalled();
+
+    // Exactly 128 everywhere is legal: the mutation goes through.
+    vi.clearAllMocks();
+    mocks.mutateAsync.mockResolvedValue({ status: 200 });
+    await submitWith(user, { current: c128, next, confirm: next });
+    await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledOnce());
+  });
+
+  it("caps typing at 128 characters in every password-change input (maxLength)", async () => {
+    const user = userEvent.setup();
+    render(<AccountDialog name="Owner" email="owner@example.test" />);
+    const dialog = await openAccount(user);
+
+    const fields = [
+      "Current password for password change",
+      "New password",
+      "Confirm new password",
+    ] as const;
+    for (const label of fields) {
+      const input = within(dialog).getByLabelText(label) as HTMLInputElement;
+      await user.clear(input);
+      await user.type(input, "x".repeat(129));
+      expect(input.value.length, label).toBe(128);
+    }
+  });
+});
+
+/** Round 2 tail: a one-character confirm must trip the MISMATCH rule (not
+ *  the min-length rule), the delete-account password input caps at 128, and
+ *  no account-action error alert exists before any failure. */
+describe("AccountDialog boundary tail", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.authSessionEpochValue.mockReturnValue(1);
+    mocks.mutateAsync.mockResolvedValue({ status: 200 });
+  });
+
+  it("a one-character confirm password fails as a mismatch, not as too-short", async () => {
+    const user = userEvent.setup();
+    render(<AccountDialog name="Owner" email="owner@example.test" />);
+    const dialog = await openAccount(user);
+    await user.type(within(dialog).getByLabelText("New password"), "long-enough-12");
+    await user.type(within(dialog).getByLabelText("Confirm new password"), "x");
+    await user.click(within(dialog).getByRole("button", { name: "Change password" }));
+    expect(await within(dialog).findByText("Passwords do not match")).toBeTruthy();
+    expect(within(dialog).queryByText("Confirm the new password")).toBeNull();
+  });
+
+  it("caps the delete-account password at 128 characters (maxLength)", async () => {
+    const user = userEvent.setup();
+    render(<AccountDialog name="Owner" email="owner@example.test" />);
+    const dialog = await openAccount(user);
+
+    await user.click(within(dialog).getByRole("button", { name: /delete my account/i }));
+    const input = within(dialog).getByLabelText(
+      "Current password to delete account",
+    ) as HTMLInputElement;
+    await user.type(input, "x".repeat(129));
+    expect(input.value.length).toBe(128);
+  });
+});

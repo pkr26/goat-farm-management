@@ -365,7 +365,7 @@ _VOCABULARY_CONSTRAINT_SQL: dict[tuple[str, str], str] = {
         "'WEANING', 'BUCKET_MOVE', 'QUARANTINE', 'FEED', 'CLEANING', 'OTHER', "
         "'KIDDING_WATCH', 'BIRTHING_KIT', 'HEALTH_CHECK', 'HEAT_WATCH', "
         "'HOOF_TRIMMING', 'SPRAYING', 'DISINFECTION', 'WEIGHING', 'REBREED', "
-        "'BUCK_ROTATION', 'INSURANCE', 'WATER')"
+        "'BUCK_ROTATION', 'INSURANCE', 'WATER', 'FAMACHA')"
     ),
     ("transactions", "ck_transactions_type"): "type IN ('INCOME', 'EXPENSE')",
     (

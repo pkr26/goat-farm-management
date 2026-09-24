@@ -41,6 +41,15 @@ describe("compareDottedVersions", () => {
     expect(compareDottedVersions("1.23.2", "1.23.2")).toBe(0);
     expect(compareDottedVersions("2.0", "2.0.1")).toBeLessThan(0);
     expect(compareDottedVersions("1.24", "1.23.99")).toBeGreaterThan(0);
+    // 2026-09-23 mutation campaign: the FIRST segment decides, missing
+    // segments count as exactly zero, and a non-numeric segment falls back
+    // to zero (never one).
+    expect(compareDottedVersions("2.0", "1.9")).toBeGreaterThan(0);
+    expect(compareDottedVersions("1.9", "2.0")).toBeLessThan(0);
+    expect(compareDottedVersions("1", "1.0")).toBe(0);
+    expect(compareDottedVersions("1.0", "1")).toBe(0);
+    expect(compareDottedVersions("1.x", "1.0")).toBe(0);
+    expect(compareDottedVersions("1.0", "1.x")).toBe(0);
   });
 });
 
@@ -151,10 +160,11 @@ describe("reportImageDecodeSafety", () => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       try {
         expect(() => reportImageDecodeSafety(failing, "warn")).not.toThrow();
+        // Assert before mockRestore(): restore wipes the spy's call history.
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("Unsafe image-decode"));
       } finally {
         warn.mockRestore();
       }
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining("Unsafe image-decode"));
     }
   });
 
@@ -164,9 +174,12 @@ describe("reportImageDecodeSafety", () => {
       expect(() =>
         reportImageDecodeSafety({ ok: true, basis: "libheif-safe" }, "enforce"),
       ).not.toThrow();
+      expect(() =>
+        reportImageDecodeSafety({ ok: true, basis: "libheif-safe" }, "warn"),
+      ).not.toThrow();
+      expect(warn).not.toHaveBeenCalled();
     } finally {
       warn.mockRestore();
     }
-    expect(warn).not.toHaveBeenCalled();
   });
 });

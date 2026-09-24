@@ -162,7 +162,10 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         setTotpError(err instanceof ApiError ? err.detail : t("totp.networkError"));
       }
     } finally {
-      if (operationEpoch === dialogEpoch.current) setTotpBusy(false);
+      // Always clear busy: a stale settle whose result was fenced off must
+      // not leave the reopened dialog's TOTP controls locked forever
+      // (2026-09-23 mutation campaign). Only the writes above need the fence.
+      setTotpBusy(false);
     }
   }
 
@@ -190,7 +193,10 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         setTotpError(err instanceof ApiError ? err.detail : t("totp.networkError"));
       }
     } finally {
-      if (operationEpoch === dialogEpoch.current) setTotpBusy(false);
+      // Always clear busy: a stale settle whose result was fenced off must
+      // not leave the reopened dialog's TOTP controls locked forever
+      // (2026-09-23 mutation campaign). Only the writes above need the fence.
+      setTotpBusy(false);
     }
   }
 
@@ -214,7 +220,10 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         setTotpError(err instanceof ApiError ? err.detail : t("totp.networkError"));
       }
     } finally {
-      if (operationEpoch === dialogEpoch.current) setTotpBusy(false);
+      // Always clear busy: a stale settle whose result was fenced off must
+      // not leave the reopened dialog's TOTP controls locked forever
+      // (2026-09-23 mutation campaign). Only the writes above need the fence.
+      setTotpBusy(false);
     }
   }
 
@@ -241,7 +250,10 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         setTotpError(err instanceof ApiError ? err.detail : t("totp.networkError"));
       }
     } finally {
-      if (operationEpoch === dialogEpoch.current) setTotpBusy(false);
+      // Always clear busy: a stale settle whose result was fenced off must
+      // not leave the reopened dialog's TOTP controls locked forever
+      // (2026-09-23 mutation campaign). Only the writes above need the fence.
+      setTotpBusy(false);
     }
   }
 
@@ -416,7 +428,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
             variant="ghost"
             size="sm"
             className="gap-2 px-1.5 font-normal"
-            aria-label={`Account — ${name ?? email}`}
+            aria-label={`Account — ${name || email}`}
           />
         }
       >
@@ -424,9 +436,9 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
           aria-hidden="true"
           className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-[0.65rem] font-semibold text-primary"
         >
-          {(name ?? email).trim().slice(0, 2).toUpperCase()}
+          {(name || email).trim().slice(0, 2).toUpperCase()}
         </span>
-        <span className="hidden max-w-32 truncate md:inline">{name ?? email}</span>
+        <span className="hidden max-w-32 truncate md:inline">{name || email}</span>
         <KeyRound aria-hidden className="size-3.5 text-muted-foreground" />
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
@@ -434,7 +446,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
           <DialogTitle>Account & password</DialogTitle>
         </DialogHeader>
         <div className="rounded-lg bg-muted/60 p-3 text-sm">
-          <p className="font-medium">{name ?? email}</p>
+          <p className="font-medium">{name || email}</p>
           {name && <p className="text-muted-foreground">{email}</p>}
         </div>
         <section className="space-y-2" aria-labelledby="account-data-heading">

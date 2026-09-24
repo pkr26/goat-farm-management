@@ -138,6 +138,15 @@ _INTERVAL_ROUNDS: tuple[_IntervalRound, ...] = (
         "monthly_weighing_round",
         "Monthly weighing round — record weights; grow-out buckets first",
     ),
+    (
+        TaskCategory.FAMACHA,
+        30,
+        "famacha_round",
+        (
+            "FAMACHA scoring round — check eyelid conjunctiva color (anemia); "
+            "score and treat scores 4-5"
+        ),
+    ),
 )
 
 _DAILY_MORNING_FEED_TITLE_KEY = "morning_feed_routine"

@@ -292,6 +292,7 @@ def test_task_category_role_map_targets_valid_categories_and_presets() -> None:
         ("KIDDING_WATCH", "CLEANER"),
         ("BIRTHING_KIT", "MANAGER"),
         ("HEALTH_CHECK", "VET"),
+        ("FAMACHA", "VET"),
         ("HEAT_WATCH", "CLEANER"),
         ("HOOF_TRIMMING", "VET"),
         ("SPRAYING", "VET"),
@@ -388,6 +389,7 @@ ENUM_CASES = [
             "BUCK_ROTATION",
             "INSURANCE",
             "WATER",
+            "FAMACHA",
         },
     ),
 ]

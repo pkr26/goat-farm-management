@@ -227,6 +227,21 @@ describe("AnimalProfilePage dialog branches", () => {
       expect(weightBodies).toHaveLength(0);
     });
 
+    it("saves with an empty BCS as null instead of rejecting it as 0", async () => {
+      // 2026-09-23 mutation campaign: an EMPTY optional numeric coerces to
+      // undefined (sent as null) — never parsed as 0 against the minimum.
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Record weight");
+      setInput(within(dialog).getByLabelText(/^Date/), farmToday());
+      setInput(within(dialog).getByLabelText(/weight \(kg\)/i), "30.5");
+      await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+      await waitFor(() => expect(weightBodies).toHaveLength(1));
+      expect(weightBodies[0]).toMatchObject({ weight_kg: 30.5, bcs: null });
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    });
+
     it("accepts today as the weight date and drops the invalid state once fixed", async () => {
       const user = userEvent.setup();
       await renderProfile();

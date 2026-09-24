@@ -156,3 +156,108 @@ describe("resolveTaskTitle", () => {
     ).toBe("Reorder Maize: 120 kg on hand (reorder level 50 kg)");
   });
 });
+
+/** Mutation-hardening (2026-09-23 campaign): the English-month lookup table
+ *  and its 1–12 range gate, the *_date formatting arm, and the null/undefined
+ *  arg skip — every entry pinned by name. */
+describe("resolveTaskTitle month and date arg contracts", () => {
+  const MONTHS = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+  ];
+
+  it("maps every English month name to its own translated month", () => {
+    MONTHS.forEach((name) => {
+      const rendered = resolveTaskTitle(
+        {
+          title: "fallback",
+          title_key: "fmd_vaccination_round",
+          title_args: { month: name, year: 2026 },
+        },
+        "en",
+      );
+      expect(rendered, name).toBe(
+        `FMD vaccination round (${name} 2026) — all animals; close via a bucket/batch vaccine health event`,
+      );
+    });
+  });
+
+  it("translates month names to Telugu — the raw English string is not enough", () => {
+    const renderTe = (month: string) =>
+      resolveTaskTitle(
+        { title: "fallback", title_key: "fmd_vaccination_round", title_args: { month, year: 2026 } },
+        "te",
+      );
+    // A broken table entry falls out of the 1–12 gate and would render the
+    // raw English word inside the Telugu sentence.
+    expect(renderTe("January")).toContain("జనవరి");
+    expect(renderTe("December")).toContain("డిసెంబర్");
+  });
+
+  it("month names are case-insensitive and numeric strings pass the range gate", () => {
+    const render = (month: string | number) =>
+      String(
+        resolveTaskTitle(
+          { title: "fallback", title_key: "fmd_vaccination_round", title_args: { month, year: 2026 } },
+          "en",
+        ),
+      ).match(/\((.*) 2026\)/)?.[1];
+    expect(render("SEPTEMBER")).toBe("September");
+    expect(render("1")).toBe("January");
+    expect(render("3")).toBe("March");
+    expect(render("12")).toBe("December");
+    // Outside 1–12 the raw value renders, never a month name.
+    expect(render("0")).toBe("0");
+    expect(render("13")).toBe("13");
+    expect(render("vacation")).toBe("vacation");
+  });
+
+  it("formats *_date args but leaves non-date names and non-ISO values raw", () => {
+    const rendered = resolveTaskTitle(
+      {
+        title: "fallback",
+        title_key: "pregnancy_check",
+        title_args: { tag: "G-1", breeding_date: "2026-02-05" },
+      },
+      "en",
+    );
+    expect(rendered).toBe("Pregnancy check: G-1 (bred 5 Feb 2026)");
+
+    // Non-ISO values and non-date names fall through untouched.
+    const raw = resolveTaskTitle(
+      {
+        title: "fallback",
+        title_key: "pregnancy_check",
+        title_args: { tag: "G-1", breeding_date: "not-a-date" },
+      },
+      "en",
+    );
+    expect(raw).toBe("Pregnancy check: G-1 (bred not-a-date)");
+  });
+
+  it("skips null and undefined args entirely", () => {
+    // The null entry comes FIRST: a `break` mutant would swallow the tag.
+    const rendered = resolveTaskTitle(
+      {
+        title: "fallback",
+        title_key: "pre_kidding_vaccine",
+        title_args: { month: null, count: undefined, tag: "G-1" },
+      },
+      "en",
+    );
+    expect(rendered).toBe("Pre-kidding ET+TT vaccine: G-1");
+  });
+});
+
+describe("famacha_round (2026-09-23 fix)", () => {
+  it("localizes the monthly FAMACHA scoring round in both languages", () => {
+    const source = {
+      title: "FAMACHA scoring round — English fallback",
+      title_key: "famacha_round",
+      title_args: {},
+    } as const;
+    expect(resolveTaskTitle(source, "en")).toContain("conjunctiva");
+    expect(resolveTaskTitle(source, "te")).toContain("\u0c2b\u0c3e\u0c2e\u0c3e\u0c1a\u0c3e");
+    expect(resolveTaskTitle(source, "te")).not.toContain("English fallback");
+  });
+});

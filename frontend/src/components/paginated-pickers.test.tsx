@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AnimalOut, HealthPurchaseBatchOptionOut, AnimalOutCurrentBucket} from "@/api/generated/models";
 import { AnimalPicker } from "@/components/animal-picker";
 import { BreedingCandidatePicker } from "@/components/breeding-candidate-picker";
-import { HealthPurchaseBatchPicker } from "@/components/health-target-pickers";
+import { HealthAnimalPicker, HealthPurchaseBatchPicker } from "@/components/health-target-pickers";
 import { Label } from "@/components/ui/label";
 import { createTestQueryClient } from "@/test/render";
 import { server } from "@/test/msw-server";
@@ -241,5 +241,122 @@ describe("paginated domain pickers", () => {
     expect(await within(dialog).findByRole("option", { name: /G-0002/ })).toBeInTheDocument();
     expect(within(dialog).queryByRole("option", { name: /G-0001/ })).not.toBeInTheDocument();
     expect(calls).toBe(2);
+  });
+});
+
+/** Mutation-hardening (2026-09-23 campaign): the cull-candidate suffix must
+ *  appear for does and ONLY does, and the breeding search caps at 60. */
+describe("breeding candidate picker copy and caps", () => {
+  it("marks cull-candidate does and never bucks", async () => {
+    server.use(
+      http.get("/api/breeding/candidates", ({ request }) => {
+        const url = new URL(request.url);
+        const kind = url.searchParams.get("kind");
+        return HttpResponse.json({
+          candidates: [
+            {
+              id: 1,
+              tag_number: "G-0001",
+              name: null,
+              age_months: 20,
+              latest_weight_kg: kind === "doe" ? 31 : null,
+              cull_candidate: true,
+            },
+          ],
+          total: 1,
+          limit: 50,
+          offset: 0,
+        });
+      }),
+    );
+
+    function Harness({ kind }: { kind: "doe" | "buck" }) {
+      return (
+        <Providers>
+          <Label htmlFor={`picker-${kind}`}>{kind}</Label>
+          <BreedingCandidatePicker
+            id={`picker-${kind}`}
+            kind={kind}
+            value=""
+            onValueChange={() => {}}
+            placeholder={`Select ${kind}`}
+            dialogTitle={`Choose a ${kind}`}
+          />
+        </Providers>
+      );
+    }
+
+    const user = userEvent.setup();
+    const doeView = render(<Harness kind="doe" />);
+    await user.click(screen.getByRole("combobox", { name: "doe" }));
+    const doeDialog = screen.getByRole("dialog", { name: "Choose a doe" });
+    expect(
+      await within(doeDialog).findByRole("option", { name: /cull candidate \(owner only\)/ }),
+    ).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    doeView.unmount();
+
+    const buckView = render(<Harness kind="buck" />);
+    await user.click(screen.getByRole("combobox", { name: "buck" }));
+    const buckDialog = screen.getByRole("dialog", { name: "Choose a buck" });
+    expect(await within(buckDialog).findByRole("option", { name: /G-0001/ })).toBeInTheDocument();
+    expect(within(buckDialog).queryByText(/cull candidate/i)).toBeNull();
+    buckView.unmount();
+  });
+
+  it("caps the health animal search box at 60 characters", async () => {
+    server.use(
+      http.get("/api/animals", () =>
+        HttpResponse.json({ animals: [], total: 0, limit: 50, offset: 0 }),
+      ),
+    );
+    function Harness() {
+      return (
+        <Providers>
+          <Label htmlFor="capped-health">Animal</Label>
+          <HealthAnimalPicker id="capped-health" value="" onValueChange={() => {}} />
+        </Providers>
+      );
+    }
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    const dialog = screen.getByRole("dialog");
+    const search = within(dialog).getByLabelText("Search health animals") as HTMLInputElement;
+    expect(search).toHaveAttribute("maxlength", "60");
+    await user.clear(search);
+    await user.type(search, "x".repeat(61));
+    expect(search.value.length).toBe(60);
+  });
+
+  it("caps the breeding search box at 60 characters", async () => {
+    server.use(
+      http.get("/api/breeding/candidates", () =>
+        HttpResponse.json({ candidates: [], total: 0, limit: 50, offset: 0 }),
+      ),
+    );
+    function Harness() {
+      return (
+        <Providers>
+          <Label htmlFor="capped-doe">Doe</Label>
+          <BreedingCandidatePicker
+            id="capped-doe"
+            kind="doe"
+            value=""
+            onValueChange={() => {}}
+            placeholder="Select doe"
+            dialogTitle="Choose a doe"
+          />
+        </Providers>
+      );
+    }
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.click(screen.getByRole("combobox", { name: "Doe" }));
+    const dialog = screen.getByRole("dialog", { name: "Choose a doe" });
+    const search = within(dialog).getByLabelText("Search breeding candidates") as HTMLInputElement;
+    expect(search).toHaveAttribute("maxlength", "60");
+    await user.type(search, "x".repeat(61));
+    expect(search.value.length).toBe(60);
   });
 });

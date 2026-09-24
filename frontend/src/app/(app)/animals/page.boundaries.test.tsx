@@ -317,4 +317,23 @@ describe("AnimalsPage branches", () => {
     expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("Purchased");
     expect(within(dialog).getByLabelText("Purchase price (₹)")).toBeInTheDocument();
   });
+  it("accepts a name of exactly 80 characters and rejects 81", async () => {
+    // 2026-09-23 mutation campaign: the schema's name ceiling pinned at its
+    // exact edge (at-cap submits, one-over names the error).
+    const user = userEvent.setup();
+    await renderLoaded();
+    const dialog = await openCreateDialog(user);
+    setDate(within(dialog).getByLabelText("Tag number"), "G-9999");
+    setDate(within(dialog).getByLabelText("Name"), "n".repeat(80));
+    await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+    await waitFor(() => expect(postCalls).toBeGreaterThanOrEqual(1));
+
+    const next = await openCreateDialog(user);
+    setDate(within(next).getByLabelText("Tag number"), "G-9998");
+    setDate(within(next).getByLabelText("Name"), "n".repeat(81));
+    await user.click(within(next).getByRole("button", { name: "Save animal" }));
+    await waitFor(() =>
+      expect(within(next).getByText(/80/)).toBeInTheDocument(),
+    );
+  });
 });

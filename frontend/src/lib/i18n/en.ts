@@ -299,6 +299,7 @@ const en = {
   "taskGen.shed_disinfection_round":
     "Shed disinfection round — disinfect + lime; extra attention to kidding pens",
   "taskGen.monthly_weighing_round": "Monthly weighing round — record weights; grow-out buckets first",
+  "taskGen.famacha_round": "FAMACHA scoring round — check eyelid conjunctiva color (anemia); score and treat scores 4-5",
   "taskGen.morning_feed_routine":
     "Morning routine: sweep bunks before the 6:30 AM feeding",
   "taskGen.daily_water_check": "Water check: check and refill all water troughs",

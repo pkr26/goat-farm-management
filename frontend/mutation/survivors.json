@@ -1,0 +1,4182 @@
+[
+  {
+    "id": "m00002",
+    "file": "src/api/custom-instance.ts",
+    "line": 34,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L34: `if (queryStart === -1) return url;` → `if (queryStart === -2) return url;`",
+    "capped": true,
+    "tests": 160
+  },
+  {
+    "id": "m00003",
+    "file": "src/api/custom-instance.ts",
+    "line": 34,
+    "op": "intconst",
+    "desc": "1 -> 0",
+    "diff": "L34: `if (queryStart === -1) return url;` → `if (queryStart === -0) return url;`",
+    "capped": true,
+    "tests": 160
+  },
+  {
+    "id": "m00006",
+    "file": "src/api/custom-instance.ts",
+    "line": 35,
+    "op": "intconst",
+    "desc": "1 -> 0",
+    "diff": "L35: `const params = new URLSearchParams(url.slice(queryStart + 1));` → `const params = new URLSearchParams(url.slice(queryStart + 0));`",
+    "capped": true,
+    "tests": 112
+  },
+  {
+    "id": "m00019",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 127,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L127: `(BUCKET_REQUIRED_SEX[bucket] ?? sex) === sex;` → `(BUCKET_REQUIRED_SEX[bucket] || sex) === sex;`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00021",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 131,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L131: `(v) => (v === \"\" || v === null || v === undefined ? undefined : Number(v)),` → `(v) => (v === \"\" || v === null && v === undefined ? undefined : Number(v)),`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m00035",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 167,
+    "op": "intconst",
+    "desc": "255 -> 254",
+    "diff": "L167: `notes: z.string().max(255, \"Notes cannot exceed 255 characters\").optional(),` → `notes: z.string().max(254, \"Notes cannot exceed 255 characters\").optional(),`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m00056",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 292,
+    "op": "intconst",
+    "desc": "2 -> 3",
+    "diff": "L292: `rows={2}` → `rows={3}`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m00057",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 292,
+    "op": "intconst",
+    "desc": "2 -> 1",
+    "diff": "L292: `rows={2}` → `rows={1}`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m00063",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 307,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L307: `disabled={isSubmitting || actionFlight.pending || profileSettling}` → `disabled={isSubmitting || actionFlight.pending && profileSettling}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00068",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 340,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L340: `const [coatColor, setCoatColor] = useState<string>(animal.coat_color ?? \"\");` → `const [coatColor, setCoatColor] = useState<string>(animal.coat_color || \"\");`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00075",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 360,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L360: `setCoatColor(animal.coat_color ?? \"\");` → `setCoatColor(animal.coat_color || \"\");`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m00097",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 464,
+    "op": "intconst",
+    "desc": "255 -> 254",
+    "diff": "L464: `reason: z.string().max(255, \"Reason cannot exceed 255 characters\").optional(),` → `reason: z.string().max(254, \"Reason cannot exceed 255 characters\").optional(),`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m00108",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 550,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L550: `value={field.value ?? \"\"}` → `value={field.value || \"\"}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00114",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 586,
+    "op": "intconst",
+    "desc": "2 -> 3",
+    "diff": "L586: `rows={2}` → `rows={3}`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m00115",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 586,
+    "op": "intconst",
+    "desc": "2 -> 1",
+    "diff": "L586: `rows={2}` → `rows={1}`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m00121",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 601,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L601: `disabled={isSubmitting || actionFlight.pending || profileSettling}` → `disabled={isSubmitting || actionFlight.pending && profileSettling}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00140",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 660,
+    "op": "intconst",
+    "desc": "120 -> 119",
+    "diff": "L660: `.max(120, \"Suspected disease cannot exceed 120 characters\")` → `.max(119, \"Suspected disease cannot exceed 120 characters\")`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00148",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 686,
+    "op": "compare",
+    "desc": "!== -> ===",
+    "diff": "L686: `values.estimated_dob !== \"\"` → `values.estimated_dob === \"\"`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00174",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 822,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L822: `? (values.sale_price ?? null)` → `? (values.sale_price || null)`",
+    "capped": false,
+    "tests": 5
+  },
+  {
+    "id": "m00177",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 827,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L827: `? (values.sale_weight_kg ?? null)` → `? (values.sale_weight_kg || null)`",
+    "capped": false,
+    "tests": 5
+  },
+  {
+    "id": "m00180",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 831,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L831: `? (values.sale_price_per_kg ?? null)` → `? (values.sale_price_per_kg || null)`",
+    "capped": false,
+    "tests": 5
+  },
+  {
+    "id": "m00182",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 836,
+    "op": "binop",
+    "desc": "&& -> ||",
+    "diff": "L836: `values.new_status === StatusChangeInNewStatus.SOLD && needsEstimatedDob` → `values.new_status === StatusChangeInNewStatus.SOLD || needsEstimatedDob`",
+    "capped": false,
+    "tests": 5
+  },
+  {
+    "id": "m00189",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 849,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L849: `? ((values.mortality_cause_code ?? null) as StatusChangeInMortalityCauseCode)` → `? ((values.mortality_cause_code || null) as StatusChangeInMortalityCauseCode)`",
+    "capped": false,
+    "tests": 5
+  },
+  {
+    "id": "m00192",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 853,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L853: `? ((values.disposal_method ?? null) as StatusChangeInDisposalMethod)` → `? ((values.disposal_method || null) as StatusChangeInDisposalMethod)`",
+    "capped": false,
+    "tests": 5
+  },
+  {
+    "id": "m00198",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 862,
+    "op": "binop",
+    "desc": "&& -> ||",
+    "diff": "L862: `values.new_status === StatusChangeInNewStatus.DEAD && values.necropsy_done` → `values.new_status === StatusChangeInNewStatus.DEAD || values.necropsy_done`",
+    "capped": false,
+    "tests": 5
+  },
+  {
+    "id": "m00203",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 869,
+    "op": "binop",
+    "desc": "&& -> ||",
+    "diff": "L869: `values.new_status === StatusChangeInNewStatus.DEAD &&` → `values.new_status === StatusChangeInNewStatus.DEAD ||`",
+    "capped": false,
+    "tests": 5
+  },
+  {
+    "id": "m00206",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 874,
+    "op": "binop",
+    "desc": "&& -> ||",
+    "diff": "L874: `values.new_status === StatusChangeInNewStatus.DEAD &&` → `values.new_status === StatusChangeInNewStatus.DEAD ||`",
+    "capped": false,
+    "tests": 5
+  },
+  {
+    "id": "m00218",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 934,
+    "op": "compare",
+    "desc": "!== -> ===",
+    "diff": "L934: `if (nextStatus !== StatusChangeInNewStatus.SOLD) {` → `if (nextStatus === StatusChangeInNewStatus.SOLD) {`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00221",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 939,
+    "op": "boolconst",
+    "desc": "-> true",
+    "diff": "L939: `setValue(\"necropsy_done\", false);` → `setValue(\"necropsy_done\", true);`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00228",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 986,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L986: `aria-invalid={Boolean(errors.sale_weight_kg) || undefined}` → `aria-invalid={Boolean(errors.sale_weight_kg) && undefined}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00229",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 987,
+    "op": "ifexp",
+    "desc": "swap ternary branches",
+    "diff": "L987: `aria-describedby={errors.sale_weight_kg ? \"status-sale-weight-error\" : undefined}` → `aria-describedby={errors.sale_weight_kg ? undefined : \"status-sale-weight-error\"}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00238",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1024,
+    "op": "compare",
+    "desc": "<= -> <",
+    "diff": "L1024: `disabled={!saleWeight || Number(saleWeight) <= 0}` → `disabled={!saleWeight || Number(saleWeight) < 0}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00239",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1024,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L1024: `disabled={!saleWeight || Number(saleWeight) <= 0}` → `disabled={!saleWeight || Number(saleWeight) <= 1}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00240",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1025,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L1025: `aria-invalid={Boolean(errors.sale_price_per_kg) || undefined}` → `aria-invalid={Boolean(errors.sale_price_per_kg) && undefined}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00241",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1027,
+    "op": "ifexp",
+    "desc": "swap ternary branches",
+    "diff": "L1027: `errors.sale_price_per_kg ? \"status-price-per-kg-error\" : \"status-price-per-kg-hint\"` → `errors.sale_price_per_kg ? \"status-price-per-kg-hint\" : \"status-price-per-kg-error\"`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00243",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1046,
+    "op": "intconst",
+    "desc": "120 -> 121",
+    "diff": "L1046: `maxLength={120}` → `maxLength={121}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00244",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1046,
+    "op": "intconst",
+    "desc": "120 -> 119",
+    "diff": "L1046: `maxLength={120}` → `maxLength={119}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00256",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1090,
+    "op": "intconst",
+    "desc": "120 -> 121",
+    "diff": "L1090: `maxLength={120}` → `maxLength={121}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00257",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1090,
+    "op": "intconst",
+    "desc": "120 -> 119",
+    "diff": "L1090: `maxLength={120}` → `maxLength={119}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00261",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1115,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L1115: `value={field.value ?? \"\"}` → `value={field.value || \"\"}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00264",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1124,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L1124: `aria-invalid={Boolean(errors.mortality_cause_code) || undefined}` → `aria-invalid={Boolean(errors.mortality_cause_code) && undefined}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00265",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1151,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L1151: `value={field.value ?? \"\"}` → `value={field.value || \"\"}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00268",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1160,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L1160: `aria-invalid={Boolean(errors.disposal_method) || undefined}` → `aria-invalid={Boolean(errors.disposal_method) && undefined}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00269",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1162,
+    "op": "ifexp",
+    "desc": "swap ternary branches",
+    "diff": "L1162: `errors.disposal_method ? \"disposal-method-error\" : undefined` → `errors.disposal_method ? undefined : \"disposal-method-error\"`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00276",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1210,
+    "op": "not",
+    "desc": "drop !",
+    "diff": "L1210: `if (!selected) {` → `if (selected) {`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00278",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1227,
+    "op": "intconst",
+    "desc": "3 -> 4",
+    "diff": "L1227: `rows={3}` → `rows={4}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00279",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1227,
+    "op": "intconst",
+    "desc": "3 -> 2",
+    "diff": "L1227: `rows={3}` → `rows={2}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00280",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1228,
+    "op": "intconst",
+    "desc": "4000 -> 4001",
+    "diff": "L1228: `maxLength={4_000}` → `maxLength={4001}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00281",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1228,
+    "op": "intconst",
+    "desc": "4000 -> 3999",
+    "diff": "L1228: `maxLength={4_000}` → `maxLength={3999}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00282",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1229,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L1229: `aria-invalid={Boolean(errors.necropsy_findings) || undefined}` → `aria-invalid={Boolean(errors.necropsy_findings) && undefined}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00283",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1231,
+    "op": "ifexp",
+    "desc": "swap ternary branches",
+    "diff": "L1231: `errors.necropsy_findings ? \"necropsy-findings-error\" : undefined` → `errors.necropsy_findings ? undefined : \"necropsy-findings-error\"`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00289",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1274,
+    "op": "intconst",
+    "desc": "120 -> 121",
+    "diff": "L1274: `maxLength={120}` → `maxLength={121}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00290",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1274,
+    "op": "intconst",
+    "desc": "120 -> 119",
+    "diff": "L1274: `maxLength={120}` → `maxLength={119}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00297",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1309,
+    "op": "intconst",
+    "desc": "2 -> 3",
+    "diff": "L1309: `rows={2}` → `rows={3}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00298",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1309,
+    "op": "intconst",
+    "desc": "2 -> 1",
+    "diff": "L1309: `rows={2}` → `rows={1}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00299",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1310,
+    "op": "intconst",
+    "desc": "255 -> 256",
+    "diff": "L1310: `maxLength={255}` → `maxLength={256}`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m00300",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1310,
+    "op": "intconst",
+    "desc": "255 -> 254",
+    "diff": "L1310: `maxLength={255}` → `maxLength={254}`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m00304",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1325,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L1325: `disabled={isSubmitting || actionFlight.pending || profileSettling}` → `disabled={isSubmitting || actionFlight.pending && profileSettling}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00310",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1358,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L1358: `if (actionFlight.pending || profileSettling || awaitingEpisodeRefresh) return;` → `if (actionFlight.pending || profileSettling && awaitingEpisodeRefresh) return;`",
+    "capped": false,
+    "tests": 4
+  },
+  {
+    "id": "m00311",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1358,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L1358: `if (actionFlight.pending || profileSettling || awaitingEpisodeRefresh) return;` → `if (actionFlight.pending && profileSettling || awaitingEpisodeRefresh) return;`",
+    "capped": false,
+    "tests": 4
+  },
+  {
+    "id": "m00327",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1437,
+    "op": "intconst",
+    "desc": "255 -> 256",
+    "diff": "L1437: `maxLength={255}` → `maxLength={256}`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m00328",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1437,
+    "op": "intconst",
+    "desc": "255 -> 254",
+    "diff": "L1437: `maxLength={255}` → `maxLength={254}`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m00347",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1518,
+    "op": "ifexp",
+    "desc": "swap ternary branches",
+    "diff": "L1518: `? query.error.detail` → `? \"Could not load the lifetime P&L.\"query.error.detail`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00349",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1558,
+    "op": "ifexp",
+    "desc": "swap ternary branches",
+    "diff": "L1558: `pnl.net < 0 ? \"text-destructive\" : \"text-success\",` → `pnl.net < 0 ? \"text-success\" : \"text-destructive\",`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00350",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1558,
+    "op": "compare",
+    "desc": "< -> <=",
+    "diff": "L1558: `pnl.net < 0 ? \"text-destructive\" : \"text-success\",` → `pnl.net <= 0 ? \"text-destructive\" : \"text-success\",`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00351",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1558,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L1558: `pnl.net < 0 ? \"text-destructive\" : \"text-success\",` → `pnl.net < 1 ? \"text-destructive\" : \"text-success\",`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00372",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1704,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L1704: `{a.restriction_reason ?? \"A health hold is active for this animal.\"}` → `{a.restriction_reason || \"A health hold is active for this animal.\"}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00381",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1734,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L1734: `(restrictionHistory?.total ?? 0) > 0) && (` → `(restrictionHistory?.total || 0) > 0) && (`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00384",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1736,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L1736: `title={`Movement restriction audit (${restrictionHistory?.total ?? 0})`}` → `title={`Movement restriction audit (${restrictionHistory?.total || 0})`}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00389",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1780,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L1780: `<TableCell>{action.disease_target ?? \"—\"}</TableCell>` → `<TableCell>{action.disease_target || \"—\"}</TableCell>`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00390",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1786,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L1786: `total={restrictionHistory?.total ?? 0}` → `total={restrictionHistory?.total || 0}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00391",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1786,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L1786: `total={restrictionHistory?.total ?? 0}` → `total={restrictionHistory?.total ?? 1}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00392",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1787,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L1787: `limit={restrictionHistory?.limit ?? RESTRICTION_HISTORY_LIMIT}` → `limit={restrictionHistory?.limit || RESTRICTION_HISTORY_LIMIT}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00393",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1788,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L1788: `offset={restrictionHistory?.offset ?? restrictionOffset}` → `offset={restrictionHistory?.offset || restrictionOffset}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00401",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1819,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L1819: `<Detail label=\"Days in bucket\">{a.days_in_current_bucket ?? \"—\"}</Detail>` → `<Detail label=\"Days in bucket\">{a.days_in_current_bucket || \"—\"}</Detail>`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00415",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1840,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L1840: `<Detail label=\"Seller\">{a.seller_name ?? \"—\"}</Detail>` → `<Detail label=\"Seller\">{a.seller_name || \"—\"}</Detail>`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00421",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1854,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L1854: `<Detail label=\"Buyer\">{a.buyer_name ?? \"—\"}</Detail>` → `<Detail label=\"Buyer\">{a.buyer_name || \"—\"}</Detail>`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00424",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1859,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L1859: `<Detail label=\"Mortality cause\">{a.mortality_cause ?? \"—\"}</Detail>` → `<Detail label=\"Mortality cause\">{a.mortality_cause || \"—\"}</Detail>`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00437",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1901,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L1901: `{a.restriction_clearance_reference ?? \"—\"}` → `{a.restriction_clearance_reference || \"—\"}`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00449",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1954,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L1954: `<TableCell className=\"text-right\">{w.bcs ?? \"—\"}</TableCell>` → `<TableCell className=\"text-right\">{w.bcs || \"—\"}</TableCell>`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00450",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1955,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L1955: `<TableCell>{w.notes ?? \"\"}</TableCell>` → `<TableCell>{w.notes || \"\"}</TableCell>`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00455",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 1997,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L1997: `<TableCell>{m.reason ?? \"\"}</TableCell>` → `<TableCell>{m.reason || \"\"}</TableCell>`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00504",
+    "file": "src/app/(app)/animals/[id]/page.tsx",
+    "line": 2223,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L2223: `const backHref = permittedAppPath(searchParams.get(\"returnTo\"), can) ?? \"/animals\";` → `const backHref = permittedAppPath(searchParams.get(\"returnTo\"), can) || \"/animals\";`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m00546",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 120,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L120: `(BUCKET_REQUIRED_SEX[bucket] ?? sex) === sex;` → `(BUCKET_REQUIRED_SEX[bucket] || sex) === sex;`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00584",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 231,
+    "op": "intconst",
+    "desc": "1000000000 -> 999999999",
+    "diff": "L231: `.max(1_000_000_000, \"Purchase price cannot exceed ₹1,000,000,000\")` → `.max(999999999, \"Purchase price cannot exceed ₹1,000,000,000\")`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00586",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 234,
+    "op": "intconst",
+    "desc": "120 -> 119",
+    "diff": "L234: `seller_name: z.string().max(120).optional(),` → `seller_name: z.string().max(119).optional(),`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00590",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 253,
+    "op": "intconst",
+    "desc": "255 -> 256",
+    "diff": "L253: `historical_import_reason: z.string().max(255).optional().default(\"\"),` → `historical_import_reason: z.string().max(256).optional().default(\"\"),`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00591",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 253,
+    "op": "intconst",
+    "desc": "255 -> 254",
+    "diff": "L253: `historical_import_reason: z.string().max(255).optional().default(\"\"),` → `historical_import_reason: z.string().max(254).optional().default(\"\"),`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00613",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 329,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L329: `const raw = searchParams.get(\"page\") ?? \"\";` → `const raw = searchParams.get(\"page\") || \"\";`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00618",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 335,
+    "op": "compare",
+    "desc": ">= -> >",
+    "diff": "L335: `return parsed >= 1 ? Math.min(parsed, MAX_PAGE) : 1;` → `return parsed > 1 ? Math.min(parsed, MAX_PAGE) : 1;`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m00619",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 335,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L335: `return parsed >= 1 ? Math.min(parsed, MAX_PAGE) : 1;` → `return parsed >= 2 ? Math.min(parsed, MAX_PAGE) : 1;`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m00644",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 466,
+    "op": "boolconst",
+    "desc": "-> false",
+    "diff": "L466: `shouldValidate: true,` → `shouldValidate: false,`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00647",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 474,
+    "op": "compare",
+    "desc": "=== -> !==",
+    "diff": "L474: `if (!isOwner && source === AnimalCreateInSource.BORN) {` → `if (!isOwner && source !== AnimalCreateInSource.BORN) {`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00648",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 475,
+    "op": "boolconst",
+    "desc": "-> false",
+    "diff": "L475: `setValue(\"source\", AnimalCreateInSource.PURCHASED, { shouldValidate: true });` → `setValue(\"source\", AnimalCreateInSource.PURCHASED, { shouldValidate: false });`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00660",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 505,
+    "op": "boolconst",
+    "desc": "-> true",
+    "diff": "L505: `? { horned: false }` → `? { horned: true }`",
+    "capped": false,
+    "tests": 10
+  },
+  {
+    "id": "m00662",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 510,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L510: `birth_weight: values.birth_weight ?? null,` → `birth_weight: values.birth_weight || null,`",
+    "capped": false,
+    "tests": 10
+  },
+  {
+    "id": "m00663",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 512,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L512: `purchase_price: values.purchase_price ?? null,` → `purchase_price: values.purchase_price || null,`",
+    "capped": false,
+    "tests": 10
+  },
+  {
+    "id": "m00665",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 514,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L514: `weight_kg: values.weight_kg ?? null,` → `weight_kg: values.weight_kg || null,`",
+    "capped": false,
+    "tests": 10
+  },
+  {
+    "id": "m00677",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 546,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L546: `const cancelBusy = isSubmitting || createFlight.pending;` → `const cancelBusy = isSubmitting && createFlight.pending;`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00702",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 698,
+    "op": "ifexp",
+    "desc": "swap ternary branches",
+    "diff": "L698: `? vocabulary.breedingEntry.male.minMonths` → `? vocabulary.breedingEntry.female.minMonthsvocabulary.breedingEntry.male.minMonths`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00703",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 697,
+    "op": "compare",
+    "desc": "=== -> !==",
+    "diff": "L697: `{sex === AnimalCreateInSex.M` → `{sex !== AnimalCreateInSex.M`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00706",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 713,
+    "op": "intconst",
+    "desc": "60 -> 61",
+    "diff": "L713: `maxLength={60}` → `maxLength={61}`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00707",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 713,
+    "op": "intconst",
+    "desc": "60 -> 59",
+    "diff": "L713: `maxLength={60}` → `maxLength={59}`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00754",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 1009,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L1009: `const navigationSeq = useRef(0);` → `const navigationSeq = useRef(1);`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00755",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 1025,
+    "op": "boolconst",
+    "desc": "-> true",
+    "diff": "L1025: `const pageNavigationPending = useRef(false);` → `const pageNavigationPending = useRef(true);`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00756",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 1046,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L1046: `urlQ: (new URLSearchParams(key).get(\"q\") ?? \"\").trim(),` → `urlQ: (new URLSearchParams(key).get(\"q\") || \"\").trim(),`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00773",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 1117,
+    "op": "compare",
+    "desc": "> -> >=",
+    "diff": "L1117: `const hasUnmatchedPending = pending.size > 0;` → `const hasUnmatchedPending = pending.size >= 0;`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00777",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 1125,
+    "op": "loopjump",
+    "desc": "break -> continue",
+    "diff": "L1125: `if (seq > matchedSeq) break;` → `if (seq > matchedSeq) continue;`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00778",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 1140,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L1140: `const nextQ = clampSearch(params.get(\"q\") ?? \"\");` → `const nextQ = clampSearch(params.get(\"q\") || \"\");`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00789",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 1184,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L1184: `const urlQ = (new URLSearchParams(paramsKey).get(\"q\") ?? \"\").trim();` → `const urlQ = (new URLSearchParams(paramsKey).get(\"q\") || \"\").trim();`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00793",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 1197,
+    "op": "boolconst",
+    "desc": "-> false",
+    "diff": "L1197: `setSearchNavigationPending(true);` → `setSearchNavigationPending(false);`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00797",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 1206,
+    "op": "intconst",
+    "desc": "1 -> 0",
+    "diff": "L1206: `page: 1,` → `page: 0,`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00798",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 1209,
+    "op": "intconst",
+    "desc": "300 -> 301",
+    "diff": "L1209: `}, 300);` → `}, 301);`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00799",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 1209,
+    "op": "intconst",
+    "desc": "300 -> 299",
+    "diff": "L1209: `}, 300);` → `}, 299);`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00821",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 1226,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L1226: `const total = Math.max(0, payload?.total ?? 0);` → `const total = Math.max(0, payload?.total || 0);`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00822",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 1226,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L1226: `const total = Math.max(0, payload?.total ?? 0);` → `const total = Math.max(0, payload?.total ?? 1);`",
+    "capped": false,
+    "tests": 15
+  },
+  {
+    "id": "m00846",
+    "file": "src/app/(app)/animals/page.tsx",
+    "line": 1303,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L1303: `setPage(1);` → `setPage(2);`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m00973",
+    "file": "src/app/(app)/app-layout-client.tsx",
+    "line": 347,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L347: `if (loading || !user || !farmId) {` → `if (loading && !user || !farmId) {`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m01297",
+    "file": "src/app/(app)/breeding/page.tsx",
+    "line": 1305,
+    "op": "intconst",
+    "desc": "1 -> 0",
+    "diff": "L1305: `<PageSkeleton stats={3} cards={1} />` → `<PageSkeleton stats={3} cards={0} />`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m01945",
+    "file": "src/app/(app)/feeding/page.tsx",
+    "line": 644,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L644: `const recorded = dispensedByBucket.get(bucketName) ?? 0;` → `const recorded = dispensedByBucket.get(bucketName) || 0;`",
+    "capped": false,
+    "tests": 10
+  },
+  {
+    "id": "m03403",
+    "file": "src/app/(app)/kidding/page.tsx",
+    "line": 1006,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L1006: `payload.total === 0 ? 0 : Math.floor((payload.total - 1) / payload.limit) * payload.limit;` → `payload.total === 0 ? 1 : Math.floor((payload.total - 1) / payload.limit) * payload.limit;`",
+    "capped": false,
+    "tests": 7
+  },
+  {
+    "id": "m03727",
+    "file": "src/app/(app)/ops-simulation/page.tsx",
+    "line": 785,
+    "op": "binop",
+    "desc": "&& -> ||",
+    "diff": "L785: `{rowErrors.length > 0 && (` → `{rowErrors.length > 0 || (`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m04051",
+    "file": "src/app/(app)/planner/page.tsx",
+    "line": 708,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L708: `const evaluation = report ? (report.plan.after ?? report.plan.before) : null;` → `const evaluation = report ? (report.plan.after || report.plan.before) : null;`",
+    "capped": false,
+    "tests": 6
+  },
+  {
+    "id": "m04213",
+    "file": "src/app/(app)/purchases/page.tsx",
+    "line": 127,
+    "op": "intconst",
+    "desc": "120 -> 119",
+    "diff": "L127: `origin_market: z.string().max(120, \"At most 120 characters\").optional(),` → `origin_market: z.string().max(119, \"At most 120 characters\").optional(),`",
+    "capped": false,
+    "tests": 4
+  },
+  {
+    "id": "m04537",
+    "file": "src/app/(app)/reports/page.tsx",
+    "line": 361,
+    "op": "intconst",
+    "desc": "2 -> 1",
+    "diff": "L361: `<TableCell colSpan={2} className=\"text-muted-foreground\">` → `<TableCell colSpan={1} className=\"text-muted-foreground\">`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m04699",
+    "file": "src/app/(app)/screening/page.tsx",
+    "line": 487,
+    "op": "compare",
+    "desc": "!== -> ===",
+    "diff": "L487: `{agrees !== null && run.run_status === \"OK\" ? (` → `{agrees === null && run.run_status === \"OK\" ? (`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m05509",
+    "file": "src/app/(app)/simulation/page.tsx",
+    "line": 1313,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L1313: `setEditorVersion((version) => version + 1);` → `setEditorVersion((version) => version + 2);`",
+    "capped": false,
+    "tests": 11
+  },
+  {
+    "id": "m06157",
+    "file": "src/app/(app)/simulation/page.tsx",
+    "line": 3327,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L3327: `tabIndex={-1}` → `tabIndex={-2}`",
+    "capped": false,
+    "tests": 19
+  },
+  {
+    "id": "m06805",
+    "file": "src/app/(app)/team/page.tsx",
+    "line": 1054,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L1054: `screening_flags: prefs?.screening_flags ?? false,` → `screening_flags: prefs?.screening_flags || false,`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m07129",
+    "file": "src/app/login/page.tsx",
+    "line": 124,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L124: `router.push(requested ?? firstPermittedPathFromList(permissions.permissions));` → `router.push(requested || firstPermittedPathFromList(permissions.permissions));`",
+    "capped": false,
+    "tests": 5
+  },
+  {
+    "id": "m07413",
+    "file": "src/components/account-dialog.tsx",
+    "line": 69,
+    "op": "boolconst",
+    "desc": "-> true",
+    "diff": "L69: `const [codesCopied, setCodesCopied] = useState(false);` → `const [codesCopied, setCodesCopied] = useState(true);`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m07414",
+    "file": "src/components/account-dialog.tsx",
+    "line": 74,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L74: `const dialogEpoch = useRef(0);` → `const dialogEpoch = useRef(1);`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m07415",
+    "file": "src/components/account-dialog.tsx",
+    "line": 76,
+    "op": "boolconst",
+    "desc": "-> false",
+    "diff": "L76: `const mounted = useRef(true);` → `const mounted = useRef(false);`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m07417",
+    "file": "src/components/account-dialog.tsx",
+    "line": 95,
+    "op": "boolconst",
+    "desc": "-> true",
+    "diff": "L95: `mounted.current = false;` → `mounted.current = true;`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m07418",
+    "file": "src/components/account-dialog.tsx",
+    "line": 99,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L99: `dialogEpoch.current += 1;` → `dialogEpoch.current += 2;`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m07419",
+    "file": "src/components/account-dialog.tsx",
+    "line": 99,
+    "op": "intconst",
+    "desc": "1 -> 0",
+    "diff": "L99: `dialogEpoch.current += 1;` → `dialogEpoch.current += 0;`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m07424",
+    "file": "src/components/account-dialog.tsx",
+    "line": 127,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L127: `dialogEpoch.current += 1;` → `dialogEpoch.current += 2;`",
+    "capped": false,
+    "tests": 6
+  },
+  {
+    "id": "m07428",
+    "file": "src/components/account-dialog.tsx",
+    "line": 140,
+    "op": "boolconst",
+    "desc": "-> true",
+    "diff": "L140: `setCodesCopied(false);` → `setCodesCopied(true);`",
+    "capped": false,
+    "tests": 6
+  },
+  {
+    "id": "m07495",
+    "file": "src/components/account-dialog.tsx",
+    "line": 419,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L419: `const release = () => finishAction(\"password\");` → `const release = () => fin||hAction(\"password\");`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m07496",
+    "file": "src/components/account-dialog.tsx",
+    "line": 427,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L427: `void submission.then(release, release);` → `void s||mission.then(release, release);`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m07500",
+    "file": "src/components/account-dialog.tsx",
+    "line": 429,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L429: `<Dialog open={open} onOpenChange={(next) => (next ? setOpen(true) : close())}>` → `<Dialog open={open} onOpenChange={(next) => (next ? setOpen(true) : close||)}>`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m07501",
+    "file": "src/components/account-dialog.tsx",
+    "line": 437,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L437: `/>` → `||    />`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m07603",
+    "file": "src/components/animal-picker.tsx",
+    "line": 103,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L103: `eligibilityKey ??` → `eligibilityKey ||`",
+    "capped": false,
+    "tests": 17
+  },
+  {
+    "id": "m07607",
+    "file": "src/components/animal-picker.tsx",
+    "line": 109,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L109: `selectedAnimalId ?? 0,` → `selectedAnimalId || 0,`",
+    "capped": false,
+    "tests": 17
+  },
+  {
+    "id": "m07700",
+    "file": "src/components/charts.tsx",
+    "line": 180,
+    "op": "compare",
+    "desc": "> -> >=",
+    "diff": "L180: `const slot = finiteBins.length > 0 ? (width - pad * 2) / finiteBins.length : width;` → `const slot = finiteBins.length >= 0 ? (width - pad * 2) / finiteBins.length : width;`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m07730",
+    "file": "src/components/charts.tsx",
+    "line": 188,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L188: `const markerLines = (markers ?? []).flatMap((marker, i) => {` → `const markerLines = (markers || []).flatMap((marker, i) => {`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m07744",
+    "file": "src/components/charts.tsx",
+    "line": 203,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L203: `<title>{`${marker.label}: ${marker.display ?? marker.value}`}</title>` → `<title>{`${marker.label}: ${marker.display || marker.value}`}</title>`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m07745",
+    "file": "src/components/charts.tsx",
+    "line": 215,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L215: `ariaLabel ??` → `ariaLabel ||`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m07773",
+    "file": "src/components/data-table-card.tsx",
+    "line": 41,
+    "op": "compare",
+    "desc": "=== -> !==",
+    "diff": "L41: `const hasTitle = Boolean(title) || title === 0;` → `const hasTitle = Boolean(title) || title !== 0;`",
+    "capped": true,
+    "tests": 138
+  },
+  {
+    "id": "m07774",
+    "file": "src/components/data-table-card.tsx",
+    "line": 41,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L41: `const hasTitle = Boolean(title) || title === 0;` → `const hasTitle = Boolean(title) || title === 1;`",
+    "capped": true,
+    "tests": 138
+  },
+  {
+    "id": "m07779",
+    "file": "src/components/data-table-card.tsx",
+    "line": 43,
+    "op": "compare",
+    "desc": "=== -> !==",
+    "diff": "L43: `const hasActions = Boolean(actions) || actions === 0;` → `const hasActions = Boolean(actions) || actions !== 0;`",
+    "capped": true,
+    "tests": 138
+  },
+  {
+    "id": "m07780",
+    "file": "src/components/data-table-card.tsx",
+    "line": 43,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L43: `const hasActions = Boolean(actions) || actions === 0;` → `const hasActions = Boolean(actions) || actions === 1;`",
+    "capped": true,
+    "tests": 138
+  },
+  {
+    "id": "m07792",
+    "file": "src/components/empty-state.tsx",
+    "line": 21,
+    "op": "compare",
+    "desc": "=== -> !==",
+    "diff": "L21: `const hasChildren = Boolean(children) || children === 0;` → `const hasChildren = Boolean(children) || children !== 0;`",
+    "capped": true,
+    "tests": 109
+  },
+  {
+    "id": "m07793",
+    "file": "src/components/empty-state.tsx",
+    "line": 21,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L21: `const hasChildren = Boolean(children) || children === 0;` → `const hasChildren = Boolean(children) || children === 1;`",
+    "capped": true,
+    "tests": 109
+  },
+  {
+    "id": "m07873",
+    "file": "src/components/page-header.tsx",
+    "line": 17,
+    "op": "compare",
+    "desc": "=== -> !==",
+    "diff": "L17: `const hasActions = Boolean(actions) || actions === 0;` → `const hasActions = Boolean(actions) || actions !== 0;`",
+    "capped": true,
+    "tests": 146
+  },
+  {
+    "id": "m07874",
+    "file": "src/components/page-header.tsx",
+    "line": 17,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L17: `const hasActions = Boolean(actions) || actions === 0;` → `const hasActions = Boolean(actions) || actions === 1;`",
+    "capped": true,
+    "tests": 146
+  },
+  {
+    "id": "m07884",
+    "file": "src/components/pagination-controls.tsx",
+    "line": 30,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L30: `if (!Number.isFinite(total) || total <= 0) return null;` → `if (!Number.isFinite(total) || total <= 1) return null;`",
+    "capped": true,
+    "tests": 93
+  },
+  {
+    "id": "m07886",
+    "file": "src/components/pagination-controls.tsx",
+    "line": 36,
+    "op": "binop",
+    "desc": "&& -> ||",
+    "diff": "L36: `Number.isFinite(limit) && limit > 0 ? Math.max(1, Math.trunc(limit)) : 1;` → `Number.isFinite(limit) || limit > 0 ? Math.max(1, Math.trunc(limit)) : 1;`",
+    "capped": true,
+    "tests": 81
+  },
+  {
+    "id": "m07887",
+    "file": "src/components/pagination-controls.tsx",
+    "line": 36,
+    "op": "compare",
+    "desc": "> -> >=",
+    "diff": "L36: `Number.isFinite(limit) && limit > 0 ? Math.max(1, Math.trunc(limit)) : 1;` → `Number.isFinite(limit) && limit >= 0 ? Math.max(1, Math.trunc(limit)) : 1;`",
+    "capped": true,
+    "tests": 81
+  },
+  {
+    "id": "m07888",
+    "file": "src/components/pagination-controls.tsx",
+    "line": 36,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L36: `Number.isFinite(limit) && limit > 0 ? Math.max(1, Math.trunc(limit)) : 1;` → `Number.isFinite(limit) && limit > 1 ? Math.max(1, Math.trunc(limit)) : 1;`",
+    "capped": true,
+    "tests": 81
+  },
+  {
+    "id": "m07889",
+    "file": "src/components/pagination-controls.tsx",
+    "line": 36,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L36: `Number.isFinite(limit) && limit > 0 ? Math.max(1, Math.trunc(limit)) : 1;` → `Number.isFinite(limit) && limit > 0 ? Math.max(2, Math.trunc(limit)) : 1;`",
+    "capped": true,
+    "tests": 81
+  },
+  {
+    "id": "m07890",
+    "file": "src/components/pagination-controls.tsx",
+    "line": 36,
+    "op": "intconst",
+    "desc": "1 -> 0",
+    "diff": "L36: `Number.isFinite(limit) && limit > 0 ? Math.max(1, Math.trunc(limit)) : 1;` → `Number.isFinite(limit) && limit > 0 ? Math.max(0, Math.trunc(limit)) : 1;`",
+    "capped": true,
+    "tests": 81
+  },
+  {
+    "id": "m07917",
+    "file": "src/components/permission-gate.tsx",
+    "line": 105,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L105: `title={noAccessTitle ?? \"You don't have access to this page.\"}` → `title={noAccessTitle || \"You don't have access to this page.\"}`",
+    "capped": true,
+    "tests": 142
+  },
+  {
+    "id": "m07918",
+    "file": "src/components/permission-gate.tsx",
+    "line": 112,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L112: `{noAccessMessage ?? \"You don't have access to this page.\"}` → `{noAccessMessage || \"You don't have access to this page.\"}`",
+    "capped": true,
+    "tests": 142
+  },
+  {
+    "id": "m07928",
+    "file": "src/components/remote-picker.tsx",
+    "line": 72,
+    "op": "intconst",
+    "desc": "300 -> 301",
+    "diff": "L72: `const SEARCH_DEBOUNCE_MS = 300;` → `const SEARCH_DEBOUNCE_MS = 301;`",
+    "capped": true,
+    "tests": 46
+  },
+  {
+    "id": "m07929",
+    "file": "src/components/remote-picker.tsx",
+    "line": 72,
+    "op": "intconst",
+    "desc": "300 -> 299",
+    "diff": "L72: `const SEARCH_DEBOUNCE_MS = 300;` → `const SEARCH_DEBOUNCE_MS = 299;`",
+    "capped": true,
+    "tests": 46
+  },
+  {
+    "id": "m07939",
+    "file": "src/components/remote-picker.tsx",
+    "line": 119,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L119: `}, 0);` → `}, 1);`",
+    "capped": true,
+    "tests": 38
+  },
+  {
+    "id": "m07941",
+    "file": "src/components/remote-picker.tsx",
+    "line": 124,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L124: `(chosenOption?.value === value ? chosenOption : null) ??` → `(chosenOption?.value === value ? chosenOption : null) ||`",
+    "capped": true,
+    "tests": 38
+  },
+  {
+    "id": "m07951",
+    "file": "src/components/remote-picker.tsx",
+    "line": 136,
+    "op": "not",
+    "desc": "drop !",
+    "diff": "L136: `if (!disabled || !nextOpen) setOpen(nextOpen);` → `if (!disabled || nextOpen) setOpen(nextOpen);`",
+    "capped": true,
+    "tests": 29
+  },
+  {
+    "id": "m07958",
+    "file": "src/components/remote-picker.tsx",
+    "line": 160,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L160: `{currentOption?.label ?? (value ? `Selected item ${value}` : placeholder)}` → `{currentOption?.label || (value ? `Selected item ${value}` : placeholder)}`",
+    "capped": true,
+    "tests": 38
+  },
+  {
+    "id": "m07963",
+    "file": "src/components/remote-picker.tsx",
+    "line": 249,
+    "op": "compare",
+    "desc": "=== -> !==",
+    "diff": "L249: `if (debounceTimer.current === handle) debounceTimer.current = null;` → `if (debounceTimer.current !== handle) debounceTimer.current = null;`",
+    "capped": true,
+    "tests": 29
+  },
+  {
+    "id": "m07970",
+    "file": "src/components/remote-picker.tsx",
+    "line": 278,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L278: `for (const page of results.data?.pages ?? []) {` → `for (const page of results.data?.pages || []) {`",
+    "capped": true,
+    "tests": 29
+  },
+  {
+    "id": "m07977",
+    "file": "src/components/remote-picker.tsx",
+    "line": 303,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L303: `const checkedCount = lastPage?.nextOffset ?? 0;` → `const checkedCount = lastPage?.nextOffset || 0;`",
+    "capped": true,
+    "tests": 29
+  },
+  {
+    "id": "m07978",
+    "file": "src/components/remote-picker.tsx",
+    "line": 303,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L303: `const checkedCount = lastPage?.nextOffset ?? 0;` → `const checkedCount = lastPage?.nextOffset ?? 1;`",
+    "capped": true,
+    "tests": 29
+  },
+  {
+    "id": "m07979",
+    "file": "src/components/remote-picker.tsx",
+    "line": 304,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L304: `const total = lastPage?.total ?? 0;` → `const total = lastPage?.total || 0;`",
+    "capped": true,
+    "tests": 29
+  },
+  {
+    "id": "m07980",
+    "file": "src/components/remote-picker.tsx",
+    "line": 304,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L304: `const total = lastPage?.total ?? 0;` → `const total = lastPage?.total ?? 1;`",
+    "capped": true,
+    "tests": 29
+  },
+  {
+    "id": "m07985",
+    "file": "src/components/remote-picker.tsx",
+    "line": 316,
+    "op": "compare",
+    "desc": ">= -> >",
+    "diff": "L316: `const tabbableOptionIndex = selectedDisplayedIndex >= 0 ? selectedDisplayedIndex : 0;` → `const tabbableOptionIndex = selectedDisplayedIndex > 0 ? selectedDisplayedIndex : 0;`",
+    "capped": true,
+    "tests": 29
+  },
+  {
+    "id": "m07986",
+    "file": "src/components/remote-picker.tsx",
+    "line": 316,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L316: `const tabbableOptionIndex = selectedDisplayedIndex >= 0 ? selectedDisplayedIndex : 0;` → `const tabbableOptionIndex = selectedDisplayedIndex >= 1 ? selectedDisplayedIndex : 0;`",
+    "capped": true,
+    "tests": 29
+  },
+  {
+    "id": "m08020",
+    "file": "src/components/remote-picker.tsx",
+    "line": 361,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L361: `{dialogDescription ?? \"Search the farm records, then choose one option.\"}` → `{dialogDescription || \"Search the farm records, then choose one option.\"}`",
+    "capped": true,
+    "tests": 29
+  },
+  {
+    "id": "m08082",
+    "file": "src/components/screening-check-dialog.tsx",
+    "line": 66,
+    "op": "boolconst",
+    "desc": "-> true",
+    "diff": "L66: `const [uploading, setUploading] = useState(false);` → `const [uploading, setUploading] = useState(true);`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m08083",
+    "file": "src/components/screening-check-dialog.tsx",
+    "line": 75,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L75: `const walkthroughEpoch = useRef(0);` → `const walkthroughEpoch = useRef(1);`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m08084",
+    "file": "src/components/screening-check-dialog.tsx",
+    "line": 85,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L85: `walkthroughEpoch.current += 1;` → `walkthroughEpoch.current += 2;`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m08086",
+    "file": "src/components/screening-check-dialog.tsx",
+    "line": 86,
+    "op": "not",
+    "desc": "drop !",
+    "diff": "L86: `if (!open) return;` → `if (open) return;`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m08102",
+    "file": "src/components/screening-check-dialog.tsx",
+    "line": 139,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L139: `if (!pendingFile || !selectedBucket) return;` → `if (!pendingFile && !selectedBucket) return;`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m08118",
+    "file": "src/components/screening-check-dialog.tsx",
+    "line": 173,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L173: `method: result.data.upload_method ?? \"POST\",` → `method: result.data.upload_method || \"POST\",`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m08124",
+    "file": "src/components/screening-check-dialog.tsx",
+    "line": 190,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L190: `[selectedBucket]: (counts[selectedBucket] ?? 0) + 1,` → `[selectedBucket]: (counts[selectedBucket] || 0) + 1,`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m08136",
+    "file": "src/components/screening-check-dialog.tsx",
+    "line": 214,
+    "op": "binop",
+    "desc": "+ -> -",
+    "diff": "L214: `const total = Object.values(uploadedByBucket).reduce((sum, count) => sum + count, 0);` → `const total = Object.values(uploadedByBucket).reduce((sum, count) => sum - count, 0);`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m08137",
+    "file": "src/components/screening-check-dialog.tsx",
+    "line": 214,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L214: `const total = Object.values(uploadedByBucket).reduce((sum, count) => sum + count, 0);` → `const total = Object.values(uploadedByBucket).reduce((sum, count) => sum + count, 1);`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m08150",
+    "file": "src/components/screening-check-dialog.tsx",
+    "line": 255,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L255: `{(buckets ?? []).map((row) => (` → `{(buckets || []).map((row) => (`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m08151",
+    "file": "src/components/screening-check-dialog.tsx",
+    "line": 267,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L267: `count: uploadedByBucket[row.bucket] ?? 0,` → `count: uploadedByBucket[row.bucket] || 0,`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m08154",
+    "file": "src/components/screening-check-dialog.tsx",
+    "line": 306,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L306: `onFileChosen(event.target.files?.[0] ?? null);` → `onFileChosen(event.target.files?.[0] || null);`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m08180",
+    "file": "src/components/skeletons.tsx",
+    "line": 95,
+    "op": "intconst",
+    "desc": "8 -> 7",
+    "diff": "L95: `style={{ width: c === 0 ? \"22%\" : `${Math.max(8, 18 - c * 2)}%` }}` → `style={{ width: c === 0 ? \"22%\" : `${Math.max(7, 18 - c * 2)}%` }}`",
+    "capped": true,
+    "tests": 57
+  },
+  {
+    "id": "m08208",
+    "file": "src/components/skeletons.tsx",
+    "line": 159,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L159: `{children ?? t(\"common.loading\")}` → `{children || t(\"common.loading\")}`",
+    "capped": true,
+    "tests": 77
+  },
+  {
+    "id": "m08219",
+    "file": "src/components/stat-card.tsx",
+    "line": 83,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L83: `trendToneClasses[trend.tone ?? \"neutral\"],` → `trendToneClasses[trend.tone || \"neutral\"],`",
+    "capped": true,
+    "tests": 36
+  },
+  {
+    "id": "m08220",
+    "file": "src/components/status-badge.tsx",
+    "line": 81,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L81: `return STATUS_TONES[normalize(status)] ?? null;` → `return STATUS_TONES[normalize(status)] || null;`",
+    "capped": true,
+    "tests": 72
+  },
+  {
+    "id": "m08224",
+    "file": "src/components/status-badge.tsx",
+    "line": 108,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L108: `variant={tone ?? \"secondary\"}` → `variant={tone || \"secondary\"}`",
+    "capped": true,
+    "tests": 71
+  },
+  {
+    "id": "m08225",
+    "file": "src/components/status-badge.tsx",
+    "line": 116,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L116: `{children ?? humanize(status)}` → `{children || humanize(status)}`",
+    "capped": true,
+    "tests": 71
+  },
+  {
+    "id": "m08229",
+    "file": "src/components/task-row-actions.tsx",
+    "line": 82,
+    "op": "boolconst",
+    "desc": "-> true",
+    "diff": "L82: `const [rejectMissing, setRejectMissing] = useState(false);` → `const [rejectMissing, setRejectMissing] = useState(true);`",
+    "capped": false,
+    "tests": 11
+  },
+  {
+    "id": "m08259",
+    "file": "src/components/task-row-actions.tsx",
+    "line": 262,
+    "op": "ifexp",
+    "desc": "swap ternary branches",
+    "diff": "L262: `size={touch ? \"default\" : \"sm\"}` → `size={touch ? \"sm\" : \"default\"}`",
+    "capped": false,
+    "tests": 11
+  },
+  {
+    "id": "m08268",
+    "file": "src/components/task-row-actions.tsx",
+    "line": 281,
+    "op": "ifexp",
+    "desc": "swap ternary branches",
+    "diff": "L281: `size={touch ? \"default\" : \"sm\"}` → `size={touch ? \"sm\" : \"default\"}`",
+    "capped": false,
+    "tests": 11
+  },
+  {
+    "id": "m08289",
+    "file": "src/components/task-row-actions.tsx",
+    "line": 362,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L362: `days: task.recur_days ?? 0,` → `days: task.recur_days || 0,`",
+    "capped": false,
+    "tests": 11
+  },
+  {
+    "id": "m08290",
+    "file": "src/components/task-row-actions.tsx",
+    "line": 362,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L362: `days: task.recur_days ?? 0,` → `days: task.recur_days ?? 1,`",
+    "capped": false,
+    "tests": 11
+  },
+  {
+    "id": "m08291",
+    "file": "src/components/task-row-actions.tsx",
+    "line": 370,
+    "op": "ifexp",
+    "desc": "swap ternary branches",
+    "diff": "L370: `task.due_date > farmToday() ? task.due_date : farmToday(),` → `task.due_date > farmToday() ? farmToday() : task.due_date,`",
+    "capped": false,
+    "tests": 11
+  },
+  {
+    "id": "m08292",
+    "file": "src/components/task-row-actions.tsx",
+    "line": 370,
+    "op": "compare",
+    "desc": "> -> >=",
+    "diff": "L370: `task.due_date > farmToday() ? task.due_date : farmToday(),` → `task.due_date >= farmToday() ? task.due_date : farmToday(),`",
+    "capped": false,
+    "tests": 11
+  },
+  {
+    "id": "m08293",
+    "file": "src/components/task-row-actions.tsx",
+    "line": 371,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L371: `task.recur_days ?? 0,` → `task.recur_days || 0,`",
+    "capped": false,
+    "tests": 11
+  },
+  {
+    "id": "m08294",
+    "file": "src/components/task-row-actions.tsx",
+    "line": 371,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L371: `task.recur_days ?? 0,` → `task.recur_days ?? 1,`",
+    "capped": false,
+    "tests": 11
+  },
+  {
+    "id": "m08300",
+    "file": "src/components/task-row-actions.tsx",
+    "line": 411,
+    "op": "ifexp",
+    "desc": "swap ternary branches",
+    "diff": "L411: `size={touch ? \"default\" : \"sm\"}` → `size={touch ? \"sm\" : \"default\"}`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08303",
+    "file": "src/components/task-row-actions.tsx",
+    "line": 424,
+    "op": "ifexp",
+    "desc": "swap ternary branches",
+    "diff": "L424: `size={touch ? \"default\" : \"sm\"}` → `size={touch ? \"sm\" : \"default\"}`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08309",
+    "file": "src/components/task-row-actions.tsx",
+    "line": 442,
+    "op": "not",
+    "desc": "drop !",
+    "diff": "L442: `if (!nextOpen && actionFlight.pending) return;` → `if (nextOpen && actionFlight.pending) return;`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08314",
+    "file": "src/components/task-row-actions.tsx",
+    "line": 463,
+    "op": "intconst",
+    "desc": "255 -> 256",
+    "diff": "L463: `maxLength={255}` → `maxLength={256}`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08315",
+    "file": "src/components/task-row-actions.tsx",
+    "line": 463,
+    "op": "intconst",
+    "desc": "255 -> 254",
+    "diff": "L463: `maxLength={255}` → `maxLength={254}`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08316",
+    "file": "src/components/task-row-actions.tsx",
+    "line": 464,
+    "op": "intconst",
+    "desc": "3 -> 4",
+    "diff": "L464: `rows={3}` → `rows={4}`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08317",
+    "file": "src/components/task-row-actions.tsx",
+    "line": 464,
+    "op": "intconst",
+    "desc": "3 -> 2",
+    "diff": "L464: `rows={3}` → `rows={2}`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08330",
+    "file": "src/components/theme-toggle.tsx",
+    "line": 36,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L36: `const current = pendingTheme.current ?? (isDark ? \"dark\" : \"light\");` → `const current = pendingTheme.current || (isDark ? \"dark\" : \"light\");`",
+    "capped": false,
+    "tests": 2
+  },
+  {
+    "id": "m08336",
+    "file": "src/components/ui/checkbox.tsx",
+    "line": 26,
+    "op": "ifexp",
+    "desc": "swap ternary branches",
+    "diff": "L26: `{indeterminate ? <MinusIcon /> : <CheckIcon />}` → `{indeterminate ? <CheckIcon /> : <MinusIcon />}`",
+    "capped": true,
+    "tests": 73
+  },
+  {
+    "id": "m08341",
+    "file": "src/components/ui/select.tsx",
+    "line": 22,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L22: `onValueChange={(value, eventDetails) => onValueChange?.(value ?? \"\", eventDetails)}` → `onValueChange={(value, eventDetails) => onValueChange?.(value || \"\", eventDetails)}`",
+    "capped": true,
+    "tests": 108
+  },
+  {
+    "id": "m08420",
+    "file": "src/lib/api-client.ts",
+    "line": 17,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L17: `let authSessionEpoch = 0;` → `let authSessionEpoch = 1;`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08421",
+    "file": "src/lib/api-client.ts",
+    "line": 19,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L19: `let farmScopeEpoch = 0;` → `let farmScopeEpoch = 1;`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08480",
+    "file": "src/lib/api-client.ts",
+    "line": 108,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L108: `authFailureRegistrations.length = 0;` → `authFailureRegistrations.length = 1;`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m08486",
+    "file": "src/lib/api-client.ts",
+    "line": 122,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L122: `onAuthFailure = authFailureRegistrations.at(-1)?.handler ?? null;` → `onAuthFailure = authFailureRegistrations.at(-1)?.handler || null;`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08511",
+    "file": "src/lib/api-client.ts",
+    "line": 290,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L290: `const contentType = (resp.headers.get(\"content-type\") ?? \"\").toLowerCase();` → `const contentType = (resp.headers.get(\"content-type\") || \"\").toLowerCase();`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08520",
+    "file": "src/lib/api-client.ts",
+    "line": 311,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L311: `const refreshedActorScope = tokenScope ?? userScope;` → `const refreshedActorScope = tokenScope || userScope;`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08528",
+    "file": "src/lib/api-client.ts",
+    "line": 373,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L373: `}, 0);` → `}, 1);`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08537",
+    "file": "src/lib/api-client.ts",
+    "line": 437,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L437: `if (typeof code === \"string\" && code.length > 0) return code;` → `if (typeof code === \"string\" && code.length > 1) return code;`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08560",
+    "file": "src/lib/api-client.ts",
+    "line": 503,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L503: `const root = path[0] ?? \"\";` → `const root = path[0] || \"\";`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08566",
+    "file": "src/lib/api-client.ts",
+    "line": 533,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L533: `const rawPathname = path.split(/[?#]/, 1)[0];` → `const rawPathname = path.split(/[?#]/, 2)[0];`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08571",
+    "file": "src/lib/api-client.ts",
+    "line": 539,
+    "op": "binop",
+    "desc": "&& -> ||",
+    "diff": "L539: `(path.startsWith(\"/api/\") && parsed.pathname.startsWith(\"/api/\")) ||` → `(path.startsWith(\"/api/\") || parsed.pathname.startsWith(\"/api/\")) ||`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m08602",
+    "file": "src/lib/api-client.ts",
+    "line": 645,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L645: `const requestPath = path.split(/[?#]/, 1)[0];` → `const requestPath = path.split(/[?#]/, 2)[0];`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08607",
+    "file": "src/lib/api-client.ts",
+    "line": 647,
+    "op": "compare",
+    "desc": "> -> >=",
+    "diff": "L647: `requestPath.length > 1 && requestPath.endsWith(\"/\")` → `requestPath.length >= 1 && requestPath.endsWith(\"/\")`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08608",
+    "file": "src/lib/api-client.ts",
+    "line": 647,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L647: `requestPath.length > 1 && requestPath.endsWith(\"/\")` → `requestPath.length > 2 && requestPath.endsWith(\"/\")`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08609",
+    "file": "src/lib/api-client.ts",
+    "line": 647,
+    "op": "intconst",
+    "desc": "1 -> 0",
+    "diff": "L647: `requestPath.length > 1 && requestPath.endsWith(\"/\")` → `requestPath.length > 0 && requestPath.endsWith(\"/\")`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08613",
+    "file": "src/lib/api-client.ts",
+    "line": 650,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L650: `const verb = (method ?? \"GET\").toUpperCase();` → `const verb = (method || \"GET\").toUpperCase();`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08620",
+    "file": "src/lib/api-client.ts",
+    "line": 658,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L658: `const requestPath = path.split(/[?#]/, 1)[0];` → `const requestPath = path.split(/[?#]/, 2)[0];`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08625",
+    "file": "src/lib/api-client.ts",
+    "line": 660,
+    "op": "compare",
+    "desc": "> -> >=",
+    "diff": "L660: `const route = requestPath.length > 1 && requestPath.endsWith(\"/\") ? requestPath.slice(0, -1) : requestPath;` → `const route = requestPath.length >= 1 && requestPath.endsWith(\"/\") ? requestPath.slice(0, -1) : requestPath;`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08626",
+    "file": "src/lib/api-client.ts",
+    "line": 660,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L660: `const route = requestPath.length > 1 && requestPath.endsWith(\"/\") ? requestPath.slice(0, -1) : requestPath;` → `const route = requestPath.length > 2 && requestPath.endsWith(\"/\") ? requestPath.slice(0, -1) : requestPath;`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08627",
+    "file": "src/lib/api-client.ts",
+    "line": 660,
+    "op": "intconst",
+    "desc": "1 -> 0",
+    "diff": "L660: `const route = requestPath.length > 1 && requestPath.endsWith(\"/\") ? requestPath.slice(0, -1) : requestPath;` → `const route = requestPath.length > 0 && requestPath.endsWith(\"/\") ? requestPath.slice(0, -1) : requestPath;`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08633",
+    "file": "src/lib/api-client.ts",
+    "line": 663,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L663: `return (method ?? \"GET\").toUpperCase() === \"POST\" && route === \"/api/auth/logout\";` → `return (method || \"GET\").toUpperCase() === \"POST\" && route === \"/api/auth/logout\";`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08638",
+    "file": "src/lib/api-client.ts",
+    "line": 688,
+    "op": "binop",
+    "desc": "&& -> ||",
+    "diff": "L688: `if (cookieMutation && authSessionEpoch !== sessionScope) {` → `if (cookieMutation || authSessionEpoch !== sessionScope) {`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08650",
+    "file": "src/lib/api-client.ts",
+    "line": 704,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L704: `const requestPathname = path.split(/[?#]/, 1)[0];` → `const requestPathname = path.split(/[?#]/, 2)[0];`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08661",
+    "file": "src/lib/api-client.ts",
+    "line": 796,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L796: `const requestPath = path.split(\"?\", 1)[0];` → `const requestPath = path.split(\"?\", 2)[0];`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08666",
+    "file": "src/lib/api-client.ts",
+    "line": 798,
+    "op": "compare",
+    "desc": "> -> >=",
+    "diff": "L798: `requestPath.length > 1 && requestPath.endsWith(\"/\")` → `requestPath.length >= 1 && requestPath.endsWith(\"/\")`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08667",
+    "file": "src/lib/api-client.ts",
+    "line": 798,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L798: `requestPath.length > 1 && requestPath.endsWith(\"/\")` → `requestPath.length > 2 && requestPath.endsWith(\"/\")`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08668",
+    "file": "src/lib/api-client.ts",
+    "line": 798,
+    "op": "intconst",
+    "desc": "1 -> 0",
+    "diff": "L798: `requestPath.length > 1 && requestPath.endsWith(\"/\")` → `requestPath.length > 0 && requestPath.endsWith(\"/\")`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08692",
+    "file": "src/lib/api-client.ts",
+    "line": 864,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L864: `path.split(\"?\", 1)[0] === \"/api/auth/farms\" ? null : currentFarmId;` → `path.split(\"?\", 2)[0] === \"/api/auth/farms\" ? null : currentFarmId;`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08693",
+    "file": "src/lib/api-client.ts",
+    "line": 864,
+    "op": "intconst",
+    "desc": "1 -> 0",
+    "diff": "L864: `path.split(\"?\", 1)[0] === \"/api/auth/farms\" ? null : currentFarmId;` → `path.split(\"?\", 0)[0] === \"/api/auth/farms\" ? null : currentFarmId;`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08694",
+    "file": "src/lib/api-client.ts",
+    "line": 864,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L864: `path.split(\"?\", 1)[0] === \"/api/auth/farms\" ? null : currentFarmId;` → `path.split(\"?\", 1)[1] === \"/api/auth/farms\" ? null : currentFarmId;`",
+    "capped": false,
+    "tests": 9
+  },
+  {
+    "id": "m08707",
+    "file": "src/lib/auth-context.tsx",
+    "line": 127,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L127: `if (value === null || !value.startsWith(FARM_STORAGE_REVOKED_PREFIX)) {` → `if (value === null && !value.startsWith(FARM_STORAGE_REVOKED_PREFIX)) {`",
+    "capped": true,
+    "tests": 172
+  },
+  {
+    "id": "m08711",
+    "file": "src/lib/auth-context.tsx",
+    "line": 131,
+    "op": "binop",
+    "desc": "&& -> ||",
+    "diff": "L131: `return Number.isSafeInteger(stored) && stored > 0 ? stored : null;` → `return Number.isSafeInteger(stored) || stored > 0 ? stored : null;`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m08712",
+    "file": "src/lib/auth-context.tsx",
+    "line": 131,
+    "op": "compare",
+    "desc": "> -> >=",
+    "diff": "L131: `return Number.isSafeInteger(stored) && stored > 0 ? stored : null;` → `return Number.isSafeInteger(stored) && stored >= 0 ? stored : null;`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m08724",
+    "file": "src/lib/auth-context.tsx",
+    "line": 187,
+    "op": "boolconst",
+    "desc": "-> false",
+    "diff": "L187: `const mounted = useRef(true);` → `const mounted = useRef(false);`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08725",
+    "file": "src/lib/auth-context.tsx",
+    "line": 190,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L190: `const farmRefreshGeneration = useRef(0);` → `const farmRefreshGeneration = useRef(1);`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08726",
+    "file": "src/lib/auth-context.tsx",
+    "line": 194,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L194: `const sessionEstablishmentGeneration = useRef(0);` → `const sessionEstablishmentGeneration = useRef(1);`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08727",
+    "file": "src/lib/auth-context.tsx",
+    "line": 199,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L199: `const appliedFarmGeneration = useRef(0);` → `const appliedFarmGeneration = useRef(1);`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08730",
+    "file": "src/lib/auth-context.tsx",
+    "line": 217,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L217: `farmRefreshGeneration.current += 1;` → `farmRefreshGeneration.current += 2;`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08731",
+    "file": "src/lib/auth-context.tsx",
+    "line": 217,
+    "op": "intconst",
+    "desc": "1 -> 0",
+    "diff": "L217: `farmRefreshGeneration.current += 1;` → `farmRefreshGeneration.current += 0;`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08732",
+    "file": "src/lib/auth-context.tsx",
+    "line": 219,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L219: `sessionEstablishmentGeneration.current += 1;` → `sessionEstablishmentGeneration.current += 2;`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08733",
+    "file": "src/lib/auth-context.tsx",
+    "line": 219,
+    "op": "intconst",
+    "desc": "1 -> 0",
+    "diff": "L219: `sessionEstablishmentGeneration.current += 1;` → `sessionEstablishmentGeneration.current += 0;`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08735",
+    "file": "src/lib/auth-context.tsx",
+    "line": 238,
+    "op": "compare",
+    "desc": "=== -> !==",
+    "diff": "L238: `const selected = farmsRef.current.find((farm) => farm.id === id);` → `const selected = farmsRef.current.find((farm) => farm.id !== id);`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08736",
+    "file": "src/lib/auth-context.tsx",
+    "line": 239,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L239: `setActiveFarmTimezone(timezone ?? selected?.timezone);` → `setActiveFarmTimezone(timezone || selected?.timezone);`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08737",
+    "file": "src/lib/auth-context.tsx",
+    "line": 249,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L249: `farmRefreshGeneration.current += 1;` → `farmRefreshGeneration.current += 2;`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08738",
+    "file": "src/lib/auth-context.tsx",
+    "line": 249,
+    "op": "intconst",
+    "desc": "1 -> 0",
+    "diff": "L249: `farmRefreshGeneration.current += 1;` → `farmRefreshGeneration.current += 0;`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08739",
+    "file": "src/lib/auth-context.tsx",
+    "line": 251,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L251: `sessionEstablishmentGeneration.current += 1;` → `sessionEstablishmentGeneration.current += 2;`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08740",
+    "file": "src/lib/auth-context.tsx",
+    "line": 251,
+    "op": "intconst",
+    "desc": "1 -> 0",
+    "diff": "L251: `sessionEstablishmentGeneration.current += 1;` → `sessionEstablishmentGeneration.current += 0;`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08743",
+    "file": "src/lib/auth-context.tsx",
+    "line": 278,
+    "op": "compare",
+    "desc": "=== -> !==",
+    "diff": "L278: `existingFlight.teardownEpoch === authSessionEpochValue()` → `existingFlight.teardownEpoch !== authSessionEpochValue()`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08744",
+    "file": "src/lib/auth-context.tsx",
+    "line": 284,
+    "op": "boolconst",
+    "desc": "-> false",
+    "diff": "L284: `forcedLogout.current = true;` → `forcedLogout.current = false;`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08745",
+    "file": "src/lib/auth-context.tsx",
+    "line": 299,
+    "op": "compare",
+    "desc": "=== -> !==",
+    "diff": "L299: `if (signOutFlight.current === flight) signOutFlight.current = null;` → `if (signOutFlight.current !== flight) signOutFlight.current = null;`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08747",
+    "file": "src/lib/auth-context.tsx",
+    "line": 309,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L309: `const preferred = farmIdRef.current ?? readStoredFarmId();` → `const preferred = farmIdRef.current || readStoredFarmId();`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08758",
+    "file": "src/lib/auth-context.tsx",
+    "line": 366,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L366: `if (!mounted.current || generation !== farmRefreshGeneration.current) return;` → `if (!mounted.current && generation !== farmRefreshGeneration.current) return;`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08759",
+    "file": "src/lib/auth-context.tsx",
+    "line": 366,
+    "op": "not",
+    "desc": "drop !",
+    "diff": "L366: `if (!mounted.current || generation !== farmRefreshGeneration.current) return;` → `if (mounted.current || generation !== farmRefreshGeneration.current) return;`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08760",
+    "file": "src/lib/auth-context.tsx",
+    "line": 366,
+    "op": "compare",
+    "desc": "!== -> ===",
+    "diff": "L366: `if (!mounted.current || generation !== farmRefreshGeneration.current) return;` → `if (!mounted.current || generation === farmRefreshGeneration.current) return;`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08761",
+    "file": "src/lib/auth-context.tsx",
+    "line": 369,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L369: `if (!mounted.current || generation !== farmRefreshGeneration.current) return;` → `if (!mounted.current && generation !== farmRefreshGeneration.current) return;`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08765",
+    "file": "src/lib/auth-context.tsx",
+    "line": 403,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L403: `isAuthSessionChangedError(retryable) ||` → `isAuthSessionChangedError(retryable) &&`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08766",
+    "file": "src/lib/auth-context.tsx",
+    "line": 402,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L402: `establishmentGeneration !== sessionEstablishmentGeneration.current ||` → `establishmentGeneration !== sessionEstablishmentGeneration.current &&`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08767",
+    "file": "src/lib/auth-context.tsx",
+    "line": 401,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L401: `!mounted.current ||` → `!mounted.current &&`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08768",
+    "file": "src/lib/auth-context.tsx",
+    "line": 401,
+    "op": "not",
+    "desc": "drop !",
+    "diff": "L401: `!mounted.current ||` → `mounted.current ||`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08769",
+    "file": "src/lib/auth-context.tsx",
+    "line": 402,
+    "op": "compare",
+    "desc": "!== -> ===",
+    "diff": "L402: `establishmentGeneration !== sessionEstablishmentGeneration.current ||` → `establishmentGeneration === sessionEstablishmentGeneration.current ||`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08770",
+    "file": "src/lib/auth-context.tsx",
+    "line": 404,
+    "op": "compare",
+    "desc": "!== -> ===",
+    "diff": "L404: `authSessionEpochValue() !== ownedEpoch` → `authSessionEpochValue() === ownedEpoch`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08771",
+    "file": "src/lib/auth-context.tsx",
+    "line": 408,
+    "op": "intconst",
+    "desc": "750 -> 751",
+    "diff": "L408: `await new Promise((resolve) => setTimeout(resolve, 750));` → `await new Promise((resolve) => setTimeout(resolve, 751));`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08772",
+    "file": "src/lib/auth-context.tsx",
+    "line": 408,
+    "op": "intconst",
+    "desc": "750 -> 749",
+    "diff": "L408: `await new Promise((resolve) => setTimeout(resolve, 750));` → `await new Promise((resolve) => setTimeout(resolve, 749));`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08776",
+    "file": "src/lib/auth-context.tsx",
+    "line": 420,
+    "op": "compare",
+    "desc": "!== -> ===",
+    "diff": "L420: `farmGeneration !== farmRefreshGeneration.current &&` → `farmGeneration === farmRefreshGeneration.current &&`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08777",
+    "file": "src/lib/auth-context.tsx",
+    "line": 422,
+    "op": "compare",
+    "desc": "> -> >=",
+    "diff": "L422: `appliedFarmGeneration.current > farmGeneration` → `appliedFarmGeneration.current >= farmGeneration`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08778",
+    "file": "src/lib/auth-context.tsx",
+    "line": 430,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L430: `isAuthSessionChangedError(error) ||` → `isAuthSessionChangedError(error) &&`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08779",
+    "file": "src/lib/auth-context.tsx",
+    "line": 429,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L429: `establishmentGeneration !== sessionEstablishmentGeneration.current ||` → `establishmentGeneration !== sessionEstablishmentGeneration.current &&`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08780",
+    "file": "src/lib/auth-context.tsx",
+    "line": 428,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L428: `!mounted.current ||` → `!mounted.current &&`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08787",
+    "file": "src/lib/auth-context.tsx",
+    "line": 485,
+    "op": "boolconst",
+    "desc": "-> false",
+    "diff": "L485: `forcedLogout.current = true;` → `forcedLogout.current = false;`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08791",
+    "file": "src/lib/auth-context.tsx",
+    "line": 505,
+    "op": "boolconst",
+    "desc": "-> false",
+    "diff": "L505: `forcedLogout.current = true;` → `forcedLogout.current = false;`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08796",
+    "file": "src/lib/auth-context.tsx",
+    "line": 536,
+    "op": "binop",
+    "desc": "&& -> ||",
+    "diff": "L536: `stored !== farmIdRef.current &&` → `stored !== farmIdRef.current ||`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08797",
+    "file": "src/lib/auth-context.tsx",
+    "line": 535,
+    "op": "binop",
+    "desc": "&& -> ||",
+    "diff": "L535: `stored > 0 &&` → `stored > 0 ||`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08798",
+    "file": "src/lib/auth-context.tsx",
+    "line": 534,
+    "op": "binop",
+    "desc": "&& -> ||",
+    "diff": "L534: `Number.isSafeInteger(stored) &&` → `Number.isSafeInteger(stored) ||`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08799",
+    "file": "src/lib/auth-context.tsx",
+    "line": 535,
+    "op": "compare",
+    "desc": "> -> >=",
+    "diff": "L535: `stored > 0 &&` → `stored >= 0 &&`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08800",
+    "file": "src/lib/auth-context.tsx",
+    "line": 535,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L535: `stored > 0 &&` → `stored > 1 &&`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08802",
+    "file": "src/lib/auth-context.tsx",
+    "line": 537,
+    "op": "compare",
+    "desc": "=== -> !==",
+    "diff": "L537: `farmsRef.current.some((farm) => farm.id === stored)` → `farmsRef.current.some((farm) => farm.id !== stored)`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08803",
+    "file": "src/lib/auth-context.tsx",
+    "line": 548,
+    "op": "boolconst",
+    "desc": "-> false",
+    "diff": "L548: `initialRefreshStarted.current = true;` → `initialRefreshStarted.current = false;`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08804",
+    "file": "src/lib/auth-context.tsx",
+    "line": 558,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L558: `for (let attempt = 0; attempt < BOOTSTRAP_REFRESH_ATTEMPTS; attempt += 1) {` → `for (let attempt = 1; attempt < BOOTSTRAP_REFRESH_ATTEMPTS; attempt += 1) {`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08805",
+    "file": "src/lib/auth-context.tsx",
+    "line": 558,
+    "op": "compare",
+    "desc": "< -> <=",
+    "diff": "L558: `for (let attempt = 0; attempt < BOOTSTRAP_REFRESH_ATTEMPTS; attempt += 1) {` → `for (let attempt = 0; attempt <= BOOTSTRAP_REFRESH_ATTEMPTS; attempt += 1) {`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08806",
+    "file": "src/lib/auth-context.tsx",
+    "line": 558,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L558: `for (let attempt = 0; attempt < BOOTSTRAP_REFRESH_ATTEMPTS; attempt += 1) {` → `for (let attempt = 0; attempt < BOOTSTRAP_REFRESH_ATTEMPTS; attempt += 2) {`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08807",
+    "file": "src/lib/auth-context.tsx",
+    "line": 558,
+    "op": "intconst",
+    "desc": "1 -> 0",
+    "diff": "L558: `for (let attempt = 0; attempt < BOOTSTRAP_REFRESH_ATTEMPTS; attempt += 1) {` → `for (let attempt = 0; attempt < BOOTSTRAP_REFRESH_ATTEMPTS; attempt += 0) {`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08809",
+    "file": "src/lib/auth-context.tsx",
+    "line": 562,
+    "op": "loopjump",
+    "desc": "break -> continue",
+    "diff": "L562: `break;` → `continue;`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08811",
+    "file": "src/lib/auth-context.tsx",
+    "line": 564,
+    "op": "loopjump",
+    "desc": "break -> continue",
+    "diff": "L564: `if (outcome.kind === \"rejected\") break;` → `if (outcome.kind === \"rejected\") continue;`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08812",
+    "file": "src/lib/auth-context.tsx",
+    "line": 565,
+    "op": "compare",
+    "desc": "< -> <=",
+    "diff": "L565: `if (attempt < BOOTSTRAP_REFRESH_ATTEMPTS - 1) {` → `if (attempt <= BOOTSTRAP_REFRESH_ATTEMPTS - 1) {`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08813",
+    "file": "src/lib/auth-context.tsx",
+    "line": 565,
+    "op": "binop",
+    "desc": "- -> +",
+    "diff": "L565: `if (attempt < BOOTSTRAP_REFRESH_ATTEMPTS - 1) {` → `if (attempt < BOOTSTRAP_REFRESH_ATTEMPTS + 1) {`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08814",
+    "file": "src/lib/auth-context.tsx",
+    "line": 565,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L565: `if (attempt < BOOTSTRAP_REFRESH_ATTEMPTS - 1) {` → `if (attempt < BOOTSTRAP_REFRESH_ATTEMPTS - 2) {`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08815",
+    "file": "src/lib/auth-context.tsx",
+    "line": 565,
+    "op": "intconst",
+    "desc": "1 -> 0",
+    "diff": "L565: `if (attempt < BOOTSTRAP_REFRESH_ATTEMPTS - 1) {` → `if (attempt < BOOTSTRAP_REFRESH_ATTEMPTS - 0) {`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08816",
+    "file": "src/lib/auth-context.tsx",
+    "line": 566,
+    "op": "intconst",
+    "desc": "750 -> 751",
+    "diff": "L566: `await new Promise((resolve) => window.setTimeout(resolve, 750));` → `await new Promise((resolve) => window.setTimeout(resolve, 751));`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08817",
+    "file": "src/lib/auth-context.tsx",
+    "line": 566,
+    "op": "intconst",
+    "desc": "750 -> 749",
+    "diff": "L566: `await new Promise((resolve) => window.setTimeout(resolve, 750));` → `await new Promise((resolve) => window.setTimeout(resolve, 749));`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08818",
+    "file": "src/lib/auth-context.tsx",
+    "line": 570,
+    "op": "binop",
+    "desc": "&& -> ||",
+    "diff": "L570: `if (body && mounted.current) {` → `if (body || mounted.current) {`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08829",
+    "file": "src/lib/auth-context.tsx",
+    "line": 599,
+    "op": "binop",
+    "desc": "&& -> ||",
+    "diff": "L599: `if (!loading && !user && forcedLogout.current && PUBLIC_PATHS.includes(pathname)) {` → `if (!loading && !user && forcedLogout.current || PUBLIC_PATHS.includes(pathname)) {`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08830",
+    "file": "src/lib/auth-context.tsx",
+    "line": 599,
+    "op": "binop",
+    "desc": "&& -> ||",
+    "diff": "L599: `if (!loading && !user && forcedLogout.current && PUBLIC_PATHS.includes(pathname)) {` → `if (!loading && !user || forcedLogout.current && PUBLIC_PATHS.includes(pathname)) {`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08831",
+    "file": "src/lib/auth-context.tsx",
+    "line": 599,
+    "op": "binop",
+    "desc": "&& -> ||",
+    "diff": "L599: `if (!loading && !user && forcedLogout.current && PUBLIC_PATHS.includes(pathname)) {` → `if (!loading || !user && forcedLogout.current && PUBLIC_PATHS.includes(pathname)) {`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08832",
+    "file": "src/lib/auth-context.tsx",
+    "line": 599,
+    "op": "not",
+    "desc": "drop !",
+    "diff": "L599: `if (!loading && !user && forcedLogout.current && PUBLIC_PATHS.includes(pathname)) {` → `if (loading && !user && forcedLogout.current && PUBLIC_PATHS.includes(pathname)) {`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08833",
+    "file": "src/lib/auth-context.tsx",
+    "line": 599,
+    "op": "not",
+    "desc": "drop !",
+    "diff": "L599: `if (!loading && !user && forcedLogout.current && PUBLIC_PATHS.includes(pathname)) {` → `if (!loading && user && forcedLogout.current && PUBLIC_PATHS.includes(pathname)) {`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08834",
+    "file": "src/lib/auth-context.tsx",
+    "line": 600,
+    "op": "boolconst",
+    "desc": "-> true",
+    "diff": "L600: `forcedLogout.current = false;` → `forcedLogout.current = true;`",
+    "capped": true,
+    "tests": 173
+  },
+  {
+    "id": "m08901",
+    "file": "src/lib/csp.ts",
+    "line": 49,
+    "op": "intconst",
+    "desc": "65535 -> 65536",
+    "diff": "L49: `if (!Number.isInteger(port) || port <= 0 || port > 65535) return null;` → `if (!Number.isInteger(port) || port <= 0 || port > 65536) return null;`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m08908",
+    "file": "src/lib/csp.ts",
+    "line": 104,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L104: `const imgOrigins = options.imgOrigins ?? [];` → `const imgOrigins = options.imgOrigins || [];`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m08909",
+    "file": "src/lib/csp.ts",
+    "line": 105,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L105: `const connectOrigins = options.connectOrigins ?? [];` → `const connectOrigins = options.connectOrigins || [];`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m08923",
+    "file": "src/lib/enum-labels.ts",
+    "line": 335,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L335: `const language = lang ?? getActiveLanguage();` → `const language = lang || getActiveLanguage();`",
+    "capped": true,
+    "tests": 97
+  },
+  {
+    "id": "m08925",
+    "file": "src/lib/enum-labels.ts",
+    "line": 337,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L337: `const telugu = TE_LABELS[kind]?.[value] ?? TE_LABELS[kind]?.[value.toUpperCase()];` → `const telugu = TE_LABELS[kind]?.[value] || TE_LABELS[kind]?.[value.toUpperCase()];`",
+    "capped": true,
+    "tests": 97
+  },
+  {
+    "id": "m08927",
+    "file": "src/lib/enum-labels.ts",
+    "line": 341,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L341: `return BUCKET_LABELS[value] ?? titleCase(value);` → `return BUCKET_LABELS[value] || titleCase(value);`",
+    "capped": true,
+    "tests": 95
+  },
+  {
+    "id": "m08964",
+    "file": "src/lib/format.ts",
+    "line": 7,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L7: `if (value === null || value === undefined || !Number.isFinite(value)) return \"—\";` → `if (value === null && value === undefined || !Number.isFinite(value)) return \"—\";`",
+    "capped": false,
+    "tests": 6
+  },
+  {
+    "id": "m08969",
+    "file": "src/lib/format.ts",
+    "line": 12,
+    "op": "intconst",
+    "desc": "1e+21 -> 1e+21",
+    "diff": "L12: `if (Math.abs(value) >= 1e21) {` → `if (Math.abs(value) >= 1e+21) {`",
+    "capped": true,
+    "tests": 58
+  },
+  {
+    "id": "m08970",
+    "file": "src/lib/format.ts",
+    "line": 12,
+    "op": "intconst",
+    "desc": "1e+21 -> 1e+21",
+    "diff": "L12: `if (Math.abs(value) >= 1e21) {` → `if (Math.abs(value) >= 1e+21) {`",
+    "capped": true,
+    "tests": 58
+  },
+  {
+    "id": "m08971",
+    "file": "src/lib/format.ts",
+    "line": 14,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L14: `maximumFractionDigits: 0,` → `maximumFractionDigits: 1,`",
+    "capped": false,
+    "tests": 6
+  },
+  {
+    "id": "m08974",
+    "file": "src/lib/format.ts",
+    "line": 17,
+    "op": "compare",
+    "desc": "< -> <=",
+    "diff": "L17: `return `${value < 0 ? \"-\" : \"\"}₹${grouped}`;` → `return `${value <= 0 ? \"-\" : \"\"}₹${grouped}`;`",
+    "capped": false,
+    "tests": 6
+  },
+  {
+    "id": "m08975",
+    "file": "src/lib/format.ts",
+    "line": 17,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L17: `return `${value < 0 ? \"-\" : \"\"}₹${grouped}`;` → `return `${value < 1 ? \"-\" : \"\"}₹${grouped}`;`",
+    "capped": false,
+    "tests": 6
+  },
+  {
+    "id": "m08979",
+    "file": "src/lib/format.ts",
+    "line": 22,
+    "op": "compare",
+    "desc": "< -> <=",
+    "diff": "L22: `const negative = value < 0 && (intPart !== \"0\" || fracPart !== \"00\");` → `const negative = value <= 0 && (intPart !== \"0\" || fracPart !== \"00\");`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09030",
+    "file": "src/lib/format.ts",
+    "line": 112,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L112: `!Number.isInteger(month) ||` → `!Number.isInteger(month) &&`",
+    "capped": false,
+    "tests": 6
+  },
+  {
+    "id": "m09031",
+    "file": "src/lib/format.ts",
+    "line": 111,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L111: `!Number.isInteger(year) ||` → `!Number.isInteger(year) &&`",
+    "capped": false,
+    "tests": 6
+  },
+  {
+    "id": "m09038",
+    "file": "src/lib/format.ts",
+    "line": 121,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L121: `const date = new Date(0);` → `const date = new Date(1);`",
+    "capped": false,
+    "tests": 6
+  },
+  {
+    "id": "m09042",
+    "file": "src/lib/format.ts",
+    "line": 126,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L126: `date.getUTCMonth() !== month - 1 ||` → `date.getUTCMonth() !== month - 1 &&`",
+    "capped": false,
+    "tests": 6
+  },
+  {
+    "id": "m09043",
+    "file": "src/lib/format.ts",
+    "line": 125,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L125: `date.getUTCFullYear() !== year ||` → `date.getUTCFullYear() !== year &&`",
+    "capped": false,
+    "tests": 6
+  },
+  {
+    "id": "m09044",
+    "file": "src/lib/format.ts",
+    "line": 124,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L124: `Number.isNaN(date.getTime()) ||` → `Number.isNaN(date.getTime()) &&`",
+    "capped": false,
+    "tests": 6
+  },
+  {
+    "id": "m09080",
+    "file": "src/lib/format.ts",
+    "line": 203,
+    "op": "intconst",
+    "desc": "86400000 -> 86400001",
+    "diff": "L203: `return Math.round((toDate.getTime() - fromDate.getTime()) / 86400000);` → `return Math.round((toDate.getTime() - fromDate.getTime()) / 86400001);`",
+    "capped": false,
+    "tests": 6
+  },
+  {
+    "id": "m09081",
+    "file": "src/lib/format.ts",
+    "line": 203,
+    "op": "intconst",
+    "desc": "86400000 -> 86399999",
+    "diff": "L203: `return Math.round((toDate.getTime() - fromDate.getTime()) / 86400000);` → `return Math.round((toDate.getTime() - fromDate.getTime()) / 86399999);`",
+    "capped": false,
+    "tests": 6
+  },
+  {
+    "id": "m09086",
+    "file": "src/lib/format.ts",
+    "line": 224,
+    "op": "intconst",
+    "desc": "4 -> 5",
+    "diff": "L224: `const [y, m, d] = match.slice(1, 4).map(Number);` → `const [y, m, d] = match.slice(1, 5).map(Number);`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09098",
+    "file": "src/lib/format.ts",
+    "line": 232,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L232: `if ((lang ?? getActiveLanguage()) === \"te\") {` → `if ((lang || getActiveLanguage()) === \"te\") {`",
+    "capped": true,
+    "tests": 74
+  },
+  {
+    "id": "m09106",
+    "file": "src/lib/i18n/index.tsx",
+    "line": 52,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L52: `const template = language === \"te\" ? (te[key] ?? en[key]) : en[key];` → `const template = language === \"te\" ? (te[key] || en[key]) : en[key];`",
+    "capped": true,
+    "tests": 184
+  },
+  {
+    "id": "m09107",
+    "file": "src/lib/i18n/index.tsx",
+    "line": 53,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L53: `return interpolate(template ?? key, vars);` → `return interpolate(template || key, vars);`",
+    "capped": true,
+    "tests": 184
+  },
+  {
+    "id": "m09138",
+    "file": "src/lib/idempotent-request.ts",
+    "line": 99,
+    "op": "loopjump",
+    "desc": "continue -> break",
+    "diff": "L99: `if (typeof candidate !== \"object\" || candidate === null) continue;` → `if (typeof candidate !== \"object\" || candidate === null) break;`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m09142",
+    "file": "src/lib/idempotent-request.ts",
+    "line": 108,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L108: `typeof record.expiresAt !== \"number\" ||` → `typeof record.expiresAt !== \"number\" &&`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m09163",
+    "file": "src/lib/idempotent-request.ts",
+    "line": 134,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L134: `return readPersistedRecords(storage, now).find((record) => record.digest === digest)?.key ?? null;` → `return readPersistedRecords(storage, now).find((record) => record.digest === digest)?.key || null;`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m09171",
+    "file": "src/lib/idempotent-request.ts",
+    "line": 161,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L161: `(count, record) => count + (liveDigests.has(record.digest) ? 1 : 0),` → `(count, record) => count + (liveDigests.has(record.digest) ? 2 : 0),`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m09181",
+    "file": "src/lib/idempotent-request.ts",
+    "line": 167,
+    "op": "binop",
+    "desc": "- -> +",
+    "diff": "L167: `.sort((left, right) => right.expiresAt - left.expiresAt)` → `.sort((left, right) => right.expiresAt + left.expiresAt)`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m09186",
+    "file": "src/lib/idempotent-request.ts",
+    "line": 185,
+    "op": "binop",
+    "desc": "- -> +",
+    "diff": "L185: `...bounded.slice(0, Math.max(MAX_LOGICAL_REQUESTS - 1, 0)),` → `...bounded.slice(0, Math.max(MAX_LOGICAL_REQUESTS + 1, 0)),`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m09188",
+    "file": "src/lib/idempotent-request.ts",
+    "line": 185,
+    "op": "intconst",
+    "desc": "1 -> 0",
+    "diff": "L185: `...bounded.slice(0, Math.max(MAX_LOGICAL_REQUESTS - 1, 0)),` → `...bounded.slice(0, Math.max(MAX_LOGICAL_REQUESTS - 0, 0)),`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m09189",
+    "file": "src/lib/idempotent-request.ts",
+    "line": 185,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L185: `...bounded.slice(0, Math.max(MAX_LOGICAL_REQUESTS - 1, 0)),` → `...bounded.slice(0, Math.max(MAX_LOGICAL_REQUESTS - 1, 1)),`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m09193",
+    "file": "src/lib/idempotent-request.ts",
+    "line": 207,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L207: `if (!subtle || typeof TextEncoder === \"undefined\") return null;` → `if (!subtle && typeof TextEncoder === \"undefined\") return null;`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m09200",
+    "file": "src/lib/idempotent-request.ts",
+    "line": 225,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L225: `return url.split(/[?#]/, 1)[0];` → `return url.split(/[?#]/, 2)[0];`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m09201",
+    "file": "src/lib/idempotent-request.ts",
+    "line": 225,
+    "op": "intconst",
+    "desc": "1 -> 0",
+    "diff": "L225: `return url.split(/[?#]/, 1)[0];` → `return url.split(/[?#]/, 0)[0];`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m09202",
+    "file": "src/lib/idempotent-request.ts",
+    "line": 225,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L225: `return url.split(/[?#]/, 1)[0];` → `return url.split(/[?#]/, 1)[1];`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m09204",
+    "file": "src/lib/idempotent-request.ts",
+    "line": 233,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L233: `if ((method ?? \"GET\").toUpperCase() !== \"POST\") return false;` → `if ((method || \"GET\").toUpperCase() !== \"POST\") return false;`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m09247",
+    "file": "src/lib/idempotent-request.ts",
+    "line": 289,
+    "op": "intconst",
+    "desc": "15 -> 14",
+    "diff": "L289: `bytes[6] = (bytes[6] & 0x0f) | 0x40;` → `bytes[6] = (bytes[6] & 14) | 0x40;`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m09257",
+    "file": "src/lib/idempotent-request.ts",
+    "line": 290,
+    "op": "intconst",
+    "desc": "63 -> 62",
+    "diff": "L290: `bytes[8] = (bytes[8] & 0x3f) | 0x80;` → `bytes[8] = (bytes[8] & 62) | 0x80;`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m09286",
+    "file": "src/lib/idempotent-request.ts",
+    "line": 327,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L327: `(init.method ?? \"GET\").toUpperCase(),` → `(init.method || \"GET\").toUpperCase(),`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m09287",
+    "file": "src/lib/idempotent-request.ts",
+    "line": 329,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L329: `farmScope ?? \"\",` → `farmScope || \"\",`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m09288",
+    "file": "src/lib/idempotent-request.ts",
+    "line": 334,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L334: `callerKey ?? \"\",` → `callerKey || \"\",`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m09289",
+    "file": "src/lib/idempotent-request.ts",
+    "line": 353,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L353: `(init.method ?? \"GET\").toUpperCase(),` → `(init.method || \"GET\").toUpperCase(),`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m09290",
+    "file": "src/lib/idempotent-request.ts",
+    "line": 356,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L356: `farmScope ?? \"\",` → `farmScope || \"\",`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m09334",
+    "file": "src/lib/idempotent-request.ts",
+    "line": 461,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L461: `const signal = init.signal ?? null;` → `const signal = init.signal || null;`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m09343",
+    "file": "src/lib/idempotent-request.ts",
+    "line": 497,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L497: `(callerKey ?? \"\")` → `(callerKey || \"\")`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m09344",
+    "file": "src/lib/idempotent-request.ts",
+    "line": 498,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L498: `: (persistedDigest ? loadPersistedKey(persistedDigest, now) : null) ??` → `: (persistedDigest ? loadPersistedKey(persistedDigest, now) : null) ||`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m09346",
+    "file": "src/lib/idempotent-request.ts",
+    "line": 501,
+    "op": "binop",
+    "desc": "+ -> -",
+    "diff": "L501: `expiresAt: now + RETRY_KEY_TTL_MS,` → `expiresAt: now - RETRY_KEY_TTL_MS,`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m09356",
+    "file": "src/lib/image-deps-guard.ts",
+    "line": 49,
+    "op": "compare",
+    "desc": "< -> <=",
+    "diff": "L49: `for (let index = 0; index < length; index += 1) {` → `for (let index = 0; index <= length; index += 1) {`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09360",
+    "file": "src/lib/image-deps-guard.ts",
+    "line": 50,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L50: `const delta = (left[index] ?? 0) - (right[index] ?? 0);` → `const delta = (left[index] || 0) - (right[index] ?? 0);`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09362",
+    "file": "src/lib/image-deps-guard.ts",
+    "line": 50,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L50: `const delta = (left[index] ?? 0) - (right[index] ?? 0);` → `const delta = (left[index] ?? 0) - (right[index] || 0);`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09373",
+    "file": "src/lib/image-deps-guard.ts",
+    "line": 73,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L73: ``(next ${nextVersion ?? \"unknown\"} does not disable HEIF decoding itself).`,` → ``(next ${nextVersion || \"unknown\"} does not disable HEIF decoding itself).`,`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09384",
+    "file": "src/lib/image-deps-guard.ts",
+    "line": 88,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L88: ``next ${nextVersion ?? \"unknown\"} decodes HEIF/AVIF input again — upgrading ` +` → ``next ${nextVersion || \"unknown\"} decodes HEIF/AVIF input again — upgrading ` +`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09385",
+    "file": "src/lib/image-deps-guard.ts",
+    "line": 102,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L102: `return sharp.versions ?? {};` → `return sharp.versions || {};`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09386",
+    "file": "src/lib/image-deps-guard.ts",
+    "line": 120,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L120: `const sharpProbe = deps.sharpProbe ?? defaultSharpProbe();` → `const sharpProbe = deps.sharpProbe || defaultSharpProbe();`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09388",
+    "file": "src/lib/image-deps-guard.ts",
+    "line": 123,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L123: `const manifest = join(deps.rootDir ?? process.cwd(), \"node_modules\", \"next\", \"package.json\");` → `const manifest = join(deps.rootDir || process.cwd(), \"node_modules\", \"next\", \"package.json\");`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09391",
+    "file": "src/lib/image-deps-guard.ts",
+    "line": 161,
+    "op": "ifexp",
+    "desc": "swap ternary branches",
+    "diff": "L161: `process.env.NEXT_PHASE === \"phase-production-build\" ? \"enforce\" : \"warn\";` → `process.env.NEXT_PHASE === \"phase-production-build\" ? \"warn\" : \"enforce\";`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09392",
+    "file": "src/lib/image-deps-guard.ts",
+    "line": 161,
+    "op": "compare",
+    "desc": "=== -> !==",
+    "diff": "L161: `process.env.NEXT_PHASE === \"phase-production-build\" ? \"enforce\" : \"warn\";` → `process.env.NEXT_PHASE !== \"phase-production-build\" ? \"enforce\" : \"warn\";`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09437",
+    "file": "src/lib/offline-queue.ts",
+    "line": 80,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L80: `length: 0,` → `length: 1,`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09438",
+    "file": "src/lib/offline-queue.ts",
+    "line": 88,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L88: `export function readOfflineQueue(storage: Storage = availableLocalStorage() ?? NULL_STORAGE): QueuedMutation[] {` → `export function readOfflineQueue(storage: Storage = availableLocalStorage() || NULL_STORAGE): QueuedMutation[] {`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09448",
+    "file": "src/lib/offline-queue.ts",
+    "line": 140,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L140: `body: init.body ?? null,` → `body: init.body || null,`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09449",
+    "file": "src/lib/offline-queue.ts",
+    "line": 141,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L141: `headers: { ...(init.headers ?? {}) },` → `headers: { ...(init.headers || {}) },`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09451",
+    "file": "src/lib/offline-queue.ts",
+    "line": 150,
+    "op": "compare",
+    "desc": "> -> >=",
+    "diff": "L150: `while (next.length > 0 && JSON.stringify(next).length > MAX_STORAGE_BYTES) {` → `while (next.length >= 0 && JSON.stringify(next).length > MAX_STORAGE_BYTES) {`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09459",
+    "file": "src/lib/offline-queue.ts",
+    "line": 161,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L161: `if ((method ?? \"GET\").toUpperCase() !== \"POST\") return false;` → `if ((method || \"GET\").toUpperCase() !== \"POST\") return false;`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09471",
+    "file": "src/lib/offline-queue.ts",
+    "line": 174,
+    "op": "binop",
+    "desc": "&& -> ||",
+    "diff": "L174: `if (typeof navigator !== \"undefined\" && navigator.onLine === false) return true;` → `if (typeof navigator !== \"undefined\" || navigator.onLine === false) return true;`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09476",
+    "file": "src/lib/offline-queue.ts",
+    "line": 178,
+    "op": "binop",
+    "desc": "&& -> ||",
+    "diff": "L178: `\"name\" in error &&` → `\"name\" in error ||`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09477",
+    "file": "src/lib/offline-queue.ts",
+    "line": 177,
+    "op": "binop",
+    "desc": "&& -> ||",
+    "diff": "L177: `error !== null &&` → `error !== null ||`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09478",
+    "file": "src/lib/offline-queue.ts",
+    "line": 176,
+    "op": "binop",
+    "desc": "&& -> ||",
+    "diff": "L176: `typeof error === \"object\" &&` → `typeof error === \"object\" ||`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09486",
+    "file": "src/lib/offline-queue.ts",
+    "line": 213,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L213: `if (storage === null) return { replayed: 0, remaining: 0 };` → `if (storage === null) return { replayed: 1, remaining: 0 };`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09487",
+    "file": "src/lib/offline-queue.ts",
+    "line": 213,
+    "op": "intconst",
+    "desc": "0 -> 1",
+    "diff": "L213: `if (storage === null) return { replayed: 0, remaining: 0 };` → `if (storage === null) return { replayed: 0, remaining: 1 };`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09496",
+    "file": "src/lib/offline-queue.ts",
+    "line": 230,
+    "op": "loopjump",
+    "desc": "continue -> break",
+    "diff": "L230: `if (stopped) continue;` → `if (stopped) break;`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09497",
+    "file": "src/lib/offline-queue.ts",
+    "line": 234,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L234: `body: record.body ?? undefined,` → `body: record.body || undefined,`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09519",
+    "file": "src/lib/offline-queue.ts",
+    "line": 270,
+    "op": "boolconst",
+    "desc": "-> true",
+    "diff": "L270: `let workersRunning = false;` → `let workersRunning = true;`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09520",
+    "file": "src/lib/offline-queue.ts",
+    "line": 276,
+    "op": "boolconst",
+    "desc": "-> false",
+    "diff": "L276: `workersRunning = true;` → `workersRunning = false;`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09521",
+    "file": "src/lib/offline-queue.ts",
+    "line": 279,
+    "op": "compare",
+    "desc": "=== -> !==",
+    "diff": "L279: `if (scopes === null) return;` → `if (scopes !== null) return;`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09522",
+    "file": "src/lib/offline-queue.ts",
+    "line": 280,
+    "op": "binop",
+    "desc": "&& -> ||",
+    "diff": "L280: `if (typeof navigator !== \"undefined\" && navigator.onLine === false) return;` → `if (typeof navigator !== \"undefined\" || navigator.onLine === false) return;`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09523",
+    "file": "src/lib/offline-queue.ts",
+    "line": 280,
+    "op": "compare",
+    "desc": "!== -> ===",
+    "diff": "L280: `if (typeof navigator !== \"undefined\" && navigator.onLine === false) return;` → `if (typeof navigator === \"undefined\" && navigator.onLine === false) return;`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09524",
+    "file": "src/lib/offline-queue.ts",
+    "line": 280,
+    "op": "compare",
+    "desc": "=== -> !==",
+    "diff": "L280: `if (typeof navigator !== \"undefined\" && navigator.onLine === false) return;` → `if (typeof navigator !== \"undefined\" && navigator.onLine !== false) return;`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09525",
+    "file": "src/lib/offline-queue.ts",
+    "line": 280,
+    "op": "boolconst",
+    "desc": "-> true",
+    "diff": "L280: `if (typeof navigator !== \"undefined\" && navigator.onLine === false) return;` → `if (typeof navigator !== \"undefined\" && navigator.onLine === true) return;`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09526",
+    "file": "src/lib/offline-queue.ts",
+    "line": 285,
+    "op": "intconst",
+    "desc": "30000 -> 30001",
+    "diff": "L285: `const timer = window.setInterval(drainIfScoped, 30_000);` → `const timer = window.setInterval(drainIfScoped, 30001);`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09527",
+    "file": "src/lib/offline-queue.ts",
+    "line": 285,
+    "op": "intconst",
+    "desc": "30000 -> 29999",
+    "diff": "L285: `const timer = window.setInterval(drainIfScoped, 30_000);` → `const timer = window.setInterval(drainIfScoped, 29999);`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09528",
+    "file": "src/lib/offline-queue.ts",
+    "line": 287,
+    "op": "boolconst",
+    "desc": "-> true",
+    "diff": "L287: `workersRunning = false;` → `workersRunning = true;`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09532",
+    "file": "src/lib/permission-navigation.ts",
+    "line": 29,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L29: `PERMISSION_LANDING_ROUTES.find(({ permission }) => can(permission))?.href ?? \"/no-access\"` → `PERMISSION_LANDING_ROUTES.find(({ permission }) => can(permission))?.href || \"/no-access\"`",
+    "capped": false,
+    "tests": 12
+  },
+  {
+    "id": "m09534",
+    "file": "src/lib/permission-navigation.ts",
+    "line": 105,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L105: `const rawPath = safe.split(/[?#]/, 1)[0];` → `const rawPath = safe.split(/[?#]/, 2)[0];`",
+    "capped": false,
+    "tests": 13
+  },
+  {
+    "id": "m09537",
+    "file": "src/lib/permission-navigation.ts",
+    "line": 107,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L107: `if (rawPath.includes(\"%\") || rawPath.includes(\"\\\\\")) return null;` → `if (rawPath.includes(\"%\") && rawPath.includes(\"\\\\\")) return null;`",
+    "capped": false,
+    "tests": 13
+  },
+  {
+    "id": "m09552",
+    "file": "src/lib/permission-navigation.ts",
+    "line": 162,
+    "op": "compare",
+    "desc": "> -> >=",
+    "diff": "L162: `resolved.path.length > 1 && resolved.path.endsWith(\"/\")` → `resolved.path.length >= 1 && resolved.path.endsWith(\"/\")`",
+    "capped": false,
+    "tests": 6
+  },
+  {
+    "id": "m09553",
+    "file": "src/lib/permission-navigation.ts",
+    "line": 162,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L162: `resolved.path.length > 1 && resolved.path.endsWith(\"/\")` → `resolved.path.length > 2 && resolved.path.endsWith(\"/\")`",
+    "capped": false,
+    "tests": 6
+  },
+  {
+    "id": "m09554",
+    "file": "src/lib/permission-navigation.ts",
+    "line": 162,
+    "op": "intconst",
+    "desc": "1 -> 0",
+    "diff": "L162: `resolved.path.length > 1 && resolved.path.endsWith(\"/\")` → `resolved.path.length > 0 && resolved.path.endsWith(\"/\")`",
+    "capped": false,
+    "tests": 6
+  },
+  {
+    "id": "m09588",
+    "file": "src/lib/server-error-phrases.ts",
+    "line": 51,
+    "op": "intconst",
+    "desc": "403 -> 404",
+    "diff": "L51: `{ status: 403, test: /owner|role|permission|not allow/i, key: \"serverErrors.permissionDenied\" },` → `{ status: 404, test: /owner|role|permission|not allow/i, key: \"serverErrors.permissionDenied\" },`",
+    "capped": true,
+    "tests": 63
+  },
+  {
+    "id": "m09589",
+    "file": "src/lib/server-error-phrases.ts",
+    "line": 51,
+    "op": "intconst",
+    "desc": "403 -> 402",
+    "diff": "L51: `{ status: 403, test: /owner|role|permission|not allow/i, key: \"serverErrors.permissionDenied\" },` → `{ status: 402, test: /owner|role|permission|not allow/i, key: \"serverErrors.permissionDenied\" },`",
+    "capped": true,
+    "tests": 63
+  },
+  {
+    "id": "m09592",
+    "file": "src/lib/server-error-phrases.ts",
+    "line": 62,
+    "op": "binop",
+    "desc": "&& -> ||",
+    "diff": "L62: `if (code !== undefined && code !== null) {` → `if (code !== undefined || code !== null) {`",
+    "capped": true,
+    "tests": 26
+  },
+  {
+    "id": "m09603",
+    "file": "src/lib/simulation-field-help.ts",
+    "line": 582,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L582: `const variableLabel = RISK_VARIABLE_LABELS[key]?.(v) ?? key.replace(/_/g, \" \");` → `const variableLabel = RISK_VARIABLE_LABELS[key]?.(v) || key.replace(/_/g, \" \");`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m09608",
+    "file": "src/lib/simulation-field-help.ts",
+    "line": 591,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L591: `const variableLabel = RISK_VARIABLE_LABELS[key]?.(v) ?? key.replace(/_/g, \" \");` → `const variableLabel = RISK_VARIABLE_LABELS[key]?.(v) || key.replace(/_/g, \" \");`",
+    "capped": false,
+    "tests": 3
+  },
+  {
+    "id": "m09688",
+    "file": "src/lib/task-title.ts",
+    "line": 70,
+    "op": "compare",
+    "desc": "=== -> !==",
+    "diff": "L70: `if ((name === \"date\" || name.endsWith(\"_date\")) && typeof value === \"string\" && ISO_DATE.test(value)) {` → `if ((name !== \"date\" || name.endsWith(\"_date\")) && typeof value === \"string\" && ISO_DATE.test(value)) {`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09690",
+    "file": "src/lib/task-title.ts",
+    "line": 73,
+    "op": "ifexp",
+    "desc": "swap ternary branches",
+    "diff": "L73: `return typeof value === \"number\" && Number.isFinite(value) ? value : String(value);` → `return typeof value === \"number\" && Number.isFinite(value) ? String(value) : value;`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09691",
+    "file": "src/lib/task-title.ts",
+    "line": 73,
+    "op": "binop",
+    "desc": "&& -> ||",
+    "diff": "L73: `return typeof value === \"number\" && Number.isFinite(value) ? value : String(value);` → `return typeof value === \"number\" || Number.isFinite(value) ? value : String(value);`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09692",
+    "file": "src/lib/task-title.ts",
+    "line": 73,
+    "op": "compare",
+    "desc": "=== -> !==",
+    "diff": "L73: `return typeof value === \"number\" && Number.isFinite(value) ? value : String(value);` → `return typeof value !== \"number\" && Number.isFinite(value) ? value : String(value);`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09701",
+    "file": "src/lib/task-title.ts",
+    "line": 85,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L85: `for (const [name, value] of Object.entries(task.title_args ?? {})) {` → `for (const [name, value] of Object.entries(task.title_args || {})) {`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09702",
+    "file": "src/lib/task-title.ts",
+    "line": 86,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L86: `if (value === null || value === undefined) continue;` → `if (value === null && value === undefined) continue;`",
+    "capped": false,
+    "tests": 1
+  },
+  {
+    "id": "m09713",
+    "file": "src/lib/use-permissions.ts",
+    "line": 40,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L40: `const perms = new Set(payload?.permissions ?? []);` → `const perms = new Set(payload?.permissions || []);`",
+    "capped": true,
+    "tests": 148
+  },
+  {
+    "id": "m09716",
+    "file": "src/lib/use-permissions.ts",
+    "line": 50,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L50: `isOwner: payload?.is_owner ?? false,` → `isOwner: payload?.is_owner || false,`",
+    "capped": true,
+    "tests": 148
+  },
+  {
+    "id": "m09719",
+    "file": "src/lib/use-single-flight.ts",
+    "line": 13,
+    "op": "boolconst",
+    "desc": "-> false",
+    "diff": "L13: `const mounted = useRef(true);` → `const mounted = useRef(false);`",
+    "capped": true,
+    "tests": 132
+  },
+  {
+    "id": "m09731",
+    "file": "src/lib/use-url-state.ts",
+    "line": 47,
+    "op": "binop",
+    "desc": "?? -> ||",
+    "diff": "L47: `(key: string, fallback: string | null = null) => searchParams.get(key) ?? fallback,` → `(key: string, fallback: string | null = null) => searchParams.get(key) || fallback,`",
+    "capped": true,
+    "tests": 48
+  },
+  {
+    "id": "m09755",
+    "file": "src/lib/utils.ts",
+    "line": 17,
+    "op": "binop",
+    "desc": "|| -> &&",
+    "diff": "L17: `if (!raw.startsWith(\"/\") || raw.startsWith(\"//\")) return null` → `if (!raw.startsWith(\"/\") && raw.startsWith(\"//\")) return null`",
+    "capped": false,
+    "tests": 25
+  },
+  {
+    "id": "m09757",
+    "file": "src/lib/utils.ts",
+    "line": 26,
+    "op": "intconst",
+    "desc": "1 -> 2",
+    "diff": "L26: `const rawPathname = raw.split(/[?#]/, 1)[0]` → `const rawPathname = raw.split(/[?#]/, 2)[0]`",
+    "capped": false,
+    "tests": 25
+  }
+]

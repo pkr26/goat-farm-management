@@ -570,4 +570,95 @@ describe("AnimalProfilePage behaviour", () => {
       }
     });
   });
+it("accepts and rejects the sale facts at their exact caps", async () => {
+  const user = userEvent.setup();
+  await renderProfile();
+  const dialog = await openDialog(user, "Change status");
+
+  // SOLD exposes the sale facts; every value at its cap is legal.
+  await pickOption(user, within(dialog).getByLabelText(/new status/i), "SOLD");
+  setInput(within(dialog).getByLabelText(/sale price/i), "1000000000");
+  setInput(within(dialog).getByLabelText(/weight.*kg/i), "1000");
+  setInput(within(dialog).getByLabelText(/price per kg/i), "1000000000");
+  setInput(within(dialog).getByLabelText(/buyer/i), "b".repeat(120));
+  setInput(within(dialog).getByLabelText(/notes/i), "n".repeat(255));
+  await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
+  await waitFor(() => expect(statusBodies).toHaveLength(1));
+  expect(statusBodies[0]).toMatchObject({
+    sale_price: 1_000_000_000,
+    sale_weight_kg: 1000,
+    sale_price_per_kg: 1_000_000_000,
+  });
+});
+
+it("rejects each sale fact one unit past its cap, by name", async () => {
+  const user = userEvent.setup();
+  await renderProfile();
+  const dialog = await openDialog(user, "Change status");
+  await pickOption(user, within(dialog).getByLabelText(/new status/i), "SOLD");
+
+  setInput(within(dialog).getByLabelText(/sale price/i), "1000000001");
+  setInput(within(dialog).getByLabelText(/weight.*kg/i), "1001");
+  setInput(within(dialog).getByLabelText(/price per kg/i), "1000000001");
+  setInput(within(dialog).getByLabelText(/buyer/i), "b".repeat(121));
+  setInput(within(dialog).getByLabelText(/notes/i), "n".repeat(256));
+  await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
+  await waitFor(() =>
+    expect(within(dialog).getByText("Sale price cannot exceed ₹1,000,000,000")).toBeInTheDocument(),
+  );
+  expect(within(dialog).getByText("Weight must be at most 1000 kg")).toBeInTheDocument();
+  expect(
+    within(dialog).getByText("Price per kg cannot exceed ₹1,000,000,000"),
+  ).toBeInTheDocument();
+  expect(within(dialog).getByText("Buyer name cannot exceed 120 characters")).toBeInTheDocument();
+  expect(within(dialog).getByText("Notes cannot exceed 255 characters")).toBeInTheDocument();
+  expect(statusBodies).toHaveLength(0); // nothing left the dialog
+});
+
+it("caps mortality and necropsy text at their schema limits", async () => {
+  const user = userEvent.setup();
+  await renderProfile();
+  const dialog = await openDialog(user, "Change status");
+  await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
+
+  setInput(within(dialog).getByLabelText("Mortality cause"), "c".repeat(120));
+  await user.click(within(dialog).getByRole("checkbox", { name: /necropsy/i }));
+  setInput(within(dialog).getByLabelText(/necropsy findings/i), "f".repeat(4000));
+  await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
+  await waitFor(() => expect(statusBodies).toHaveLength(1));
+
+  // One past each cap stays in the dialog with the named errors.
+  const reopened = await openDialog(user, "Change status");
+  await pickOption(user, within(reopened).getByLabelText(/new status/i), "DEAD");
+  setInput(within(reopened).getByLabelText("Mortality cause"), "c".repeat(121));
+  await user.click(within(reopened).getByRole("checkbox", { name: /necropsy/i }));
+  setInput(within(reopened).getByLabelText(/necropsy findings/i), "f".repeat(4001));
+  await user.click(within(reopened).getByRole("button", { name: "Confirm" }));
+  expect(
+    await within(reopened).findByText("Mortality cause cannot exceed 120 characters"),
+  ).toBeInTheDocument();
+  expect(
+    within(reopened).getByText("Necropsy findings cannot exceed 4000 characters"),
+  ).toBeInTheDocument();
+  expect(statusBodies).toHaveLength(1);
+});
+
+it("weight-dialog notes cap at 255 characters", async () => {
+  const user = userEvent.setup();
+  await renderProfile();
+  const dialog = await openDialog(user, "Record weight");
+  const notes = within(dialog).getByLabelText(/notes/i) as HTMLTextAreaElement;
+  await user.type(notes, "n".repeat(256));
+  expect(notes.value.length).toBe(255);
+});
+
+it("move-dialog reason and clearance reference cap at 255 characters", async () => {
+  const user = userEvent.setup();
+  await renderProfile();
+  const dialog = await openDialog(user, "Move bucket");
+  const reason = within(dialog).getByLabelText(/reason/i) as HTMLTextAreaElement;
+  await user.type(reason, "r".repeat(256));
+  expect(reason.value.length).toBe(255);
+});
+
 });

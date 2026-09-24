@@ -296,6 +296,8 @@ TASK_CATEGORY_ROLE_MAP: dict[str, str] = {
     "INSURANCE": "ACCOUNTANT",
     # The daily trough round is the feed crew's work, like the feed routine.
     "WATER": "FEEDER",
+    # Monthly anemia scoring is a clinical eye on every animal.
+    "FAMACHA": "VET",
 }
 
 
@@ -359,4 +361,5 @@ TASK_CATEGORY_ACTION_PERMISSIONS: dict[str, frozenset[str]] = {
     "BUCK_ROTATION": frozenset(),
     "INSURANCE": frozenset(),
     "WATER": frozenset(),
+    "FAMACHA": frozenset(),
 }

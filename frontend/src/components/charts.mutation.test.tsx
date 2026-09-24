@@ -349,3 +349,119 @@ describe("Histogram geometry", () => {
     expect(container.querySelectorAll("svg > line")).toHaveLength(0);
   });
 });
+
+/** Mutation-hardening round 2 (2026-09-23 campaign): pins the boundary
+ *  constants that survived round 1 — the total>0 gate at exactly 1, the
+ *  maxCount floor of 1 (both against small and all-zero data), the
+ *  single-bin slot (vs the zero-bin fallback), the 2px bar-width floor,
+ *  marker stroke styling, and bar opacity. */
+describe("Histogram boundary constants", () => {
+  it("scales a count-1 bin against the maxCount floor of exactly 1", () => {
+    const { container } = render(
+      <Histogram bins={[{ label: "a", value: 1 }]} height={200} />,
+    );
+    const rect = container.querySelector("rect")!;
+    expect(rect).not.toBeNull();
+    // slot = (560 - 12) / 1 = 548; barWidth = 548 * 0.8 = 438.4;
+    // h = (1 / max(1, 1)) * (200 - 6) = 194; y = 200 - 6 - 194 = 0.
+    expect(attrNum(rect, "height")).toBeCloseTo(194, 6);
+    expect(attrNum(rect, "y")).toBeCloseTo(0, 6);
+    expect(attrNum(rect, "width")).toBeCloseTo(438.4, 6);
+    expect(attrNum(rect, "x")).toBeCloseTo(6 + (548 - 438.4) / 2, 6);
+  });
+
+  it("renders all-zero bins as zero-height bars, never NaN", () => {
+    const { container } = render(
+      <Histogram bins={[{ label: "a", value: 0 }, { label: "b", value: 0 }]} height={100} />,
+    );
+    const rects = Array.from(container.querySelectorAll("rect"));
+    expect(rects).toHaveLength(2);
+    for (const rect of rects) {
+      expect(Number(rect.getAttribute("height"))).toBe(0);
+      expect(Number.isNaN(Number(rect.getAttribute("y")))).toBe(false);
+    }
+  });
+
+  it("floors the bar width at 2 px when bins crowd the axis", () => {
+    const { container } = render(
+      <Histogram
+        bins={Array.from({ length: 400 }, (_, i) => ({ label: `b${i}`, value: 1 }))}
+        height={100}
+      />,
+    );
+    // slot = 548 / 400 = 1.37 → 1.37 * 0.8 < 2 → clamped to 2.
+    const rect = container.querySelector("rect")!;
+    expect(attrNum(rect, "width")).toBeCloseTo(2, 6);
+  });
+
+  it("styles weak and strong markers exactly", () => {
+    const { container } = render(
+      <Histogram
+        bins={[{ label: "a", value: 3 }]}
+        domain={[0, 10]}
+        markers={[
+          { label: "avg", value: 5 },
+          { label: "target", value: 8, strong: true },
+        ]}
+        height={100}
+      />,
+    );
+    const lines = Array.from(container.querySelectorAll("line"));
+    expect(lines).toHaveLength(2);
+    const [weak, strong] = lines;
+    expect(attrNum(weak, "stroke-opacity")).toBeCloseTo(0.45, 6);
+    expect(attrNum(weak, "stroke-width")).toBeCloseTo(1, 6);
+    expect(weak.getAttribute("stroke-dasharray")).toBe("4 3");
+    expect(attrNum(strong, "stroke-opacity")).toBeCloseTo(0.75, 6);
+    expect(attrNum(strong, "stroke-width")).toBeCloseTo(1.5, 6);
+    expect(strong.getAttribute("stroke-dasharray")).toBeNull();
+    // Marker titles prefer the display spelling and fall back to the value.
+    expect(weak.querySelector("title")?.textContent).toBe("avg: 5");
+    expect(strong.querySelector("title")?.textContent).toBe("target: 8");
+  });
+
+  it("bars render at opacity 0.85", () => {
+    const { container } = render(<Histogram bins={[{ label: "a", value: 2 }]} />);
+    expect(attrNum(container.querySelector("rect"), "opacity")).toBeCloseTo(0.85, 6);
+  });
+
+  it("an empty histogram keeps the zero-bin fallback aria and no bars", () => {
+    const { container } = render(<Histogram bins={[]} aria-label="" />);
+    const svg = container.querySelector("svg")!;
+    // ariaLabel "" must NOT shadow the computed fallback… the fallback is the
+    // empty-distribution summary.
+    expect(svg.getAttribute("aria-label")).toBe("Distribution: ");
+    expect(container.querySelector("rect")).toBeNull();
+  });
+});
+
+describe("Donut boundary constants", () => {
+  it("renders a single count-1 slice (total exactly 1)", () => {
+    const { container } = render(
+      <Donut slices={[{ label: "Only", value: 1 }]} />,
+    );
+    const segments = donutSegments(container);
+    expect(segments).toHaveLength(1);
+    const svg = container.querySelector("svg")!;
+    expect(svg.getAttribute("aria-label")).toBe("Distribution: Only 1");
+  });
+
+  it("an all-zero donut says No data and renders no slices", () => {
+    const { container } = render(
+      <Donut slices={[{ label: "A", value: 0 }, { label: "B", value: 0 }]} />,
+    );
+    const svg = container.querySelector("svg")!;
+    expect(svg.getAttribute("aria-label")).toBe("No data");
+    // Only the muted background ring, no palette segments.
+    expect(donutSegments(container)).toHaveLength(0);
+  });
+});
+
+describe("Donut default size", () => {
+  it("defaults the svg to exactly 148 px", () => {
+    const { container } = render(<Donut slices={[{ label: "A", value: 1 }]} />);
+    const svg = container.querySelector("svg")!;
+    expect(svg.getAttribute("width")).toBe("148");
+    expect(svg.getAttribute("height")).toBe("148");
+  });
+});

@@ -35,8 +35,8 @@ KIDDING_LOCK_ORDER = "e7f9a1b3c5d8"
 # (cad1e2f3a4b5) made the previous pinned head stale, breaking every
 # upgrade-HEAD + alembic-check assertion in this suite.
 HEAD = (
-    # screening_images bigint (chain tail: housekeeping -> movement alert)
-    "b9d1f3a5c7e9"
+    # FAMACHA duty category (chain tail: screening_images bigint -> famacha)
+    "c3d4e5f6a7b8"
 )
 SCREENING_CONTENT_CLAIMS_PARENT = "b7e8f9a0c1d2"
 SCREENING_CONTENT_CLAIMS = "f7a9c1e3b5d7"

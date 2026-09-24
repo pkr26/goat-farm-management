@@ -285,6 +285,21 @@ async def create_kidding(
             raise HTTPException(
                 status_code=400, detail="Kidding date cannot be before the breeding date"
             )
+        # Defense-in-depth (2026-09-23 verification): the breeding service's
+        # chronology fence keeps a service from predating the dam's birth, so
+        # a legal kidding cannot predate it either. A legacy/imported row
+        # whose DOB was edited after the fact must not be deliverable
+        # "before the dam was born" — the kid rows copy the kidding date as
+        # their own DOB, so the corruption would propagate into lineage.
+        doe_dob = br.doe.effective_dob
+        if doe_dob is not None and payload.date < doe_dob:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Kidding date cannot be before the dam's recorded birth date "
+                    f"({doe_dob.isoformat()})"
+                ),
+            )
 
         kids: list[KidSpec] = []
         explicit_tags: list[str] = []  # user-set tags; blank stays auto-generated

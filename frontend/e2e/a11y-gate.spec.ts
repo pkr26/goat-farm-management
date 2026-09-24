@@ -17,13 +17,14 @@ const PAGES = [
   "/worker",
   "/login",
   "/worker/login",
+  "/screening", // 2026-09-23 verification: the review queue is a worker-facing page too
 ];
 
 test.describe("a11y gate", () => {
   for (const path of PAGES) {
     test(`${path} has no serious accessibility violations`, async ({ page }) => {
       test.setTimeout(60_000);
-      if (path === "/dashboard" || path === "/tasks" || path === "/worker") {
+      if (["/dashboard", "/tasks", "/worker", "/screening"].includes(path)) {
         await signIn(page);
       }
       if (path === "/worker/login") {

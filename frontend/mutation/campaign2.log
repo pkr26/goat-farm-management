@@ -1,0 +1,6 @@
+mutants: 9763 total, 991 already done/skipped, running 8772 with 10 workers
+[25/8738] 0.03/s eta 4182.7min {"TIMEOUT":25} rounds={"1":25}
+[50/8713] 0.07/s eta 2089.8min {"TIMEOUT":30,"KILLED":12,"NO_COVERAGE":7,"SURVIVED":1} rounds={"1":42,"2":1}
+[75/8688] 0.10/s eta 1429.8min {"TIMEOUT":30,"KILLED":36,"NO_COVERAGE":8,"SURVIVED":1} rounds={"1":58,"2":9}
+[100/8663] 0.13/s eta 1078.2min {"TIMEOUT":30,"KILLED":57,"NO_COVERAGE":12,"SURVIVED":1} rounds={"1":74,"2":14}
+[125/8638] 0.14/s eta 1014.8min {"TIMEOUT":30,"KILLED":77,"NO_COVERAGE":16,"SURVIVED":2} rounds={"1":94,"2":14,"3":1}

@@ -136,3 +136,31 @@ describe("buildContentSecurityPolicy", () => {
     expect(policy).not.toContain("csv.test");
   });
 });
+
+/** Mutation-hardening (2026-09-23 campaign): the port window is exactly
+ *  1–65535 (integer), and embedded credentials invalidate an origin even
+ *  when only one half is present. */
+describe("origin port and credential boundaries", () => {
+  it("accepts ports 1 and 65535, rejects 0, 65536, and non-integers", () => {
+    expect(parseCspOrigins("https://edge.example.test:1")).toEqual([
+      "https://edge.example.test:1",
+    ]);
+    expect(parseCspOrigins("https://edge.example.test:65535")).toEqual([
+      "https://edge.example.test:65535",
+    ]);
+    expect(parseCspOrigins("https://edge.example.test:0")).toEqual([]);
+    expect(parseCspOrigins("https://edge.example.test:65536")).toEqual([]);
+    // URL normalizes the port to a number, so a leading-zero spelling is the
+    // same integer — the interesting non-integer case cannot be spelled in a
+    // URL; the integer check stays as defense for exotic parsers.
+    expect(parseCspOrigins("https://edge.example.test:0443")).toEqual([
+      "https://edge.example.test:0443",
+    ]);
+  });
+
+  it("rejects origins carrying any credentials", () => {
+    expect(parseCspOrigins("https://user:pass@edge.example.test")).toEqual([]);
+    expect(parseCspOrigins("https://user@edge.example.test")).toEqual([]);
+    expect(parseCspOrigins("https://:pass@edge.example.test")).toEqual([]);
+  });
+});
