@@ -31,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import { DiseaseCheckDialog } from "@/components/screening-check-dialog";
 import { formatDate } from "@/lib/format";
 import { useT, type TFn } from "@/lib/i18n";
+import { mapServerError } from "@/lib/server-error-phrases";
 import { ApiError } from "@/lib/api-client";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { MAX_PAGE_OFFSET, useUrlState } from "@/lib/use-url-state";
@@ -256,13 +257,13 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
               <thead>
                 <tr>
                   <th>{t("screening.stats.provider")}</th>
-                  <th>{t("screening.stats.gateRuns")}</th>
-                  <th>{t("screening.stats.flagRate")}</th>
-                  <th>{t("screening.stats.errors")}</th>
-                  <th>{t("screening.stats.latency")}</th>
-                  <th>{t("screening.stats.agreement")}</th>
-                  <th>{t("screening.stats.confirmed")}</th>
-                  <th>{t("screening.stats.rejected")}</th>
+                  <th className="text-right">{t("screening.stats.gateRuns")}</th>
+                  <th className="text-right">{t("screening.stats.flagRate")}</th>
+                  <th className="text-right">{t("screening.stats.errors")}</th>
+                  <th className="text-right">{t("screening.stats.latency")}</th>
+                  <th className="text-right">{t("screening.stats.agreement")}</th>
+                  <th className="text-right">{t("screening.stats.confirmed")}</th>
+                  <th className="text-right">{t("screening.stats.rejected")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -280,17 +281,17 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                       <td>
                         {row.provider} <span className="text-muted-foreground">· {row.model}</span>
                       </td>
-                      <td>{row.gate_runs}</td>
-                      <td>{flagRate}</td>
-                      <td>{row.gate_errors}</td>
-                      <td>
+                      <td className="table-numeric text-right">{row.gate_runs}</td>
+                      <td className="table-numeric text-right">{flagRate}</td>
+                      <td className="table-numeric text-right">{row.gate_errors}</td>
+                      <td className="table-numeric text-right">
                         {row.avg_gate_latency_ms === null
                           ? "—"
                           : `${(row.avg_gate_latency_ms / 1000).toFixed(1)}s`}
                       </td>
-                      <td>{agreement}</td>
-                      <td>{row.findings_confirmed}</td>
-                      <td>{row.findings_rejected}</td>
+                      <td className="table-numeric text-right">{agreement}</td>
+                      <td className="table-numeric text-right">{row.findings_confirmed}</td>
+                      <td className="table-numeric text-right">{row.findings_rejected}</td>
                     </tr>
                   );
                 })}
@@ -324,7 +325,12 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
             <div role="alert" className="space-y-3">
               <p className="text-sm text-destructive">
                 {detailQuery.error instanceof ApiError
-                  ? detailQuery.error.detail
+                  ? mapServerError(
+                      t,
+                      detailQuery.error.detail,
+                      detailQuery.error.status,
+                      detailQuery.error.code,
+                    )
                   : t("common.somethingWentWrong")}
               </p>
               <Button
@@ -560,7 +566,7 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                       <th>{t("screening.table.status")}</th>
                       <th>{t("screening.table.date")}</th>
                       <th className="hidden md:table-cell">{t("screening.table.photo")}</th>
-                      <th>{t("screening.table.findings")}</th>
+                      <th className="text-right">{t("screening.table.findings")}</th>
                       <th className="hidden lg:table-cell">{t("screening.table.model")}</th>
                     </tr>
                   </thead>
@@ -597,7 +603,7 @@ function ScreeningPageContent({ perms }: { perms: PermissionsState }) {
                         <td className="hidden max-w-[240px] truncate text-muted-foreground md:table-cell">
                           {row.s3_key}
                         </td>
-                        <td>
+                        <td className="table-numeric text-right">
                           {(row.pending_findings ?? 0) > 0 ? (
                             <Badge variant="destructive">{row.pending_findings ?? 0}</Badge>
                           ) : (

@@ -2,17 +2,26 @@
 
 Every delivery passes through, in order:
 
-1. quiet-hours placeholder cleanup — a SKIPPED_QUIET row holds the day's
-   dedupe slot only until the window opens, so it is deleted on re-entry;
-2. the dedupe CLAIM — ``INSERT ... ON CONFLICT DO NOTHING`` on
-   (farm, recipient, class, payload, local day) BEFORE any send, so two
-   concurrent sessions can never both send the same paid SMS (2026-09-28
-   audit, N2); a loser blocks on the winner's uncommitted claim, then reads
-   the settled row once it commits;
-3. quiet hours (farm-local) — inside the window the claim settles as
-   SKIPPED_QUIET, never sent (an alert is same-day information);
-4. the per-farm daily cap — every status write flushes immediately, so one
-   fan-out batch cannot outrun the cap (2026-09-28 audit, N1);
+1. quiet hours (farm-local) — inside the window, a first touch CLAIMS the
+   slot and settles it as SKIPPED_QUIET, never sent (an alert is same-day
+   information); a repeat touch inside the same window reads the existing
+   placeholder back instead of delete/claim/settling it again, so a digest
+   minute inside the quiet window cannot churn writes all night
+   (2026-09-29 audit);
+2. placeholder cleanup — once the window has OPENED, the SKIPPED_QUIET row
+   holds the day's dedupe slot no longer and is deleted on re-entry;
+3. the dedupe CLAIM — ``INSERT ... ON CONFLICT DO NOTHING`` on
+   (farm, recipient, class, payload, local day) BEFORE any send, COMMITTED
+   before the send (2026-09-28 audit, N2; 2026-09-29 durability pass): the
+   claim is durable and visible to every other session, so two concurrent
+   sessions can never both send the same paid SMS, and a crash mid-fan-out
+   can no longer roll back earlier recipients' settled rows for a next-tick
+   re-send — each recipient's outcome commits before the next begins. A
+   loser reads the winner's row, waiting out an in-flight SENDING so both
+   callers learn the settled outcome;
+4. the per-farm daily cap — counts every claimed-or-settled row (SENDING
+   claims are committed before any send, so the count is exact for this
+   session AND for any concurrent one — 2026-09-28 audit, N1);
 5. the provider send — the outcome lands in the log either way.
 
 A claim left in SENDING by a crash settles the slot for the day without a
@@ -21,7 +30,9 @@ missed alert for that fact that day.
 
 The daily digest aggregates each worker's duties due today (``task_scope``)
 into one SMS per opted-in recipient; alert callers pass a stable ``payload``
-whose hash IS the dedupe identity (e.g. "finding:42:CONFIRMED").
+whose hash IS the dedupe identity (e.g. "finding:42:CONFIRMED"). A recipient
+whose membership is inactive gets NO digest at all — not even a "no duties"
+SMS (2026-09-29 audit).
 """
 
 from __future__ import annotations
@@ -80,10 +91,10 @@ def _in_quiet_hours(settings: Settings, now_local: datetime) -> bool:
 async def _farm_send_count_today(
     db: AsyncSession, farm_id: int, local_date: date, excluding_id: int
 ) -> int:
-    # In-flight SENDING claims from OTHER sessions count too (they are about
-    # to settle as SENT/FAILED) — conservative for the money cap; the caller's
-    # own fresh claim is excluded. In-session rows are visible because every
-    # settle flushes (2026-09-28 audit, N1).
+    # Exact at read time: claims are COMMITTED before any send (see
+    # send_notification), so SENDING rows are visible to every session —
+    # this one and any concurrent loop — and settled rows are durable. The
+    # caller's own fresh claim is excluded (it is about to settle).
     return int(
         (
             await db.execute(
@@ -98,6 +109,31 @@ async def _farm_send_count_today(
             )
         ).scalar_one()
     )
+
+
+async def _wait_for_claim_to_settle(db: AsyncSession, log_id: int, settings: Settings) -> str:
+    """The dedupe loser's view of the winner's row. A concurrent winner may
+    have committed its CLAIM but not yet its settle; poll the settled status
+    for at most the winner's worst-case send budget (retries + backoff plus
+    slack) so both callers learn the delivery outcome. A claim still in
+    SENDING after the bound means the winner died mid-send — the slot is
+    settled for the day and the caller reports the skip."""
+    attempts = max(1, settings.notifications_send_retry_attempts)
+    backoff = settings.notifications_send_retry_backoff_seconds
+    deadline = asyncio.get_running_loop().time() + 5.0 + attempts * (attempts + 1) * backoff
+    while True:
+        row = (
+            await db.execute(
+                select(NotificationLog)
+                .where(NotificationLog.id == log_id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
+        if row.status != "SENDING":
+            return row.status
+        if asyncio.get_running_loop().time() >= deadline:
+            return row.status
+        await asyncio.sleep(0.1)
 
 
 async def _send_with_retry(
@@ -151,6 +187,72 @@ async def send_notification(
     now = now_local or datetime.now(ZoneInfo(farm.timezone))
     local_date = now.date()
     digest = payload_hash(f"{alert_class}:{payload}")
+    fact_filter = (
+        NotificationLog.farm_id == farm.id,
+        NotificationLog.recipient_id == recipient.id,
+        NotificationLog.alert_class == alert_class,
+        NotificationLog.payload_hash == digest,
+        NotificationLog.local_date == local_date,
+    )
+
+    async def _claim() -> int | None:
+        """INSERT ... ON CONFLICT DO NOTHING claim of the day-dedupe slot.
+        The claim runs BEFORE any send (2026-09-28 audit, N2) and its caller
+        commits it before the send: the ON CONFLICT arbitration makes exactly
+        one session the sender, durably."""
+        return (
+            await db.execute(
+                pg_insert(NotificationLog)
+                .values(
+                    farm_id=farm.id,
+                    recipient_id=recipient.id,
+                    alert_class=alert_class,
+                    payload_hash=digest,
+                    local_date=local_date,
+                    status="SENDING",
+                )
+                .on_conflict_do_nothing(constraint="uq_notification_log_day_dedupe")
+                .returning(NotificationLog.id)
+            )
+        ).scalar_one_or_none()
+
+    async def _current_row() -> NotificationLog:
+        return (
+            await db.execute(
+                select(NotificationLog)
+                .where(*fact_filter)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
+
+    if _in_quiet_hours(settings, now):
+        # First touch inside the window claims the slot and settles the
+        # SKIPPED_QUIET placeholder; a repeat touch reads it back WITHOUT
+        # delete/claim/settle — a digest minute inside the quiet window used
+        # to rewrite the placeholder every minute-tick all night
+        # (2026-09-29 audit).
+        existing = (
+            await db.execute(
+                select(NotificationLog).where(
+                    *fact_filter, NotificationLog.status == "SKIPPED_QUIET"
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            return SendOutcome(status="SKIPPED_QUIET", fresh=False)
+        claimed_id = await _claim()
+        if claimed_id is None:
+            return SendOutcome(
+                status=await _wait_for_claim_to_settle(db, (await _current_row()).id, settings),
+                fresh=False,
+            )
+        log = await db.get(NotificationLog, claimed_id)
+        if log is None:  # pragma: no cover — the row this loop just inserted
+            raise RuntimeError("claimed notification row vanished before settle")
+        log.status = "SKIPPED_QUIET"
+        log.error = "quiet hours"
+        await db.commit()
+        return SendOutcome(status="SKIPPED_QUIET", fresh=True)
 
     # Dedupe: a settled attempt (SENT/FAILED/SKIPPED_CAP) for the same fact
     # today means somebody already handled it. A quiet-hours skip is NOT a
@@ -160,11 +262,7 @@ async def send_notification(
         CursorResult[Any],
         await db.execute(
             delete(NotificationLog).where(
-                NotificationLog.farm_id == farm.id,
-                NotificationLog.recipient_id == recipient.id,
-                NotificationLog.alert_class == alert_class,
-                NotificationLog.payload_hash == digest,
-                NotificationLog.local_date == local_date,
+                *fact_filter,
                 NotificationLog.status == "SKIPPED_QUIET",
             )
         ),
@@ -172,44 +270,23 @@ async def send_notification(
     if quiet_placeholder.rowcount:
         await db.flush()
 
-    # Claim the dedupe slot BEFORE any send (2026-09-28 audit, N2). The old
-    # check-then-insert probe let two concurrent sessions both pass and both
-    # send the SMS; the loser's commit then raised IntegrityError, aborting
-    # the digest batch AFTER earlier recipients' SMSs had gone out, and the
-    # rolled-back rows re-sent on the next tick. ON CONFLICT arbitration makes
-    # exactly one session the sender.
-    claimed_id = (
-        await db.execute(
-            pg_insert(NotificationLog)
-            .values(
-                farm_id=farm.id,
-                recipient_id=recipient.id,
-                alert_class=alert_class,
-                payload_hash=digest,
-                local_date=local_date,
-                status="SENDING",
-            )
-            .on_conflict_do_nothing(constraint="uq_notification_log_day_dedupe")
-            .returning(NotificationLog.id)
-        )
-    ).scalar_one_or_none()
+    claimed_id = await _claim()
     if claimed_id is None:
-        settled_row = (
-            await db.execute(
-                select(NotificationLog).where(
-                    NotificationLog.farm_id == farm.id,
-                    NotificationLog.recipient_id == recipient.id,
-                    NotificationLog.alert_class == alert_class,
-                    NotificationLog.payload_hash == digest,
-                    NotificationLog.local_date == local_date,
-                )
-            )
-        ).scalar_one()
-        return SendOutcome(status=settled_row.status, fresh=False)
-
-    log = (
-        await db.execute(select(NotificationLog).where(NotificationLog.id == claimed_id))
-    ).scalar_one()
+        # Lost the race: the winner's row exists (or is being settled).
+        loser_row = await _current_row()
+        return SendOutcome(
+            status=await _wait_for_claim_to_settle(db, loser_row.id, settings),
+            fresh=False,
+        )
+    # Commit the claim BEFORE any send: the SENDING row becomes durable and
+    # farm-wide visible, so (a) a crash mid-send settles the slot without a
+    # delivery — the documented safe side for paid SMS — and (b) a crash
+    # mid-fan-out can never roll back earlier recipients' settled rows for a
+    # next-tick re-send (2026-09-29 audit).
+    await db.commit()
+    log = await db.get(NotificationLog, claimed_id)
+    if log is None:  # pragma: no cover — the row this loop just inserted
+        raise RuntimeError("claimed notification row vanished before settle")
 
     async def settle(
         status: str, message_id: str | None = None, error: str | None = None
@@ -219,14 +296,11 @@ async def send_notification(
         # Provider payloads can echo the recipient's number (MSG91); it never
         # belongs in the durable log.
         log.error = None if error is None else redact_phone_numbers(error)[:500]
-        # Flush EVERY status write so the per-farm daily cap sees this
-        # session's settled rows — the cap used to count only committed rows
-        # and was defeated inside a single fan-out batch (2026-09-28 audit, N1).
-        await db.flush()
+        # Commit EVERY status write so the outcome is durable before the next
+        # recipient begins and the per-farm daily cap is exact across
+        # sessions (2026-09-28 audit, N1; 2026-09-29 durability pass).
+        await db.commit()
         return SendOutcome(status=status, fresh=True)
-
-    if _in_quiet_hours(settings, now):
-        return await settle("SKIPPED_QUIET", error="quiet hours")
 
     sent_today = await _farm_send_count_today(db, farm.id, local_date, log.id)
     if sent_today >= settings.notifications_farm_daily_cap:
@@ -256,8 +330,13 @@ class DigestSummary:
 
 async def _digest_text_for_recipient(
     db: AsyncSession, farm: Farm, recipient: NotificationRecipient, reference: date
-) -> str:
-    """Duties due today for THIS recipient's worker, scoped like the board."""
+) -> str | None:
+    """Duties due today for THIS recipient's worker, scoped like the board.
+
+    None means "do not send at all" — an inactive membership (deactivated
+    worker, tombstoned account) gets NO digest SMS, not even a "no duties"
+    one: spending daily-cap budget on a deactivated worker is pure cost
+    (2026-09-29 audit)."""
     from ...models import FarmMembership, User
     from ...services.tasks import task_scope  # local import: avoids cycle at module load
 
@@ -274,7 +353,7 @@ async def _digest_text_for_recipient(
         )
     ).first()
     if row is None:
-        return f"Herdly {reference.isoformat()}: no duties (inactive)."
+        return None
     _membership, user = row
     scoped = (await task_scope(db, farm, user)).where(
         Task.status == TaskStatus.PENDING.value,
@@ -334,6 +413,10 @@ async def run_digest_for_farm(
     sent = skipped = 0
     for recipient in recipients:
         message = await _digest_text_for_recipient(db, farm, recipient, reference)
+        if message is None:
+            # Inactive membership: no SMS at all (2026-09-29 audit).
+            skipped += 1
+            continue
         outcome = await send_notification(
             db,
             settings,
@@ -364,37 +447,55 @@ async def farms_ready_for_digest(
     was jumped over would otherwise get no digest that day). The once-per-day
     guard is the log's day dedupe: a farm with a settled DAILY_DIGEST row for
     its local today is done. Quiet-hours placeholders (SKIPPED_QUIET) do not
-    settle the day — the digest fires once the window opens."""
-    results: list[Farm] = []
-    farms = list(
+    settle the day — the digest fires once the window opens.
+
+    Readiness and the settled-check run in SQL BEFORE the batch limit, so a
+    farm that is already done never consumes a batch slot: with more farms
+    than ``notifications_loop_batch_size``, the first page can no longer
+    permanently starve every farm after it (2026-09-29 audit). The limit
+    bounds ready digest FAN-OUT per tick, not the scan.
+    """
+    from sqlalchemy import and_, literal
+    from sqlalchemy.types import Date as SqlDate
+    from sqlalchemy.types import DateTime
+
+    # now_utc AT TIME ZONE farm.timezone → the farm's local wall clock (a
+    # naive timestamp), evaluated per row.
+    local_now = (
+        literal(now_utc)
+        .cast(DateTime(timezone=True))
+        .op("AT TIME ZONE", return_type=DateTime())(Farm.timezone)
+    )
+    local_date = func.cast(local_now, SqlDate)
+    minutes_of_day = func.extract("hour", local_now) * 60 + func.extract("minute", local_now)
+    digest_minute_of_day = (
+        settings.notifications_digest_hour * 60 + settings.notifications_digest_minute
+    )
+    settled_today = (
+        select(NotificationLog.id)
+        .where(
+            NotificationLog.farm_id == Farm.id,
+            NotificationLog.alert_class == "DAILY_DIGEST",
+            NotificationLog.local_date == local_date,
+            NotificationLog.status != "SKIPPED_QUIET",
+        )
+        .exists()
+    )
+    return list(
         (
             await db.execute(
-                select(Farm).order_by(Farm.id).limit(settings.notifications_loop_batch_size)
+                select(Farm)
+                .where(
+                    and_(
+                        minutes_of_day >= digest_minute_of_day,
+                        ~settled_today,
+                    )
+                )
+                .order_by(Farm.id)
+                .limit(settings.notifications_loop_batch_size)
             )
         ).scalars()
     )
-    for farm in farms:
-        local = now_utc.astimezone(ZoneInfo(farm.timezone))
-        if (local.hour, local.minute) < (
-            settings.notifications_digest_hour,
-            settings.notifications_digest_minute,
-        ):
-            continue
-        settled = (
-            await db.execute(
-                select(NotificationLog.id)
-                .where(
-                    NotificationLog.farm_id == farm.id,
-                    NotificationLog.alert_class == "DAILY_DIGEST",
-                    NotificationLog.local_date == local.date(),
-                    NotificationLog.status != "SKIPPED_QUIET",
-                )
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-        if settled is None:
-            results.append(farm)
-    return results
 
 
 # --- same-day alerts ---------------------------------------------------------

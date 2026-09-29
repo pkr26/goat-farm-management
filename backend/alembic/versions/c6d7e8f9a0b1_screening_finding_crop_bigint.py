@@ -1,7 +1,7 @@
 """screening run/crop FK columns int4 -> bigint (2026-09-28 audit, D1 part 2)
 
 Revision ID: c6d7e8f9a0b1
-Revises: b5c6d7e8f9a0
+Revises: f3a4b5c6d7e8
 Create Date: 2026-09-28 00:00:00.000000+00:00
 
 ``e2f3a4b5c6d8`` widened the three ``image_id`` columns after the screening
@@ -13,6 +13,17 @@ the PK widenings call "a live constraint" — every finding/crop-linked
 insert dies with ``integer out of range``. Same fix, same reason, while the
 tables are small. The composite tenant FKs stay valid across the retype
 (bigint now references bigint), so no constraint rebuild is needed.
+
+2026-09-29 reorder (2026-09-28 audit follow-up, D6 deploy-window finding):
+this revision originally ran AFTER a4b5c6d7e8f9 built its three
+CONCURRENTLY indexes on these very columns — the int4→int8 ALTER then
+force-rewrote both tables and rebuilt every one of those indexes under
+ACCESS EXCLUSIVE, nullifying the concurrent builds and lengthening the
+exclusive-lock window. The chain now widens FIRST and builds the indexes
+on the final int8 columns once. Databases already past a4b5c6d7e8f9 on
+the OLD order need no re-run (the end state is identical); a database
+stamped between the two on the old order repairs its bookkeeping with
+``alembic stamp c6d7e8f9a0b1`` before upgrading.
 """
 
 from collections.abc import Sequence
@@ -22,7 +33,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "c6d7e8f9a0b1"
-down_revision: str | Sequence[str] | None = "b5c6d7e8f9a0"
+down_revision: str | Sequence[str] | None = "f3a4b5c6d7e8"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

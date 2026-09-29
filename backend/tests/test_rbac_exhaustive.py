@@ -27,6 +27,7 @@ import inspect
 import re
 from collections.abc import Iterator
 from functools import cache
+from typing import Any
 
 import httpx
 from fastapi.dependencies.models import Dependant
@@ -167,7 +168,7 @@ def _placeholders(path: str, farm_id: str) -> str:
     return _PATH_PARAM.sub(lambda match: farm_id if match.group() == "{farm_id}" else "99999", path)
 
 
-async def _make_zero_perm_worker(client: httpx.AsyncClient, farm_headers: dict) -> dict:
+async def _make_zero_perm_worker(client: httpx.AsyncClient, farm_headers: dict) -> dict[str, Any]:
     """A worker with a role that holds NONE of the declared permissions —
     every require_perm route must return 403 for this user."""
     role_resp = await client.post(

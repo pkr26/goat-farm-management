@@ -20,7 +20,12 @@ from ..models import (
 )
 from ..models.species import GOAT_PROFILE
 from ..schemas.breeding import BreedingRecordOut
-from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET
+from ..schemas.common import (
+    COMMON_ERROR_RESPONSES,
+    MAX_INT32_ID,
+    MAX_PAGE_OFFSET,
+    lifecycle_conflict,
+)
 from ..schemas.kidding import (
     KiddingCreateIn,
     KiddingEaseStr,
@@ -266,13 +271,13 @@ async def create_kidding(
         if br is None:  # pragma: no cover — the scalar pre-check found the row
             raise HTTPException(status_code=404, detail=NOT_FOUND)
         if br.kidding_record is not None:
-            raise HTTPException(status_code=409, detail=ALREADY_KIDDED)
+            raise lifecycle_conflict(detail=ALREADY_KIDDED)
         # A kidding only makes sense against an ultrasound-confirmed pregnancy —
         # a forged request against a PENDING/FAILED/ABORTED breeding is rejected.
         # 409 like ALREADY_KIDDED above: the breeding's lifecycle state, not the
         # request shape, is what refuses this (2026-09-28 audit, A3).
         if br.outcome != BreedingOutcome.CONFIRMED_PREGNANT.value:
-            raise HTTPException(status_code=409, detail="Kidding requires a confirmed pregnancy")
+            raise lifecycle_conflict(detail="Kidding requires a confirmed pregnancy")
         try:
             require_farm_not_future(payload.date, farm, "kidding date")
             for kid in payload.kids:
@@ -388,7 +393,7 @@ async def create_kidding(
         except ValueError as exc:
             # Every other ValueError here is a raced lifecycle state → conflict.
             await db.rollback()
-            raise HTTPException(status_code=409, detail=str(exc)) from None
+            raise lifecycle_conflict(detail=str(exc)) from None
         except IntegrityError as exc:
             # Two constraints can trip here: the breeding_record_id UNIQUE (a
             # double submit raced past the pre-check) or uq_animal_tag_per_farm
@@ -404,7 +409,7 @@ async def create_kidding(
                 raise HTTPException(
                     status_code=400, detail="A kid tag already exists in this farm"
                 ) from None
-            raise HTTPException(status_code=409, detail=ALREADY_KIDDED) from None
+            raise lifecycle_conflict(detail=ALREADY_KIDDED) from None
 
         # The service adds KidEntry rows without populating record.kids in memory —
         # re-fetch with eager loads for the response.

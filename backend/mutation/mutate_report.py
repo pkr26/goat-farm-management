@@ -10,6 +10,7 @@ from __future__ import annotations
 import collections
 import json
 from pathlib import Path
+from typing import Any
 
 BACKEND = Path(__file__).resolve().parent.parent
 MUTDIR = BACKEND / "mutation"
@@ -29,7 +30,7 @@ def main() -> None:
     survived = [r for r in ran if r["status"] == "SURVIVED"]
     errors = [r for r in ran if r["status"] == "RUN_ERROR"]
 
-    def score(rs) -> str:
+    def score(rs: list[dict[str, Any]]) -> str:
         if not rs:
             return "n/a"
         return (

@@ -4,6 +4,8 @@ The backward-plan payloads anchor ``meta.start_year_month`` explicitly so the
 calendar math is deterministic regardless of when the suite runs.
 """
 
+from typing import Any
+
 import httpx
 import pytest
 from sqlalchemy import text
@@ -19,7 +21,7 @@ START = "2026-01"
 
 async def worker_headers(
     client: httpx.AsyncClient, owner: dict, permissions: list[str], email: str
-) -> dict:
+) -> dict[str, Any]:
     """Worker with a custom role holding exactly `permissions`, on owner's farm."""
     resp = await client.post(
         "/api/team/roles", json={"name": f"Role {email}", "permissions": permissions}, headers=owner
@@ -36,13 +38,13 @@ async def worker_headers(
     return headers | {"X-Farm-Id": owner["X-Farm-Id"]}
 
 
-async def default_assumptions(client: httpx.AsyncClient, headers: dict) -> dict:
+async def default_assumptions(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
     resp = await client.get("/api/simulation/defaults", headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
 
 
-def _plan_document(assumptions: dict, targets: list[dict], **extra: object) -> dict:
+def _plan_document(assumptions: dict, targets: list[dict], **extra: object) -> dict[str, Any]:
     assumptions = {
         **assumptions,
         "meta": {**assumptions.get("meta", {}), "start_year_month": START},
@@ -211,7 +213,7 @@ async def test_planner_rbac(client: httpx.AsyncClient) -> None:
 # ---------------------------------------------------------------------------
 async def _create_plan(
     client: httpx.AsyncClient, headers: dict, name: str, assumptions: dict
-) -> dict:
+) -> dict[str, Any]:
     resp = await client.post(
         "/api/planner/plans",
         json={
@@ -293,6 +295,9 @@ async def test_planner_plan_crud(client: httpx.AsyncClient) -> None:
         headers=headers,
     )
     assert stale_delete.status_code == 409, stale_delete.text
+    # Optimistic-concurrency 409s carry the stale-state family code
+    # (2026-09-29, RFC 9457-style).
+    assert stale_delete.json()["code"] == "STALE_STATE_CONFLICT"
 
     deleted = await client.delete(
         f"/api/planner/plans/{created['id']}",

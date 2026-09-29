@@ -13,6 +13,7 @@
 import { LogOut, WifiOff } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
@@ -116,17 +117,26 @@ export function WorkerShell({ children }: { children: ReactNode }) {
       user !== null && farmId !== null
         ? { actorScope: String(user.id), farmScope: String(farmId) }
         : null;
-    const stop = startOfflineQueueWorkers(scopes);
+    const stop = startOfflineQueueWorkers(scopes, (rejected) => {
+      // A drain settled records the server definitively refused: the duties
+      // stay PENDING and reappear on the board, but the recorded
+      // completions are gone — say so instead of dropping them silently
+      // (2026-09-29 audit).
+      toast.error(t("worker.offlineRejected", { count: rejected }));
+    });
     const tick = window.setInterval(() => setDepth(offlineQueueDepth()), 1500);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- the badge must reflect the queue depth this session inherited, not wait 1.5s
     setDepth(offlineQueueDepth());
-    // Arriving online with a queue: drain immediately.
-    void drainOfflineQueue(scopes() ?? { actorScope: "", farmScope: "" });
+    // Arriving online with a queue: drain immediately. The effect's guard
+    // makes scopes() non-null here; the callback form keeps that coupling
+    // visible instead of a dead empty-scope fallback (2026-09-29 audit).
+    const initialScopes = scopes();
+    if (initialScopes !== null) void drainOfflineQueue(initialScopes);
     return () => {
       stop();
       window.clearInterval(tick);
     };
-  }, [user, farmId]);
+  }, [user, farmId, t]);
 
   // Session gates: mirror the app shell's, aimed at the worker surface.
   // PIN-only workers hold no password, so a signed-out session belongs on the

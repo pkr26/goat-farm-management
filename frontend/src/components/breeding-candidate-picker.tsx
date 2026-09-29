@@ -12,6 +12,7 @@ import {
   type RemotePickerPage,
 } from "@/components/remote-picker";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
+import { useT } from "@/lib/i18n";
 
 interface BreedingCandidatePickerProps {
   id: string;
@@ -63,6 +64,7 @@ export function BreedingCandidatePicker({
   "aria-invalid": ariaInvalid,
   "aria-describedby": ariaDescribedBy,
 }: BreedingCandidatePickerProps) {
+  const t = useT();
   // Species nouns keep the goat vocabulary in one place.
   const vocabulary = farmVocabulary;
   const kindNoun =
@@ -94,12 +96,12 @@ export function BreedingCandidatePicker({
       selectedOption={selectedOption}
       placeholder={placeholder}
       dialogTitle={dialogTitle}
-      dialogDescription="Search eligible animals by tag or name. Results are loaded in pages."
-      searchLabel="Search breeding candidates"
-      searchPlaceholder="Search tag or name…"
+      dialogDescription={t("picker.candidates.description")}
+      searchLabel={t("picker.candidates.searchLabel")}
+      searchPlaceholder={t("picker.candidates.searchPlaceholder")}
       searchMaxLength={60}
-      emptyMessage={`No eligible ${kindNoun} match this search.`}
-      noEligibleYetMessage="No listed eligible animals in the records checked yet. Load more to continue."
+      emptyMessage={t("picker.candidates.emptyMessage", { kind: kindNoun })}
+      noEligibleYetMessage={t("picker.candidates.noEligibleYet")}
       sourcePath="/api/breeding/candidates"
       cacheKey={["breeding-candidate-picker", kind]}
       loadPage={loadPage}

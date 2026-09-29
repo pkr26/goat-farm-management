@@ -322,7 +322,7 @@ function MixBatchDialog({
         if (!farmScope()) return;
         // Insufficient stock comes back as a 400 with the shortage detail — show it in the dialog.
         if (err instanceof ApiError && err.status === 400) {
-          setShortage(err.detail);
+          setShortage(mapServerError(t, err.detail, err.status, err.code));
         } else {
           toast.error(mutationErrorMessage(err));
         }

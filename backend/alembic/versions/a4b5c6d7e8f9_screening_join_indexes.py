@@ -1,7 +1,7 @@
 """screening join and cascade-reverse indexes (2026-09-28 audit, D6)
 
 Revision ID: a4b5c6d7e8f9
-Revises: f3a4b5c6d7e8
+Revises: c6d7e8f9a0b1
 Create Date: 2026-09-28 00:00:00.000000+00:00
 
 The review list, image detail and dataset export all join
@@ -12,6 +12,11 @@ run_id)``; and the retention job's cascade-reverse probes need
 PostgreSQL cannot build these inside Alembic's transaction, and a killed
 concurrent build leaves a same-named *invalid* index that IF NOT EXISTS
 would silently keep, so each build removes that remnant first.
+
+2026-09-29 reorder: runs AFTER c6d7e8f9a0b1 widened run_id/crop_id to
+int8 — building on the final type means the ALTER never rewrites these
+indexes under ACCESS EXCLUSIVE (the deploy-window waste the original
+order caused; 2026-09-28 audit follow-up, D6).
 """
 
 from collections.abc import Sequence
@@ -21,7 +26,7 @@ from sqlalchemy import text
 from alembic import context, op
 
 revision: str = "a4b5c6d7e8f9"
-down_revision: str | Sequence[str] | None = "f3a4b5c6d7e8"
+down_revision: str | Sequence[str] | None = "c6d7e8f9a0b1"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

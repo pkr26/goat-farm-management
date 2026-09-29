@@ -17,6 +17,7 @@ booking as an ANIMAL_PURCHASE transaction.
 
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
+from typing import Any
 
 import httpx
 import pytest
@@ -45,7 +46,7 @@ async def make_animal(
     sex: str = "F",
     bucket: str = "FOUNDATION",
     **overrides: object,
-) -> dict:
+) -> dict[str, Any]:
     payload = {
         "tag_number": tag,
         "sex": sex,
@@ -59,8 +60,10 @@ async def make_animal(
     return resp.json()
 
 
-async def make_batch(client: httpx.AsyncClient, headers: dict, **overrides: object) -> dict:
-    payload: dict = {
+async def make_batch(
+    client: httpx.AsyncClient, headers: dict, **overrides: object
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "date": iso(today()),
         "supplier": "Kurnool Traders",
         "count": 3,
@@ -97,13 +100,13 @@ async def list_events(client: httpx.AsyncClient, headers: dict) -> list[dict]:
     return resp.json()["events"]
 
 
-async def get_schedule(client: httpx.AsyncClient, headers: dict, animal_id: int) -> dict:
+async def get_schedule(client: httpx.AsyncClient, headers: dict, animal_id: int) -> dict[str, Any]:
     resp = await client.get(f"/api/health/schedule/{animal_id}", headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
 
 
-def row_by_name(schedule: dict, name: str) -> dict:
+def row_by_name(schedule: dict, name: str) -> dict[str, Any]:
     return next(r for r in schedule["rows"] if r["template_name"] == name)
 
 
@@ -113,7 +116,7 @@ async def list_batches(client: httpx.AsyncClient, headers: dict) -> list[dict]:
     return resp.json()["batches"]
 
 
-async def get_batch(client: httpx.AsyncClient, headers: dict, batch_id: int) -> dict:
+async def get_batch(client: httpx.AsyncClient, headers: dict, batch_id: int) -> dict[str, Any]:
     resp = await client.get(f"/api/purchases/{batch_id}", headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
@@ -157,7 +160,7 @@ async def transactions(client: httpx.AsyncClient, headers: dict) -> list[dict]:
     return resp.json()["transactions"]
 
 
-async def get_animal(client: httpx.AsyncClient, headers: dict, animal_id: int) -> dict:
+async def get_animal(client: httpx.AsyncClient, headers: dict, animal_id: int) -> dict[str, Any]:
     resp = await client.get(f"/api/animals/{animal_id}", headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()["animal"]
@@ -170,7 +173,9 @@ async def mark_dead(client: httpx.AsyncClient, headers: dict, animal_id: int) ->
     assert resp.status_code == 200, resp.text
 
 
-async def worker_with_role(client: httpx.AsyncClient, owner: dict, code: str, email: str) -> dict:
+async def worker_with_role(
+    client: httpx.AsyncClient, owner: dict, code: str, email: str
+) -> dict[str, Any]:
     """Owner adds a worker with preset role `code`; returns farm-scoped headers."""
     resp = await client.get("/api/team", headers=owner)
     assert resp.status_code == 200, resp.text
@@ -1114,7 +1119,7 @@ async def test_event_task_id_boundaries_422(client: httpx.AsyncClient) -> None:
 # ---------------------------------------------------------------------------
 async def _backdated_batch_with_tasks(
     client: httpx.AsyncClient, headers: dict, days: int = 50, count: int = 2
-) -> dict:
+) -> dict[str, Any]:
     """A batch old enough that every quarantine duty is already due."""
     batch = await make_batch(client, headers, count=count, date=iso(today() - timedelta(days=days)))
     return await get_batch(client, headers, batch["id"])
@@ -1573,7 +1578,7 @@ async def test_event_with_already_done_task_id_is_rejected(client: httpx.AsyncCl
     headers = await owner_with_farm(client)
     detail = await _backdated_batch_with_tasks(client, headers)
     ppr_task = next(t for t in detail["tasks"] if "PPR" in t["title"])
-    payload: dict = {
+    payload: dict[str, Any] = {
         "scope": "batch",
         "purchase_batch_id": detail["batch"]["id"],
         "type": "VACCINE",

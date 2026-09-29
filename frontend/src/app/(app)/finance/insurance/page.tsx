@@ -67,6 +67,7 @@ import {
   formatMoney,
 } from "@/lib/format";
 import { useT, type TFn } from "@/lib/i18n";
+import { mapServerError } from "@/lib/server-error-phrases";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import { isPersistableNonnegativeMoney } from "@/lib/persisted-numbers";
 import { MAX_FREE_TEXT_LENGTH } from "@/lib/backend-caps";
@@ -815,7 +816,7 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
         <div role="alert" className="space-y-3">
           <p className="text-sm text-destructive">
             {query.error instanceof ApiError
-              ? query.error.detail
+              ? mapServerError(t, query.error.detail, query.error.status, query.error.code)
               : t("insurance.loadFailed")}
           </p>
           <Button type="button" variant="outline" onClick={() => void query.refetch()}>

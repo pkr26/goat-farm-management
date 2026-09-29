@@ -38,11 +38,13 @@ HEAD = (
     # Timestamp server defaults on the newest tables (chain tail:
     # screening_images bigint -> famacha duty category -> notification
     # composite FK + CHECKs + Date -> screening image FK bigint -> bounded
-    # sale_weight CHECK -> screening join indexes -> notification/totp
-    # timestamp server defaults -> screening run/crop FK bigint ->
-    # screening_images bucket varchar(20) -> index-hygiene wave 2 +
-    # subsumed birth-weight CHECK)
-    "c7d8e9f0a1b2"
+    # sale_weight CHECK -> screening run/crop FK bigint (moved BEFORE the
+    # join indexes on 2026-09-29 so the int8 ALTER never rewrites the
+    # CONCURRENTLY builds) -> notification/totp timestamp server defaults ->
+    # screening join indexes -> screening_images bucket varchar(20) ->
+    # index-hygiene wave 2 + subsumed birth-weight CHECK -> timestamp
+    # server defaults wave 2, the D7 completion)
+    "d9e0f2a4b6c8"
 )
 SCREENING_CONTENT_CLAIMS_PARENT = "b7e8f9a0c1d2"
 SCREENING_CONTENT_CLAIMS = "f7a9c1e3b5d7"

@@ -1785,7 +1785,7 @@ async def test_animal_status_change_replays_one_ledger_booking(
     assert first.json()["status"] == "SOLD"
 
     # The network-lost sale is recoverable: the retry replays the original
-    # response instead of answering 400 "already sold" — and must not book a
+    # response instead of answering 409 "already sold" — and must not book a
     # second ANIMAL_SALE transaction.
     replay = await client.post(path, json=payload, headers=keyed)
     assert replay.status_code == 200

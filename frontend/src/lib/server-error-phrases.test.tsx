@@ -55,6 +55,26 @@ describe("mapServerError", () => {
     );
   });
 
+  it("409 conflict-family codes map to their catalog sentences (2026-09-29)", () => {
+    // RFC 9457-style family codes: one status, several classes, no prose
+    // parsing. Unpinned lifecycle wording resolves through the family code.
+    expect(
+      mapServerError((k) => k, "Weaning is blocked by a movement hold", 409, "LIFECYCLE_CONFLICT"),
+    ).toBe("serverErrors.lifecycleConflict");
+    expect(
+      mapServerError((k) => k, "Too many open duties for this farm today", 409, "STANDING_QUOTA_CONFLICT"),
+    ).toBe("serverErrors.quotaExceeded");
+    expect(
+      mapServerError((k) => k, "This plan changed since you opened it; refresh", 409, "STALE_STATE_CONFLICT"),
+    ).toBe("serverErrors.staleState");
+  });
+
+  it("a byte-pinned specific phrase beats its family code (specific > generic)", () => {
+    expect(mapServerError((k) => k, "Task is not pending", 409, "LIFECYCLE_CONFLICT")).toBe(
+      "serverErrors.taskNotPending",
+    );
+  });
+
   it("an unknown code falls through to the phrase and status rules", () => {
     expect(mapServerError((k) => k, "Task is not pending", 409, "SOME_NEW_CODE")).toBe(
       "serverErrors.taskNotPending",
@@ -71,6 +91,28 @@ describe("mapServerError", () => {
     expect(mapServerError((k) => k, "Slow down please", 429)).toBe("serverErrors.tooManyAttempts");
     expect(mapServerError((k) => k, "Completely different text", 429)).toBe(
       "serverErrors.tooManyAttempts",
+    );
+  });
+
+  it("recurring lifecycle 409 shapes map; specific 409s pass through (2026-09-29)", () => {
+    // Since the A3 convention made every wrong-lifecycle answer a 409, the
+    // recurring shapes get pinned phrases/rules — but a specific, actionable
+    // 409 sentence is more useful than any generic conflict text, so
+    // unmapped specifics keep passing through.
+    expect(mapServerError((k) => k, "Kidding requires a confirmed pregnancy", 409)).toBe(
+      "serverErrors.kiddingNeedsPregnancy",
+    );
+    // Tag-interpolated terminal replays match by shape, not bytes.
+    expect(mapServerError((k) => k, "D-123 is already sold.", 409)).toBe(
+      "serverErrors.alreadyTerminal",
+    );
+    // A specific, informative 409 the user needs verbatim stays verbatim.
+    expect(mapServerError((k) => k, "Owned farms block account deletion.", 409)).toBe(
+      "Owned farms block account deletion.",
+    );
+    // Pinned 409 phrases keep their specific translations.
+    expect(mapServerError((k) => k, "Task is not pending", 409)).toBe(
+      "serverErrors.taskNotPending",
     );
   });
 

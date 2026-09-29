@@ -13,6 +13,10 @@ useDefault = true
 
 # Current gitleaks syntax: the global [allowlist] table was deprecated in
 # favor of the [[allowlists]] array (v8.21+); the rules below are unchanged.
+# HARD requirement: gitleaks >= 8.21 — the pinned gitleaks-action v2.3.9
+# (.github/workflows/security.yml) resolves a binary that satisfies it today;
+# if that action ever resolves an older binary, this file fails to parse
+# (2026-09-29 audit note).
 [[allowlists]]
 description = "Idempotency-Key header values are request identifiers, never secrets"
 regexTarget = "line"

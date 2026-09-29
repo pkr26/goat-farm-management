@@ -1308,6 +1308,52 @@ async def test_recovery_with_zero_unused_codes_still_pays_one_dummy_verify(
     assert verify_calls == 1, "zero unused codes must still pay one dummy verify"
 
 
+async def test_recovery_credential_change_mid_verify_cannot_ride_the_proof(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """2026-09-29 audit: a credential change that lands while a recovery code
+    is mid-Argon2 must not ride the proof. The re-lock revalidates
+    token_version (the worker_login pattern), answers the generic 401, and
+    leaves the code unconsumed — the snapshot-verify-reload window is closed."""
+    email = "totp-recovery-race@farm.in"
+    headers = await register(client, email)
+    _secret, codes = await _enroll_and_activate(client, headers)
+
+    mfa_token = await _mfa_login(client, email)
+
+    async def rotate_then_accept(password: str, password_hash: str) -> tuple[bool, bool]:
+        # Simulate a concurrent password/PIN rotation landing INSIDE the
+        # verification window: token_version bumps under the User lock on a
+        # separate session, exactly like reset-password/reset-pin do.
+        from app.db import get_sessionmaker
+
+        async with get_sessionmaker()() as db:
+            await db.execute(
+                update(User).where(User.email == email).values(token_version=User.token_version + 1)
+            )
+            await db.commit()
+        return True, False
+
+    monkeypatch.setattr(auth_api, "verify_password_async", rotate_then_accept)
+    with caplog.at_level("INFO", logger="app.audit"):
+        refused = await _redeem(client, email, mfa_token, codes[0])
+    assert refused.status_code == 401, refused.text
+    assert refused.json()["detail"] == "Invalid or expired challenge."
+    assert any(
+        "account changed while a recovery code was being verified" in record.message
+        for record in caplog.records
+    ), "the race must leave a security event"
+
+    # The proven code was NOT consumed: after re-login (fresh challenge bound
+    # to the rotated token_version), the same code redeems normally.
+    monkeypatch.undo()
+    mfa_token = await _mfa_login(client, email)
+    accepted = await _redeem(client, email, mfa_token, codes[0])
+    assert accepted.status_code == 200, accepted.text
+
+
 async def test_recovery_regenerate_requires_password_and_totp_and_revokes(
     client: httpx.AsyncClient,
 ) -> None:

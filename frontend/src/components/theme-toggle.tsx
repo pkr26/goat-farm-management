@@ -5,11 +5,13 @@ import { useTheme } from "next-themes";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 
 import { Button } from "@/components/ui/button";
+import { useT } from "@/lib/i18n";
 
 const emptySubscribe = () => () => {};
 
 export function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
+  const t = useT();
   const pendingTheme = useRef<"light" | "dark" | null>(null);
   // Render a neutral placeholder on the server / first client render so the
   // icon never mismatches the theme applied by next-themes.
@@ -26,7 +28,7 @@ export function ThemeToggle() {
     // Placeholder keeps layout stable until the theme is known client-side.
     // It does nothing yet, so it must not present as an ENABLED inert button
     // (2026-09-28 audit): disabled keeps it out of the tab order and honest.
-    return <Button variant="ghost" size="icon" aria-label="Toggle theme" disabled />;
+    return <Button variant="ghost" size="icon" aria-label={t("theme.toggle")} disabled />;
   }
 
   const isDark = resolvedTheme === "dark";
@@ -45,7 +47,7 @@ export function ThemeToggle() {
     <Button
       variant="ghost"
       size="icon"
-      aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"}
+      aria-label={isDark ? t("theme.toLight") : t("theme.toDark")}
       onClick={toggleTheme}
     >
       {isDark ? <Sun /> : <Moon />}

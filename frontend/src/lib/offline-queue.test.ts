@@ -4,10 +4,11 @@
  * (success/409/4xx drop, 5xx backoff), and the session wipe.
  */
 
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import {
   OFFLINE_QUEUE_STORAGE_KEY,
+  clearOfflineQueueDrainBackoff,
   drainOfflineQueue,
   enqueueOfflineMutation,
   isOfflineQueueableFailure,
@@ -30,6 +31,12 @@ function lastRecord() {
 
 beforeEach(() => {
   storage().removeItem(OFFLINE_QUEUE_STORAGE_KEY);
+});
+
+// A 429 backoff gate set under fake timers can outlive its test in real
+// time; never let one throttle an unrelated scenario.
+afterEach(() => {
+  clearOfflineQueueDrainBackoff();
 });
 
 describe("enqueue + read", () => {
@@ -155,7 +162,7 @@ describe("drainOfflineQueue", () => {
     enqueueOfflineMutation("/api/tasks/2/skip", { method: "POST", body: '{"reason":"r"}' }, SCOPES);
     const fetchImpl = vi.fn().mockResolvedValue({});
     const outcome = await drainOfflineQueue(SCOPES, fetchImpl);
-    expect(outcome).toEqual({ replayed: 2, remaining: 0 });
+    expect(outcome).toEqual({ replayed: 2, remaining: 0, rejected: 0 });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     expect(fetchImpl.mock.calls[0]?.[0]).toBe("/api/tasks/1/complete");
     expect(fetchImpl.mock.calls[1]?.[0]).toBe("/api/tasks/2/skip");
@@ -192,7 +199,7 @@ describe("drainOfflineQueue", () => {
       .mockResolvedValue({});
     const outcome = await drainOfflineQueue(SCOPES, fetchImpl);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(outcome).toEqual({ replayed: 0, remaining: 2 });
+    expect(outcome).toEqual({ replayed: 0, remaining: 2, rejected: 0 });
     expect(offlineQueueDepth()).toBe(2);
   });
 
@@ -218,7 +225,7 @@ describe("drainOfflineQueue", () => {
       return {};
     });
     const outcome = await drainOfflineQueue(SCOPES, fetchImpl);
-    expect(outcome).toEqual({ replayed: 1, remaining: 1 });
+    expect(outcome).toEqual({ replayed: 1, remaining: 1, rejected: 0 });
     expect(readOfflineQueue(storage()).map((r) => r.path)).toEqual([
       "/api/tasks/2/complete",
     ]);
@@ -232,7 +239,7 @@ describe("drainOfflineQueue", () => {
       throw error;
     });
     const outcome = await drainOfflineQueue(SCOPES, fetchImpl);
-    expect(outcome).toEqual({ replayed: 0, remaining: 2 });
+    expect(outcome).toEqual({ replayed: 0, remaining: 2, rejected: 0 });
     expect(readOfflineQueue(storage()).map((r) => r.path)).toEqual([
       "/api/tasks/1/complete",
       "/api/tasks/2/complete",
@@ -252,12 +259,12 @@ describe("drainOfflineQueue", () => {
     // without touching storage.
     const secondFetch = vi.fn().mockResolvedValue({});
     const second = await drainOfflineQueue(SCOPES, secondFetch);
-    expect(second).toEqual({ replayed: 0, remaining: 1 });
+    expect(second).toEqual({ replayed: 0, remaining: 1, rejected: 0 });
     expect(secondFetch).not.toHaveBeenCalled();
 
     release({});
     const firstOutcome = await first;
-    expect(firstOutcome).toEqual({ replayed: 1, remaining: 0 });
+    expect(firstOutcome).toEqual({ replayed: 1, remaining: 0, rejected: 0 });
     expect(slowFetch).toHaveBeenCalledTimes(1);
     expect(offlineQueueDepth()).toBe(0);
   });
@@ -272,7 +279,7 @@ describe("drainOfflineQueue", () => {
 
     const second = vi.fn().mockResolvedValue({});
     const outcome = await drainOfflineQueue(SCOPES, second);
-    expect(outcome).toEqual({ replayed: 1, remaining: 0 });
+    expect(outcome).toEqual({ replayed: 1, remaining: 0, rejected: 0 });
     expect(second).toHaveBeenCalledTimes(1);
     expect(second.mock.calls[0]?.[0]).toBe("/api/tasks/3/complete");
   });
@@ -283,6 +290,61 @@ describe("wipeOfflineQueue", () => {
     enqueueOfflineMutation("/api/tasks/1/complete", { method: "POST" }, SCOPES);
     expect(offlineQueueDepth()).toBe(1);
     wipeOfflineQueue();
+    expect(offlineQueueDepth()).toBe(0);
+  });
+});
+
+describe("429 Retry-After backoff (2026-09-29 audit)", () => {
+  it("gates the next drain on the server's Retry-After hint, then clears", async () => {
+    vi.useFakeTimers();
+    try {
+      enqueueOfflineMutation("/api/tasks/1/complete", { method: "POST" }, SCOPES);
+      const throttled = Object.assign(new Error("slow down"), {
+        status: 429,
+        retryAfterSeconds: 30,
+      });
+      const first = await drainOfflineQueue(SCOPES, vi.fn().mockRejectedValue(throttled));
+      expect(first).toEqual({ replayed: 0, remaining: 1, rejected: 0 });
+
+      // Inside the backoff window: no fetch fires at all.
+      const retryFetch = vi.fn().mockResolvedValue({});
+      const gated = await drainOfflineQueue(SCOPES, retryFetch);
+      expect(retryFetch).not.toHaveBeenCalled();
+      expect(gated.remaining).toBe(1);
+
+      // After the window elapses, the same record replays normally.
+      vi.advanceTimersByTime(31_000);
+      const outcome = await drainOfflineQueue(SCOPES, retryFetch);
+      expect(outcome).toEqual({ replayed: 1, remaining: 0, rejected: 0 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a 429 without a parseable Retry-After keeps the fixed cadence (no permanent stall)", async () => {
+    clearOfflineQueueDrainBackoff();
+    enqueueOfflineMutation("/api/tasks/1/complete", { method: "POST" }, SCOPES);
+    const throttled = Object.assign(new Error("no header"), { status: 429 });
+    await drainOfflineQueue(SCOPES, vi.fn().mockRejectedValue(throttled));
+    const retryFetch = vi.fn().mockResolvedValue({});
+    const immediate = await drainOfflineQueue(SCOPES, retryFetch);
+    expect(retryFetch).toHaveBeenCalledTimes(1);
+    expect(immediate.replayed).toBe(1);
+  });
+});
+
+describe("drainOfflineQueue rejection feedback (2026-09-29 audit)", () => {
+  it("reports rejected counts the shell toasts", async () => {
+    clearOfflineQueueDrainBackoff();
+    enqueueOfflineMutation("/api/tasks/1/complete", { method: "POST" }, SCOPES);
+    enqueueOfflineMutation("/api/tasks/2/skip", { method: "POST" }, SCOPES);
+    const fetchImpl = vi
+      .fn()
+      .mockRejectedValueOnce(Object.assign(new Error("forbidden"), { status: 403 }))
+      .mockRejectedValueOnce(Object.assign(new Error("gone"), { status: 404 }));
+    const outcome = await drainOfflineQueue(SCOPES, fetchImpl);
+    expect(outcome.rejected).toBe(2);
+    expect(outcome.replayed).toBe(0);
     expect(offlineQueueDepth()).toBe(0);
   });
 });
@@ -523,7 +585,7 @@ describe("failure classification and drain boundaries", () => {
         .mockRejectedValue(Object.assign(new Error("x"), { status }));
       const outcome = await drainOfflineQueue(SCOPES, fetchImpl);
       expect(fetchImpl, String(status)).toHaveBeenCalledTimes(1);
-      expect(outcome, String(status)).toEqual({ replayed: 0, remaining: 2 });
+      expect(outcome, String(status)).toEqual({ replayed: 0, remaining: 2, rejected: 0 });
       expect(offlineQueueDepth(), String(status)).toBe(2);
     }
   });
@@ -533,7 +595,7 @@ describe("failure classification and drain boundaries", () => {
     enqueueOfflineMutation("/api/tasks/2/skip", { method: "POST" }, SCOPES);
     const fetchImpl = vi.fn().mockResolvedValue({});
     const outcome = await drainOfflineQueue(SCOPES, fetchImpl);
-    expect(outcome).toEqual({ replayed: 1, remaining: 1 });
+    expect(outcome).toEqual({ replayed: 1, remaining: 1, rejected: 0 });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(fetchImpl.mock.calls[0]?.[0]).toBe("/api/tasks/2/skip");
   });
@@ -552,7 +614,7 @@ describe("failure classification and drain boundaries", () => {
     const outcome = await drainOfflineQueue(SCOPES, fetchImpl);
     expect(fetchImpl).toHaveBeenCalledTimes(3);
     // The 404 resolves without replay credit: 2 replays, nothing wedged.
-    expect(outcome).toEqual({ replayed: 2, remaining: 0 });
+    expect(outcome).toEqual({ replayed: 2, remaining: 0, rejected: 1 });
   });
 
   it("enqueue accepts a first record that lands exactly at the byte ceiling", () => {

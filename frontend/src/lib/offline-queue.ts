@@ -209,6 +209,11 @@ export function isOfflineQueueableFailure(error: unknown): boolean {
 export type DrainOutcome = {
   replayed: number;
   remaining: number;
+  /** Records the server definitively refused (4xx): the duty stays PENDING
+   * server-side and reappears on the board, but the completion the worker
+   * recorded was dropped — the shell surfaces this count so the loss is not
+   * silent (2026-09-29 audit). */
+  rejected: number;
 };
 
 /**
@@ -220,7 +225,13 @@ export type DrainOutcome = {
  * answer because the duty already transitioned some other way — done, drop
  * it. 401/408/429 are transient answers (refresh unavailable, timeout, rate
  * limit), not rejections: the record is KEPT and the drain stops, so a
- * momentarily dead session never destroys field writes.
+ * momentarily dead session never destroys field writes. A 429's Retry-After
+ * (the backend convention always sends one) pushes the next drain attempt
+ * out by the server's hint instead of retrying at the fixed 30s cadence.
+ * Other definitive 4xx answers (403/404/422, request-invalid 400/409) are
+ * counted in `rejected` and dropped: the duty stays PENDING server-side and
+ * reappears on the board, and the shell toasts the count so the worker
+ * learns their recorded completion did not land.
  *
  * Concurrency: drains are fired by the online/focus/interval triggers AND the
  * worker shell's immediate drain, so invocations can overlap. A module-level
@@ -232,6 +243,16 @@ export type DrainOutcome = {
  * The replay function is injectable for tests.
  */
 let drainInFlight = false;
+/** Earliest next drain attempt after a 429 — Date.now() epoch millis, set
+ * from the server's Retry-After hint. Zero means "no backoff outstanding". */
+let nextDrainAfterMs = 0;
+
+/** Clear any outstanding 429 backoff gate. Called on session teardown (the
+ * next actor's first drain re-observes the server's throttle for itself)
+ * and by tests between scenarios. */
+export function clearOfflineQueueDrainBackoff(): void {
+  nextDrainAfterMs = 0;
+}
 
 export async function drainOfflineQueue(
   scopes: QueueScopes,
@@ -239,16 +260,22 @@ export async function drainOfflineQueue(
     import("@/lib/api-client").then((m) => m.apiFetch(path, init)),
 ): Promise<DrainOutcome> {
   const storage = safeStorage("local");
-  if (storage === null) return { replayed: 0, remaining: 0 };
+  if (storage === null) return { replayed: 0, remaining: 0, rejected: 0 };
   if (drainInFlight) {
     // The in-flight drain (or the next trigger after it) owns the replay;
     // re-entering here would double-fire replays under the same key.
-    return { replayed: 0, remaining: readOfflineQueue(storage).length };
+    return { replayed: 0, remaining: readOfflineQueue(storage).length, rejected: 0 };
+  }
+  if (Date.now() < nextDrainAfterMs) {
+    // The server asked us to wait (429 Retry-After); hammering the throttle
+    // at the fixed cadence only extends the block.
+    return { replayed: 0, remaining: readOfflineQueue(storage).length, rejected: 0 };
   }
   drainInFlight = true;
   try {
     const records = readOfflineQueue(storage);
     let replayed = 0;
+    let rejected = 0;
     const resolvedIds = new Set<string>();
     let stopped = false;
     for (const record of records) {
@@ -267,6 +294,7 @@ export async function drainOfflineQueue(
         replayed += 1;
       } catch (error) {
         const status = (error as { status?: unknown } | null)?.status;
+        const retryAfter = (error as { retryAfterSeconds?: unknown } | null)?.retryAfterSeconds;
         if (status === 409) {
           // The write is already reflected server-side: either the server
           // committed this exact keyed write (same-key replay), or the duty
@@ -283,14 +311,21 @@ export async function drainOfflineQueue(
           // is momentarily unavailable (the api-client classifies exactly that
           // as transient), the request timed out, or the server is
           // rate-limiting. Keep the record and stop here — a later drain after
-          // re-login/backoff can still deliver it (2026-09-28 audit, H2).
+          // re-login/backoff can still deliver it (2026-09-28 audit, H2). A
+          // 429's Retry-After (2026-09-29 audit) gates the next attempt.
+          if (status === 429 && typeof retryAfter === "number" && retryAfter > 0) {
+            nextDrainAfterMs = Date.now() + retryAfter * 1000;
+          }
           stopped = true;
           continue;
         }
         if (typeof status === "number" && status >= 400 && status < 500) {
           // A definitive client rejection (403/404/422): retrying cannot fix
-          // it; drop the record rather than wedging the queue forever.
+          // it; drop the record rather than wedging the queue forever. The
+          // duty stays PENDING server-side and reappears on the board — the
+          // rejected count tells the shell to surface the loss.
           resolvedIds.add(record.id);
+          rejected += 1;
           continue;
         }
         // 5xx or transport failure: back off — keep the record, stop here.
@@ -304,7 +339,7 @@ export async function drainOfflineQueue(
       (record) => !resolvedIds.has(record.id),
     );
     writeQueue(storage, next);
-    return { replayed, remaining: next.length };
+    return { replayed, remaining: next.length, rejected };
   } finally {
     drainInFlight = false;
   }
@@ -313,15 +348,23 @@ export async function drainOfflineQueue(
 let workersRunning = false;
 
 /** Start the drain triggers (online event, focus, interval). Idempotent;
- * called by the worker shell. Returns a stop function for tests. */
-export function startOfflineQueueWorkers(getScopes: () => QueueScopes | null): () => void {
+ * called by the worker shell. Returns a stop function for tests.
+ * `onRejected` fires whenever a drain settles records the server
+ * definitively refused, so the shell can surface the loss instead of
+ * silently discarding field-recorded completions (2026-09-29 audit). */
+export function startOfflineQueueWorkers(
+  getScopes: () => QueueScopes | null,
+  onRejected?: (count: number) => void,
+): () => void {
   if (workersRunning) return () => {};
   workersRunning = true;
   const drainIfScoped = () => {
     const scopes = getScopes();
     if (scopes === null) return;
     if (typeof navigator !== "undefined" && navigator.onLine === false) return;
-    void drainOfflineQueue(scopes);
+    void drainOfflineQueue(scopes).then((outcome) => {
+      if (outcome.rejected > 0) onRejected?.(outcome.rejected);
+    });
   };
   window.addEventListener("online", drainIfScoped);
   window.addEventListener("focus", drainIfScoped);

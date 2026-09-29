@@ -375,18 +375,30 @@ async def _retention_sweep_loop() -> None:
     otherwise. Opt-in like the notifications loop: a disabled deployment
     exits immediately, so an unconfigured feature costs nothing. The sweep
     itself commits per farm, so one interval's work is a series of small
-    tenant transactions, never one unbounded delete.
+    tenant transactions, never one unbounded delete. The FIRST sweep runs
+    immediately on startup — enabling the feature is the operator asking for
+    a cleanup now, not after a full interval (2026-09-29 audit) — and each
+    pass opens its own session, so no pooled connection is held across the
+    whole multi-farm sweep.
     """
     settings = get_settings()
     if not settings.retention_sweep_enabled:
         return
+    first = True
     while True:
-        await asyncio.sleep(settings.retention_sweep_interval_seconds)
+        if not first:
+            await asyncio.sleep(settings.retention_sweep_interval_seconds)
+        first = False
         try:
             async with get_sessionmaker()() as db:
                 summary = await run_retention_sweep(db, settings)
                 await db.commit()
             metrics.record_maintenance_batch("retention_sweep", summary.total_deleted)
+            if summary.failed_farms:
+                logger.error(
+                    "retention sweep skipped failed_farms=%d (per-farm errors above)",
+                    summary.failed_farms,
+                )
             if summary.total_deleted:
                 logger.info(
                     "retention sweep deleted findings=%d runs=%d crops=%d claims=%d "
@@ -425,16 +437,27 @@ async def _notifications_loop() -> None:
         run_digest_for_farm,
     )
 
-    provider = build_notification_provider(settings)
+    provider = None
     last_sweep_hour: int | None = None
     try:
         while True:
             await asyncio.sleep(60)
             try:
+                active_provider = provider
+                if active_provider is None:
+                    # Built lazily inside the try: a build failure (bad MSG91
+                    # config) must log loudly every tick, not kill the loop
+                    # task silently on the first attempt (2026-09-29 audit).
+                    try:
+                        active_provider = build_notification_provider(settings)
+                    except Exception:
+                        logger.exception("notification provider build failed; retrying next tick")
+                        continue
+                    provider = active_provider
                 now = utcnow().replace(tzinfo=UTC)
                 async with get_sessionmaker()() as db:
                     for farm in await farms_ready_for_digest(db, settings, now):
-                        summary = await run_digest_for_farm(db, settings, provider, farm)
+                        summary = await run_digest_for_farm(db, settings, active_provider, farm)
                         if summary.sent or summary.skipped:
                             logger.info(
                                 "digest farm=%s sent=%d skipped=%d",
@@ -447,11 +470,11 @@ async def _notifications_loop() -> None:
                         from sqlalchemy import select as _select
 
                         for farm in (await db.execute(_select(Farm))).scalars():
-                            await overdue_critical_sweep(db, settings, provider, farm)
+                            await overdue_critical_sweep(db, settings, active_provider, farm)
                             # Day-dedupe makes these daily in effect (payload is
                             # the farm-local date): hourly runs are idempotent.
-                            await kidding_watch_daily(db, settings, provider, farm)
-                            await feed_reorder_daily(db, settings, provider, farm)
+                            await kidding_watch_daily(db, settings, active_provider, farm)
+                            await feed_reorder_daily(db, settings, active_provider, farm)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -734,13 +757,18 @@ async def http_exception_handler(_request: Request, exc: Exception) -> JSONRespo
     """Default HTTPException shape plus the machine-readable ``code``.
 
     ITEM 5 (2026-09-21 playbook): the four mapped statuses carry a stable
-    code so localized clients never parse English ``detail`` prose. Detail
-    and headers (WWW-Authenticate, Retry-After, Idempotency-*) pass through
-    unchanged.
+    code so localized clients never parse English ``detail`` prose. The 409
+    conflict families carry their per-class code the same way (2026-09-29,
+    RFC 9457-style) — one status cannot separate a lifecycle conflict from a
+    standing quota from a stale revision. Detail and headers
+    (WWW-Authenticate, Retry-After, Idempotency-*) pass through unchanged.
     """
     status_code = getattr(exc, "status_code", 500)
     content: dict[str, Any] = {"detail": getattr(exc, "detail", None)}
-    code = ERROR_CODES_BY_STATUS.get(status_code)
+    conflict_code = getattr(exc, "conflict_code", None)
+    code = (
+        conflict_code if isinstance(conflict_code, str) else ERROR_CODES_BY_STATUS.get(status_code)
+    )
     if code is not None:
         content["code"] = code
     headers = getattr(exc, "headers", None)

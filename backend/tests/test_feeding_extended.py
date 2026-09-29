@@ -22,6 +22,7 @@ Covers, against the live JSON API (httpx + real PostgreSQL):
 
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from typing import Any
 
 import httpx
 import pytest
@@ -152,7 +153,7 @@ async def _import_historical_animal(
     dob_days: int | None = None,
     weight_kg: float | None = None,
     weight_date: date | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Create one audited existing-herd entry in a state legal for import."""
     if bucket == "BREEDING":
         # BREEDING is not a cosmetic fixture label: historical entries must
@@ -162,7 +163,7 @@ async def _import_historical_animal(
         weight_kg = 30.0 if weight_kg is None else weight_kg
         weight_date = weight_date or today()
 
-    payload: dict = {
+    payload: dict[str, Any] = {
         "tag_number": tag,
         "sex": sex,
         "source": "PURCHASED",
@@ -187,7 +188,7 @@ async def _make_reproductive_state_animal(
     bucket: str,
     dob_days: int | None,
     weight_kg: float | None,
-) -> dict:
+) -> dict[str, Any]:
     """Reach a workflow-only reproductive bucket through linked facts.
 
     Direct imports into pregnancy, delivery, and recovery would fabricate
@@ -305,7 +306,7 @@ async def make_animal(
     bucket: str = "BREEDING",
     dob_days: int | None = None,
     weight_kg: float | None = None,
-) -> dict:
+) -> dict[str, Any]:
     if bucket in WORKFLOW_ONLY_BUCKETS:
         assert sex == "F", f"Only does may enter {bucket}"
         return await _make_reproductive_state_animal(
@@ -327,7 +328,7 @@ async def make_animal(
     )
 
 
-async def get_plan(client: httpx.AsyncClient, headers: dict) -> dict:
+async def get_plan(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
     resp = await client.get("/api/feeding/plan", headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
@@ -339,7 +340,7 @@ async def get_inventory(client: httpx.AsyncClient, headers: dict) -> list[dict]:
     return resp.json()
 
 
-async def inv_item(client: httpx.AsyncClient, headers: dict, ingredient: str) -> dict:
+async def inv_item(client: httpx.AsyncClient, headers: dict, ingredient: str) -> dict[str, Any]:
     return next(i for i in await get_inventory(client, headers) if i["ingredient"] == ingredient)
 
 
@@ -350,7 +351,7 @@ async def add_stock(
     qty: object,
     price: object = None,
 ) -> httpx.Response:
-    payload: dict = {"qty_kg": qty}
+    payload: dict[str, Any] = {"qty_kg": qty}
     if price is not None:
         payload["price_per_kg"] = price
     return await client.post(f"/api/feeding/inventory/{item_id}/add", json=payload, headers=headers)
@@ -370,7 +371,7 @@ async def stock_dry_roughage(client: httpx.AsyncClient, headers: dict, qty: floa
 
 
 async def dispense(client: httpx.AsyncClient, headers: dict, **overrides: object) -> httpx.Response:
-    payload: dict = {
+    payload: dict[str, Any] = {
         "bucket": "BREEDING",
         "shift": "MORNING",
         "recipe_code": DRY_ROUGHAGE,
@@ -404,7 +405,9 @@ async def role_id(client: httpx.AsyncClient, owner: dict, code: str) -> int:
     return next(r["id"] for r in resp.json()["roles"] if r["code"] == code)
 
 
-async def worker_headers(client: httpx.AsyncClient, owner: dict, code: str, email: str) -> dict:
+async def worker_headers(
+    client: httpx.AsyncClient, owner: dict, code: str, email: str
+) -> dict[str, Any]:
     """Owner adds a worker with preset role `code`; returns farm headers."""
     rid = await role_id(client, owner, code)
     resp = await client.post(
@@ -1432,7 +1435,17 @@ async def test_dispense_response_shape(client: httpx.AsyncClient) -> None:
     await mix_ready(client, headers, "CREEP")
     resp = await dispense(client, headers, recipe_code="CREEP")
     assert resp.status_code == 201, resp.text
-    assert set(resp.json()) == {"id", "date", "shift", "bucket", "recipe_code", "qty_kg"}
+    # created_at is serialized like every sibling record Out — feeding
+    # records are withdrawal evidence (2026-09-28 audit, D3).
+    assert set(resp.json()) == {
+        "id",
+        "date",
+        "shift",
+        "bucket",
+        "recipe_code",
+        "qty_kg",
+        "created_at",
+    }
 
 
 async def test_dispense_without_recipe_is_rejected(client: httpx.AsyncClient) -> None:

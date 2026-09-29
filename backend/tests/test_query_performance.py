@@ -14,6 +14,7 @@
 """
 
 from datetime import date, timedelta
+from typing import Any
 
 import httpx
 from sqlalchemy import event, select, text
@@ -56,7 +57,7 @@ async def make_animal(
     sex: str = "F",
     bucket: str = "FOUNDATION",
     **overrides: object,
-) -> dict:
+) -> dict[str, Any]:
     payload = {
         "tag_number": tag,
         "sex": sex,
@@ -97,7 +98,7 @@ async def change_status(
 # ---------------------------------------------------------------------------
 # 5-H2 — reports: SQL aggregates must match the old Python-computed values
 # ---------------------------------------------------------------------------
-async def _golden_reports(farm_id: int) -> dict:
+async def _golden_reports(farm_id: int) -> dict[str, Any]:
     """The pre-5-H2 algorithm, run by hand over ORM rows: every aggregate the
     reports endpoint used to compute in Python."""
     async with get_sessionmaker()() as db:
@@ -273,7 +274,7 @@ async def test_reports_match_old_python_aggregation(client: httpx.AsyncClient) -
         return resp.json()["id"]
 
     async def ultrasound(br_id: int, pregnant: bool, result_date: date) -> None:
-        payload: dict = {"pregnant": pregnant, "date": iso(result_date)}
+        payload: dict[str, Any] = {"pregnant": pregnant, "date": iso(result_date)}
         if pregnant:
             payload["kid_count"] = 2
         resp = await client.post(f"/api/breeding/{br_id}/ultrasound", json=payload, headers=owner)

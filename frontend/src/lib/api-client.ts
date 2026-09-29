@@ -404,6 +404,15 @@ export function authSessionEpochValue(): number {
   return authSessionEpoch;
 }
 
+/** Delta-seconds `Retry-After` parsing (the only form the backend and edge
+ * emit). HTTP-date forms and junk answer null — callers fall back to their
+ * own cadence rather than blocking forever on an unparseable hint. */
+function parseRetryAfterSeconds(value: string | null): number | null {
+  if (value === null) return null;
+  const seconds = Number(value);
+  return Number.isFinite(seconds) && seconds >= 0 ? Math.min(seconds, 3600) : null;
+}
+
 export class ApiError extends Error {
   status: number;
   detail: string;
@@ -415,18 +424,25 @@ export class ApiError extends Error {
    *  `detail` sentence so form surfaces can map them onto their inputs.
    *  Empty for every other error shape/status. */
   readonly validationIssues: ApiValidationIssue[];
+  /** Parsed `Retry-After` (delta-seconds form) when the server sent one —
+   *  the backend's 429 convention always does. Null otherwise. The offline
+   *  queue's drain uses it to back off instead of hammering the throttle
+   *  at its fixed cadence (2026-09-29 audit). */
+  readonly retryAfterSeconds: number | null;
 
   constructor(
     status: number,
     detail: string,
     validationIssues: ApiValidationIssue[] = [],
     code: string | null = null,
+    retryAfterSeconds: number | null = null,
   ) {
     super(detail);
     this.status = status;
     this.detail = detail;
     this.validationIssues = validationIssues;
     this.code = code;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
@@ -852,6 +868,7 @@ async function apiResponseOnce(
       // Only 422s carry the per-field array the form mapper consumes.
       resp.status === 422 ? extractValidationIssues(body) : [],
       extractErrorCode(body),
+      parseRetryAfterSeconds(resp.headers.get("Retry-After")),
     );
   }
   // Fully consume and validate protected successful JSON bodies before their

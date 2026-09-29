@@ -20,6 +20,7 @@ Covers the duty engine end to end against the SPEC contract:
 
 import asyncio
 from datetime import date, timedelta
+from typing import Any
 
 import httpx
 import pytest
@@ -139,14 +140,14 @@ async def make_duty(
     title: str = "Duty",
     due: date | None = None,
     **overrides: object,
-) -> dict:
+) -> dict[str, Any]:
     payload = {"title": title, "due_date": iso(due or today())} | overrides
     resp = await post_duty(client, headers, **payload)
     assert resp.status_code == 201, resp.text
     return resp.json()
 
 
-async def get_tabs(client: httpx.AsyncClient, headers: dict) -> dict:
+async def get_tabs(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
     resp = await client.get("/api/tasks", headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
@@ -156,7 +157,7 @@ def all_tasks(tabs: dict) -> list[dict]:
     return tabs["today"] + tabs["overdue"] + tabs["upcoming"] + tabs["awaiting"] + tabs["completed"]
 
 
-def find_task(tabs: dict, task_id: int) -> dict:
+def find_task(tabs: dict, task_id: int) -> dict[str, Any]:
     return next(t for t in all_tasks(tabs) if t["id"] == task_id)
 
 
@@ -180,7 +181,7 @@ async def make_animal(client: httpx.AsyncClient, headers: dict, tag: str = "A-00
     return resp.json()["id"]
 
 
-async def make_doe(client: httpx.AsyncClient, headers: dict, tag: str = "D-101") -> dict:
+async def make_doe(client: httpx.AsyncClient, headers: dict, tag: str = "D-101") -> dict[str, Any]:
     dob = today() - timedelta(days=800)
     resp = await client.post(
         "/api/animals",
@@ -200,7 +201,7 @@ async def make_doe(client: httpx.AsyncClient, headers: dict, tag: str = "D-101")
     return resp.json()
 
 
-async def make_buck(client: httpx.AsyncClient, headers: dict, tag: str = "B-01") -> dict:
+async def make_buck(client: httpx.AsyncClient, headers: dict, tag: str = "B-01") -> dict[str, Any]:
     dob = today() - timedelta(days=800)
     resp = await client.post(
         "/api/animals",
@@ -222,7 +223,7 @@ async def make_buck(client: httpx.AsyncClient, headers: dict, tag: str = "B-01")
 
 async def make_breeding(
     client: httpx.AsyncClient, headers: dict, doe: dict, buck: dict, breeding_date: date
-) -> dict:
+) -> dict[str, Any]:
     resp = await client.post(
         "/api/breeding",
         json={
@@ -238,7 +239,7 @@ async def make_breeding(
 
 async def submit_ultrasound(
     client: httpx.AsyncClient, headers: dict, breeding_id: int, pregnant: bool, kid_count: int = 2
-) -> dict:
+) -> dict[str, Any]:
     # The result is observed on the scheduled check, not "today": a pregnancy
     # confirmed today whose kidding is then recorded on the earlier expected
     # kidding date would predate its own confirmation.
@@ -273,7 +274,7 @@ async def record_kidding(
     br: dict,
     kidding_date: date,
     kids: list[dict],
-) -> dict:
+) -> dict[str, Any]:
     resp = await client.post(
         "/api/kidding",
         json={

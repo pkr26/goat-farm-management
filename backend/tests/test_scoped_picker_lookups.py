@@ -1,6 +1,7 @@
 """Least-privilege, tenant-safe lookup contracts used by remote pickers."""
 
 from datetime import timedelta
+from typing import Any
 
 import httpx
 
@@ -21,7 +22,7 @@ async def create_animal(
     name: str | None = None,
     breeding_ready: bool = False,
     bucket: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     payload: dict[str, object] = {
         "tag_number": tag,
         "name": name,
@@ -51,7 +52,7 @@ async def set_status(client: httpx.AsyncClient, headers: dict, animal_id: int, s
 
 async def create_batch(
     client: httpx.AsyncClient, headers: dict, supplier: str, *, count: int = 1
-) -> dict:
+) -> dict[str, Any]:
     response = await client.post(
         "/api/purchases/new",
         json={"date": today().isoformat(), "supplier": supplier, "count": count},
@@ -68,7 +69,7 @@ async def limited_worker(
     name: str,
     email: str,
     permissions: list[str],
-) -> dict:
+) -> dict[str, Any]:
     role_id = await make_custom_role(client, owner, name, permissions)
     await add_worker(client, owner, role_id, email)
     headers, _user_id = await provisioned_worker_login(client, email, WORKER_PW)

@@ -29,6 +29,7 @@ import json
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, cast
 
 BACKEND = Path(__file__).resolve().parent.parent
 
@@ -106,7 +107,7 @@ class Site:
     # extra data: for compare, which op position; for intconst, the delta
     op_pos: int = 0
     delta: int = 0
-    meta: dict = field(default_factory=dict)
+    meta: dict[str, Any] = field(default_factory=dict)
 
 
 def module_tier(rel: str) -> int:
@@ -317,7 +318,7 @@ def splice(source: str, stmt: ast.stmt, new_text: str) -> str:
 
 
 def generate() -> None:
-    manifest = []
+    manifest: list[dict[str, Any]] = []
     for path in target_files():
         rel = path.relative_to(BACKEND).as_posix()
         source = path.read_text()
@@ -331,13 +332,16 @@ def generate() -> None:
         for site in sites:
             node = all_nodes[site.node_index]
             if site.kind == "loopjump":
-                # statement replacement is textual, no tree surgery needed
-                stmt = node
+                # statement replacement is textual, no tree surgery needed.
+                # The site walker only registers Break/Continue nodes here,
+                # so the AST-typed node IS a statement.
+                stmt = cast(ast.stmt, node)
                 new_stmt_src = "continue" if isinstance(node, ast.Break) else "break"
             else:
-                stmt = enclosing_statement(node, parents)
-                if stmt is None:
+                found = enclosing_statement(node, parents)
+                if found is None:
                     continue
+                stmt = found
                 local_nodes = nodes_in_walk_order(stmt)
                 if not any(n is node for n in local_nodes):
                     continue
@@ -359,6 +363,9 @@ def generate() -> None:
                     compile(new_stmt_src, "<mutant>", "exec")
                 except Exception:
                     continue
+            # Every mutated site sits inside a positioned stmt/expr node —
+            # the walker never registers the positionless AST bases.
+            pos_node = cast("ast.stmt | ast.expr", node)
             mutated_file = splice(source, stmt, new_stmt_src)
             try:
                 compile(mutated_file, str(path), "exec")
@@ -383,8 +390,8 @@ def generate() -> None:
                     "file": rel,
                     "tier": module_tier(rel),
                     "scope": scope,
-                    "line": node.lineno,
-                    "end_line": node.end_lineno,
+                    "line": pos_node.lineno,
+                    "end_line": pos_node.end_lineno,
                     "kind": site.kind,
                     "detail": site.detail,
                     "stmt_line": stmt.lineno,
@@ -395,7 +402,7 @@ def generate() -> None:
                 }
             )
     # Dedupe (id collisions from same-node sites) and write.
-    seen: dict[str, dict] = {}
+    seen: dict[str, dict[str, Any]] = {}
     for m in manifest:
         seen.setdefault(m["id"], m)
     out = BACKEND / "mutation" / "manifest.json"
@@ -414,4 +421,5 @@ def generate() -> None:
 
 
 if __name__ == "__main__":
-    sys.exit(generate())
+    generate()
+    sys.exit(0)

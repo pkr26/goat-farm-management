@@ -19,13 +19,14 @@ import copy
 import json
 import math
 from collections.abc import Callable
+from typing import Any
 
 import httpx
 
 from .conftest import owner_with_farm
 
 
-async def default_assumptions(client: httpx.AsyncClient, headers: dict) -> dict:
+async def default_assumptions(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
     resp = await client.get("/api/simulation/defaults", headers=headers)
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -48,7 +49,7 @@ async def post_run_raw(
 
 async def create_scenario(
     client: httpx.AsyncClient, headers: dict, name: str, assumptions: dict
-) -> dict:
+) -> dict[str, Any]:
     resp = await client.post(
         "/api/simulation/scenarios",
         json={"name": name, "assumptions": assumptions},
@@ -87,7 +88,7 @@ async def test_nonfinite_numerics_are_422(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     defaults = await default_assumptions(client, headers)
 
-    def poisoned(mutate: Callable[[dict], None]) -> dict:
+    def poisoned(mutate: Callable[[dict], None]) -> dict[str, Any]:
         assumptions = copy.deepcopy(defaults)
         mutate(assumptions)
         return assumptions

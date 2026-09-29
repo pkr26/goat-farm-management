@@ -26,6 +26,7 @@ import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { PermissionsError } from "@/components/permissions-error";
 import { PageSkeleton } from "@/components/skeletons";
+import { useT } from "@/lib/i18n";
 import type { PermissionsState } from "@/lib/use-permissions";
 
 /** Icon for the richer no-access override; the default denial stays a
@@ -74,6 +75,7 @@ export function PermissionGate({
   children: ReactNode;
 }) {
   const { can, loading, isError, refetch } = perms;
+  const t = useT();
 
   if (loading || alsoLoading) {
     const header = <PageHeader title={label} description={description} />;
@@ -81,7 +83,7 @@ export function PermissionGate({
     if (announce) {
       return (
         <div className="space-y-6" role="status" aria-live="polite">
-          <span className="sr-only">Loading…</span>
+          <span className="sr-only">{t("common.loading")}</span>
           {header}
           {skeleton}
         </div>
@@ -102,14 +104,14 @@ export function PermissionGate({
       return (
         <EmptyState
           icon={NO_ACCESS_ICON}
-          title={noAccessTitle ?? "You don't have access to this page."}
+          title={noAccessTitle ?? t("common.noAccess")}
           description={noAccessDescription}
         />
       );
     }
     return (
       <p className="text-muted-foreground">
-        {noAccessMessage ?? "You don't have access to this page."}
+        {noAccessMessage ?? t("common.noAccess")}
       </p>
     );
   }

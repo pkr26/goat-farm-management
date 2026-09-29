@@ -36,7 +36,13 @@ from ..permissions import (
     ROLE_PRESET_CODES,
 )
 from ..ratelimit import auth_limiter
-from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID
+from ..schemas.common import (
+    COMMON_ERROR_RESPONSES,
+    MAX_INT32_ID,
+    lifecycle_conflict,
+    stale_state_conflict,
+    standing_quota,
+)
 from ..schemas.team import (
     MembershipOut,
     NotificationPrefsIn,
@@ -302,7 +308,7 @@ async def _preflight_worker_create(db: AsyncSession, farm: Farm, payload: Worker
         )
     ).scalar_one()
     if count >= settings.max_team_members_per_farm:
-        raise HTTPException(status_code=409, detail=TEAM_CAPACITY_REASON)
+        raise standing_quota(detail=TEAM_CAPACITY_REASON)
     try:
         await _get_role(db, farm, payload.role_id)
     except HTTPException as exc:
@@ -796,7 +802,7 @@ async def _guard_farm_capacity(
     count = (await db.execute(count_statement)).scalar_one()
     if count >= limit:
         reason = TEAM_CAPACITY_REASON if model is FarmMembership else ROLE_CAPACITY_REASON
-        raise HTTPException(status_code=409, detail=reason)
+        raise standing_quota(detail=reason)
 
 
 def _clean_permissions(raw: list[str], allowed: set[str], *, preserve: set[str]) -> list[str]:
@@ -843,7 +849,7 @@ async def team_page(
     )
     rows = membership_rows.all()
     if len(rows) > settings.max_team_members_per_farm:
-        raise HTTPException(status_code=409, detail=TEAM_RESPONSE_OVERFLOW_REASON)
+        raise lifecycle_conflict(detail=TEAM_RESPONSE_OVERFLOW_REASON)
     memberships = [row[0] for row in rows]
     roles = list(
         (
@@ -856,7 +862,7 @@ async def team_page(
         ).scalars()
     )
     if len(roles) > settings.max_roles_per_farm:
-        raise HTTPException(status_code=409, detail=ROLE_RESPONSE_OVERFLOW_REASON)
+        raise lifecycle_conflict(detail=ROLE_RESPONSE_OVERFLOW_REASON)
     member_counts = {role.id: 0 for role in roles}
     for m in memberships:
         if m.role_id in member_counts:
@@ -1545,8 +1551,7 @@ async def update_role(
     _guard_manager_role(role, user, farm)
     _guard_role_scope(role, perms, user, farm)
     if role.revision != payload.expected_revision:
-        raise HTTPException(
-            status_code=409,
+        raise stale_state_conflict(
             detail="This role changed since you opened it; refresh before saving.",
         )
     _guard_manager_permission(payload.permissions, user, farm)
@@ -1627,8 +1632,7 @@ async def delete_role(
         )
     ).scalar_one_or_none()
     if actionable_task is not None:
-        raise HTTPException(
-            status_code=409,
+        raise lifecycle_conflict(
             detail=(
                 "Role still has actionable duties — complete, verify, reject, or skip them first."
             ),

@@ -6,6 +6,8 @@ promote his own membership). The app is fixed and these now pass — kept as
 regression guards. Helpers are reused from the extended suite.
 """
 
+from typing import Any
+
 import httpx
 import pytest
 from sqlalchemy import func, literal, select, text, update
@@ -494,7 +496,7 @@ def _key_share_probe_while_membership_locked(
     FOR KEY SHARE on the locked row, exactly what task creation,
     auto-generation, and recurring-duty spawning do in production."""
     original = team_api._get_membership
-    state: dict = {"blocked": None}
+    state: dict[str, Any] = {"blocked": None}
 
     async def probe(
         db: AsyncSession,

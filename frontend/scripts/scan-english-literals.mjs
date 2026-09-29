@@ -10,9 +10,12 @@
  *  2. User-facing string attributes (title, description, placeholder,
  *     label, aria-label, alt, subtitle, summary, emptyMessage, helperText)
  *     plus camelCase copy props ending in Title/Description/Label/
- *     Placeholder/Message/HelperText (dialogTitle, searchLabel, …).
+ *     Placeholder/Message/HelperText (dialogTitle, searchLabel, …) — and
+ *     the same attributes as TEMPLATE literals
+ *     (`aria-label={\`Switch farm — current: ${farm}\`}`, 2026-09-29).
  *  3. String literals in JSX expression containers: `{"text"}`,
- *     `{busy ? "Saving…" : "Add"}`, `{ready && "Done."}`.
+ *     `{busy ? "Saving…" : "Add"}`, `{ready && "Done."}` and template
+ *     literal containers (`{\`${count} saved\`}`).
  *  4. Default-parameter string literals (`placeholder = "Pick an animal"`).
  *  5. String/template first args to toast.success/info/error/warning(...).
  *  6. Zod message literals: trailing string/template args of
@@ -62,9 +65,20 @@ const CAMEL_ATTRIBUTE = new RegExp(
   "g",
 );
 
+// The same copy attributes as template literals — the interpolated
+// aria-labels (`aria-label={\`Switch farm — current: ${farmName}\`}`) were a
+// proven scanner blind spot (2026-09-29 audit). Interpolation is stripped
+// before the prose filter, so `…current: ${farmName}\` still reads as copy.
+const TEMPLATE_ATTRIBUTE = new RegExp(
+  `\\b(?:${ATTRIBUTE_NAMES})=\\{?\\\`([^\\\`]{4,200})\\\``,
+  "g",
+);
+
 // String literals in JSX expression containers: `{"text"}`,
-// `{cond ? "a" : "b"}`, `{cond && "text"}`.
+// `{cond ? "a" : "b"}`, `{cond && "text"}` — plus template literal
+// containers (`{\`${count} saved\`}`).
 const CONTAINER = /\{\s*"([^"]{4,300})"\s*\}/g;
+const CONTAINER_TEMPLATE = /\{\s*`([^`]{4,300})`\s*\}/g;
 const TERNARY = /[?:]\s*"([^"]{4,300})"/g;
 const LOGICAL_AND = /&&\s*"([^"]{4,300})"/g;
 
@@ -112,7 +126,21 @@ function stripInterpolation(value) {
  */
 function proseLiteral(raw, { multiWord = false } = {}) {
   const candidate = stripInterpolation(raw).replace(/\s+/g, " ").trim();
-  if (!PROSE.test(candidate)) return null;
+  if (!PROSE.test(candidate)) {
+    // A template that OPENS with interpolation reads as mid-sentence prose
+    // (`${count} records could not be sent.`) — a lowercase start is fine
+    // when the literal itself proves it is interpolated MULTI-WORD copy.
+    // The space requirement keeps identifier slugs
+    // (`clearance-reference-${animalId}`) and cache keys out; the no-hyphen
+    // rule keeps className templates out (every Tailwind atom is a
+    // hyphen-joined token, prose is not).
+    const interpolatedProse =
+      raw.includes("${") &&
+      /\s/.test(candidate) &&
+      !/[\w]-[\w]/.test(candidate) &&
+      /^[a-z][A-Za-z0-9 ,'&%/—–….!?:()₹;“”]{3,199}$/.test(candidate);
+    if (!interpolatedProse) return null;
+  }
   if (NON_TEXTUAL.test(candidate)) return null;
   if (CODE_TOKEN.test(candidate)) return null;
   // All-caps runs joined by separators are date/number formats or compound
@@ -149,9 +177,11 @@ export function scanTextLiterals(text, { jsx = true } = {}) {
       }
     }
     collect(CONTAINER, (m) => m[1]);
+    collect(CONTAINER_TEMPLATE, (m) => m[1]);
     collect(TERNARY, (m) => m[1]);
     collect(LOGICAL_AND, (m) => m[1]);
     collect(DEFAULT_PARAM, (m) => m[1]);
+    collect(TEMPLATE_ATTRIBUTE, (m) => m[1], { multiWord: true });
   }
   collect(TOAST, (m) => m[1] ?? m[2]);
   collect(MESSAGE_PROPERTY, (m) => m[1]);

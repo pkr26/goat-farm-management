@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import date, timedelta
+from typing import Any
 
 import httpx
 import pytest
@@ -888,7 +889,7 @@ async def _source_transaction(
     source_type: str,
     *,
     related_animal_id: int | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Pick a system-booked ledger row, optionally the one linked to a given animal."""
     rows = (await client.get("/api/finance", headers=headers)).json()["transactions"]
     return next(

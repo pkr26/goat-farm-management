@@ -8,6 +8,7 @@ keep a stable pseudonymous actor/role without allowing authentication.
 
 import asyncio
 import re
+from typing import Any
 
 import httpx
 from sqlalchemy import event, func, select, text
@@ -70,7 +71,7 @@ async def create_task(
     assigned_user_id: int | None = None,
     category: str = "OTHER",
     recur_days: int | None = None,
-) -> dict:
+) -> dict[str, Any]:
     response = await client.post(
         "/api/tasks",
         json={

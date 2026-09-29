@@ -6,6 +6,10 @@
  * 1. **Catalog parity** — every key in `en.ts` must exist in `te.ts` and
  *    vice versa (the runtime catalogs; TypeScript alone would not catch a
  *    missing Telugu key).
+ * 1b. **Placeholder parity** — every `{var}` interpolated by the English
+ *    template must be interpolated by its Telugu twin and vice versa. A
+ *    dropped placeholder ships a garbled sentence (2026-09-29 audit: te's
+ *    opsSim.validation.needsBred lost {bucket}, leaving a dangling dative).
  * 2. **English-literal snapshot** — `english-literal-baseline.json` is the
  *    audited inventory of raw English UI copy (JSX text, user-facing string
  *    attributes and copy props, expression-container strings, default
@@ -51,8 +55,16 @@ const BASELINE_PATH = join(import.meta.dirname, "english-literal-baseline.json")
  * → 72 when the breeding and kidding pages moved to the breeding.* and
  * kidding.* catalog keys. → 23 when the account dialog and the shared
  * remote picker moved to the account.* and picker.remote.* keys (the
- * already-converted worker-board and sidebar entries left with them).) */
-const ENGLISH_LITERAL_CEILING = 23;
+ * already-converted worker-board and sidebar entries left with them).
+ * → 3 when the boundary components (permission gate, permissions error,
+ * stale-data notice, charts, theme toggle, landing loading), the health
+ * events fallback, the ultrasound redirect shim, the breeding candidate
+ * picker and the farm-switcher aria-label moved to the catalogs, and the
+ * scanner learned template-literal attributes and containers
+ * (2026-09-29 audit). The 3 survivors are deliberate: the SEO metadata
+ * description in app/layout.tsx and the two assertion-anchor constants in
+ * lib/persisted-numbers.ts (never rendered directly).) */
+const ENGLISH_LITERAL_CEILING = 3;
 
 describe("i18n gate (ITEM 5)", () => {
   it("the two catalogs carry exactly the same keys", () => {
@@ -64,6 +76,31 @@ describe("i18n gate (ITEM 5)", () => {
       { missingInTe, missingInEn },
       "every string must land in BOTH en.ts and te.ts",
     ).toEqual({ missingInTe: [], missingInEn: [] });
+  });
+
+  it("the two catalogs interpolate exactly the same {placeholders}", () => {
+    const variablesOf = (template: string): Set<string> =>
+      new Set([...template.matchAll(/\{(\w+)\}/g)].map((match) => match[1]!));
+    const drifted: Record<string, { onlyEn: string[]; onlyTe: string[] }> = {};
+    for (const [key, english] of Object.entries(en)) {
+      const telugu = te[key as keyof typeof te];
+      if (telugu === undefined) continue; // key parity is the test above
+      const enVars = variablesOf(english);
+      const teVars = variablesOf(telugu);
+      const onlyEn = [...enVars].filter((name) => !teVars.has(name));
+      const onlyTe = [...teVars].filter((name) => !enVars.has(name));
+      if (onlyEn.length > 0 || onlyTe.length > 0) {
+        drifted[key] = { onlyEn, onlyTe };
+      }
+    }
+    expect(
+      drifted,
+      [
+        "a translation dropped or added an interpolation placeholder — the sentence",
+        "renders garbled. Keep every {var} from the English template in the Telugu",
+        "twin (a no-case language may repeat the same var; it may not drop one).",
+      ].join(" "),
+    ).toEqual({});
   });
 
   it("no untranslated English beyond the audited baseline (added AND stale checked)", () => {

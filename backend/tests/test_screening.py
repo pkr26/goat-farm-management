@@ -3143,7 +3143,7 @@ async def test_batches_list_pages_with_total_limit_and_offset(
 
 async def _role_worker_headers(
     client: httpx.AsyncClient, owner: dict, code: str, email: str
-) -> dict:
+) -> dict[str, Any]:
     """Owner adds a worker wearing preset role ``code``; farm-scoped headers.
 
     Same shape as test_health_extended.worker_with_role: the seeded preset

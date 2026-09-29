@@ -76,7 +76,10 @@ class User(Base):
     totp_secret_enc: Mapped[bytes | None]
     totp_state: Mapped[str | None] = mapped_column(String(7))
     totp_last_step: Mapped[int | None]
-    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # UTC server default standardized by the D7 completion wave (2026-09-29).
+    created_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
     # Account deletion keeps a pseudonymous row so immutable farm/audit
     # attribution survives. Authentication dependencies reject tombstones;
     # deletion scrubs the email, name and reusable password material.
@@ -131,7 +134,10 @@ class Farm(Base):
         String(64), default="Asia/Kolkata", server_default="Asia/Kolkata"
     )
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
-    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # UTC server default standardized by the D7 completion wave (2026-09-29).
+    created_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
     updated_at: Mapped[datetime] = mapped_column(
         default=utcnow,
         onupdate=utcnow,
@@ -202,7 +208,10 @@ class Role(Base):
     # serializes writers; it cannot tell that a second editor built its full
     # permissions payload from stale state.
     revision: Mapped[int] = mapped_column(default=1, server_default="1")
-    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # UTC server default standardized by the D7 completion wave (2026-09-29).
+    created_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
     # Custom-role deletion is a tombstone, not an unbounded rewrite of every
     # historical Task that referenced the role. Active role queries exclude
     # tombstones; task audit rows may keep this immutable identity/name.
@@ -277,7 +286,10 @@ class FarmMembership(Base):
     # of the account-level password machinery.
     pin_hash: Mapped[str | None] = mapped_column(String(255))
     pin_updated_at: Mapped[datetime | None] = mapped_column()
-    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # UTC server default standardized by the D7 completion wave (2026-09-29).
+    created_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
 
     user: Mapped[User] = relationship(back_populates="memberships")
     farm: Mapped[Farm] = relationship(back_populates="memberships")
@@ -315,4 +327,7 @@ class RefreshSession(Base):
     # token instead of falsely triggering family-wide theft revocation.
     replacement_jti: Mapped[str | None] = mapped_column(String(64))
     revoked_at: Mapped[datetime | None] = mapped_column()
-    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # UTC server default standardized by the D7 completion wave (2026-09-29).
+    created_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )

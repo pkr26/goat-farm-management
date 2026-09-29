@@ -10,6 +10,7 @@ database directly, mirroring the old suite's session assertions.
 
 import logging
 from datetime import timedelta
+from typing import Any
 
 import httpx
 import pytest
@@ -121,8 +122,12 @@ async def create_duty(
     title: str,
     rid: int | None = None,
     recur_days: int | None = None,
-) -> dict:
-    payload: dict = {"title": title, "due_date": today().isoformat(), "category": "CLEANING"}
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "title": title,
+        "due_date": today().isoformat(),
+        "category": "CLEANING",
+    }
     if rid is not None:
         payload["assigned_role_id"] = rid
     if recur_days is not None:
@@ -132,7 +137,7 @@ async def create_duty(
     return resp.json()
 
 
-async def get_tabs(client: httpx.AsyncClient, headers: dict) -> dict:
+async def get_tabs(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
     resp = await client.get("/api/tasks", headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()

@@ -39,7 +39,7 @@ def iso(d: date) -> str:
 
 async def make_animal(
     client: httpx.AsyncClient, headers: dict[str, str], tag: str, *, sex: str
-) -> dict:
+) -> dict[str, Any]:
     payload = {
         "tag_number": tag,
         "sex": sex,
@@ -61,7 +61,7 @@ async def breed(
     doe_id: int,
     buck_id: int,
     breeding_date: date,
-) -> dict:
+) -> dict[str, Any]:
     resp = await client.post(
         "/api/breeding",
         json={
@@ -81,7 +81,7 @@ async def confirm_pregnancy(
     breeding_id: int,
     *,
     kid_count: int = 2,
-) -> dict:
+) -> dict[str, Any]:
     detail = (await client.get(f"/api/breeding/{breeding_id}", headers=headers)).json()
     scan = await client.post(
         f"/api/breeding/{breeding_id}/ultrasound",

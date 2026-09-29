@@ -116,13 +116,13 @@ export default function OwnerPage() {
               <thead>
                 <tr>
                   <th>{t("owner.overview.farm")}</th>
-                  <th>{t("owner.overview.active")}</th>
-                  <th>{t("owner.overview.overdue")}</th>
-                  <th>{t("owner.overview.today")}</th>
-                  <th>{t("owner.overview.watch")}</th>
-                  <th>{t("owner.overview.holds")}</th>
-                  <th>{t("owner.overview.flags")}</th>
-                  <th>{t("owner.overview.monthNet")}</th>
+                  <th className="text-right">{t("owner.overview.active")}</th>
+                  <th className="text-right">{t("owner.overview.overdue")}</th>
+                  <th className="text-right">{t("owner.overview.today")}</th>
+                  <th className="text-right">{t("owner.overview.watch")}</th>
+                  <th className="text-right">{t("owner.overview.holds")}</th>
+                  <th className="text-right">{t("owner.overview.flags")}</th>
+                  <th className="text-right">{t("owner.overview.monthNet")}</th>
                   <th className="sr-only">{t("owner.overview.open")}</th>
                 </tr>
               </thead>
@@ -130,20 +130,20 @@ export default function OwnerPage() {
                 {farmsRanked.map((farm) => (
                   <tr key={farm.farm_id}>
                     <td className="font-medium">{farm.farm_name}</td>
-                    <td>{farm.active_animals}</td>
-                    <td>
+                    <td className="table-numeric text-right">{farm.active_animals}</td>
+                    <td className="table-numeric text-right">
                       {farm.overdue_duties > 0 ? (
                         <StatusBadge status="ERROR">{farm.overdue_duties}</StatusBadge>
                       ) : (
                         "—"
                       )}
                     </td>
-                    <td>
+                    <td className="table-numeric text-right">
                       {farm.todays_duties_done}/{farm.todays_duties_done + farm.todays_duties_pending}
                     </td>
-                    <td>{farm.kidding_watch > 0 ? farm.kidding_watch : "—"}</td>
-                    <td>{farm.movement_restricted > 0 ? farm.movement_restricted : "—"}</td>
-                    <td>
+                    <td className="table-numeric text-right">{farm.kidding_watch > 0 ? farm.kidding_watch : "—"}</td>
+                    <td className="table-numeric text-right">{farm.movement_restricted > 0 ? farm.movement_restricted : "—"}</td>
+                    <td className="table-numeric text-right">
                       {farm.open_screening_flags > 0 ? (
                         <StatusBadge status="PENDING_REVIEW">
                           {farm.open_screening_flags}
@@ -152,7 +152,7 @@ export default function OwnerPage() {
                         "—"
                       )}
                     </td>
-                    <td>{formatMoney(Number(farm.month_net))}</td>
+                    <td className="table-numeric text-right">{formatMoney(Number(farm.month_net))}</td>
                     <td>
                       <Button
                         type="button"
@@ -203,38 +203,38 @@ export default function OwnerPage() {
               <thead>
                 <tr>
                   <th>{t("owner.overview.farm")}</th>
-                  <th>{t("owner.benchmarks.conception")}</th>
-                  <th>{t("owner.benchmarks.kidMortality")}</th>
-                  <th>{t("owner.benchmarks.dailyGain")}</th>
-                  <th>{t("owner.benchmarks.feedPerKg")}</th>
-                  <th>{t("owner.benchmarks.profitPerSold")}</th>
-                  <th>{t("owner.benchmarks.sold")}</th>
+                  <th className="text-right">{t("owner.benchmarks.conception")}</th>
+                  <th className="text-right">{t("owner.benchmarks.kidMortality")}</th>
+                  <th className="text-right">{t("owner.benchmarks.dailyGain")}</th>
+                  <th className="text-right">{t("owner.benchmarks.feedPerKg")}</th>
+                  <th className="text-right">{t("owner.benchmarks.profitPerSold")}</th>
+                  <th className="text-right">{t("owner.benchmarks.sold")}</th>
                 </tr>
               </thead>
               <tbody>
                 {benchmarks.farms.map((farm) => (
                   <tr key={farm.farm_id}>
                     <td className="font-medium">{farm.farm_name}</td>
-                    <td>{farm.conception_rate === null ? "—" : `${farm.conception_rate}%`}</td>
-                    <td>
+                    <td className="table-numeric text-right">{farm.conception_rate === null ? "—" : `${farm.conception_rate}%`}</td>
+                    <td className="table-numeric text-right">
                       {farm.kid_mortality_rate === null ? "—" : `${farm.kid_mortality_rate}%`}
                     </td>
-                    <td>
+                    <td className="table-numeric text-right">
                       {farm.avg_daily_gain_kg === null
                         ? "—"
                         : `${farm.avg_daily_gain_kg.toFixed(2)} kg`}
                     </td>
-                    <td>
+                    <td className="table-numeric text-right">
                       {farm.feed_cost_per_kg_gain === null
                         ? "—"
                         : formatMoney(farm.feed_cost_per_kg_gain)}
                     </td>
-                    <td>
+                    <td className="table-numeric text-right">
                       {farm.profit_per_animal_sold === null
                         ? "—"
                         : formatMoney(farm.profit_per_animal_sold)}
                     </td>
-                    <td>{farm.animals_sold}</td>
+                    <td className="table-numeric text-right">{farm.animals_sold}</td>
                   </tr>
                 ))}
               </tbody>

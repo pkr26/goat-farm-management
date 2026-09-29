@@ -17,6 +17,7 @@ cases reuse the async client fixtures.
 """
 
 import time
+from typing import Any
 
 import httpx
 import pytest
@@ -207,7 +208,7 @@ async def test_planner_api_maps_the_zero_denominators_to_422(
         assert resp.status_code == 422, (mutation, resp.text)
 
 
-def _deep_merged(base: dict, override: dict) -> dict:
+def _deep_merged(base: dict, override: dict) -> dict[str, Any]:
     merged = dict(base)
     for key, value in override.items():
         if isinstance(value, dict) and isinstance(merged.get(key), dict):

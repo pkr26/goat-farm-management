@@ -14,6 +14,7 @@ derivation when history was backdated.
 
 import asyncio
 from datetime import timedelta
+from typing import Any
 
 import httpx
 from sqlalchemy import select
@@ -42,7 +43,7 @@ async def _confirmed_pregnancy(
     return doe, br
 
 
-def _kidding_body(breeding_id: int, on: str) -> dict:
+def _kidding_body(breeding_id: int, on: str) -> dict[str, Any]:
     return {
         "breeding_record_id": breeding_id,
         "date": on,

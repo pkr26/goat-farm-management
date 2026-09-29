@@ -96,6 +96,7 @@ describe("proxy matcher", () => {
       "/manifest.webmanifest",
       "/icon-worker-192.png",
       "/icon-worker-512.png",
+      "/icon-worker-512-maskable.png",
     ]) {
       expect(matches(path), path).toBe(false);
     }

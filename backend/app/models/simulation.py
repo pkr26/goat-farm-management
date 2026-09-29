@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, ForeignKey, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base, JSONText
@@ -46,8 +46,18 @@ class SimulationScenario(Base):
     # prove which version they edited so one browser tab cannot silently erase
     # another tab's accepted changes.
     revision: Mapped[int] = mapped_column(default=1, server_default="1")
-    created_at: Mapped[datetime] = mapped_column(default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+    # UTC server default standardized by the D7 completion wave (2026-09-29).
+    created_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        default=utcnow,
+        onupdate=utcnow,
+        # text() so alembic autogenerate compares a SQL expression, not a
+        # quoted literal (the string form breaks `alembic check`).
+        server_default=text("timezone('UTC', now())"),
+        server_onupdate=text("timezone('UTC', now())"),
+    )
 
     farm: Mapped[Farm] = relationship()
     created_by: Mapped[User | None] = relationship()

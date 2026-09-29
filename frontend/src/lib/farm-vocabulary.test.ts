@@ -17,7 +17,6 @@ describe("farmVocabulary — goat farm", () => {
     expect(v.parturitionCap).toBe("Kidding");
     expect(v.parturitionPast).toBe("kidded");
     expect(v.dueLabel).toBe("Kidding due");
-    expect(v.breedingGateCopy).toContain("A doe must be at least 12 months old and 22 kg");
     expect(v.defaultBreed).toBe("Osmanabadi");
     expect(v.tagPrefix).toBe("G");
   });

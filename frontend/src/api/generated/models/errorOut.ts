@@ -8,8 +8,10 @@
 /**
  * Documented shape of every raised-error response ({"detail": ...}).
  *
- * ``code`` is present on the four mapped statuses above (absent otherwise)
- * so localized clients never have to parse ``detail`` prose.
+ * ``code`` is present on the four status-derived classes above and on the
+ * coded 409 families (LIFECYCLE_CONFLICT / STANDING_QUOTA_CONFLICT /
+ * STALE_STATE_CONFLICT — absent otherwise) so localized clients never have
+ * to parse ``detail`` prose.
  */
 export interface ErrorOut {
   detail: string;

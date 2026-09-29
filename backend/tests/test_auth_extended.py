@@ -18,6 +18,7 @@ import os
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import httpx
 import jwt
@@ -88,7 +89,7 @@ def forge_token(
     return jwt.encode(claims, key, algorithm=algorithm)
 
 
-def bearer(token: str) -> dict:
+def bearer(token: str) -> dict[str, Any]:
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -139,7 +140,7 @@ async def add_worker(
 
 async def worker_login(
     client: httpx.AsyncClient, email: str, password: str = "workerpass123"
-) -> dict:
+) -> dict[str, Any]:
     # Provisioned worker: rotate explicitly; the default client no longer
     # rewrites a worker-login 401 into a 200.
     return await login_and_rotate(client, email, password)

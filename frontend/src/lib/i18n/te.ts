@@ -21,6 +21,14 @@ const te: Partial<Record<MessageKey, string>> = {
   "common.saveChanges": "మార్పులు సేవ్ చేయండి",
   "common.retry": "మళ్ళీ ప్రయత్నించు",
   "common.loading": "లోడ్ అవుతోంది…",
+  "common.noAccess": "మీకు ఈ పేజీ యాక్సెస్ లేదు.",
+  "common.noData": "డేటా లేదు",
+  "permissionsError.loadFailed": "అనుమతులు లోడ్ కాలేదు — మళ్లీ ప్రయత్నించడానికి పేజీని రిఫ్రెష్ చేయండి.",
+  "permissionsError.retry": "అనుమతులను మళ్లీ ప్రయత్నించు",
+  "staleNotice.message": "రిఫ్రెష్ చేయబడలేదు — చివరిగా లోడ్ అయిన డేటా చూపుతున్నాం.",
+  "theme.toggle": "థీమ్ మార్చు",
+  "theme.toLight": "లైట్ థీమ్‌కు మారు",
+  "theme.toDark": "డార్క్ థీమ్‌కు మారు",
   "common.close": "మూసివేయి",
   "common.yes": "అవును",
   "common.no": "కాదు",
@@ -47,6 +55,9 @@ const te: Partial<Record<MessageKey, string>> = {
   "pagination.previous": "వెనుకకు",
   "pagination.next": "ముందుకు",
   "pagination.ariaLabel": "{label} పుటల మార్పు",
+  "pagination.records": "రికార్డ్‌లు",
+  "pagination.showing": "{total} {label}లో {first}–{last} చూపుతున్నాం",
+  "nav.farmSwitcherLabel": "ఫారం మార్చు — ప్రస్తుతం: {farm}",
 
   // ---------- app shell sidebar ----------
   "nav.group.overview": "సారాంశం",
@@ -639,6 +650,8 @@ const te: Partial<Record<MessageKey, string>> = {
     "నమోదు చేసిన టీకాలు, నులిపురుగు మందులు మరియు చికిత్సలు ఇక్కడ కనిపిస్తాయి.",
   "health.log.updating": "ఆరోగ్య నమోదులు నవీకరించబడుతున్నాయి…",
   "health.pagination.label": "ఆరోగ్య నమోదులు",
+  "health.events.loadFailed": "ఆరోగ్య ఘటనలు లోడ్ కాలేదు.",
+  "health.events.retry": "ఆరోగ్య ఘటనలను మళ్లీ ప్రయత్నించు",
   "health.log.lot": "లాట్: {lot}",
   "health.log.manufactured": "తయారీ: {date}",
   "health.log.expires": "గడువు ముగింపు: {date}",
@@ -1338,6 +1351,8 @@ const te: Partial<Record<MessageKey, string>> = {
   "worker.queuedToast": "సేవ్ చేయబడింది — ఆన్‌లైన్ అయినప్పుడు పంపుతాము.",
   "worker.queueFull": "చాలా సేవ్‌లు ఉన్నాయి — మళ్లీ కనెక్ట్ అయ్యాక సేవ్ చేయండి.",
   "worker.genericError": "ఏదో తప్పు జరిగింది.",
+  "worker.dutyDiscarded": "షిఫ్ట్ లేదా ఫారం మారింది — ఈ సేవ్ చేసిన విధి పంపబడలేదు.",
+  "worker.offlineRejected": "సేవ్ చేసిన {count} విధులను సర్వర్ తిరస్కరించింది — బోర్డును తనిఖీ చేయండి.",
   "worker.login.title": "ఎవరు పని చేస్తున్నారు?",
   "worker.login.description": "మీ పేరు నొక్కండి, తర్వాత PIN నమోదు చేయండి.",
   "worker.login.pinLabel": "పిన్",
@@ -1400,6 +1415,11 @@ const te: Partial<Record<MessageKey, string>> = {
 
   "serverErrors.invalidPin": "ఆ పిన్ తప్పు.",
   "serverErrors.tooManyAttempts": "చాలా ప్రయత్నాలు — కొన్ని నిమిషాలు ఆగి మళ్లీ ప్రయత్నించండి.",
+  "serverErrors.kiddingNeedsPregnancy": "కిడ్డింగ్ కోసం ధ్రువీకరించిన గర్భధారణ రికార్డు అవసరం.",
+  "serverErrors.lifecycleConflict": "ఈ చర్య ప్రస్తుత స్థితికి సరిపోదు — రిఫ్రెష్ చేసి మళ్లీ ప్రయత్నించండి.",
+  "serverErrors.quotaExceeded": "ఈ ఫారం యొక్క పరిమితి నిండింది — ముందు ఉన్న అంశాలను పూర్తి చేయండి లేదా తొలగించండి.",
+  "serverErrors.staleState": "ఇది ఇతర చోట మారింది — తాజా వెర్షన్‌ను రీలోడ్ చేసి మళ్లీ ప్రయత్నించండి.",
+  "serverErrors.alreadyTerminal": "ఈ జంతువు ఇప్పటికే అమ్ముడైంది, చనిపోయింది లేదా తీసివేయబడింది — బోర్డును రిఫ్రెష్ చేయండి.",
   "serverErrors.notAssigned": "ఈ విధి మీకు కేటాయించలేదు.",
   "serverErrors.taskNotPending": "ఈ విధి ఇప్పటికే మూసివేయబడింది.",
   "serverErrors.useLinkedForm": "ఈ విధిని దాని లింక్ చేసిన ఫారం ద్వారా మూసివేయండి.",
@@ -1805,7 +1825,7 @@ const te: Partial<Record<MessageKey, string>> = {
   // ---------- ఆప్స్ సిమ్యులేషన్ ----------
   "opsSim.title": "ఆప్స్ సిమ్యులేషన్",
   "opsSim.description":
-    "ఫారంను రోజు రోజుకు పునఃప్రదర్శించండి — ఒక్కో బకెట్‌కు ఒక భవనం, మూడు షిఫ్టుల్లో మేత మిశ్రమం మరియు సరఫరా, రోజుకు రెండుసార్లు పెన్ల శుభ్రత, మరియు ప్రతి పిల్ల కదలిక చట్టబద్ధమైన జీవితచక్రంతో సరిచూడబడుతుంది.",
+    "ఫారంను రోజు రోజుకు పునఃప్రదర్శించండి — ఒక్కో బకెట్‌కు ఒక భవనం, మూడు షిఫ్టుల్లో మేత మిశ్రమం మరియు సరఫరా, రోజుకు రెండుసార్లు పెన్ల శుభ్రత, మరియు ప్రతి {young} కదలిక చట్టబద్ధమైన జీవితచక్రంతో సరిచూడబడుతుంది.",
   "opsSim.gateDescription": "ఫారం రోజు రోజుకు: భవనాలు, విధులు, మేత మరియు ప్రతి బకెట్ మార్పు.",
   "opsSim.staleNotice":
     "ఈ సిమ్యులేషన్ తర్వాత ప్రారంభ మంద లేదా రన్ అమరికలు మారాయి — కింది అంకెలు మునుపటి ఇన్‌పుట్‌లను వివరిస్తాయి. ప్రస్తుత వాటి కోసం మళ్లీ రన్ చేయండి.",
@@ -1938,7 +1958,7 @@ const te: Partial<Record<MessageKey, string>> = {
     "{label}: సంతానోత్పత్తికి గడిచిన రోజులు 0–{max} మధ్య పూర్ణ సంఖ్యగా ఉండాలి.",
   "opsSim.validation.maleKidsOnly": "{label}: మగలు మాత్రమే MALE_KIDS లో ప్రారంభించగలరు.",
   "opsSim.validation.doeOnly": "{label}: గర్భ బకెట్‌లు ఆడ మేకలకే.",
-  "opsSim.validation.needsBred": "{label}: కు సంతానోత్పత్తికి గడిచిన రోజులు కావాలి.",
+  "opsSim.validation.needsBred": "{label}: {bucket} బకెట్‌కు సంతానోత్పత్తి నుండి గడిచిన రోజులు అవసరం.",
   "opsSim.validation.quarantineLimit":
     "{label}: క్వారంటైన్ 45వ రోజున విడుదల అవుతుంది; బకెట్‌లో రోజులు 44 మించకూడదు.",
   "opsSim.validation.bredDoesOnly": "{label}: సంతానోత్పత్తికి గడిచిన రోజులు ఆడ మేకలకే వర్తిస్తాయి.",
@@ -2141,6 +2161,7 @@ const te: Partial<Record<MessageKey, string>> = {
   "animalDetail.validation.notesTooLong": "గమనికలు 255 అక్షరాలు మించకూడదు",
   "animalDetail.validation.reasonTooLong": "కారణం 255 అక్షరాలు మించకూడదు",
   "animalDetail.validation.salePriceTooLarge": "అమ్మకం ధర ₹1,000,000,000 మించకూడదు",
+  "animalDetail.validation.moneyMin": "మొత్తం ₹0 లేదా కనీసం ₹0.005 ఉండాలి",
   "animalDetail.validation.pricePerKgPositive": "కిలో ధర 0 కంటే ఎక్కువ ఉండాలి",
   "animalDetail.validation.pricePerKgTooLarge": "కిలో ధర ₹1,000,000,000 మించకూడదు",
   "animalDetail.validation.buyerNameTooLong": "కొనుగోలుదారి పేరు 120 అక్షరాలు మించకూడదు",
@@ -2845,6 +2866,8 @@ const te: Partial<Record<MessageKey, string>> = {
   "animals.validation.birthWeightMax": "నవజాత {young} బరువు గరిష్ఠంగా {max} కి.గ్రా ఉండాలి",
   "animals.validation.weightMin": "బరువు 0 కి.గ్రా లేదా కనీసం 0.0005 కి.గ్రా ఉండాలి",
   "animals.validation.purchasePriceMax": "కొనుగోలు ధర ₹1,000,000,000 మించకూడదు",
+  "animals.validation.moneyMin": "మొత్తం ₹0 లేదా కనీసం ₹0.005 ఉండాలి",
+  "animals.validation.kgMin": "పరిమాణం కనీసం 0.0005 కిలోలు ఉండాలి",
   "animals.validation.weightMax": "ఈ ఫారం జాతికి గరిష్ఠంగా {max} కి.గ్రా",
   "animals.validation.textMax": "గరిష్ఠంగా {max} అక్షరాలు",
   "animals.validation.weightDateNeedsWeight": "ప్రవేశ బరువు తేదీకి ప్రవేశ బరువు అవసరం",
@@ -2886,6 +2909,8 @@ const te: Partial<Record<MessageKey, string>> = {
 
   // ---------- breeding page ----------
   "breeding.title": "సంతానోత్పత్తి",
+  "breeding.ultrasoundRedirect.description": "ఈ బ్రీడింగ్ రికార్డ్ కోసం అల్ట్రాసౌండ్ తనిఖీ తెరుచుకుంటోంది…",
+  "breeding.ultrasoundRedirect.loading": "అల్ట్రాసౌండ్ తనిఖీ లోడ్ అవుతోంది…",
   "breeding.description": "సంతానోత్పత్తి నమోదులు, అల్ట్రాసౌండ్ తనిఖీలు మరియు గర్భ ఫలితాలు.",
   "breeding.add": "సంతానోత్పత్తి జోడించండి",
   "breeding.loading": "సంతానోత్పత్తి నమోదులు లోడ్ అవుతున్నాయి…",
@@ -2951,7 +2976,7 @@ const te: Partial<Record<MessageKey, string>> = {
   "breeding.form.methodNote":
     "మంద {noun}తో సహజ సంభోగం మాత్రమే మద్దతు ఉన్న పద్ధతి — AI ప్రోటోకాల్‌లో భాగం కాదు.",
   "breeding.form.noEligibleMales":
-    "అర్హతైన {nouns} అందుబాటులో లేరు. నిలిపివేతలో, క్వారంటైన్‌లో లేదా ఇతర పరిమితుల్లో ఉన్న {nouns} ఎంపికకు అందువద్దు.",
+    "అర్హతైన {nouns} అందుబాటులో లేరు. నిలిపివేతలో, క్వారంటైన్‌లో లేదా ఇతర పరిమితుల్లో ఉన్న {nounsCap} ఎంపికకు అందువద్దు.",
   "breeding.form.semenSireLabel": "వీర్యం {noun} (ఐచ్ఛికం)",
   "breeding.form.semenSirePlaceholder": "{noun} పేరు / స్ట్రా కోడ్",
   "breeding.form.semenSireHint": "ఈ {noun}కు వాడిన స్ట్రాపై పేర్కొన్న తండ్రి.",
@@ -3171,6 +3196,11 @@ const te: Partial<Record<MessageKey, string>> = {
   "picker.remote.statusOptions_many": "{count} ఎంపికలు అందుబాటులో ఉన్నాయి.",
   "picker.remote.statusChecked_one": "{total} సరిపోయే రికార్డులో {checked} తనిఖీ అయింది.",
   "picker.remote.statusChecked_many": "{total} సరిపోయే రికార్డుల్లో {checked} తనిఖీ అయ్యాయి.",
+  "picker.candidates.description": "టాగ్ లేదా పేరు ద్వారా అర్హులైన జంతువులను వెతకండి. ఫలితాలు పేజీల్లో లోడ్ అవుతాయి.",
+  "picker.candidates.searchLabel": "బ్రీడింగ్ అభ్యర్థులను వెతకు",
+  "picker.candidates.searchPlaceholder": "టాగ్ లేదా పేరు వెతకండి…",
+  "picker.candidates.emptyMessage": "ఈ వెతుకులాటకు అర్హులైన {kind} లేరు.",
+  "picker.candidates.noEligibleYet": "ఇంకా తనిఖీ చేసిన రికార్డుల్లో అర్హులైన జంతువులు ఎవరూ లేరు. కొనసాగించడానికి మరిన్ని లోడ్ చేయండి.",
 };
 
 export default te;

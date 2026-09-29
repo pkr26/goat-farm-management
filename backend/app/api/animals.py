@@ -51,7 +51,13 @@ from ..schemas.animals import (
     WeightIn,
     WeightRecordOut,
 )
-from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET, PostgresText
+from ..schemas.common import (
+    COMMON_ERROR_RESPONSES,
+    MAX_INT32_ID,
+    MAX_PAGE_OFFSET,
+    PostgresText,
+    lifecycle_conflict,
+)
 from ..schemas.health import HealthEventOut
 from ..services import (
     IdempotencyKey,
@@ -194,8 +200,7 @@ async def _lock_pristine_batch_protocol_for_quarantine_reentry(
         )
     ).scalar_one_or_none()
     if batch is None:
-        raise HTTPException(
-            status_code=409,
+        raise lifecycle_conflict(
             detail="This animal's purchase-batch quarantine protocol is unavailable.",
         )
 
@@ -242,8 +247,7 @@ async def _lock_pristine_batch_protocol_for_quarantine_reentry(
         for task in tasks
     )
     if not pristine:
-        raise HTTPException(
-            status_code=409,
+        raise lifecycle_conflict(
             detail=(
                 "This animal cannot leave quarantine by override because its "
                 "purchase-batch protocol has started, ended, or is incomplete."
@@ -683,9 +687,7 @@ async def update_animal(
     """
     animal = await _get_animal(db, farm.id, animal_id, for_update=True)
     if animal.status != AnimalStatus.ACTIVE.value:
-        raise HTTPException(
-            status_code=409, detail=f"{animal.tag_number} is {animal.status.lower()}"
-        )
+        raise lifecycle_conflict(detail=f"{animal.tag_number} is {animal.status.lower()}")
     supplied = payload.model_fields_set
     if "coat_color" in supplied:
         animal.coat_color = payload.coat_color
@@ -890,8 +892,7 @@ async def move_bucket(
         # to BREEDING/KIDS/RESTING are the same biosecurity bypass. The check
         # locks Batch -> Tasks under the animal lock already held here.
         if not payload.history_override:
-            raise HTTPException(
-                status_code=409,
+            raise lifecycle_conflict(
                 detail=(
                     "Purchased quarantine animals must leave quarantine through "
                     "the guarded batch task"
@@ -979,7 +980,7 @@ async def move_bucket(
             # pool.
         )
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from None
+        raise lifecycle_conflict(detail=str(exc)) from None
     if (
         not payload.history_override
         and animal.sex == "F"
@@ -987,8 +988,7 @@ async def move_bucket(
         and payload.to_bucket == Bucket.RESTING.value
         and await doe_has_open_breeding(db, farm.id, animal.id)
     ):
-        raise HTTPException(
-            status_code=409,
+        raise lifecycle_conflict(
             detail="Resolve the doe's open breeding before moving her to RESTING",
         )
     if (
@@ -996,7 +996,7 @@ async def move_bucket(
         and payload.to_bucket in {Bucket.PREGNANCY_LATE.value, Bucket.DELIVERY.value}
         and not computed.is_currently_pregnant
     ):
-        raise HTTPException(status_code=409, detail="Pregnancy movement requires a live pregnancy")
+        raise lifecycle_conflict(detail="Pregnancy movement requires a live pregnancy")
     if (
         payload.history_override
         and animal.sex == "F"
@@ -1014,8 +1014,7 @@ async def move_bucket(
         # bucket with no kidding/abort/ultrasound exit edge — that deadlock
         # leaves the doe on the overdue list forever. Resolve the service
         # first (negative ultrasound, abort, kidding) or sell/cull the doe.
-        raise HTTPException(
-            status_code=409,
+        raise lifecycle_conflict(
             detail=(
                 "This doe has an open breeding or pregnancy — a history override "
                 "cannot move her out of the reproductive workflow buckets. Record "
@@ -1137,16 +1136,16 @@ async def _change_status_mutation(
     # Only an ACTIVE animal can change status — replaying a sale on an
     # already-SOLD animal must not book a second income transaction. The row
     # lock makes two in-flight status changes serialize on this check.
+    # 409: the animal's lifecycle state, not the request shape, refuses this
+    # (2026-09-28 audit, A3 convention).
     if animal.status != AnimalStatus.ACTIVE.value:
-        raise HTTPException(
-            status_code=400,
+        raise lifecycle_conflict(
             detail=f"{animal.tag_number} is already {animal.status.lower()}.",
         )
     if payload.new_status in SALE_CAPABLE_STATUSES and (
         animal.movement_restricted or animal.suspected_scheduled_disease
     ):
-        raise HTTPException(
-            status_code=409,
+        raise lifecycle_conflict(
             detail=(
                 "Sale/cull is blocked by an active movement restriction; "
                 "record an authorised health clearance first"
@@ -1179,8 +1178,7 @@ async def _change_status_mutation(
             )
         ).scalar_one_or_none()
         if withdrawal is not None:
-            raise HTTPException(
-                status_code=409,
+            raise lifecycle_conflict(
                 detail=f"Sale/cull is blocked by medicine withdrawal through {withdrawal}",
             )
     status_note_advisories: list[str] = []
@@ -1190,8 +1188,7 @@ async def _change_status_mutation(
         # cull remains possible — destroying a sick quarantined animal is a
         # legitimate disease response.
         if animal.current_bucket == Bucket.QUARANTINE.value:
-            raise HTTPException(
-                status_code=409,
+            raise lifecycle_conflict(
                 detail=(
                     f"{animal.tag_number} is still in the 45-day quarantine protocol — "
                     "complete or skip the protocol before selling"
@@ -1290,8 +1287,7 @@ async def _change_status_mutation(
             if getattr(exc.orig, "sqlstate", None) != "55P03":
                 raise
             await db.rollback()
-            raise HTTPException(
-                status_code=409,
+            raise lifecycle_conflict(
                 detail="The dam's lifecycle is changing; retry the kid death update",
             ) from None
     # new_status is never ACTIVE here: clear the cull flag and stop the

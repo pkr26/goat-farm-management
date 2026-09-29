@@ -10,6 +10,7 @@ import logging
 import re
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -38,8 +39,8 @@ def today() -> date:
 
 async def _make_animal(
     client: httpx.AsyncClient, headers: dict, tag: str, *, sex: str, bucket: str, **overrides
-) -> dict:
-    payload: dict = {
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "tag_number": tag,
         "sex": sex,
         "source": "PURCHASED",
@@ -60,7 +61,7 @@ async def _adult(
     bucket: str,
     age_days: int = 800,
     weight_kg: float = 30.0,
-) -> dict:
+) -> dict[str, Any]:
     dob = today() - timedelta(days=age_days)
     return await _make_animal(
         client,
@@ -85,7 +86,7 @@ async def _breed(
     semen_sire: str | None = None,
     idempotency_key: str | None = None,
 ) -> httpx.Response:
-    payload: dict = {
+    payload: dict[str, Any] = {
         "doe_id": doe_id,
         "breeding_date": iso(breeding_date),
         "method": method,
@@ -102,7 +103,7 @@ async def _breed(
 
 async def _confirm_pregnant(
     client: httpx.AsyncClient, headers: dict, breeding_record: dict, scan_offset_days: int
-) -> dict:
+) -> dict[str, Any]:
     scan_date = date.fromisoformat(breeding_record["breeding_date"]) + timedelta(
         days=scan_offset_days
     )
@@ -644,8 +645,10 @@ async def test_red_l4_open_record_quota_blocks_new_claims(
         json={"type": "EXPENSE", "category": "OTHER", "date": iso(today()), "amount": 20.0},
         headers={**headers, "Idempotency-Key": "red-l4-b"},
     )
-    assert second.status_code == 429, second.text
+    assert second.status_code == 409, second.text
     assert "retention window" in second.json()["detail"]
+    # Standing quotas carry their conflict-family code (2026-09-29).
+    assert second.json()["code"] == "STANDING_QUOTA_CONFLICT"
 
     # Independent-verifier regression: at the cap, a same-key REPLAY must
     # still answer — it is read-only and is the client's only way to retrieve

@@ -1666,7 +1666,7 @@ VALID_KIDDING = {
         ("notes", None),
         ("notes", "n" * 4_000),
         ("date", TOMORROW),  # future dates are the router's guard, not the schema's
-        ("kids", [{"sex": "M"}] * 10),
+        ("kids", [{"sex": "M"}] * 4),  # the species litter cap (goat profile)
     ],
 )
 def test_kidding_create_valid(field: str, value: object) -> None:
@@ -1681,7 +1681,7 @@ def test_kidding_create_valid(field: str, value: object) -> None:
         ("breeding_record_id", -1),
         ("breeding_record_id", MAX_ID + 1),
         ("kids", []),  # at least one kid entry required
-        ("kids", [{"sex": "M"}] * 11),  # capped at 10
+        ("kids", [{"sex": "M"}] * 5),  # capped at the species litter size (4)
     ],
 )
 def test_kidding_create_invalid(field: str, value: object) -> None:

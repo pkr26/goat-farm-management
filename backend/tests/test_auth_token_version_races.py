@@ -1,6 +1,7 @@
 """Global token-revocation serialization regressions."""
 
 import asyncio
+from typing import Any
 
 import httpx
 import pytest
@@ -44,7 +45,7 @@ async def _provision_worker(
     client: httpx.AsyncClient,
     owner: dict[str, str],
     email: str,
-) -> dict:
+) -> dict[str, Any]:
     team = await client.get("/api/team", headers=owner)
     assert team.status_code == 200, team.text
     role_id = next(role["id"] for role in team.json()["roles"] if role["code"] == "CLEANER")

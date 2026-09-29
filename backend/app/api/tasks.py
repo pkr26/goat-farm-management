@@ -34,7 +34,14 @@ from ..models import (
     TaskStatus,
     User,
 )
-from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET
+from ..schemas.common import (
+    COMMON_ERROR_RESPONSES,
+    MAX_INT32_ID,
+    MAX_PAGE_OFFSET,
+    lifecycle_conflict,
+    stale_state_conflict,
+    standing_quota,
+)
 from ..schemas.tasks import (
     TaskCompleteIn,
     TaskCreateIn,
@@ -101,8 +108,7 @@ async def _guard_manual_task_capacity_locked(db: AsyncSession, farm: Farm) -> No
     try:
         await guard_manual_task_capacity_locked(db, farm)
     except ManualTaskCapacityError as exc:
-        raise HTTPException(
-            status_code=409,
+        raise standing_quota(
             detail=str(exc),
         ) from None
 
@@ -254,7 +260,7 @@ def _require_locked_linked_animal_active(task: Task, locked_animals: list[Animal
         # Status changes normally sweep pending duties, and task lists hide
         # any legacy residue. Re-check under the canonical Animal -> Task locks
         # so a direct/forged completion or recurring skip cannot act or spawn.
-        raise HTTPException(status_code=409, detail="This duty's animal is no longer active")
+        raise lifecycle_conflict(detail="This duty's animal is no longer active")
 
 
 @router.get("")
@@ -561,8 +567,7 @@ async def create_task(
             # still open so its exact first response is persisted atomically.
             return task_out(await _get_task(db, farm, task.id))
         except IntegrityError:
-            raise HTTPException(
-                status_code=409,
+            raise stale_state_conflict(
                 detail="Task assignment changed; refresh the team list and try again",
             ) from None
 
@@ -611,13 +616,13 @@ async def complete(
         locked_animals = await _lock_completion_animals(db, farm, task_id)
         task = await _get_task(db, farm, task_id, for_update=True)
         if task.status != TaskStatus.PENDING.value:
-            raise HTTPException(status_code=409, detail="Task is not pending")
+            raise lifecycle_conflict(detail="Task is not pending")
         _require_locked_linked_animal_active(task, locked_animals)
         try:
             await resolve_personal_task_role_fallback(db, task)
         except ValueError as exc:
             await db.rollback()
-            raise HTTPException(status_code=409, detail=str(exc)) from None
+            raise lifecycle_conflict(detail=str(exc)) from None
         if not await visible_to(db, task, user, farm, membership, lock_assignee=True):
             raise HTTPException(status_code=403, detail="This duty is not assigned to you")
         # Form-linked duties (see task_action_url) must be closed via their
@@ -629,7 +634,7 @@ async def complete(
         if task_action_url(task) is not None or (
             task.auto_generated and task.category in FORM_LINKED_TASK_CATEGORIES
         ):
-            raise HTTPException(status_code=409, detail="Use the linked form to complete this duty")
+            raise lifecycle_conflict(detail="Use the linked form to complete this duty")
         # Auto-generated duties (quarantine release, weaning, ...) and every
         # recurring occurrence unlock on their due date. A one-off manual duty may
         # still be closed early, but completing a freshly spawned recurrence early
@@ -637,7 +642,7 @@ async def complete(
         if (task.auto_generated or task.recur_days is not None) and task.due_date > today(
             farm.timezone
         ):
-            raise HTTPException(status_code=409, detail="This duty is not due yet")
+            raise lifecycle_conflict(detail="This duty is not due yet")
         try:
             await complete_task(
                 db,
@@ -648,7 +653,7 @@ async def complete(
             )
         except ValueError as exc:
             await db.rollback()
-            raise HTTPException(status_code=409, detail=str(exc)) from None
+            raise lifecycle_conflict(detail=str(exc)) from None
         return task_out(task)
 
     return await execute_idempotent(
@@ -689,17 +694,17 @@ async def skip(
         locked_animals = await _lock_completion_animals(db, farm, task_id)
         task = await _get_task(db, farm, task_id, for_update=True)
         if task.status != TaskStatus.PENDING.value:
-            raise HTTPException(status_code=409, detail="Task is not pending")
+            raise lifecycle_conflict(detail="Task is not pending")
         _require_locked_linked_animal_active(task, locked_animals)
         try:
             await resolve_personal_task_role_fallback(db, task)
         except ValueError as exc:
             await db.rollback()
-            raise HTTPException(status_code=409, detail=str(exc)) from None
+            raise lifecycle_conflict(detail=str(exc)) from None
         if not await visible_to(db, task, user, farm, membership, lock_assignee=True):
             raise HTTPException(status_code=403, detail="This duty is not assigned to you")
         if task.recur_days is not None and task.due_date > today(farm.timezone):
-            raise HTTPException(status_code=409, detail="This duty is not due yet")
+            raise lifecycle_conflict(detail="This duty is not due yet")
         # Every batch-linked generated row is an auditable quarantine gate.
         # The final release accepts only DONE/VERIFIED prerequisites and there
         # is intentionally no "reopen skipped health work" shortcut, so
@@ -714,8 +719,7 @@ async def skip(
             and task.purchase_batch_id is not None
             and await _batch_has_active_animal(db, farm, task.purchase_batch_id)
         ):
-            raise HTTPException(
-                status_code=409,
+            raise lifecycle_conflict(
                 detail=(
                     "Quarantine protocol duties cannot be skipped; complete the required workflow"
                 ),
@@ -730,8 +734,7 @@ async def skip(
             # replacement duty can be created. Skipping it would strand the doe and
             # her kids there for good — out of the breeding lifecycle and on the
             # lactating ration — with no remaining API path back.
-            raise HTTPException(
-                status_code=409,
+            raise lifecycle_conflict(
                 detail=(
                     "This duty is the only way out of postpartum recovery; "
                     "complete it once the animals can be moved"
@@ -762,8 +765,7 @@ async def skip(
                     for animal in locked_animals
                 )
                 if doe_active:
-                    raise HTTPException(
-                        status_code=409,
+                    raise lifecycle_conflict(
                         detail=(
                             "The pregnancy check cannot be skipped while the service is open — "
                             "record the scan result (a late date is fine) to close it"
@@ -773,7 +775,7 @@ async def skip(
             await skip_task(db, task, user, payload.reason)
         except ValueError as exc:
             await db.rollback()
-            raise HTTPException(status_code=409, detail=str(exc)) from None
+            raise lifecycle_conflict(detail=str(exc)) from None
 
         return task_out(task)
 
@@ -818,11 +820,11 @@ async def verify(
         locked_animals = await _lock_completion_animals(db, farm, task_id)
         task = await _get_task(db, farm, task_id, for_update=True)
         if task.status != TaskStatus.DONE.value or not task.needs_verification:
-            raise HTTPException(status_code=409, detail="Task is not awaiting verification")
+            raise lifecycle_conflict(detail="Task is not awaiting verification")
         # Two-person rule: the worker who did the duty cannot verify his own
         # work; the farm owner is exempt.
         if task.completed_by_id == user.id and farm.owner_id != user.id:
-            raise HTTPException(status_code=409, detail="Someone else must verify this duty")
+            raise lifecycle_conflict(detail="Someone else must verify this duty")
         # Completion could only act while the linked animal was ACTIVE; by review
         # time the animal may be sold/dead and its pending duties already swept.
         # Spawning then would plant a PENDING row no sweep revisits and no action
@@ -849,7 +851,7 @@ async def verify(
             await verify_task(db, task, user, spawn_successor=spawn_successor)
         except ValueError as exc:
             await db.rollback()
-            raise HTTPException(status_code=409, detail=str(exc)) from None
+            raise lifecycle_conflict(detail=str(exc)) from None
         return task_out(task)
 
     return await execute_idempotent(
@@ -895,7 +897,7 @@ async def reject(
         locked_animals = await _lock_completion_animals(db, farm, task_id)
         task = await _get_task(db, farm, task_id, for_update=True)
         if task.status != TaskStatus.DONE.value or not task.needs_verification:
-            raise HTTPException(status_code=409, detail="Task is not awaiting verification")
+            raise lifecycle_conflict(detail="Task is not awaiting verification")
         _require_locked_linked_animal_active(task, locked_animals)
         # Rejection returns the duty to PENDING, which is exactly the state
         # ck_tasks_user_assignment_has_role constrains. Repair a pre-D9 personal row
@@ -907,7 +909,7 @@ async def reject(
             await resolve_personal_task_role_fallback(db, task)
         except ValueError as exc:
             await db.rollback()
-            raise HTTPException(status_code=409, detail=str(exc)) from None
+            raise lifecycle_conflict(detail=str(exc)) from None
         if not task.auto_generated:
             await _guard_manual_task_capacity_locked(db, farm)
         await reject_task(db, task, user, payload.note)

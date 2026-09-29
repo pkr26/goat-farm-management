@@ -7,11 +7,13 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
 
 import { useAuth } from "@/lib/auth-context";
+import { useT } from "@/lib/i18n";
 import { firstPermittedPath } from "@/lib/permission-navigation";
 import { usePermissions } from "@/lib/use-permissions";
 
 
 export default function RootPage() {
+  const t = useT();
   const { user, farmId, loading } = useAuth();
   const permissions = usePermissions();
   const router = useRouter();
@@ -40,7 +42,7 @@ export default function RootPage() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-3">
       <Loader2 className="size-6 animate-spin text-primary" />
-      <p role="status" aria-live="polite" className="text-muted-foreground">Loading…</p>
+      <p role="status" aria-live="polite" className="text-muted-foreground">{t("common.loading")}</p>
     </main>
   );
 }

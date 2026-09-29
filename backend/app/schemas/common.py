@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Any
 
+from fastapi import HTTPException
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from ..characters import FORBIDDEN_TEXT_CHARS
@@ -182,16 +183,61 @@ ERROR_CODES_BY_STATUS: dict[int, str] = {
     429: "RATE_LIMITED",
 }
 
+# Conflict codes (2026-09-29, RFC 9457-style ``code`` members): 409 covers
+# several failure families the status alone cannot separate, and the A3
+# convention moved every wrong-lifecycle and standing-quota answer onto it.
+# Per-class codes let localized clients branch on the family instead of
+# byte-pinning English ``detail`` prose (the raise-site helpers below attach
+# them; see http_exception_handler).
+LIFECYCLE_CONFLICT = "LIFECYCLE_CONFLICT"
+STANDING_QUOTA_CONFLICT = "STANDING_QUOTA_CONFLICT"
+STALE_STATE_CONFLICT = "STALE_STATE_CONFLICT"
+
 
 class ErrorOut(BaseModel):
     """Documented shape of every raised-error response ({"detail": ...}).
 
-    ``code`` is present on the four mapped statuses above (absent otherwise)
-    so localized clients never have to parse ``detail`` prose.
+    ``code`` is present on the four status-derived classes above and on the
+    coded 409 families (LIFECYCLE_CONFLICT / STANDING_QUOTA_CONFLICT /
+    STALE_STATE_CONFLICT — absent otherwise) so localized clients never have
+    to parse ``detail`` prose.
     """
 
     detail: str
     code: str | None = None
+
+
+class CodedHTTPException(HTTPException):
+    """A 409 carrying its conflict-family code (2026-09-29).
+
+    FastAPI's exception handlers receive ``Exception``, so the code rides on
+    a dedicated attribute the default handler picks up; everything else
+    (status, detail, headers) behaves exactly like a plain HTTPException.
+    """
+
+    conflict_code: str
+
+    def __init__(self, conflict_code: str, *, detail: str) -> None:
+        super().__init__(status_code=409, detail=detail)
+        self.conflict_code = conflict_code
+
+
+def lifecycle_conflict(*, detail: str) -> CodedHTTPException:
+    """409: the resource's lifecycle state refuses this request (a duty that
+    already transitioned, a terminal animal, a batch already submitted)."""
+    return CodedHTTPException(LIFECYCLE_CONFLICT, detail=detail)
+
+
+def standing_quota(*, detail: str) -> CodedHTTPException:
+    """409: a standing per-farm capacity is full (open duties, plans,
+    walkthroughs, scenarios, team seats, idempotency records)."""
+    return CodedHTTPException(STANDING_QUOTA_CONFLICT, detail=detail)
+
+
+def stale_state_conflict(*, detail: str) -> CodedHTTPException:
+    """409: optimistic-concurrency mismatch — the row changed under the
+    caller's expected revision/status; reload and retry."""
+    return CodedHTTPException(STALE_STATE_CONFLICT, detail=detail)
 
 
 class RequestValidationIssueOut(BaseModel):

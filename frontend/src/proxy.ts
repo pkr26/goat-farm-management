@@ -63,7 +63,7 @@ export const config = {
      * Prefetches are skipped so <Link> hover/proxy loads don't mint nonces.
      */
     {
-      source: "/((?!api(?:/|$)|healthz|readyz|_next/static|_next/image|favicon.ico|icon.svg|sw.js|manifest.webmanifest|icon-worker-192.png|icon-worker-512.png).*)",
+      source: "/((?!api(?:/|$)|healthz|readyz|_next/static|_next/image|favicon.ico|icon.svg|sw.js|manifest.webmanifest|icon-worker-192.png|icon-worker-512.png|icon-worker-512-maskable.png).*)",
       missing: [
         { type: "header", key: "next-router-prefetch" },
         { type: "header", key: "purpose", value: "prefetch" },

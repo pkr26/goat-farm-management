@@ -74,8 +74,6 @@ import {
   isPersistableNonnegativeMoney,
   isPersistableNonnegativeWeight,
   MIN_PERSISTED_KG,
-  MIN_PERSISTED_KG_MESSAGE,
-  MIN_PERSISTED_MONEY_MESSAGE,
 } from "@/lib/persisted-numbers";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
@@ -246,14 +244,14 @@ export const createAnimalSchema = (
         .number()
         .nonnegative()
         .max(1_000_000_000, t("animals.validation.purchasePriceMax"))
-        .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
+        .refine(isPersistableNonnegativeMoney, t("animals.validation.moneyMin")),
     ),
     seller_name: z.string().max(120).optional(),
     weight_kg: optNum(
       z
         .number()
         .positive()
-        .min(MIN_PERSISTED_KG, MIN_PERSISTED_KG_MESSAGE)
+        .min(MIN_PERSISTED_KG, t("animals.validation.kgMin"))
         .max(
           vocabulary.facts.maxWeightKg,
           t("animals.validation.weightMax", { max: vocabulary.facts.maxWeightKg }),
@@ -582,7 +580,11 @@ function CreateAnimalDialog({
         onCreated();
       } catch (err) {
         if (!farmScope()) return;
-        toast.error(err instanceof ApiError ? err.detail : t("common.somethingWentWrong"));
+        toast.error(
+          err instanceof ApiError
+            ? mapServerError(t, err.detail, err.status, err.code)
+            : t("common.somethingWentWrong"),
+        );
       }
     });
   }

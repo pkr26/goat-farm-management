@@ -62,6 +62,7 @@ import { ApiError } from "@/lib/api-client";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { useT, type MessageKey, type TFn } from "@/lib/i18n";
+import { mapServerError } from "@/lib/server-error-phrases";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 import { cn } from "@/lib/utils";
@@ -342,8 +343,9 @@ function NumberField(
   );
 }
 
-function errorMessage(err: unknown, fallback: string): string {
-  if (err instanceof ApiError) return err.detail;
+function errorMessage(t: TFn, err: unknown, fallback: string): string {
+  if (err instanceof ApiError)
+    return mapServerError(t, err.detail, err.status, err.code);
   return fallback;
 }
 
@@ -513,7 +515,7 @@ function OpsSimulationPageContent() {
         window.scrollTo({ top: 0, behavior: "smooth" });
       } catch (err) {
         if (!farmScope()) return;
-        toast.error(errorMessage(err, t("opsSim.runFailed")));
+        toast.error(errorMessage(t, err, t("opsSim.runFailed")));
       }
     });
   }

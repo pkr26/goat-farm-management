@@ -16,13 +16,14 @@ client; before CI existed nothing failed when it went stale. Two tests:
 
 import json
 from pathlib import Path
+from typing import Any
 
 from app.main import create_app
 
 OPENAPI_JSON = Path(__file__).resolve().parent.parent.parent / "shared" / "openapi.json"
 
 
-def _committed_schema() -> dict:
+def _committed_schema() -> dict[str, Any]:
     return json.loads(OPENAPI_JSON.read_text())
 
 

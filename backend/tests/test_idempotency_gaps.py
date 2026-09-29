@@ -9,6 +9,8 @@ defined 409 (never a 200 double-effect, never a 500), for both complete
 and skip, from a different actor.
 """
 
+from typing import Any
+
 import httpx
 
 from app.utils import today
@@ -29,7 +31,9 @@ async def _shared_role_id(client: httpx.AsyncClient, owner: dict) -> int:
     return role.json()["id"]
 
 
-async def _worker(client: httpx.AsyncClient, owner: dict, email: str, role_id: int) -> dict:
+async def _worker(
+    client: httpx.AsyncClient, owner: dict, email: str, role_id: int
+) -> dict[str, Any]:
     await client.post(
         "/api/team/workers",
         json={

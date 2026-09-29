@@ -42,7 +42,14 @@ from sqlalchemy.sql.elements import ColumnElement
 from ..core.config import get_settings
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
 from ..models import Animal, AnimalStatus, SimulationScenario
-from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET, ErrorOut
+from ..schemas.common import (
+    COMMON_ERROR_RESPONSES,
+    MAX_INT32_ID,
+    MAX_PAGE_OFFSET,
+    ErrorOut,
+    stale_state_conflict,
+    standing_quota,
+)
 from ..schemas.simulation import (
     BreedsOut,
     FarmCalibrationOut,
@@ -499,7 +506,7 @@ async def create_scenario(
             )
         ).scalar_one()
         if scenario_count >= get_settings().max_simulation_scenarios_per_farm:
-            raise HTTPException(status_code=409, detail=SCENARIO_CAPACITY_REASON)
+            raise standing_quota(detail=SCENARIO_CAPACITY_REASON)
         await _check_name_free(db, farm.id, name)
         scenario = SimulationScenario(
             farm_id=farm.id,
@@ -634,8 +641,7 @@ async def update_scenario(
 ) -> ScenarioOut:
     scenario = await _get_scenario(db, farm.id, scenario_id, for_update=True)
     if scenario.revision != payload.expected_revision:
-        raise HTTPException(
-            status_code=409,
+        raise stale_state_conflict(
             detail="This scenario changed since you opened it; refresh before saving.",
         )
     changed = False
@@ -678,8 +684,7 @@ async def delete_scenario(
     """Delete only the exact scenario version the caller reviewed."""
     scenario = await _get_scenario(db, farm.id, scenario_id, for_update=True)
     if scenario.revision != expected_revision:
-        raise HTTPException(
-            status_code=409,
+        raise stale_state_conflict(
             detail="This scenario changed since you opened it; refresh before deleting.",
         )
     await db.delete(scenario)

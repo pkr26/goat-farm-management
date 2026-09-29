@@ -25034,7 +25034,7 @@
           "detail"
         ],
         "title": "ErrorOut",
-        "description": "Documented shape of every raised-error response ({\"detail\": ...}).\n\n``code`` is present on the four mapped statuses above (absent otherwise)\nso localized clients never have to parse ``detail`` prose."
+        "description": "Documented shape of every raised-error response ({\"detail\": ...}).\n\n``code`` is present on the four status-derived classes above and on the\ncoded 409 families (LIFECYCLE_CONFLICT / STANDING_QUOTA_CONFLICT /\nSTALE_STATE_CONFLICT \u2014 absent otherwise) so localized clients never have\nto parse ``detail`` prose."
       },
       "EventFill": {
         "properties": {

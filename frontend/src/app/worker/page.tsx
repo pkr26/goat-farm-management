@@ -31,7 +31,8 @@ import {
   isOfflineQueueableFailure,
 } from "@/lib/offline-queue";
 import { withReturnTo } from "@/lib/permission-navigation";
-import { permittedTaskActionPath } from "@/lib/task-action-access";
+import { mapServerError } from "@/lib/server-error-phrases";
+import { permittedTaskActionPath, taskSkipUnavailable } from "@/lib/task-action-access";
 import { applyOptimisticTaskPatch } from "@/lib/task-optimistic";
 import { resolveTaskTitle } from "@/lib/task-title";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
@@ -54,6 +55,12 @@ function DutyCard({
   const { language } = useLanguage();
   const perms = usePermissions();
   const actionPath = permittedTaskActionPath(task.action_url, perms.can);
+  // Generated linked duties (purchase pickups, ultrasounds, weaning or moving
+  // a specific animal) answer a bare skip with a definitive refusal
+  // server-side — the manager board hides Skip for exactly these
+  // (taskSkipUnavailable); offering it here only recorded a write the server
+  // would refuse (2026-09-29 audit).
+  const skippable = !taskSkipUnavailable(task);
   // The farm's calendar day, not UTC: in the IST 00:00–05:30 window the UTC
   // date is still yesterday and every duty due then lost its overdue badge
   // (2026-09-28 audit — the tasks board compares the same way).
@@ -88,16 +95,18 @@ function DutyCard({
             >
               <Check aria-hidden /> {t("worker.complete")}
             </Button>
-            <Button
-              size="lg"
-              variant="outline"
-              className="min-h-11"
-              disabled={busy}
-              onClick={() => onSkip(task)}
-              data-testid={`skip-${task.id}`}
-            >
-              <X aria-hidden /> {t("worker.skip")}
-            </Button>
+            {skippable ? (
+              <Button
+                size="lg"
+                variant="outline"
+                className="min-h-11"
+                disabled={busy}
+                onClick={() => onSkip(task)}
+                data-testid={`skip-${task.id}`}
+              >
+                <X aria-hidden /> {t("worker.skip")}
+              </Button>
+            ) : null}
           </>
         ) : null}
         {actionPath !== null ? (
@@ -181,7 +190,12 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
       // Guard BEFORE any rollback: after a farm-scope change (farm switch,
       // end-shift) the board cache was cleared, and restoring the pre-patch
       // snapshots would resurrect the old scope's rows (2026-09-28 audit, W6).
-      if (!farmScope()) return;
+      if (!farmScope()) {
+        // The write is deliberately discarded with the old scope — say so
+        // instead of vanishing with the strike-through (2026-09-29 audit).
+        toast.info(t("worker.dutyDiscarded"));
+        return;
+      }
       if (isOfflineQueueableFailure(error)) {
         const queued = enqueueOfflineMutation(
           path,
@@ -201,9 +215,13 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
         }
       } else {
         rollback();
+        // Route the server's answer through the error mapper — the common
+        // duty rejections ("Task is not pending", "not due yet", …) have
+        // Telugu phrases, and this Telugu-first surface must not render raw
+        // English prose (2026-09-28 audit, H6 residue; 2026-09-29 fix).
         toast.error(
-          error instanceof ApiError && error.detail
-            ? error.detail
+          error instanceof ApiError
+            ? mapServerError(t, error.detail, error.status, error.code)
             : t("worker.genericError"),
         );
       }

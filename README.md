@@ -279,7 +279,7 @@ cd backend
 # Frontend
 cd frontend
 pnpm orval           # regenerate the typed client from shared/openapi.json
-pnpm test:coverage   # 1,300+ Vitest + MSW tests; 90/87/90/90 thresholds — the CI gate
+pnpm test:coverage   # 4,900+ Vitest + MSW tests; 90/87/90/90 thresholds — the CI gate
 pnpm exec playwright test   # browser/proxy e2e suite across 23 specs (fresh user+farm
                      # provisioned per run by e2e/global-setup.ts; serial workers)
 pnpm build           # strict typecheck + production build

@@ -288,7 +288,10 @@ class Animal(Base):
     coat_color: Mapped[str | None] = mapped_column(String(20))  # CoatColor enum
     horned: Mapped[bool | None] = mapped_column(Boolean)
     notes: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # UTC server default standardized by the D7 completion wave (2026-09-29).
+    created_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
     updated_at: Mapped[datetime] = mapped_column(
         default=utcnow,
         onupdate=utcnow,

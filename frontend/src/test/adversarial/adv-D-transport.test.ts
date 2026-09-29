@@ -48,7 +48,14 @@ describe("ADV D1: idempotency coverage matrix (money/stock-creating POSTs)", () 
 
   it("unrelated POSTs are not swept into the registry", () => {
     expect(isIdempotencyProtectedMutation("/api/auth/login", "POST")).toBe(false);
-    expect(isIdempotencyProtectedMutation("/api/animals/7/status", "POST")).toBe(false);
+    expect(isIdempotencyProtectedMutation("/api/animals/7/notes", "POST")).toBe(false);
+    // The A1-completed routes (2026-09-29) are spec-declared idempotent and
+    // ARE swept in — the terminal status transition books a ledger row, so a
+    // network-lost sale must replay its committed response.
+    expect(isIdempotencyProtectedMutation("/api/animals/7/status", "POST")).toBe(true);
+    expect(isIdempotencyProtectedMutation("/api/tasks/7/verify", "POST")).toBe(true);
+    expect(isIdempotencyProtectedMutation("/api/tasks/7/reject", "POST")).toBe(true);
+    expect(isIdempotencyProtectedMutation("/api/team/workers/7/reset-password", "POST")).toBe(true);
   });
 
   // FIXED (L13, client side): pregnancy creation and kidding (which

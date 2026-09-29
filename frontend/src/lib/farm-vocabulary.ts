@@ -63,8 +63,6 @@ export interface FarmVocabulary {
   parturitionPast: string;
   /** "Kidding due" duty label. */
   dueLabel: string;
-  /** Breeding-gate copy shown on eligibility hints. */
-  breedingGateCopy: string;
   /** Breed preselected for new animals (backend species default_breed). */
   defaultBreed: string;
   /** Prefix of auto-generated tag numbers. The backend issues "G-XXXXX"
@@ -96,7 +94,6 @@ export const farmVocabulary: FarmVocabulary = {
   // ~11.5 months, first-kidding norms 19-20 months). The old "10 months"
   // copy/gate passed a 10-11-month doe client-side and 422'd her on submit;
   // pinned by backend-constants-parity.test.ts.
-  breedingGateCopy: "A doe must be at least 12 months old and 22 kg to breed; bucks 12 months and 25 kg.",
   defaultBreed: "Osmanabadi",
   tagPrefix: "G",
   breedingEntry: {

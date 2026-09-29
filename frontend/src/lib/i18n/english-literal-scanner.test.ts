@@ -58,6 +58,22 @@ describe("scanTextLiterals — newly visible categories", () => {
     expect(found).toContain("No matching options.");
   });
 
+  it("catches template-literal copy attributes and containers (2026-09-29)", () => {
+    const found = scan(
+      `<Link aria-label={\`Switch farm — current: \${farmName}\`} />
+       <span>{\`\${count} records could not be sent.\`}</span>
+       <div title={\`Details for \${name}\`} />`,
+    );
+    // Interpolation is kept for entry stability: the surviving English prose
+    // is flagged, and a template may open with an interpolation (mid-sentence
+    // lowercase prose still counts).
+    expect(found).toContain("Switch farm — current: ${farmName}");
+    expect(found).toContain("${count} records could not be sent.");
+    expect(found).toContain("Details for ${name}");
+    // Pure interpolation with no prose remains invisible.
+    expect(found).not.toContain("${name}");
+  });
+
   it("catches toast literals, including templates with interpolation", () => {
     const found = scan(
       `toast.success("Purchase batch created.");

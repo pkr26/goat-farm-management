@@ -236,10 +236,20 @@ export function isIdempotencyProtectedMutation(url: string, method?: string): bo
     path === "/api/tasks" ||
     // Duty completion/skip accept the key server-side (tablet offline retry).
     /^\/api\/tasks\/\d+\/(complete|skip)$/.test(path) ||
+    // Duty verification/rejection: the server accepts the key on both
+    // (2026-09-28 audit, A1) — an ambiguous verify/reject retry must replay
+    // the first verdict, not answer a bare conflict.
+    /^\/api\/tasks\/\d+\/(verify|reject)$/.test(path) ||
     path === "/api/team/workers" ||
     // PIN resets re-key a worker's tablet credential; the server accepts the
-    // Idempotency-Key so an ambiguous retry cannot double-rotate it.
-    /^\/api\/team\/workers\/\d+\/reset-pin$/.test(path) ||
+    // Idempotency-Key so an ambiguous retry cannot double-rotate it. Password
+    // resets carry the same guarantee server-side (A1) — the retry replays
+    // instead of double-rotating the credential.
+    /^\/api\/team\/workers\/\d+\/reset-(?:pin|password)$/.test(path) ||
+    // Terminal status transitions book a ledger transaction on SOLD/CULLED;
+    // the server accepts the key (A1) so a network-lost sale replays its
+    // committed response rather than 409 "already sold".
+    /^\/api\/animals\/\d+\/status$/.test(path) ||
     path === "/api/health/events" ||
     path === "/api/simulation/scenarios" ||
     // Saving a plan creates durable planning state. Its server endpoint

@@ -1004,7 +1004,9 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
             submissionEpoch.current !== epoch
           ) return;
           const message =
-            err instanceof ApiError ? err.detail : t("health.toast.reviewFailed");
+            err instanceof ApiError
+              ? mapServerError(t, err.detail, err.status, err.code)
+              : t("health.toast.reviewFailed");
           // Inline only: the open dialog renders this beside the submit
           // button — the same sentence as a toast read as two failures.
           setRecordError(message);
@@ -1124,7 +1126,9 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
       }
       if (mappedFields.length === 0) {
         const message =
-          err instanceof ApiError ? err.detail : t("health.toast.saveFailed");
+          err instanceof ApiError
+            ? mapServerError(t, err.detail, err.status, err.code)
+            : t("health.toast.saveFailed");
         // Inline only (the dialog owns the failure surface; see the review
         // path above).
         setRecordError(message);
@@ -1146,10 +1150,10 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
           <p className="text-sm text-destructive">
             {eventsQuery.error instanceof ApiError
               ? mapServerError(t, eventsQuery.error.detail, eventsQuery.error.status, eventsQuery.error.code)
-              : "Could not load health events."}
+              : t("health.events.loadFailed")}
           </p>
           <Button type="button" variant="outline" onClick={() => void eventsQuery.refetch()}>
-            Retry health events
+            {t("health.events.retry")}
           </Button>
         </div>
       );

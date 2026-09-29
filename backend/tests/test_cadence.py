@@ -23,6 +23,7 @@ depends on the wall clock.
 """
 
 from datetime import date, datetime, timedelta
+from typing import Any
 
 import httpx
 import pytest
@@ -68,8 +69,8 @@ async def make_animal(
     sex: str = "F",
     date_of_birth: str | None = None,
     estimated_dob: str | None = None,
-) -> dict:
-    payload: dict = {
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "tag_number": tag,
         "sex": sex,
         "source": "PURCHASED",

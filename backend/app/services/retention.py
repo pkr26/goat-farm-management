@@ -6,6 +6,9 @@ sweep deletes them in bounded, farm-scoped batches — set-based
 ``DELETE ... WHERE id IN (SELECT ... LIMIT n)`` in FK-safe child-first
 order — and commits per farm, so one farm's backlog never holds another
 tenant's row locks and a crash mid-sweep simply resumes at the next interval.
+A farm whose sweep raises is rolled back, counted in ``failed_farms``, and
+SKIPPED — a deterministic failure on one tenant must never starve every farm
+sorted after it (2026-09-29 audit).
 
 Deliberate scope boundaries:
 
@@ -27,6 +30,7 @@ Deliberate scope boundaries:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -48,6 +52,8 @@ from ..models import (
 )
 from ..utils import utcnow
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class RetentionSummary:
@@ -59,6 +65,7 @@ class RetentionSummary:
     screening_content_claims: int = 0
     screening_images: int = 0
     terminal_tasks: int = 0
+    failed_farms: int = 0
 
     @property
     def total_deleted(self) -> int:
@@ -140,7 +147,8 @@ async def run_retention_sweep(db: AsyncSession, settings: Settings) -> Retention
     before the next begins: a daily sweep never holds one tenant's row locks
     while draining another's, and every committed farm makes the sweep
     idempotent-resumable (a crash leaves the remaining farms for the next
-    interval). The caller's trailing commit is then a no-op.
+    interval). A farm that raises is rolled back and skipped — isolation is
+    per farm, not per pass. The caller's trailing commit is then a no-op.
     """
     batch_size = settings.retention_delete_batch_size
     if not 1 <= batch_size <= 10_000:
@@ -159,14 +167,24 @@ async def run_retention_sweep(db: AsyncSession, settings: Settings) -> Retention
 
     summary = RetentionSummary()
     for farm_id in sorted(set(screening_farms).union(task_farms)):
-        await _sweep_farm(
-            db,
-            farm_id=farm_id,
-            screening_cutoff=screening_cutoff,
-            task_cutoff=task_cutoff,
-            batch_size=batch_size,
-            summary=summary,
-        )
+        try:
+            await _sweep_farm(
+                db,
+                farm_id=farm_id,
+                screening_cutoff=screening_cutoff,
+                task_cutoff=task_cutoff,
+                batch_size=batch_size,
+                summary=summary,
+            )
+        except Exception:
+            # Per-farm fault isolation (2026-09-29 audit): farms iterate in
+            # sorted order, so an unhandled failure on farm K would abort the
+            # pass before every farm sorted after K — deterministically, every
+            # interval. Roll this farm back, count it, keep sweeping.
+            await db.rollback()
+            summary.failed_farms += 1
+            logger.exception("retention sweep failed for farm_id=%s; skipping it", farm_id)
+            continue
         await db.commit()
     return summary
 

@@ -10,6 +10,7 @@
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef } from "react";
 
+import { useT } from "@/lib/i18n";
 import { PageHeader } from "@/components/page-header";
 import { PageSkeleton } from "@/components/skeletons";
 
@@ -17,6 +18,7 @@ function BreedingUltrasoundRedirectContent() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
+  const t = useT();
   // Read the query from the router, not window.location, and key the effect
   // on the composed value (same reasoning as the /kidding/new shim: a
   // query-only navigation reuses this component, so a stale effect would
@@ -37,27 +39,30 @@ function BreedingUltrasoundRedirectContent() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Breeding"
-        description="Opening the ultrasound check for this breeding record…"
+        title={t("breeding.title")}
+        description={t("breeding.ultrasoundRedirect.description")}
       />
       <div role="status" aria-live="polite">
-        <span className="sr-only">Loading the ultrasound check…</span>
+        <span className="sr-only">{t("breeding.ultrasoundRedirect.loading")}</span>
         <PageSkeleton cards={2} />
       </div>
     </div>
   );
 }
 
+function UltrasoundRedirectFallback() {
+  const t = useT();
+  return (
+    <div role="status" aria-live="polite">
+      <span className="sr-only">{t("breeding.ultrasoundRedirect.loading")}</span>
+      <PageSkeleton cards={2} />
+    </div>
+  );
+}
+
 export default function BreedingUltrasoundRedirect() {
   return (
-    <Suspense
-      fallback={
-        <div role="status" aria-live="polite">
-          <span className="sr-only">Loading the ultrasound check…</span>
-          <PageSkeleton cards={2} />
-        </div>
-      }
-    >
+    <Suspense fallback={<UltrasoundRedirectFallback />}>
       <BreedingUltrasoundRedirectContent />
     </Suspense>
   );

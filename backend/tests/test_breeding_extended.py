@@ -23,6 +23,7 @@ etc. fall where the API guards require them.
 
 import inspect
 from datetime import date, timedelta
+from typing import Any
 
 import httpx
 import pytest
@@ -70,7 +71,7 @@ async def make_animal(
     sex: str = "F",
     bucket: str = "FOUNDATION",
     **overrides: object,
-) -> dict:
+) -> dict[str, Any]:
     payload = {
         "tag_number": tag,
         "sex": sex,
@@ -91,10 +92,10 @@ async def make_doe(
     bucket: str = "FOUNDATION",
     age_days: int = 800,
     weight_kg: float | None = 26.0,
-) -> dict:
+) -> dict[str, Any]:
     """A mature doe with enough dated history for backdated flow tests."""
     dob = today() - timedelta(days=age_days)
-    overrides: dict = {"date_of_birth": iso(dob)}
+    overrides: dict[str, Any] = {"date_of_birth": iso(dob)}
     if weight_kg is not None:
         overrides["weight_kg"] = weight_kg
         overrides["weight_date"] = iso(dob)
@@ -107,8 +108,8 @@ async def make_doe_aged_months(
     tag: str,
     months: int,
     weight_kg: float | None = 26.0,
-) -> dict:
-    overrides: dict = {"date_of_birth": iso(add_months(today(), -months))}
+) -> dict[str, Any]:
+    overrides: dict[str, Any] = {"date_of_birth": iso(add_months(today(), -months))}
     if weight_kg is not None:
         overrides["weight_kg"] = weight_kg
         overrides["weight_date"] = overrides["date_of_birth"]
@@ -117,7 +118,7 @@ async def make_doe_aged_months(
 
 async def make_buck(
     client: httpx.AsyncClient, headers: dict, tag: str = "B-1", **overrides: object
-) -> dict:
+) -> dict[str, Any]:
     defaults: dict[str, object] = {
         "date_of_birth": iso(today() - timedelta(days=800)),
         "weight_kg": 30.0,
@@ -171,7 +172,7 @@ async def post_breeding(
 
 async def make_breeding(
     client: httpx.AsyncClient, headers: dict, doe_id: int, buck_id: int, **overrides: object
-) -> dict:
+) -> dict[str, Any]:
     resp = await post_breeding(client, headers, doe_id, buck_id, **overrides)
     assert resp.status_code == 201, resp.text
     return resp.json()
@@ -225,7 +226,7 @@ async def place_health_hold(client: httpx.AsyncClient, headers: dict, animal_id:
 
 async def confirm(
     client: httpx.AsyncClient, headers: dict, br_id: int, kid_count: int | None = 2
-) -> dict:
+) -> dict[str, Any]:
     # Same rationale as fail_cycle: the result is observed on the scheduled
     # check, not "today". Confirming today and then recording the kidding on
     # the (earlier) expected kidding date would be a delivery predating its own
@@ -243,7 +244,7 @@ async def confirm(
     return resp.json()
 
 
-async def fail_cycle(client: httpx.AsyncClient, headers: dict, br_id: int) -> dict:
+async def fail_cycle(client: httpx.AsyncClient, headers: dict, br_id: int) -> dict[str, Any]:
     # Outcome-flow fixtures represent a result observed on the scheduled
     # check, not "today". This preserves an honest boundary when later tests
     # record a subsequent historical service between that check and today.
@@ -297,7 +298,7 @@ async def post_kidding(
 
 async def make_kidding(
     client: httpx.AsyncClient, headers: dict, br_id: int, **overrides: object
-) -> dict:
+) -> dict[str, Any]:
     resp = await post_kidding(client, headers, br_id, **overrides)
     assert resp.status_code == 201, resp.text
     return resp.json()
@@ -305,7 +306,7 @@ async def make_kidding(
 
 async def kid_on_ekd(
     client: httpx.AsyncClient, headers: dict, br: dict, **overrides: object
-) -> dict:
+) -> dict[str, Any]:
     """Record a kidding exactly on the expected kidding date (always <= today
     when the breeding was backdated >= 150 days)."""
     return await make_kidding(
@@ -313,7 +314,7 @@ async def kid_on_ekd(
     )
 
 
-async def get_animal(client: httpx.AsyncClient, headers: dict, animal_id: int) -> dict:
+async def get_animal(client: httpx.AsyncClient, headers: dict, animal_id: int) -> dict[str, Any]:
     resp = await client.get(f"/api/animals/{animal_id}", headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()["animal"]
@@ -325,13 +326,13 @@ async def list_animals(client: httpx.AsyncClient, headers: dict, **params: str) 
     return resp.json()["animals"]
 
 
-async def get_breeding(client: httpx.AsyncClient, headers: dict, br_id: int) -> dict:
+async def get_breeding(client: httpx.AsyncClient, headers: dict, br_id: int) -> dict[str, Any]:
     resp = await client.get(f"/api/breeding/{br_id}", headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
 
 
-async def breeding_list(client: httpx.AsyncClient, headers: dict) -> dict:
+async def breeding_list(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
     resp = await client.get("/api/breeding", headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
@@ -342,7 +343,7 @@ async def candidate_list(
     headers: dict,
     kind: str = "doe",
     **params: object,
-) -> dict:
+) -> dict[str, Any]:
     resp = await client.get(
         "/api/breeding/candidates",
         params={"kind": kind} | params,
@@ -362,7 +363,7 @@ async def candidate_ids(
     return [row["id"] for row in page["candidates"]]
 
 
-async def kidding_list(client: httpx.AsyncClient, headers: dict) -> dict:
+async def kidding_list(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
     resp = await client.get("/api/kidding", headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
@@ -375,7 +376,7 @@ async def move_to(
     bucket: str,
     *,
     history_override: bool = False,
-) -> dict:
+) -> dict[str, Any]:
     body: dict[str, object] = {"to_bucket": bucket}
     if history_override:
         body |= {
@@ -387,7 +388,9 @@ async def move_to(
     return resp.json()
 
 
-async def set_status(client: httpx.AsyncClient, headers: dict, animal_id: int, status: str) -> dict:
+async def set_status(
+    client: httpx.AsyncClient, headers: dict, animal_id: int, status: str
+) -> dict[str, Any]:
     resp = await client.post(
         f"/api/animals/{animal_id}/status", json={"new_status": status}, headers=headers
     )
@@ -409,7 +412,7 @@ def tasks_by_category(tasks: list[dict], category: str) -> list[dict]:
 
 async def worker_headers(
     client: httpx.AsyncClient, owner: dict, role_code: str, email: str
-) -> dict:
+) -> dict[str, Any]:
     """Owner adds a worker with a preset role; returns that worker's farm headers."""
     resp = await client.get("/api/team", headers=owner)
     assert resp.status_code == 200, resp.text
@@ -426,7 +429,7 @@ async def worker_headers(
 
 async def custom_breeding_viewer_headers(
     client: httpx.AsyncClient, owner: dict, email: str
-) -> dict:
+) -> dict[str, Any]:
     role = await client.post(
         "/api/team/roles",
         json={"name": "Breeding Records Reader", "permissions": ["breeding.view"]},
@@ -2457,7 +2460,16 @@ async def test_kidding_four_alive_birth_type_quadruplet(client: httpx.AsyncClien
     _doe2, _buck2, br2 = await pregnant_doe(client, headers, "D-LITTER-CAP", gestation_days=160)
     resp = await kid_on_ekd_raw(client, headers, br2, kids=[{"sex": "M"}] * 5)
     assert resp.status_code == 422
-    assert "cannot deliver more than 4" in resp.json()["detail"]
+    # The species litter cap now lives on the schema (max_length on `kids`),
+    # so five entries are rejected by pydantic's too_long before any domain
+    # check or stock fabrication (2026-09-28 audit, Wave 8).
+    assert resp.json()["detail"] == [
+        {
+            "type": "too_long",
+            "loc": ["body", "kids"],
+            "msg": "List should have at most 4 items after validation, not 5",
+        }
+    ]
 
 
 async def test_kidding_born_kid_bucket_moves_are_attributed(client: httpx.AsyncClient) -> None:
@@ -2979,7 +2991,8 @@ async def test_kidding_on_pending_breeding(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     _doe, _buck, br = await bred_doe(client, headers)
     resp = await post_kidding(client, headers, br["id"])
-    assert resp.status_code == 400
+    # Wrong-lifecycle-state answers 409 (2026-09-28 audit, A3 convention).
+    assert resp.status_code == 409
 
 
 async def test_kidding_on_failed_breeding(client: httpx.AsyncClient) -> None:
@@ -2987,7 +3000,7 @@ async def test_kidding_on_failed_breeding(client: httpx.AsyncClient) -> None:
     _doe, _buck, br = await bred_doe(client, headers)
     await fail_cycle(client, headers, br["id"])
     resp = await post_kidding(client, headers, br["id"])
-    assert resp.status_code == 400
+    assert resp.status_code == 409
 
 
 async def test_kidding_on_aborted_breeding(client: httpx.AsyncClient) -> None:
@@ -2996,21 +3009,21 @@ async def test_kidding_on_aborted_breeding(client: httpx.AsyncClient) -> None:
     resp = await post_abort(client, headers, br["id"])
     assert resp.status_code == 200, resp.text
     resp = await post_kidding(client, headers, br["id"])
-    assert resp.status_code == 400
+    assert resp.status_code == 409
 
 
 async def test_kidding_on_sold_doe_conflict(client: httpx.AsyncClient) -> None:
     """A sold doe must not 'deliver' new stock. Since the sale auto-resolves
     her confirmed pregnancy as ABORTED, the kidding attempt now
     fails the same confirmed-pregnancy state guard as any aborted record
-    (400, like test_kidding_on_aborted_breeding) rather than the service's
+    (409, like test_kidding_on_aborted_breeding) rather than the service's
     non-ACTIVE-doe guard."""
     headers = await owner_with_farm(client)
     doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
     await set_status(client, headers, doe["id"], "SOLD")
     assert (await get_breeding(client, headers, br["id"]))["outcome"] == "ABORTED"
     resp = await kid_on_ekd_raw(client, headers, br)
-    assert resp.status_code == 400
+    assert resp.status_code == 409
     born = [
         a for a in await list_animals(client, headers, status="ACTIVE") if a["source"] == "BORN"
     ]
@@ -3069,7 +3082,9 @@ async def test_kidding_five_kids_rejected_by_species_cap(client: httpx.AsyncClie
     _doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
     resp = await kid_on_ekd_raw(client, headers, br, kids=[{"sex": "F"}] * 5)
     assert resp.status_code == 422
-    assert "cannot deliver more than 4" in resp.json()["detail"]
+    # Schema-level litter cap (max_length on `kids`): pydantic too_long.
+    assert resp.json()["detail"][0]["type"] == "too_long"
+    assert resp.json()["detail"][0]["loc"] == ["body", "kids"]
 
 
 async def test_kidding_invalid_kid_sex(client: httpx.AsyncClient) -> None:

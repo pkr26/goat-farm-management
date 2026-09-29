@@ -24,6 +24,7 @@ audit_reports/2026-09-13/01..17 + 18_REMEDIATION_LOG.md):
 
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -49,8 +50,8 @@ async def _make_animal(
     bucket: str = "FOUNDATION",
     dob_days: int = 800,
     weight_kg: float | None = 26.0,
-) -> dict:
-    payload: dict = {
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "tag_number": tag,
         "sex": sex,
         "source": "PURCHASED",
@@ -85,7 +86,7 @@ async def _add_worker(client: httpx.AsyncClient, owner: dict, role_id: int, emai
     assert resp.status_code == 201, resp.text
 
 
-async def _worker_headers(client: httpx.AsyncClient, email: str, farm_id: str) -> dict:
+async def _worker_headers(client: httpx.AsyncClient, email: str, farm_id: str) -> dict[str, Any]:
     # Rotate explicitly at first login: the default client never completes
     # the forced must-change-password rotation on a worker's behalf.
     headers = await login_and_rotate(client, email, "workerpass1234")
@@ -238,7 +239,9 @@ async def test_purchase_batch_stub_creation_requires_animals_create(
 # ---------------------------------------------------------------------------
 
 
-async def _bred_confirmed_doe(client: httpx.AsyncClient, owner: dict, bred_days_ago: int) -> dict:
+async def _bred_confirmed_doe(
+    client: httpx.AsyncClient, owner: dict, bred_days_ago: int
+) -> dict[str, Any]:
     doe = await _make_animal(client, owner, "XO-F-1", bucket="BREEDING", dob_days=600)
     buck = await _make_animal(
         client, owner, "XO-M-1", sex="M", bucket="BREEDING", dob_days=600, weight_kg=32.0

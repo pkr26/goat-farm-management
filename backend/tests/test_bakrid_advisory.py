@@ -7,6 +7,7 @@ holding for the festival premium; the dashboard surfaces the structured
 """
 
 from datetime import date, timedelta
+from typing import Any
 
 import httpx
 import pytest
@@ -43,7 +44,7 @@ async def make_animal(
     *,
     sex: str,
     date_of_birth: str,
-) -> dict:
+) -> dict[str, Any]:
     resp = await client.post(
         "/api/animals",
         json={

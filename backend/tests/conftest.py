@@ -11,6 +11,7 @@ import subprocess
 import sys
 from collections.abc import AsyncGenerator
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 import asyncpg
@@ -282,7 +283,7 @@ async def register(
     email: str = "owner@farm.in",
     password: str = OWNER_PW,
     name: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Register (which also logs in) → bearer headers."""
     resp = await client.post(
         "/api/auth/register", json={"email": email, "password": password, "name": name}
@@ -291,7 +292,7 @@ async def register(
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
-async def login_and_rotate(client: httpx.AsyncClient, email: str, password: str) -> dict:
+async def login_and_rotate(client: httpx.AsyncClient, email: str, password: str) -> dict[str, Any]:
     """Log in an owner-provisioned worker and complete the forced rotation
     through THIS client, so its cookie jar holds the post-rotation refresh
     session (session-lifecycle tests need exactly that)."""
@@ -319,7 +320,7 @@ async def login_and_rotate(client: httpx.AsyncClient, email: str, password: str)
     return {"Authorization": f"Bearer {changed.json()['access_token']}"}
 
 
-async def login(client: httpx.AsyncClient, email: str, password: str) -> dict:
+async def login(client: httpx.AsyncClient, email: str, password: str) -> dict[str, Any]:
     resp = await client.post("/api/auth/login", json={"email": email, "password": password})
     assert resp.status_code == 200, resp.text
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
@@ -346,7 +347,7 @@ async def create_farm(
     client: httpx.AsyncClient,
     headers: dict,
     name: str = "Alpha Farm",
-) -> dict:
+) -> dict[str, Any]:
     """Create a farm → headers with X-Farm-Id added."""
     resp = await client.post("/api/auth/farms", json={"name": name}, headers=headers)
     assert resp.status_code == 201, resp.text
@@ -355,6 +356,6 @@ async def create_farm(
 
 async def owner_with_farm(
     client: httpx.AsyncClient, email: str = "owner@farm.in", farm_name: str = "Alpha Farm"
-) -> dict:
+) -> dict[str, Any]:
     headers = await register(client, email)
     return await create_farm(client, headers, farm_name)

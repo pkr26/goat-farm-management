@@ -36,7 +36,14 @@ from ..models.enums import (
     ScreeningRunStatus,
     ScreeningStage,
 )
-from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET
+from ..schemas.common import (
+    COMMON_ERROR_RESPONSES,
+    MAX_INT32_ID,
+    MAX_PAGE_OFFSET,
+    lifecycle_conflict,
+    stale_state_conflict,
+    standing_quota,
+)
 from ..schemas.screening import (
     MAX_SCREENING_UPLOAD_BYTES,
     ScreeningBatchBucketProgressOut,
@@ -331,8 +338,7 @@ async def review_finding(
     if result.rowcount != 1:
         # The row exists (checked above) but its status moved between the
         # read and the write: another reviewer won the race.
-        raise HTTPException(
-            status_code=409,
+        raise stale_state_conflict(
             detail=(
                 f"Finding was already reviewed (status {finding.status}); "
                 "reload and re-submit with the current status as expected_status"
@@ -708,8 +714,7 @@ async def create_batch(
         if open_batches >= MAX_OPEN_SCREENING_BATCHES_PER_FARM:
             # A standing quota, not a request-rate throttle: 409 like every
             # other capacity cap in the API (2026-09-28 audit, A4).
-            raise HTTPException(
-                status_code=409,
+            raise standing_quota(
                 detail=(
                     "Too many open screening walkthroughs for this farm; submit or let an "
                     "abandoned walkthrough expire before starting another"
@@ -813,7 +818,7 @@ async def submit_batch(
     if batch is None:
         raise HTTPException(status_code=404, detail="Screening batch not found")
     if batch.submitted_at is not None:
-        raise HTTPException(status_code=409, detail="Batch already submitted")
+        raise lifecycle_conflict(detail="Batch already submitted")
     uploaded = (
         await db.execute(
             select(func.count())
@@ -825,7 +830,7 @@ async def submit_batch(
         )
     ).scalar_one()
     if uploaded == 0:
-        raise HTTPException(status_code=409, detail="Batch has no photos to screen")
+        raise lifecycle_conflict(detail="Batch has no photos to screen")
     batch.submitted_at = utcnow()
     await db.commit()
     await db.refresh(batch)
@@ -876,14 +881,13 @@ async def request_upload(
         if batch is None:
             raise HTTPException(status_code=404, detail="Screening batch not found")
         if batch.submitted_at is not None:
-            raise HTTPException(status_code=409, detail="Batch already submitted")
+            raise lifecycle_conflict(detail="Batch already submitted")
         if batch.created_at < utcnow() - MAX_OPEN_SCREENING_BATCH_AGE:
             # Do not let an old row fall out of the capacity count and then be
             # reused indefinitely to evade the open-walkthrough quota.  We leave
             # pre-existing rows intact so their already-issued forms can drain
             # and the batch can still be submitted for review.
-            raise HTTPException(
-                status_code=409,
+            raise lifecycle_conflict(
                 detail="Batch upload window expired; start a new walkthrough",
             )
 
@@ -899,8 +903,7 @@ async def request_upload(
         ).scalar_one()
         if images_in_batch >= MAX_SCREENING_IMAGES_PER_BATCH:
             # Standing per-walkthrough quota → 409 (2026-09-28 audit, A4).
-            raise HTTPException(
-                status_code=409,
+            raise standing_quota(
                 detail=(
                     "A screening walkthrough may contain at most "
                     f"{MAX_SCREENING_IMAGES_PER_BATCH} photos"
@@ -919,8 +922,7 @@ async def request_upload(
         if in_flight >= MAX_IN_FLIGHT_SCREENING_IMAGES_PER_FARM:
             # Standing in-flight quota → 409 (2026-09-28 audit, A4); 429 stays
             # reserved for request-rate throttles that carry Retry-After.
-            raise HTTPException(
-                status_code=409,
+            raise standing_quota(
                 detail=(
                     "Too many screening photos are already awaiting processing for this "
                     "farm; wait for the queue to drain"

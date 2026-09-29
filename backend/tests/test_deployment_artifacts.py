@@ -22,6 +22,7 @@ import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 import yaml
@@ -2457,7 +2458,7 @@ def _render_compose_network(
     public_scheme: str = "http",
     edge_bind_host: str = "127.0.0.1",
     trusted_proxy_hosts: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Emulate Compose interpolation for the network variables.
 
     Inner defaults resolve first; the trusted-proxy value is the nested form
@@ -2639,6 +2640,11 @@ def test_edge_auth_flood_zone_is_scoped_and_explicit() -> None:
     assert rejected_block is not None
     assert "add_header X-Content-Type-Options nosniff always;" in rejected_block.group(1)
     assert "add_header Referrer-Policy no-referrer always;" in rejected_block.group(1)
+    # 2026-09-29 audit: the backend's 429 convention always carries
+    # Retry-After — the edge's own 429 must not be distinguishable by its
+    # absence (nginx cannot compute the real hint, so a static conservative
+    # value matching the auth window).
+    assert "add_header Retry-After 300 always;" in rejected_block.group(1)
     # No other location may throttle: shaping the whole API would couple
     # normal traffic to the login-flood budget.
     for name in locations:

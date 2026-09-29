@@ -9,6 +9,7 @@ field now has a domain cap (money ≤ ₹1e9, feed quantities ≤ 1e6 kg, weight
 
 import json
 from datetime import date, timedelta
+from typing import Any
 
 import httpx
 import pytest
@@ -182,7 +183,7 @@ async def test_max_calendar_month_filter_is_empty_not_500(client: httpx.AsyncCli
     assert response.json()["transactions"] == []
 
 
-async def phoenix_owner_with_farm(client: httpx.AsyncClient) -> dict:
+async def phoenix_owner_with_farm(client: httpx.AsyncClient) -> dict[str, Any]:
     headers = await register(client)
     response = await client.post(
         "/api/auth/farms",
@@ -590,7 +591,7 @@ async def test_kidding_birth_weight_bounds(client: httpx.AsyncClient) -> None:
     )
     assert resp.status_code == 200, resp.text
 
-    def kidding_payload(weight: object) -> dict:
+    def kidding_payload(weight: object) -> dict[str, Any]:
         return {
             "breeding_record_id": br_id,
             "date": iso(today()),

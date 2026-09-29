@@ -166,7 +166,9 @@ describe("AccountDialog two-factor section", () => {
     await user.type(within(totp).getByLabelText(/current password/i), "wrong");
     await user.click(within(totp).getByRole("button", { name: /start enrollment/i }));
 
-    expect(await within(totp).findByText("Current password is incorrect.")).toBeTruthy();
+    // The pinned phrase routes through mapServerError: the dialog renders
+    // the catalog sentence, not the raw server bytes (2026-09-29, H6).
+    expect(await within(totp).findByText("Your current password is incorrect.")).toBeTruthy();
     // Still on the password step.
     expect(within(totp).getByLabelText(/current password/i)).toBeTruthy();
   });

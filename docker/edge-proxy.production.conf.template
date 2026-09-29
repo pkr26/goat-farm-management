@@ -46,7 +46,10 @@ server {
     # F1). The edge therefore adds its minimal set ONLY to the responses
     # nginx itself generates: the limit_req 429 (error_page-routed through
     # @auth_flood_rejected below) and /edge-healthz. Upstream-failure pages
-    # keep nginx's built-in error bodies. Deployment S3/MinIO origins reach
+    # keep nginx's built-in error bodies, as do the edge's own 413/414
+    # (client_max_body_size / URI-length) responses — static nginx bodies
+    # with no user content, accepted without the header set (2026-09-29
+    # audit NEW-2: the ownership rule is documented for every class). Deployment S3/MinIO origins reach
     # the frontend container as GOATFARM_CSP_IMG_ORIGINS /
     # GOATFARM_CSP_CONNECT_ORIGINS env (validated at edge boot by
     # edge-entrypoint.sh); this template no longer renders them. HSTS: the
@@ -98,6 +101,11 @@ server {
         add_header X-Frame-Options DENY always;
         add_header Referrer-Policy no-referrer always;
         add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+        # The backend's 429 convention always carries Retry-After; the edge's
+        # own 429 now does too (nginx cannot derive it from limit_req, so a
+        # static conservative hint matching the auth window) — a client cannot
+        # distinguish the two origins by header presence (2026-09-29 audit).
+        add_header Retry-After 300 always;
         return 429 "rate limited\n";
     }
 

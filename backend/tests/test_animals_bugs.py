@@ -8,6 +8,7 @@ column widths → 422. Do not weaken these assertions.
 """
 
 from datetime import timedelta
+from typing import Any
 
 import httpx
 import pytest
@@ -36,7 +37,7 @@ from .test_breeding_extended import (
 
 async def _animals_view_only_viewer(
     client: httpx.AsyncClient, owner: dict, email: str, name: str
-) -> dict:
+) -> dict[str, Any]:
     """Headers for a worker on a role granting only `animals.view`."""
     role = await client.post(
         "/api/team/roles",
@@ -59,7 +60,9 @@ async def _animals_view_only_viewer(
     return headers | {"X-Farm-Id": owner["X-Farm-Id"]}
 
 
-async def _make_animal(client: httpx.AsyncClient, headers: dict, tag: str = "A-001") -> dict:
+async def _make_animal(
+    client: httpx.AsyncClient, headers: dict, tag: str = "A-001"
+) -> dict[str, Any]:
     resp = await client.post(
         "/api/animals",
         json={

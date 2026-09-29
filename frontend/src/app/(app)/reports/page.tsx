@@ -29,6 +29,7 @@ import {
 import { ApiError } from "@/lib/api-client";
 import { enumLabel } from "@/lib/enum-labels";
 import { useLanguage, useT } from "@/lib/i18n";
+import { mapServerError } from "@/lib/server-error-phrases";
 import { withReturnTo } from "@/lib/permission-navigation";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { badgeVariants } from "@/components/ui/badge";
@@ -99,7 +100,9 @@ function ReportsPageContent({ perms }: { perms: PermissionsState }) {
       return (
         <div role="alert" className="space-y-3">
           <p className="text-sm text-destructive">
-            {query.error instanceof ApiError ? query.error.detail : t("reports.loadFailed")}
+            {query.error instanceof ApiError
+            ? mapServerError(t, query.error.detail, query.error.status, query.error.code)
+            : t("reports.loadFailed")}
           </p>
           <Button type="button" variant="outline" onClick={() => void query.refetch()}>
             {t("reports.retry")}

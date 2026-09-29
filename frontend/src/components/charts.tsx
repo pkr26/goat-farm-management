@@ -7,6 +7,7 @@
  * titles/values in text, never as the only representation of the data.
  */
 
+import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 export interface DonutSlice {
@@ -34,6 +35,7 @@ export function Donut({
   /** Hide when the caller renders its own (richer) legend beside the ring. */
   showLegend?: boolean;
 }) {
+  const t = useT();
   const palette = [
     "var(--chart-1)",
     "var(--chart-2)",
@@ -66,7 +68,7 @@ export function Donut({
             ? `Distribution: ${visibleSlices
                 .map((s) => `${s.label} ${s.value}`)
                 .join(", ")}`
-            : "No data"
+            : t("common.noData")
         }
       >
         <circle

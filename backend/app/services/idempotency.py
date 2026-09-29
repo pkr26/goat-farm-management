@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.config import get_settings
 from ..models import IdempotencyRecord
 from ..models.idempotency import CREATE_FARM_IDEMPOTENCY_OPERATION
+from ..schemas.common import stale_state_conflict, standing_quota
 from ..utils import utcnow
 
 MAX_IDEMPOTENCY_KEY_LENGTH = 128
@@ -262,8 +263,7 @@ async def replay_idempotent_if_committed[ResponseT: BaseModel](
     if existing is None or existing.expires_at <= utcnow():
         return None
     if not _request_hash_matches(operation, existing.request_hash, accepted_request_hashes):
-        raise HTTPException(
-            status_code=409,
+        raise stale_state_conflict(
             detail="Idempotency-Key was already used with a different request",
         )
     if (
@@ -271,8 +271,7 @@ async def replay_idempotent_if_committed[ResponseT: BaseModel](
         or existing.response_status is None
         or existing.completed_at is None
     ):
-        raise HTTPException(
-            status_code=409,
+        raise stale_state_conflict(
             detail="Idempotency result is incomplete; retry with a new key",
         )
     http_response.status_code = existing.response_status
@@ -290,8 +289,7 @@ def _revalidate_cached_response[ResponseT: BaseModel](
     try:
         return response_type.model_validate(body)
     except ValidationError:
-        raise HTTPException(
-            status_code=409,
+        raise stale_state_conflict(
             detail=(
                 "This Idempotency-Key recorded a response from an older API "
                 "version; retry with a new key"
@@ -404,13 +402,11 @@ async def execute_idempotent[ResponseT: BaseModel](
 
         if record_id is None:
             if existing is None:
-                raise HTTPException(
-                    status_code=409,
+                raise stale_state_conflict(
                     detail="Idempotency key changed at its expiry boundary; retry",
                 )
             if not _request_hash_matches(operation, existing.request_hash, accepted_request_hashes):
-                raise HTTPException(
-                    status_code=409,
+                raise stale_state_conflict(
                     detail="Idempotency-Key was already used with a different request",
                 )
             if (
@@ -420,8 +416,7 @@ async def execute_idempotent[ResponseT: BaseModel](
             ):
                 # Such a row cannot normally be visible: claim and result are
                 # committed atomically. Fail closed if manual DB damage exists.
-                raise HTTPException(
-                    status_code=409,
+                raise stale_state_conflict(
                     detail="Idempotency result is incomplete; retry with a new key",
                 )
             body = existing.response_body
@@ -453,8 +448,11 @@ async def execute_idempotent[ResponseT: BaseModel](
             )
         ).scalar_one()
         if open_records > settings.idempotency_max_open_records_per_actor:
-            raise HTTPException(
-                status_code=429,
+            # A standing per-actor quota, not a request-rate throttle: 409 per
+            # the house convention ("429 is only ever a rate limit and always
+            # carries Retry-After" — this answer is neither) — 2026-09-29
+            # audit, Wave-3 completeness.
+            raise standing_quota(
                 detail=(
                     "Too many idempotent mutations are still inside their retention "
                     "window for this account — retry later as earlier records expire"

@@ -56,14 +56,29 @@ jobs:
             if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
               range="HEAD~1..HEAD"
             else
+              # Fail CLOSED on an unresolvable before-sha (2026-09-29 audit):
+              # after a force-push the rewritten-away tip is not among the
+              # fetched refs, `git diff` would exit 2, and the historical
+              # `|| true` turned that into an empty diff — the gate passed
+              # while checking nothing, reopening the exact multi-commit
+              # escape F4 closed.
+              if ! git cat-file -e "$before^{commit}" 2>/dev/null; then
+                echo "::error::github.event.before ($before) is not present in the checkout (force-push?) — cannot verify migration immutability. Re-run the workflow or push a fresh commit."
+                exit 1
+              fi
               range="$before..HEAD"
             fi
           fi
           # 2026-09-20 audit P1-6 (bd201c1cdc1b: wipe feed lines/finished
           # stock before recipes) and P2-13 (b5d7f9a1c3e5: detach ORF-linked
           # health_events before the template delete, behind the trigger).
-          sanctioned="backend/alembic/versions/bd201c1cdc1b_goat_only_simplification.py backend/alembic/versions/b5d7f9a1c3e5_backfill_species_reference_data.py"
-          touched="$(git diff --name-only --diff-filter=MDR "$range" -- 'backend/alembic/versions/' || true)"
+          # 2026-09-29 audit D6 follow-up: the int8 widen (c6d7e8f9a0b1) and
+          # the CONCURRENTLY index builds (a4b5c6d7e8f9) swapped chain
+          # positions (e8f9a0b1c2d3 re-parented onto the segment's new tail) — down_revision edits only, both verified by the full
+          # upgrade/downgrade round-trip; no database past either revision
+          # needs any re-run (end state identical).
+          sanctioned="backend/alembic/versions/bd201c1cdc1b_goat_only_simplification.py backend/alembic/versions/b5d7f9a1c3e5_backfill_species_reference_data.py backend/alembic/versions/a4b5c6d7e8f9_screening_join_indexes.py backend/alembic/versions/c6d7e8f9a0b1_screening_finding_crop_bigint.py backend/alembic/versions/e8f9a0b1c2d3_screening_images_bucket_width.py"
+          touched="$(git diff --name-only --diff-filter=MDR "$range" -- 'backend/alembic/versions/')"
           unexpected=""
           while IFS= read -r file; do
             [ -z "$file" ] && continue
@@ -148,6 +163,21 @@ jobs:
       - name: mypy --strict (app + scripts)
         working-directory: backend
         run: python -m mypy --strict app scripts
+
+      - name: mypy --strict (mutation harness)
+        # The harness is 100k+ lines of executed-in-CI code; it stayed outside
+        # the strict gate until 2026-09-29 (audit T5) — 26 errors shipped
+        # silently.
+        working-directory: backend
+        run: python -m mypy --strict mutation
+
+      - name: mypy --strict over tests (counted ratchet)
+        # The 113-file test suite predates strict typing; the ratchet fails
+        # CI when the error count GROWS and asks for the lowered baseline
+        # file on every deliberate decrease (same vehicle as coverage
+        # fail_under) — full strictness is the destination (2026-09-29).
+        working-directory: backend
+        run: python scripts/mypy_tests_ratchet.py
 
       - name: OpenAPI snapshot is current
         working-directory: backend

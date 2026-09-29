@@ -648,8 +648,8 @@ function formatFigure(key: string, value: number | string): string {
 }
 
 
-function errorMessage(err: unknown, fallback: string): string {
-  return err instanceof ApiError ? err.detail : fallback;
+function errorMessage(t: TFn, err: unknown, fallback: string): string {
+  return err instanceof ApiError ? mapServerError(t, err.detail, err.status, err.code) : fallback;
 }
 
 function localizedVerdict(verdict: string, t: TFn, language: "en" | "te"): string {
@@ -670,7 +670,7 @@ function runErrorMessage(err: unknown, fallback: string, t: TFn): string {
   if (err instanceof Error && err.name === "TimeoutError") {
     return t("simulation.error.runTimeout");
   }
-  return errorMessage(err, fallback);
+  return errorMessage(t, err, fallback);
 }
 
 
@@ -1670,7 +1670,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       const res = await snapshotQuery.refetch();
       if (res.isError || res.data?.status !== 200) {
         if (!farmScope()) return;
-        toast.error(errorMessage(res.error, t("simulation.error.herdSnapshot")));
+        toast.error(errorMessage(t, res.error, t("simulation.error.herdSnapshot")));
         return;
       }
       if (editorEpochRef.current !== epoch) {
@@ -1710,7 +1710,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       toast.success(t("simulation.toast.currentHerdLoaded", { count: snap.total_head }));
     } catch (err) {
       if (!farmScope()) return;
-      toast.error(errorMessage(err, t("simulation.error.herdSnapshot")));
+      toast.error(errorMessage(t, err, t("simulation.error.herdSnapshot")));
     }
   }
 
@@ -1726,7 +1726,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       const res = await calibrationQuery.refetch();
       if (res.isError || res.data?.status !== 200) {
         if (!farmScope()) return;
-        toast.error(errorMessage(res.error, t("simulation.error.calibration")));
+        toast.error(errorMessage(t, res.error, t("simulation.error.calibration")));
         return;
       }
       if (
@@ -1751,7 +1751,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       toast.success(t("simulation.toast.calibrated", { count: calibrated.evidence.length }));
     } catch (err) {
       if (!farmScope()) return;
-      toast.error(errorMessage(err, t("simulation.error.calibration")));
+      toast.error(errorMessage(t, err, t("simulation.error.calibration")));
     }
   }
 
@@ -1857,7 +1857,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
         // during a failing DELETE must not surface in the new farm's UI
         // (RT-P2-5).
         if (!farmScope()) return;
-        toast.error(errorMessage(err, t("simulation.error.deleteScenario")));
+        toast.error(errorMessage(t, err, t("simulation.error.deleteScenario")));
       }
     });
   }
@@ -1918,7 +1918,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
         setSaveNotes("");
       } catch (err) {
         if (!farmScope()) return;
-        const message = errorMessage(err, t("simulation.error.saveScenario"));
+        const message = errorMessage(t, err, t("simulation.error.saveScenario"));
         setSaveError(message);
         toast.error(message);
       }
@@ -1975,7 +1975,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
             // Keep the original conflict detail below when refresh fails.
           }
         }
-        toast.error(errorMessage(err, t("simulation.error.updateScenario")));
+        toast.error(errorMessage(t, err, t("simulation.error.updateScenario")));
       }
     });
   }
@@ -3317,7 +3317,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
           )}
           {breedsQuery.isError && (
             <p role="alert" className="text-sm text-destructive">
-              {errorMessage(breedsQuery.error, t("simulation.error.breeds"))}
+              {errorMessage(t, breedsQuery.error, t("simulation.error.breeds"))}
             </p>
           )}
         </CardContent>
@@ -3886,7 +3886,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
       >
         {scenariosQuery.isError ? (
           <p role="alert" className="text-sm text-destructive">
-            {errorMessage(scenariosQuery.error, t("simulation.error.savedScenarios"))}
+            {errorMessage(t, scenariosQuery.error, t("simulation.error.savedScenarios"))}
           </p>
         ) : scenariosQuery.isLoading ? (
           <TableSkeleton rows={4} columns={4} />
@@ -4052,7 +4052,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
         )}
         {compareQuery.isError && (
           <p role="alert" className="text-sm text-destructive">
-            {errorMessage(compareQuery.error, t("simulation.error.compareScenarios"))}
+            {errorMessage(t, compareQuery.error, t("simulation.error.compareScenarios"))}
           </p>
         )}
         {comparePayload && comparePayload.results.length > 0 && (

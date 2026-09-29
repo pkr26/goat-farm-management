@@ -36,6 +36,7 @@ from app.services.notifications import (
     send_notification,
 )
 from app.services.notifications.providers import DeliveryResult, NotificationDeliveryError
+from app.services.notifications.service import payload_hash
 from app.utils import today, utcnow
 
 from .conftest import owner_with_farm, register
@@ -531,6 +532,146 @@ async def test_digest_sends_each_recipient_their_own_scope(client: httpx.AsyncCl
     assert "no duties today" in provider.sent[0][1]
 
 
+async def test_digest_skips_inactive_memberships_entirely(client: httpx.AsyncClient) -> None:
+    """2026-09-29 audit: a deactivated worker's recipient gets NO digest SMS —
+    not even a 'no duties (inactive)' one. Spending daily-cap budget on a
+    deactivated membership is pure cost."""
+    owner = await owner_with_farm(client, email="notif-inactive@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+    membership_id = await _membership_id(client, owner)
+    settings = Settings(**DEFAULTS)
+    provider = RecordingProvider()
+
+    deactivated = await client.put(
+        f"/api/team/workers/{membership_id}/status",
+        json={"is_active": False},
+        headers=owner,
+    )
+    assert deactivated.status_code == 200, deactivated.text
+
+    async with get_sessionmaker()() as db:
+        farm = await _farm(db, farm_id)
+        await _recipient(db, farm_id, membership_id)
+        await db.commit()
+        summary = await run_digest_for_farm(db, settings, provider, farm, now_local=midday(farm))
+        log_rows = (
+            (await db.execute(select(NotificationLog).where(NotificationLog.farm_id == farm_id)))
+            .scalars()
+            .all()
+        )
+
+    assert provider.sent == []
+    assert (summary.sent, summary.skipped) == (0, 1)
+    assert log_rows == [], "no dedupe slot may be claimed for an inactive membership"
+
+
+async def test_mid_fanout_crash_cannot_rollback_earlier_recipients(
+    client: httpx.AsyncClient,
+) -> None:
+    """2026-09-29 audit (N2 tail): the digest used to commit only after the
+    LAST recipient, so a mid-fan-out failure rolled back earlier recipients'
+    settled rows — and the next minute-tick re-sent (re-billed) them. Each
+    recipient's outcome now commits before the next begins."""
+    owner = await owner_with_farm(client, email="notif-crash@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+    settings = Settings(**DEFAULTS)
+
+    class ExplodingProvider(RecordingProvider):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+
+        async def send_sms(self, phone: str, message: str):  # type: ignore[override]
+            self.calls += 1
+            if self.calls == 2:
+                raise RuntimeError("simulated mid-fan-out crash (not a delivery error)")
+            return await super().send_sms(phone, message)
+
+    boom = ExplodingProvider()
+    async with get_sessionmaker()() as db:
+        farm = await _farm(db, farm_id)
+        # Recipients are one-per-membership: two workers, two phones.
+        for phone in ("+919444444441", "+919444444442"):
+            await _recipient(db, farm_id, await _membership_id(client, owner), phone=phone)
+        await db.commit()
+        with pytest.raises(RuntimeError, match="simulated mid-fan-out crash"):
+            await run_digest_for_farm(db, settings, boom, farm, now_local=midday(farm))
+        await db.rollback()
+        # Earlier recipients' SENT rows SURVIVED the crash: committed per
+        # recipient, not per fan-out.
+        statuses = (
+            (
+                await db.execute(
+                    select(NotificationLog.status).where(NotificationLog.farm_id == farm_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    assert statuses.count("SENT") == 1, "recipient 1's delivery must be durable"
+
+
+async def test_repeat_quiet_hours_touches_do_not_rewrite_the_placeholder(
+    client: httpx.AsyncClient,
+) -> None:
+    """2026-09-29 audit: inside the quiet window, a digest minute that fires
+    every tick used to DELETE + re-CLAIM + re-settle the SKIPPED_QUIET
+    placeholder each minute all night. A repeat touch now reads the existing
+    placeholder back: one row, one id, never rewritten."""
+    owner = await owner_with_farm(client, email="notif-quiet@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+    membership_id = await _membership_id(client, owner)
+    settings = Settings(**DEFAULTS)
+    provider = RecordingProvider()
+
+    async with get_sessionmaker()() as db:
+        farm = await _farm(db, farm_id)
+        recipient_row = await _recipient(db, farm_id, membership_id)
+        await db.commit()
+        night = datetime.now(ZoneInfo(farm.timezone)).replace(
+            hour=23, minute=5, second=0, microsecond=0
+        )  # inside the default 21→6 quiet window
+        first = await send_notification(
+            db,
+            settings,
+            provider,
+            farm=farm,
+            recipient=recipient_row,
+            alert_class="DAILY_DIGEST",
+            message="m",
+            payload=f"digest:{night.date().isoformat()}",
+            now_local=night,
+        )
+        row_id = (
+            (await db.execute(select(NotificationLog.id).where(NotificationLog.farm_id == farm_id)))
+            .scalars()
+            .one()
+        )
+        # Second and third touches inside the same window: read-only.
+        for _ in range(2):
+            repeat = await send_notification(
+                db,
+                settings,
+                provider,
+                farm=farm,
+                recipient=recipient_row,
+                alert_class="DAILY_DIGEST",
+                message="m",
+                payload=f"digest:{night.date().isoformat()}",
+                now_local=night.replace(minute=6),
+            )
+            assert (repeat.status, repeat.fresh) == ("SKIPPED_QUIET", False)
+        ids = (
+            (await db.execute(select(NotificationLog.id).where(NotificationLog.farm_id == farm_id)))
+            .scalars()
+            .all()
+        )
+
+    assert (first.status, first.fresh) == ("SKIPPED_QUIET", True)
+    assert ids == [row_id], "the placeholder must never be rewritten inside the window"
+
+
 async def test_farms_ready_for_digest_fires_at_or_past_the_local_digest_time() -> None:
     """Catch-up window: the loop ticks roughly every minute and can drift
     past a farm's digest minute, so readiness is "same-day local time at or
@@ -603,8 +744,10 @@ async def test_digest_catch_up_window_sends_late_but_exactly_once(
 
 
 async def test_farms_ready_for_digest_respects_the_loop_batch_size() -> None:
-    """The digest loop pages farms by id; a small batch never reaches past the
-    first page even when every farm's local minute matches."""
+    """The batch bounds ready digest fan-out per tick — not the SCAN. With
+    the settled-check in SQL before the limit, an already-done farm never
+    consumes a slot, so a small batch can no longer permanently starve every
+    farm after the first page (2026-09-29 audit)."""
     settings = Settings(
         **DEFAULTS,
         notifications_digest_hour=6,
@@ -612,7 +755,7 @@ async def test_farms_ready_for_digest_respects_the_loop_batch_size() -> None:
         notifications_loop_batch_size=1,
     )
     now = datetime(2026, 9, 21, 1, 0, tzinfo=UTC)
-    from app.models import User
+    from app.models import FarmMembership, Role, User
 
     async with get_sessionmaker()() as db:
         farm_ids = []
@@ -629,10 +772,52 @@ async def test_farms_ready_for_digest_respects_the_loop_batch_size() -> None:
             await db.flush()
             farm_ids.append(farm.id)
         await db.commit()
+        # Both farms ready, batch of one: only the first farm by id this tick.
         ready = await farms_ready_for_digest(db, settings, now)
-    # Both farms sit on the same digest minute, but the batch stops after the
-    # first farm by id; the second is the NEXT loop iteration's work.
-    assert [f.id for f in ready] == [min(farm_ids)]
+        assert [f.id for f in ready] == [min(farm_ids)]
+        # The first farm's digest settles (any settled DAILY_DIGEST row for
+        # its local today closes the catch-up window). The membership target
+        # only needs to exist for the log row's FK.
+        settled_farm = min(farm_ids)
+        owner_row = (
+            await db.execute(select(User).where(User.email == "tz-batch-first@farm.in"))
+        ).scalar_one()
+        role = Role(farm_id=settled_farm, name="Digest probe role", permissions=["dashboard.view"])
+        db.add(role)
+        await db.flush()
+        membership = FarmMembership(
+            farm_id=settled_farm,
+            user_id=owner_row.id,
+            role_id=role.id,
+            is_active=True,
+        )
+        db.add(membership)
+        await db.flush()
+        recipient = NotificationRecipient(
+            farm_id=settled_farm,
+            membership_id=membership.id,
+            phone="+919999999998",
+            daily_digest=True,
+        )
+        db.add(recipient)
+        await db.flush()
+        db.add(
+            NotificationLog(
+                farm_id=settled_farm,
+                recipient_id=recipient.id,
+                alert_class="DAILY_DIGEST",
+                payload_hash=payload_hash("DAILY_DIGEST:digest:settled"),
+                local_date=now.astimezone(ZoneInfo("Asia/Kolkata")).date(),
+                status="SENT",
+            )
+        )
+        await db.commit()
+        # Same tick-sized batch, same minute: the settled farm no longer
+        # consumes the slot — the second farm is reached, not starved.
+        ready_after = await farms_ready_for_digest(db, settings, now)
+    assert [f.id for f in ready_after] == [max(farm_ids)], (
+        "a settled farm must not consume the batch slot of the next ready farm"
+    )
 
 
 # --- daily scans + sweep -------------------------------------------------------

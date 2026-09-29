@@ -28,6 +28,7 @@ v1 → v2 translations:
 """
 
 from datetime import UTC, date, datetime, timedelta
+from typing import Any
 
 import httpx
 import jwt
@@ -195,13 +196,13 @@ async def post_kidding(
     return await client.post("/api/kidding", json=payload, headers=headers)
 
 
-async def get_profile(client: httpx.AsyncClient, headers: dict, animal_id: int) -> dict:
+async def get_profile(client: httpx.AsyncClient, headers: dict, animal_id: int) -> dict[str, Any]:
     resp = await client.get(f"/api/animals/{animal_id}", headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
 
 
-async def get_animal(client: httpx.AsyncClient, headers: dict, animal_id: int) -> dict:
+async def get_animal(client: httpx.AsyncClient, headers: dict, animal_id: int) -> dict[str, Any]:
     return (await get_profile(client, headers, animal_id))["animal"]
 
 
@@ -211,7 +212,7 @@ async def list_animals(client: httpx.AsyncClient, headers: dict, **params: str) 
     return resp.json()["animals"]
 
 
-async def get_breeding(client: httpx.AsyncClient, headers: dict, br_id: int) -> dict:
+async def get_breeding(client: httpx.AsyncClient, headers: dict, br_id: int) -> dict[str, Any]:
     resp = await client.get(f"/api/breeding/{br_id}", headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
@@ -253,7 +254,7 @@ async def purchase_batches(client: httpx.AsyncClient, headers: dict) -> list[dic
     return resp.json()["batches"]
 
 
-async def task_tabs(client: httpx.AsyncClient, headers: dict) -> dict:
+async def task_tabs(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
     resp = await client.get("/api/tasks", headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
@@ -277,7 +278,9 @@ async def role_ids_by_code(client: httpx.AsyncClient, headers: dict) -> dict[str
     return {r["code"]: r["id"] for r in resp.json()["roles"] if r["code"]}
 
 
-async def worker_headers(client: httpx.AsyncClient, email: str, password: str, owner: dict) -> dict:
+async def worker_headers(
+    client: httpx.AsyncClient, email: str, password: str, owner: dict
+) -> dict[str, Any]:
     # Provisioned worker: rotate explicitly (the default client never
     # rewrites a worker-login 401 into a 200 anymore).
     headers, _user_id = await provisioned_worker_login(client, email, password)
@@ -481,7 +484,8 @@ async def test_cannot_resell_a_sold_animal(client: httpx.AsyncClient) -> None:
     assert resp.status_code == 200, resp.text
     # replay the sale (e.g. double-click / forged request)
     resp = await client.post(f"/api/animals/{aid}/status", json=payload, headers=owner)
-    assert resp.status_code == 400
+    # Wrong lifecycle state answers 409 (2026-09-28 audit, A3 convention).
+    assert resp.status_code == 409
     assert len(await transactions(client, owner)) == 1  # exactly one income booked
 
 
@@ -1059,9 +1063,10 @@ async def test_sold_doe_cannot_kidd(client: httpx.AsyncClient) -> None:
     resp = await post_kidding(client, owner, br_id)
     # Selling the doe auto-aborts her confirmed pregnancy (change_status), so
     # the breeding is ABORTED by the time the kidding is attempted — the
-    # router's deliberate pre-check answers 400 for any non-CONFIRMED_PREGNANT
-    # outcome (PENDING/FAILED/ABORTED alike), before the service's 409 path.
-    assert resp.status_code == 400  # graceful rejection
+    # router's deliberate pre-check answers 409 for any non-CONFIRMED_PREGNANT
+    # outcome (PENDING/FAILED/ABORTED alike): the lifecycle state, not the
+    # request shape, refuses it (2026-09-28 audit, A3).
+    assert resp.status_code == 409  # graceful rejection
     assert await kidding_records(client, owner) == []
     born = [a for a in await list_animals(client, owner) if a["source"] == "BORN"]
     assert born == []

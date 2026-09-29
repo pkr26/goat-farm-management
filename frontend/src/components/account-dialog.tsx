@@ -29,6 +29,7 @@ import {
 import { useAuth } from "@/lib/auth-context";
 import { farmToday } from "@/lib/format";
 import { type TFn, useT } from "@/lib/i18n";
+import { mapServerError } from "@/lib/server-error-phrases";
 
 function buildPasswordSchema(t: TFn) {
   return z
@@ -165,7 +166,11 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
       setTotpCode("");
     } catch (err) {
       if (operationEpoch === dialogEpoch.current) {
-        setTotpError(err instanceof ApiError ? err.detail : t("totp.networkError"));
+        setTotpError(
+          err instanceof ApiError
+            ? mapServerError(t, err.detail, err.status, err.code)
+            : t("totp.networkError"),
+        );
       }
     } finally {
       // Always clear busy: a stale settle whose result was fenced off must
@@ -196,7 +201,11 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
       toast.success(t("totp.enabledToast"));
     } catch (err) {
       if (operationEpoch === dialogEpoch.current) {
-        setTotpError(err instanceof ApiError ? err.detail : t("totp.networkError"));
+        setTotpError(
+          err instanceof ApiError
+            ? mapServerError(t, err.detail, err.status, err.code)
+            : t("totp.networkError"),
+        );
       }
     } finally {
       // Always clear busy: a stale settle whose result was fenced off must
@@ -223,7 +232,11 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
       toast.success(t("totp.disabledToast"));
     } catch (err) {
       if (operationEpoch === dialogEpoch.current) {
-        setTotpError(err instanceof ApiError ? err.detail : t("totp.networkError"));
+        setTotpError(
+          err instanceof ApiError
+            ? mapServerError(t, err.detail, err.status, err.code)
+            : t("totp.networkError"),
+        );
       }
     } finally {
       // Always clear busy: a stale settle whose result was fenced off must
@@ -253,7 +266,11 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
       setCodesCopied(false);
     } catch (err) {
       if (operationEpoch === dialogEpoch.current) {
-        setTotpError(err instanceof ApiError ? err.detail : t("totp.networkError"));
+        setTotpError(
+          err instanceof ApiError
+            ? mapServerError(t, err.detail, err.status, err.code)
+            : t("totp.networkError"),
+        );
       }
     } finally {
       // Always clear busy: a stale settle whose result was fenced off must
@@ -320,7 +337,9 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         operationEpoch === dialogEpoch.current
       ) {
         setExportError(
-          error instanceof ApiError ? error.detail : t("account.export.failed"),
+          error instanceof ApiError
+            ? mapServerError(t, error.detail, error.status, error.code)
+            : t("account.export.failed"),
         );
       }
     } finally {
@@ -350,7 +369,9 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         operationEpoch === dialogEpoch.current
       ) {
         setDeleteError(
-          error instanceof ApiError ? error.detail : t("account.delete.failed"),
+          error instanceof ApiError
+            ? mapServerError(t, error.detail, error.status, error.code)
+            : t("account.delete.failed"),
         );
       }
     } finally {
@@ -419,7 +440,11 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         authSessionEpochValue() === sessionEpoch &&
         operationEpoch === dialogEpoch.current
       ) {
-        setServerError(error instanceof ApiError ? error.detail : t("account.password.failed"));
+        setServerError(
+          error instanceof ApiError
+            ? mapServerError(t, error.detail, error.status, error.code)
+            : t("account.password.failed"),
+        );
       }
     }
   }

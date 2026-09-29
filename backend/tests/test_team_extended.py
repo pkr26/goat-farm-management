@@ -14,6 +14,7 @@ Expected preset bundles below are HARDCODED (not imported from
 
 import asyncio
 from datetime import timedelta
+from typing import Any
 
 import httpx
 import pytest
@@ -218,7 +219,7 @@ TEAM_ENDPOINTS: list[tuple[str, str]] = [
 # ---------------------------------------------------------------------------
 # Helpers (same patterns as tests/test_rbac.py)
 # ---------------------------------------------------------------------------
-async def login_user(client: httpx.AsyncClient, email: str, password: str) -> dict:
+async def login_user(client: httpx.AsyncClient, email: str, password: str) -> dict[str, Any]:
     """Log in an account that has completed any forced rotation already.
 
     Provisioned workers must log in through ``provisioned_worker_login``
@@ -231,7 +232,7 @@ async def login_user(client: httpx.AsyncClient, email: str, password: str) -> di
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
-async def team_page(client: httpx.AsyncClient, headers: dict) -> dict:
+async def team_page(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
     resp = await client.get("/api/team", headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
@@ -255,7 +256,7 @@ async def add_worker(
     name: str | None = "Worker",
     password: str | None = WORKER_PW,
 ) -> httpx.Response:
-    payload: dict = {"email": email, "role_id": rid}
+    payload: dict[str, Any] = {"email": email, "role_id": rid}
     if name is not None:
         payload["name"] = name
     if password is not None:
@@ -276,7 +277,9 @@ async def set_worker_active(
     )
 
 
-async def worker_headers(client: httpx.AsyncClient, owner: dict, code: str, email: str) -> dict:
+async def worker_headers(
+    client: httpx.AsyncClient, owner: dict, code: str, email: str
+) -> dict[str, Any]:
     """Owner adds a worker with preset role `code`; returns farm headers."""
     rid = await role_id(client, owner, code)
     resp = await add_worker(client, owner, rid, email)
@@ -307,8 +310,12 @@ async def make_animal(client: httpx.AsyncClient, owner: dict, tag: str = "A-001"
 
 async def create_duty(
     client: httpx.AsyncClient, owner: dict, title: str, rid: int | None = None
-) -> dict:
-    payload: dict = {"title": title, "due_date": today().isoformat(), "category": "CLEANING"}
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "title": title,
+        "due_date": today().isoformat(),
+        "category": "CLEANING",
+    }
     if rid is not None:
         payload["assigned_role_id"] = rid
     resp = await client.post("/api/tasks", json=payload, headers=owner)
@@ -322,8 +329,8 @@ async def create_custom_role(
     name: str,
     permissions: list[str],
     description: str | None = None,
-) -> dict:
-    payload: dict = {"name": name, "permissions": permissions}
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"name": name, "permissions": permissions}
     if description is not None:
         payload["description"] = description
     resp = await client.post("/api/team/roles", json=payload, headers=owner)
@@ -331,7 +338,7 @@ async def create_custom_role(
     return resp.json()
 
 
-async def permissions_of(client: httpx.AsyncClient, headers: dict) -> dict:
+async def permissions_of(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
     resp = await client.get("/api/auth/permissions", headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
@@ -1308,7 +1315,12 @@ async def test_create_worker_name_handling(
 ) -> None:
     owner = await owner_with_farm(client)
     rid = await role_id(client, owner, "CLEANER")
-    payload: dict = {"email": "w@farm.in", "password": WORKER_PW, "role_id": rid, "name": name}
+    payload: dict[str, Any] = {
+        "email": "w@farm.in",
+        "password": WORKER_PW,
+        "role_id": rid,
+        "name": name,
+    }
     resp = await client.post("/api/team/workers", json=payload, headers=owner)
     assert resp.status_code == 201, resp.text
     assert resp.json()["name"] == stored

@@ -27,6 +27,7 @@
 from datetime import timedelta
 from decimal import Decimal
 from types import SimpleNamespace
+from typing import Any
 
 import httpx
 import pytest
@@ -42,7 +43,7 @@ from .conftest import owner_with_farm
 from .test_finance_extended import txn_payload
 
 
-async def _inventory_item(client: httpx.AsyncClient, owner: dict, item_id: int) -> dict:
+async def _inventory_item(client: httpx.AsyncClient, owner: dict, item_id: int) -> dict[str, Any]:
     response = await client.get("/api/feeding/inventory", headers=owner)
     assert response.status_code == 200, response.text
     return next(item for item in response.json() if item["id"] == item_id)
@@ -55,7 +56,7 @@ async def _restock(
     *,
     qty_kg: float,
     price_per_kg: float,
-) -> dict:
+) -> dict[str, Any]:
     response = await client.post(
         f"/api/feeding/inventory/{item_id}/add",
         json={"qty_kg": qty_kg, "price_per_kg": price_per_kg},

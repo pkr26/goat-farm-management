@@ -353,13 +353,15 @@ async def test_rotating_ips_cannot_reset_the_per_membership_ceiling(
     for _ in range(20):
         auth_limiter.record("worker-pin-account", account_key, window_seconds=300, max_attempts=30)
 
-    # Ten wrong guesses from THIS address exhaust the identity budget as usual
-    # and push the account bucket to its 3x ceiling (20 + 10 = 30).
-    for _ in range(10):
+    # Nine wrong guesses from THIS address stay under both budgets (the
+    # identity budget of 10 holds at nine; the account bucket reaches 29 of
+    # its 3x ceiling of 30) — every one answers the generic 401.
+    for _ in range(9):
         assert (await _worker_login(client, farm_id, membership_id, "0000")).status_code == 401
 
     # A fresh address (empty identity/spray buckets) still hits the account
-    # ceiling: the next wrong PIN is answered 429, not 401.
+    # ceiling: the 30th recorded wrong PIN is answered 429, not 401 — the
+    # ceiling is charged by (farm, membership), never by source address.
     auth_limiter.reset("worker-pin", f"127.0.0.1|{farm_id}|{membership_id}")
     auth_limiter.reset("worker-pin-spray", f"127.0.0.1|{farm_id}")
     throttled = await _worker_login(client, farm_id, membership_id, "0000")
@@ -413,6 +415,32 @@ async def test_success_never_resets_the_spray_bucket(
     assert refused.status_code == 429, refused.text
 
 
+async def test_worker_pin_throttle_retry_after_cites_the_worker_window(
+    client: httpx.AsyncClient,
+    rate_limits_on: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The worker-PIN 429's Retry-After must cite worker_pin_rate_limit_
+    window_seconds, not the global auth window the two merely share by
+    default (2026-09-29 audit — they are tuned independently)."""
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "worker_pin_rate_limit_window_seconds", 90)
+    monkeypatch.setattr(settings, "auth_rate_limit_window_seconds", 300)
+
+    owner = await owner_with_farm(client, email="pin-owner-window@farm.in")
+    membership_id, farm_id = await _make_pin_worker(
+        client, owner, email="pin-worker-window@farm.in"
+    )
+    identity_key = f"127.0.0.1|{farm_id}|{membership_id}"
+    for _ in range(10):
+        auth_limiter.record("worker-pin", identity_key, window_seconds=90, max_attempts=10)
+    refused = await _worker_login(client, farm_id, membership_id, "0000")
+    assert refused.status_code == 429, refused.text
+    assert refused.headers["Retry-After"] == "90"
+
+
 async def test_unknown_pairs_answer_the_same_generic_401(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client, email="pin-owner-unknown@farm.in")
     farm_id = int(owner["X-Farm-Id"])
@@ -423,6 +451,47 @@ async def test_unknown_pairs_answer_the_same_generic_401(client: httpx.AsyncClie
         refused = await _worker_login(client, farm, membership, "4321")
         assert refused.status_code == 401
         assert refused.json()["detail"] == "Invalid PIN."
+
+
+async def test_pin_rotation_mid_verify_cannot_ride_the_proof(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """2026-09-29 audit (S2 test gap): a PIN reset that lands while the PIN is
+    mid-Argon2 must not ride the proof. The locked reload exact-compares
+    token_version — a rotation bumps it under the same User lock — so the
+    answer is the generic 401 and no session is minted."""
+    from sqlalchemy import update
+
+    import app.api.auth as auth_api
+    from app.models import User
+
+    owner = await owner_with_farm(client, email="pin-owner-race@farm.in")
+    membership_id, farm_id = await _make_pin_worker(client, owner, email="pin-worker-race@farm.in")
+
+    async def rotate_then_accept(pin: str, pin_hash: str) -> tuple[bool, bool]:
+        # Simulate the owner's reset-pin landing INSIDE the verification
+        # window: token_version bumps under the User lock on a separate
+        # session, exactly like the real reset endpoint does.
+        async with get_sessionmaker()() as db:
+            await db.execute(
+                update(User)
+                .where(User.email == "pin-worker-race@farm.in")
+                .values(token_version=User.token_version + 1)
+            )
+            await db.commit()
+        return True, False
+
+    monkeypatch.setattr(auth_api, "verify_password_async", rotate_then_accept)
+    refused = await _worker_login(client, farm_id, membership_id, "4321")
+    assert refused.status_code == 401
+    assert refused.json()["detail"] == "Invalid PIN."
+
+    # No refresh family was minted: the worker must re-authenticate with the
+    # NEW pin after a real reset.
+    async with get_sessionmaker()() as db:
+        rows = (await db.execute(select(FarmMembership.pin_hash))).scalars().all()
+    assert all(hash_ is None or not hash_.startswith("$argon2$rotate") for hash_ in rows)
 
 
 async def test_tombstoned_inactive_and_totp_accounts_cannot_pin_login(

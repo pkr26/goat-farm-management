@@ -11,23 +11,19 @@
 import { TriangleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { useT } from "@/lib/i18n";
 
-export function StaleDataNotice({
-  message = "Could not refresh — showing the last loaded data.",
-  onRetry,
-}: {
-  message?: string;
-  onRetry: () => void;
-}) {
+export function StaleDataNotice({ message, onRetry }: { message?: string; onRetry: () => void }) {
+  const t = useT();
   return (
     <div
       role="status"
       className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-warning/50 bg-warning-tint p-3 text-sm text-warning-tint-foreground dark:border-warning/40"
     >
       <TriangleAlert className="size-4 shrink-0" aria-hidden="true" />
-      <span>{message}</span>
+      <span>{message ?? t("staleNotice.message")}</span>
       <Button type="button" size="sm" variant="outline" onClick={onRetry}>
-        Retry
+        {t("common.retry")}
       </Button>
     </div>
   );

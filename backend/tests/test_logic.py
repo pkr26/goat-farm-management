@@ -16,6 +16,7 @@ Date adjustments vs v1 (API guards the old suite didn't have):
 
 from datetime import date, datetime, timedelta
 from itertools import pairwise
+from typing import Any
 
 import httpx
 from sqlalchemy import select
@@ -59,9 +60,9 @@ async def make_doe(
     bucket: str = "BREEDING",
     dob_days: int = 800,
     weight_kg: float | None = 26.0,
-) -> dict:
+) -> dict[str, Any]:
     """Create a doe via POST /api/animals (entry weight creates a WeightRecord)."""
-    payload: dict = {
+    payload: dict[str, Any] = {
         "tag_number": tag,
         "sex": "F",
         "source": "PURCHASED",
@@ -77,7 +78,7 @@ async def make_doe(
     return resp.json()
 
 
-async def make_buck(client: httpx.AsyncClient, headers: dict, tag: str = "B-01") -> dict:
+async def make_buck(client: httpx.AsyncClient, headers: dict, tag: str = "B-01") -> dict[str, Any]:
     dob = today() - timedelta(days=800)
     payload = {
         "tag_number": tag,
@@ -96,7 +97,7 @@ async def make_buck(client: httpx.AsyncClient, headers: dict, tag: str = "B-01")
 
 async def make_breeding(
     client: httpx.AsyncClient, headers: dict, doe: dict, buck: dict, breeding_date: date
-) -> dict:
+) -> dict[str, Any]:
     resp = await client.post(
         "/api/breeding",
         json={
@@ -129,7 +130,7 @@ async def submit_ultrasound(
     pregnant: bool,
     kid_count: int = 2,
     result_date: date | None = None,
-) -> dict:
+) -> dict[str, Any]:
     payload: dict[str, object] = {"pregnant": pregnant}
     if pregnant:
         payload["kid_count"] = kid_count
@@ -157,7 +158,7 @@ async def record_kidding(
     br: dict,
     kidding_date: date,
     kids: list[dict],
-) -> dict:
+) -> dict[str, Any]:
     resp = await client.post(
         "/api/kidding",
         json={
@@ -185,13 +186,13 @@ def tasks_by_category(tasks: list[dict], category: str) -> list[dict]:
     return [t for t in tasks if t["category"] == category]
 
 
-async def get_animal(client: httpx.AsyncClient, headers: dict, animal_id: int) -> dict:
+async def get_animal(client: httpx.AsyncClient, headers: dict, animal_id: int) -> dict[str, Any]:
     resp = await client.get(f"/api/animals/{animal_id}", headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()["animal"]
 
 
-async def find_animal_by_tag(client: httpx.AsyncClient, headers: dict, tag: str) -> dict:
+async def find_animal_by_tag(client: httpx.AsyncClient, headers: dict, tag: str) -> dict[str, Any]:
     resp = await client.get("/api/animals", params={"q": tag}, headers=headers)
     assert resp.status_code == 200, resp.text
     animals = resp.json()["animals"]
@@ -792,7 +793,9 @@ async def test_feeding_plan_split_math(client: httpx.AsyncClient) -> None:
     assert set(SHIFT_SPLIT) == set(FeedingShift)
 
 
-async def _inventory_item(client: httpx.AsyncClient, headers: dict, ingredient: str) -> dict:
+async def _inventory_item(
+    client: httpx.AsyncClient, headers: dict, ingredient: str
+) -> dict[str, Any]:
     resp = await client.get("/api/feeding/inventory", headers=headers)
     assert resp.status_code == 200, resp.text
     return next(i for i in resp.json() if i["ingredient"] == ingredient)

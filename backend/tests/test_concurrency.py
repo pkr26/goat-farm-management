@@ -15,6 +15,7 @@ must hold regardless of which request wins, plus the loser's status code.
 
 import asyncio
 from datetime import date, timedelta
+from typing import Any
 
 import httpx
 import pytest
@@ -171,7 +172,7 @@ async def inventory(client: httpx.AsyncClient, headers: dict) -> list[dict]:
     return resp.json()
 
 
-async def task_tabs(client: httpx.AsyncClient, headers: dict) -> dict:
+async def task_tabs(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
     resp = await client.get("/api/tasks", headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
@@ -237,8 +238,8 @@ async def test_concurrent_double_sale_books_one_income(client: httpx.AsyncClient
             other.post(f"/api/animals/{aid}/status", json=payload, headers=owner),
         )
     # One winner; the loser takes the row lock, re-reads SOLD and gets the
-    # same 400 a sequential replay gets.
-    assert sorted([r1.status_code, r2.status_code]) == [200, 400]
+    # same 409 a sequential replay gets (wrong lifecycle state, A3).
+    assert sorted([r1.status_code, r2.status_code]) == [200, 409]
     sales = [t for t in await transactions(client, owner) if t["category"] == "ANIMAL_SALE"]
     assert len(sales) == 1
     assert sales[0]["amount"] == 5000
@@ -423,8 +424,11 @@ async def test_concurrent_double_complete_spawns_one_occurrence(
             other.post(f"/api/tasks/{task_id}/complete", headers=owner),
         )
     # The loser re-reads DONE after the lock and gets "Task is not pending"
-    # (409 since the 2026-09-28 audit, A3 — wrong lifecycle state).
+    # (409 since the 2026-09-28 audit, A3 — wrong lifecycle state) carrying
+    # its machine-readable conflict-family code (2026-09-29, RFC 9457-style).
     assert sorted([r1.status_code, r2.status_code]) == [200, 409]
+    loser = r1 if r1.status_code == 409 else r2
+    assert loser.json()["code"] == "LIFECYCLE_CONFLICT"
     tabs = await task_tabs(client, owner)
     mine = [t for t in all_tasks(tabs) if t["title"] == "Daily sweep"]
     original = next(t for t in mine if t["id"] == task_id)
@@ -806,9 +810,10 @@ async def test_kidding_vs_abort_never_aborted_with_live_kids(
             other.post(f"/api/breeding/{br['id']}/abort", json=loss, headers=owner),
         )
     # Both flows lock the doe then the breeding row: they serialize, and the
-    # loser re-reads the committed state and fails its own state guard.
+    # loser re-reads the committed state and fails its own state guard. Either
+    # loser answers 409 — wrong lifecycle state (2026-09-28 audit, A3).
     codes = sorted([r_kid.status_code, r_abort.status_code])
-    assert codes in ([200, 400], [201, 409]), codes
+    assert codes in ([200, 409], [201, 409]), codes
     resp = await client.get(f"/api/breeding/{br['id']}", headers=owner)
     final = resp.json()
     if r_kid.status_code == 201:
@@ -934,7 +939,7 @@ async def test_complete_delivery_move_vs_sell_never_deadlocks(
             assert r_sell.status_code != 500, r_sell.text
             assert sorted([r_complete.status_code, r_sell.status_code]) in (
                 [200, 200],  # the duty completed, then the sale went through
-                [200, 400],  # the sale won; the duty was skipped under it
+                [200, 409],  # the sale won; the duty's lifecycle answer is 409 (A3)
             )
             tabs = await task_tabs(client, owner)
             final_task = next(t for t in all_tasks(tabs) if t["id"] == move_task["id"])

@@ -24,10 +24,11 @@ export default function manifest(): MetadataRoute.Manifest {
     icons: [
       { src: "/icon-worker-192.png", sizes: "192x192", type: "image/png" },
       { src: "/icon-worker-512.png", sizes: "512x512", type: "image/png" },
-      // Android adaptive icons crop to a safe zone: a maskable entry keeps
-      // the home-screen glyph from being clipped into a circle (W11).
+      // Android adaptive launchers crop to the central 66dp-of-108dp safe
+      // circle: this dedicated variant keeps the whole glyph inside that
+      // zone (W11; generated + pixel-verified by scripts/generate-worker-icons.mjs).
       {
-        src: "/icon-worker-512.png",
+        src: "/icon-worker-512-maskable.png",
         sizes: "512x512",
         type: "image/png",
         purpose: "maskable",

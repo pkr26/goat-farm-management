@@ -8,6 +8,7 @@ serialization. Do not weaken — these guard the fixed behavior.
 """
 
 from datetime import timedelta
+from typing import Any
 
 import httpx
 
@@ -28,7 +29,7 @@ from .test_health_extended import (
 )
 
 
-async def _make_animal(client: httpx.AsyncClient, headers: dict) -> dict:
+async def _make_animal(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
     resp = await client.post(
         "/api/animals",
         json={

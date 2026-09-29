@@ -187,6 +187,16 @@ describe("protected mutation idempotency transport", () => {
       true,
     );
     expect(isIdempotencyProtectedMutation("/api/planner/plans", "POST")).toBe(true);
+    // The four routes the backend's A1 wave instrumented server-side
+    // (2026-09-28 audit, A1; 2026-09-29 client-side completion): without
+    // these the browser client could never exercise the replay it just
+    // gained — the allowlist must track the spec-declared set.
+    expect(isIdempotencyProtectedMutation("/api/tasks/7/verify", "POST")).toBe(true);
+    expect(isIdempotencyProtectedMutation("/api/tasks/7/reject", "POST")).toBe(true);
+    expect(isIdempotencyProtectedMutation("/api/team/workers/4/reset-password", "POST")).toBe(
+      true,
+    );
+    expect(isIdempotencyProtectedMutation("/api/animals/42/status", "POST")).toBe(true);
     expect(isIdempotencyProtectedMutation("/api/finance", "POST")).toBe(false);
     expect(isIdempotencyProtectedMutation("/api/finance/42/correct", "POST")).toBe(false);
     expect(isIdempotencyProtectedMutation("/api/finance/insurance/9", "POST")).toBe(false);

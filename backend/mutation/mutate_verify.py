@@ -21,6 +21,7 @@ import json
 import random
 import sys
 from pathlib import Path
+from typing import Any
 
 BACKEND = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND / "mutation"))
@@ -29,7 +30,7 @@ from mutate_run import Runner  # noqa: E402
 DEFAULT_SEED = 20260928
 
 
-def derive_sample(n: int, seed: int) -> list[dict]:
+def derive_sample(n: int, seed: int) -> list[dict[str, Any]]:
     """N SURVIVED mutants from results.jsonl, deterministically shuffled."""
     last_status: dict[str, str] = {}
     for line in (BACKEND / "mutation" / "results.jsonl").read_text().splitlines():
@@ -67,7 +68,7 @@ def main() -> None:
     sample = json.loads(sample_path.read_text())
     runner = Runner(workers=8, max_seconds=None)
     runner.results_path = BACKEND / "mutation" / "verify_results.jsonl"
-    verdicts = collections.Counter()
+    verdicts: collections.Counter[str] = collections.Counter()
     for m in sample:
         rec = runner.execute(m, worker=9)
         verdicts[rec["status"]] += 1

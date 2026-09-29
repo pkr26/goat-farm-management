@@ -27,7 +27,13 @@ from ..audit import security_event
 from ..core.config import get_settings
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
 from ..models import PlannerPlan
-from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET
+from ..schemas.common import (
+    COMMON_ERROR_RESPONSES,
+    MAX_INT32_ID,
+    MAX_PAGE_OFFSET,
+    stale_state_conflict,
+    standing_quota,
+)
 from ..schemas.planner import (
     BackwardPlanIn,
     BackwardPlanReport,
@@ -327,7 +333,7 @@ async def create_plan(
             )
         ).scalar_one()
         if plan_count >= get_settings().max_planner_plans_per_farm:
-            raise HTTPException(status_code=409, detail=PLAN_CAPACITY_REASON)
+            raise standing_quota(detail=PLAN_CAPACITY_REASON)
         await _check_name_free(db, farm.id, name)
         # The plan's anchor column is the anchor of record: bake it into the
         # stored assumptions so the two can never disagree.
@@ -406,8 +412,7 @@ async def update_plan(
 ) -> PlannerPlanOut:
     plan = await _get_plan(db, farm.id, plan_id, for_update=True)
     if plan.revision != payload.expected_revision:
-        raise HTTPException(
-            status_code=409,
+        raise stale_state_conflict(
             detail="This plan changed since you opened it; refresh before saving.",
         )
     # Work out and validate the serialized assumptions before mutating the
@@ -532,8 +537,7 @@ async def delete_plan(
     """Delete only the exact version the caller reviewed."""
     plan = await _get_plan(db, farm.id, plan_id, for_update=True)
     if plan.revision != expected_revision:
-        raise HTTPException(
-            status_code=409,
+        raise stale_state_conflict(
             detail="This plan changed since you opened it; refresh before deleting.",
         )
     await db.delete(plan)

@@ -25,6 +25,7 @@ endpoint shows up here the day it is added.
 import statistics
 import time
 from datetime import timedelta
+from typing import Any
 
 import httpx
 import pytest
@@ -150,7 +151,7 @@ async def test_every_farm_scoped_route_404s_under_a_foreign_farm_header(
         for owner_headers, foreign_farm in ((a_headers, farm_b), (b_headers, farm_a)):
             probe = owner_headers | {"X-Farm-Id": str(foreign_farm)}
             url = _placeholders(path, str(foreign_farm))
-            kwargs: dict = {"headers": probe}
+            kwargs: dict[str, Any] = {"headers": probe}
             if method in {"POST", "PUT", "PATCH"}:
                 kwargs["json"] = {}
             resp = await client.request(method, url, **kwargs)
@@ -299,7 +300,7 @@ async def test_idor_foreign_object_ids_answer_404_for_reads_and_writes(
                 f"({resp.content[:80]!r} vs {twin.content[:80]!r})"
             )
     for method, url, body in writes:
-        kwargs: dict = {"headers": a_headers}
+        kwargs: dict[str, Any] = {"headers": a_headers}
         if body is not None:
             kwargs["json"] = body
         resp = await client.request(method, url, **kwargs)

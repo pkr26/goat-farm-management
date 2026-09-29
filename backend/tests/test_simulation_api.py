@@ -12,6 +12,7 @@ import math
 import threading
 from datetime import date, timedelta
 from decimal import Decimal
+from typing import Any
 from uuid import uuid4
 
 import httpx
@@ -85,7 +86,7 @@ async def add_worker(
 
 async def worker_headers(
     client: httpx.AsyncClient, owner: dict, permissions: list[str], email: str
-) -> dict:
+) -> dict[str, Any]:
     """Worker with a custom role holding exactly `permissions`, on owner's farm."""
     resp = await client.post(
         "/api/team/roles", json={"name": f"Role {email}", "permissions": permissions}, headers=owner
@@ -98,7 +99,7 @@ async def worker_headers(
     return headers | {"X-Farm-Id": owner["X-Farm-Id"]}
 
 
-async def default_assumptions(client: httpx.AsyncClient, headers: dict) -> dict:
+async def default_assumptions(client: httpx.AsyncClient, headers: dict) -> dict[str, Any]:
     resp = await client.get("/api/simulation/defaults", headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
@@ -106,7 +107,7 @@ async def default_assumptions(client: httpx.AsyncClient, headers: dict) -> dict:
 
 async def create_scenario(
     client: httpx.AsyncClient, headers: dict, name: str, assumptions: dict
-) -> dict:
+) -> dict[str, Any]:
     resp = await client.post(
         "/api/simulation/scenarios",
         json={"name": name, "assumptions": assumptions},
@@ -122,8 +123,8 @@ async def make_animal(
     tag: str,
     sex: str,
     dob_days: int | None,
-) -> dict:
-    payload: dict = {
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "tag_number": tag,
         "sex": sex,
         "source": "PURCHASED",
@@ -144,7 +145,7 @@ async def make_historical_animal(
     sex: str,
     purchase_price: float | None,
     weight_kg: float,
-) -> dict:
+) -> dict[str, Any]:
     purchased_on = date.today() - timedelta(days=400)
     resp = await client.post(
         "/api/animals",

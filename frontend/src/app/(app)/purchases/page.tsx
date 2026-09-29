@@ -699,12 +699,12 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
                 <TableHead>{t("purchases.table.batch")}</TableHead>
                 <TableHead>{t("purchases.table.date")}</TableHead>
                 <TableHead>{t("purchases.table.supplier")}</TableHead>
-                <TableHead>{t("purchases.table.count")}</TableHead>
-                <TableHead>{t("purchases.table.avgAge")}</TableHead>
-                <TableHead>{t("purchases.table.avgWt")}</TableHead>
-                <TableHead>{t("purchases.table.totalPrice")}</TableHead>
-                <TableHead>{t("purchases.table.animals")}</TableHead>
-                <TableHead>{t("purchases.table.openTasks")}</TableHead>
+                <TableHead className="text-right">{t("purchases.table.count")}</TableHead>
+                <TableHead className="text-right">{t("purchases.table.avgAge")}</TableHead>
+                <TableHead className="text-right">{t("purchases.table.avgWt")}</TableHead>
+                <TableHead className="text-right">{t("purchases.table.totalPrice")}</TableHead>
+                <TableHead className="text-right">{t("purchases.table.animals")}</TableHead>
+                <TableHead className="text-right">{t("purchases.table.openTasks")}</TableHead>
                 <TableHead />
               </TableRow>
             </TableHeader>
@@ -714,20 +714,20 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
                   <TableCell className="font-medium">#{b.id}</TableCell>
                   <TableCell>{formatDate(b.date)}</TableCell>
                   <TableCell>{b.supplier ?? "—"}</TableCell>
-                  <TableCell>{b.count}</TableCell>
-                  <TableCell>
+                  <TableCell className="table-numeric text-right">{b.count}</TableCell>
+                  <TableCell className="table-numeric text-right">
                     {b.avg_age_months !== null
                       ? t("purchases.list.ageMo", { months: b.avg_age_months })
                       : "—"}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="table-numeric text-right">
                     {b.avg_weight_kg !== null
                       ? t("purchases.list.weightKg", { kg: b.avg_weight_kg })
                       : "—"}
                   </TableCell>
-                  <TableCell>{formatMoney(b.total_price)}</TableCell>
-                  <TableCell>{b.animals_created ?? 0}</TableCell>
-                  <TableCell>
+                  <TableCell className="table-numeric text-right">{formatMoney(b.total_price)}</TableCell>
+                  <TableCell className="table-numeric text-right">{b.animals_created ?? 0}</TableCell>
+                  <TableCell className="table-numeric text-right">
                     {b.open_tasks ? (
                       <Badge variant="secondary">{b.open_tasks}</Badge>
                     ) : (

@@ -16,6 +16,7 @@ test_animals_extended. This module pins the gaps that remained:
 """
 
 from datetime import timedelta
+from typing import Any
 
 import httpx
 from sqlalchemy import select
@@ -36,7 +37,7 @@ from .test_e2e_lifecycle_audit import (
 )
 
 
-async def _mover_worker_headers(client: httpx.AsyncClient, owner: dict) -> dict:
+async def _mover_worker_headers(client: httpx.AsyncClient, owner: dict) -> dict[str, Any]:
     role = await client.post(
         "/api/team/roles",
         json={"name": "Mover", "permissions": ["animals.move", "animals.view"]},
@@ -274,7 +275,7 @@ async def test_weaning_boundary_days_59_60_61(client: httpx.AsyncClient) -> None
     assert by_sex.get("F") == "FEMALE_KIDS", by_sex
 
 
-async def _animal_by_tag(client: httpx.AsyncClient, headers: dict, tag: str) -> dict:
+async def _animal_by_tag(client: httpx.AsyncClient, headers: dict, tag: str) -> dict[str, Any]:
     found = await client.get("/api/animals", params={"q": tag, "limit": 100}, headers=headers)
     items = found.json()["animals"]
     exact = [a for a in items if a["tag_number"] == tag]
@@ -345,7 +346,8 @@ async def test_sold_dead_culled_animals_are_locked_out(client: httpx.AsyncClient
     resale = await change_status(
         client, owner, doe["id"], "SOLD", sale_price=1.0, buyer_name="again"
     )
-    assert resale.status_code == 400, resale.text
+    # Wrong lifecycle state answers 409 (2026-09-28 audit, A3 convention).
+    assert resale.status_code == 409, resale.text
     assert "already" in resale.json()["detail"].lower()
 
     dead = await change_status(

@@ -13,6 +13,7 @@ Written as an acceptance pass: each test asserts the *business* outcome
 
 import asyncio
 from datetime import date, timedelta
+from typing import Any
 
 import httpx
 from sqlalchemy import select
@@ -55,8 +56,8 @@ async def make_animal(
     bucket: str = "FOUNDATION",
     dob_days: int = 800,
     weight_kg: float | None = 26.0,
-) -> dict:
-    payload: dict = {
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "tag_number": tag,
         "sex": sex,
         "source": "PURCHASED",
@@ -72,7 +73,7 @@ async def make_animal(
     return resp.json()
 
 
-async def get_animal(client: httpx.AsyncClient, headers: dict, animal_id: int) -> dict:
+async def get_animal(client: httpx.AsyncClient, headers: dict, animal_id: int) -> dict[str, Any]:
     resp = await client.get(f"/api/animals/{animal_id}", headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()["animal"]
@@ -85,7 +86,7 @@ async def all_tasks(client: httpx.AsyncClient, headers: dict) -> list[dict]:
     return tabs["today"] + tabs["overdue"] + tabs["upcoming"] + tabs["awaiting"] + tabs["completed"]
 
 
-async def find_task(client: httpx.AsyncClient, headers: dict, **match: object) -> dict:
+async def find_task(client: httpx.AsyncClient, headers: dict, **match: object) -> dict[str, Any]:
     tasks = await all_tasks(client, headers)
     for task in tasks:
         if all(task.get(k) == v for k, v in match.items()):
@@ -113,7 +114,7 @@ async def breed(
     doe_id: int,
     buck_id: int,
     breeding_date: date,
-) -> dict:
+) -> dict[str, Any]:
     resp = await client.post(
         "/api/breeding",
         json={
@@ -173,7 +174,7 @@ async def health_event(
 ) -> httpx.Response:
     scope = payload.get("scope", "animal")
     if scope in {"bucket", "batch"} and "expected_animal_ids" not in payload:
-        target: dict = {"scope": scope}
+        target: dict[str, Any] = {"scope": scope}
         if scope == "bucket" and "bucket" in payload:
             target["bucket"] = payload["bucket"]
         if scope == "batch" and "purchase_batch_id" in payload:
@@ -227,7 +228,7 @@ async def change_status(
 
 async def confirm_pregnancy(
     client: httpx.AsyncClient, headers: dict, breeding_id: int, *, kid_count: int = 2
-) -> dict:
+) -> dict[str, Any]:
     """Positive ultrasound at the scheduled date; returns the refreshed record
     (expected_kidding_date is only populated once the scan confirms)."""
     detail = (await client.get(f"/api/breeding/{breeding_id}", headers=headers)).json()
@@ -246,7 +247,7 @@ async def confirm_pregnancy(
 
 async def record_kidding(
     client: httpx.AsyncClient, headers: dict, breeding_id: int, on: date, kids: list[dict]
-) -> dict:
+) -> dict[str, Any]:
     resp = await client.post(
         "/api/kidding",
         json={
@@ -281,7 +282,7 @@ async def backdate_bucket_entry(animal_id: int, farm_id: int, bucket: str, days:
 async def set_weight(
     client: httpx.AsyncClient, headers: dict, animal_id: int, weight: float, on: date | None = None
 ) -> None:
-    payload: dict = {"weight_kg": weight}
+    payload: dict[str, Any] = {"weight_kg": weight}
     if on is not None:
         payload["date"] = iso(on)
     resp = await client.post(f"/api/animals/{animal_id}/weight", json=payload, headers=headers)
@@ -992,7 +993,7 @@ async def test_dashboard_suggestions_point_at_ready_animals(client: httpx.AsyncC
 # ---------------------------------------------------------------------------
 
 
-async def _worker(client: httpx.AsyncClient, owner: dict, code: str, email: str) -> dict:
+async def _worker(client: httpx.AsyncClient, owner: dict, code: str, email: str) -> dict[str, Any]:
     roster = (await client.get("/api/team", headers=owner)).json()
     role_id = next(r["id"] for r in roster["roles"] if r["code"] == code)
     resp = await client.post(

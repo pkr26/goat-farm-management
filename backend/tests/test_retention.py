@@ -351,8 +351,10 @@ async def test_batch_size_bound_is_respected_and_still_drains_fully(
             )
         await db.commit()
 
-    # One helper call never deletes more than batch_size, and a short batch
-    # stops the loop (the sibling cleanup loops' stop rule).
+    # One helper call DRAINS the cohort: batch_size bounds each DELETE
+    # statement's lock scope (candidate SELECT ... LIMIT batch_size), not the
+    # call — the sweep relies on the drain, so a single pass clears every
+    # eligible row (5 candidates, statements of 2+2+1).
     async with get_sessionmaker()() as db:
         candidates = select(Task.id).where(
             Task.farm_id == farm_id,
@@ -361,13 +363,13 @@ async def test_batch_size_bound_is_respected_and_still_drains_fully(
         first = await retention._delete_in_batches(
             db, table=Task, id_column=Task.id, candidates=candidates, batch_size=2
         )
-        assert first == 2
+        assert first == 5
         await db.commit()
 
-    # The sweep loops past full batches until the cohort is drained.
+    # The cohort is fully drained — a follow-up sweep has nothing to do.
     async with get_sessionmaker()() as db:
         summary = await run_retention_sweep(db, _settings(retention_delete_batch_size=2))
-    assert summary.terminal_tasks == 3
+    assert summary.terminal_tasks == 0
     assert (await _table_counts(farm_id))["tasks"] == 0
 
 
@@ -408,6 +410,55 @@ async def test_second_sweep_is_a_noop(client: httpx.AsyncClient) -> None:
         "images": 1,
         "tasks": 0,
     }
+
+
+async def test_a_failing_farm_is_skipped_and_does_not_starve_later_farms(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """2026-09-29 audit: farms iterate in sorted order, so an unhandled
+    failure on farm K would deterministically starve every farm sorted after
+    K, every interval. The sweep must roll the poisoned farm back, count it
+    in failed_farms, and still sweep the later farm."""
+    owner_poison = await owner_with_farm(
+        client, email="retention-iso-poison@farm.in", farm_name="Poison Farm"
+    )
+    owner_later = await owner_with_farm(
+        client, email="retention-iso-later@farm.in", farm_name="Later Farm"
+    )
+    poison_farm = int(owner_poison["X-Farm-Id"])
+    later_farm = int(owner_later["X-Farm-Id"])
+    assert poison_farm < later_farm, "the poisoned farm must sort first"
+
+    old = utcnow() - OLD_TASK_AGE
+    async with get_sessionmaker()() as db:
+        for farm_id, tag in ((poison_farm, "poison"), (later_farm, "later")):
+            await _seed_task(
+                db,
+                farm_id=farm_id,
+                title=f"old done {tag}",
+                status=TaskStatus.DONE.value,
+                completed_at=old,
+            )
+        await db.commit()
+
+    real_sweep_farm = retention._sweep_farm
+
+    async def poisoned_sweep_farm(db: AsyncSession, *, farm_id: int, **kwargs: Any) -> None:
+        if farm_id == poison_farm:
+            raise RuntimeError("poisoned farm (retention isolation test)")
+        await real_sweep_farm(db, farm_id=farm_id, **kwargs)
+
+    monkeypatch.setattr(retention, "_sweep_farm", poisoned_sweep_farm)
+    async with get_sessionmaker()() as db:
+        summary = await run_retention_sweep(db, _settings())
+
+    assert summary.failed_farms == 1
+    assert summary.terminal_tasks == 1  # the LATER farm was still swept
+    counts = await _table_counts(later_farm)
+    assert counts["tasks"] == 0, "the later farm must not be starved"
+    poison_counts = await _table_counts(poison_farm)
+    assert poison_counts["tasks"] == 1, "the poisoned farm's rows survive for the next pass"
 
 
 def test_retention_settings_are_disabled_and_bounded_by_default() -> None:

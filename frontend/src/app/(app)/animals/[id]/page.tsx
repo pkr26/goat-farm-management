@@ -76,7 +76,6 @@ import { invalidateFarmData } from "@/lib/query-invalidation";
 import { permittedAppPath, withReturnTo } from "@/lib/permission-navigation";
 import {
   isPersistableNonnegativeMoney,
-  MIN_PERSISTED_MONEY_MESSAGE,
 } from "@/lib/persisted-numbers";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
@@ -220,7 +219,11 @@ function AddWeightDialog({
         onDone();
       } catch (err) {
         if (!farmScope()) return;
-        toast.error(err instanceof ApiError ? err.detail : t("common.somethingWentWrong"));
+        toast.error(
+          err instanceof ApiError
+            ? mapServerError(t, err.detail, err.status, err.code)
+            : t("common.somethingWentWrong"),
+        );
       }
     });
   }
@@ -389,7 +392,11 @@ function EditPhenotypeDialog({
         onDone();
       } catch (err) {
         if (!farmScope()) return;
-        setSaveError(err instanceof ApiError ? err.detail : t("common.somethingWentWrong"));
+        setSaveError(
+          err instanceof ApiError
+            ? mapServerError(t, err.detail, err.status, err.code)
+            : t("common.somethingWentWrong"),
+        );
       }
     });
   }
@@ -521,7 +528,11 @@ function MoveBucketDialog({
         onDone();
       } catch (err) {
         if (!farmScope()) return;
-        toast.error(err instanceof ApiError ? err.detail : t("common.somethingWentWrong"));
+        toast.error(
+          err instanceof ApiError
+            ? mapServerError(t, err.detail, err.status, err.code)
+            : t("common.somethingWentWrong"),
+        );
       }
     });
   }
@@ -624,7 +635,7 @@ function MoveBucketDialog({
 /** Messages resolve through the i18n catalog, so the schema is a factory of
  * the caller's `t`; the mounted dialog rebuilds it on every language change
  * (health.buildEventSchema precedent). The money-floor message stays the
- * shared MIN_PERSISTED_MONEY_MESSAGE constant the other money forms pin. */
+ * animalDetail.validation.moneyMin floor message the other money forms pin. */
 function buildStatusSchema(t: TFn) {
   return z
   .object({
@@ -639,7 +650,7 @@ function buildStatusSchema(t: TFn) {
         .number()
         .nonnegative()
         .max(1_000_000_000, t("animalDetail.validation.salePriceTooLarge"))
-        .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
+        .refine(isPersistableNonnegativeMoney, t("animalDetail.validation.moneyMin")),
     ),
     // Operational sale facts (WeightKgFloat / MoneyFloat on the wire): the
     // rate is only meaningful against a weight, enforced in the refine below.
@@ -654,7 +665,7 @@ function buildStatusSchema(t: TFn) {
         .number()
         .positive(t("animalDetail.validation.pricePerKgPositive"))
         .max(1_000_000_000, t("animalDetail.validation.pricePerKgTooLarge"))
-        .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
+        .refine(isPersistableNonnegativeMoney, t("animalDetail.validation.moneyMin")),
     ),
     buyer_name: z.string().max(120, t("animalDetail.validation.buyerNameTooLong")).optional(),
     notes: z.string().max(255, t("animalDetail.validation.notesTooLong")).optional(),
@@ -914,7 +925,11 @@ function StatusDialog({
         onDone();
       } catch (err) {
         if (!farmScope()) return;
-        toast.error(err instanceof ApiError ? err.detail : t("common.somethingWentWrong"));
+        toast.error(
+          err instanceof ApiError
+            ? mapServerError(t, err.detail, err.status, err.code)
+            : t("common.somethingWentWrong"),
+        );
       }
     });
   }

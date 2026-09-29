@@ -16,21 +16,23 @@ export function PaginationControls({
   limit,
   offset,
   onOffsetChange,
-  label = "records",
+  label,
   disabled = false,
 }: {
   total: number;
   limit: number;
   offset: number;
   onOffsetChange: (offset: number) => void;
+  /** Localized record noun (callers pass t(...)); omitted renders the
+   * generic "records" noun from the catalog (2026-09-29 audit, I5 residue). */
   label?: string;
   /** Keep placeholder rows from dispatching another page transition while
    * the page they describe is no longer the one being requested. */
   disabled?: boolean;
 }) {
-  // Buttons and the landmark label resolve through the active language
-  // catalog; the caller-supplied record noun stays as-is (2026-09-28
-  // audit, I5).
+  // Buttons, the landmark label, the range sentence and the fallback noun all
+  // resolve through the active language catalog (2026-09-28 audit, I5; the
+  // hardcoded "Showing … records" sentence was its 2026-09-29 residue).
   const t = useT();
   if (!Number.isFinite(total) || total <= 0) return null;
   // The component is also a trust boundary: URL-derived state has reached it
@@ -46,14 +48,15 @@ export function PaginationControls({
   // range start to the end so the label can never invert into "Showing 91–5
   // of 5"; Previous stays enabled, so the user can page back to real rows.
   const first = Math.min(safeOffset + 1, last);
+  const recordNoun = label ?? t("pagination.records");
   return (
     <nav
-      aria-label={t("pagination.ariaLabel", { label })}
+      aria-label={t("pagination.ariaLabel", { label: recordNoun })}
       aria-busy={disabled || undefined}
       className="flex flex-wrap items-center justify-between gap-3 pt-3"
     >
       <p className="text-sm text-muted-foreground" aria-live="polite">
-        Showing {first}–{last} of {total} {label}
+        {t("pagination.showing", { first, last, total, label: recordNoun })}
       </p>
       <div className="flex gap-2">
         <Button

@@ -4,6 +4,8 @@ Contract, RBAC, the goat-only guard, herd-coherence rejections and the
 opt-in Markdown ledger — mirroring the planner API suite's shape.
 """
 
+from typing import Any
+
 import httpx
 
 from .conftest import login_and_rotate, owner_with_farm
@@ -22,7 +24,7 @@ def _toy_herd() -> list[dict]:
     ]
 
 
-def _run_document(**extra: object) -> dict:
+def _run_document(**extra: object) -> dict[str, Any]:
     document: dict[str, object] = {
         "start_date": "2026-09-03",
         "horizon_days": 30,
@@ -126,7 +128,7 @@ async def test_run_requires_authentication(client: httpx.AsyncClient) -> None:
 
 async def _worker_with_role(
     client: httpx.AsyncClient, owner: dict, email: str, permissions: list[str]
-) -> dict:
+) -> dict[str, Any]:
     resp = await client.post(
         "/api/team/roles",
         json={"name": f"Role {email}", "permissions": permissions},

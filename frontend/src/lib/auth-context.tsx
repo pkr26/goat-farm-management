@@ -68,6 +68,15 @@ const FARM_STORAGE_KEY = "goatfarm.farmId";
 // Stryker disable next-line ArrayDeclaration, StringLiteral: a module-level initializer cannot be attributed to the asserting test by per-test coverage; the list is pinned by the redirect suite
 const PUBLIC_PATHS = ["/login", "/register", "/worker/login"];
 
+/** Destination for AUTOMATIC session teardown (forced logout, cross-tab
+ * logout, signed-out gate): a session dying on the worker surface belongs on
+ * the PIN pad — PIN-only workers have no password, so /login is a form they
+ * cannot use (2026-09-29 audit — the C1/W1 failure class via the
+ * refresh/gate paths; explicit signOut keeps its caller-chosen target). */
+function forcedLogoutDestination(currentPathname: string): "/worker/login" | "/login" {
+  return currentPathname.startsWith("/worker") ? "/worker/login" : "/login";
+}
+
 /** Site data can be blocked for the origin or over quota, and the realm is
  * missing under SSR. The farm selection is a convenience — degrade to
  * "nothing persisted" rather than throwing out of a session transition. The
@@ -478,11 +487,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const handleAuthFailure = () => {
       // Fired when a refresh attempt is rejected (expired/revoked/reused
       // refresh token). One cleanup per logout transition, identical to
-      // signOut's, then straight to /login — never a retry loop.
+      // signOut's, then to the surface-appropriate login — never a retry
+      // loop. window.location over a pathname closure: this handler is
+      // registered once and must decide from where the failure actually
+      // fired.
       if (forcedLogout.current) return;
       forcedLogout.current = true;
       clearSession();
-      router.replace("/login");
+      router.replace(forcedLogoutDestination(window.location.pathname));
     };
     return setOnAuthFailure(handleAuthFailure);
   }, [clearSession, router]);
@@ -502,7 +514,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (forcedLogout.current) return;
         forcedLogout.current = true;
         clearSession();
-        router.replace("/login");
+        router.replace(forcedLogoutDestination(window.location.pathname));
         return;
       }
       const revokedId = revokedFarmIdFromStorage(event.newValue);
@@ -600,10 +612,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signedOutRedirectIntent.current = null;
       return;
     }
-    const intent = `${pathname}->/login`;
+    const destination = forcedLogoutDestination(pathname);
+    const intent = `${pathname}->${destination}`;
     if (signedOutRedirectIntent.current === intent) return;
     signedOutRedirectIntent.current = intent;
-    router.replace("/login");
+    router.replace(destination);
   }, [loading, user, pathname, router]);
 
   // Stryker disable ArrayDeclaration: setUser is stable, so a constant dep list only changes the callback's identity, never its behavior

@@ -43,8 +43,8 @@ async def make_animal(
     sex: str = "F",
     bucket: str = "FOUNDATION",
     **overrides: object,
-) -> dict:
-    payload: dict = {
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "tag_number": tag,
         "sex": sex,
         "source": "PURCHASED",
@@ -96,7 +96,7 @@ def validation_error_text(resp: httpx.Response) -> str:
     return " ".join(f"{error.get('loc', '')} {error.get('msg', '')}" for error in detail)
 
 
-async def sale_transaction(client: httpx.AsyncClient, headers: dict, tag: str) -> dict:
+async def sale_transaction(client: httpx.AsyncClient, headers: dict, tag: str) -> dict[str, Any]:
     resp = await client.get("/api/finance", headers=headers)
     assert resp.status_code == 200, resp.text
     return next(
@@ -245,7 +245,7 @@ def test_resting_flush_guard_without_residency_fact_is_not_enforced() -> None:
 # ---------------------------------------------------------------------------
 async def _breeding_eligible_resting_doe(
     client: httpx.AsyncClient, headers: dict, tag: str, *, purchase_date: date
-) -> dict:
+) -> dict[str, Any]:
     # purchase_date drives the initial RESTING placement's effective_date
     # (the create path stamps entry with purchase_date ?? DOB ?? today), so
     # the fixture controls the doe's RESTING residency without raw SQL.

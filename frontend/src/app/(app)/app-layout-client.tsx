@@ -279,10 +279,11 @@ function FarmSwitcher({
   typeLabel: string;
   href: string;
 }) {
+  const t = useT();
   return (
     <Link
       href={href}
-      aria-label={`Switch farm — current: ${farmName}`}
+      aria-label={t("nav.farmSwitcherLabel", { farm: farmName })}
       className={cn(
         // Wide enough that real farm names don't truncate at laptop widths;
         // the type chip is the first thing to yield (hidden below sm).

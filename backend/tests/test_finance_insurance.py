@@ -18,6 +18,7 @@ Aggregation numbers are hand-computed from fixtures built through the API
 import asyncio
 from datetime import timedelta
 from decimal import Decimal
+from typing import Any
 
 import httpx
 import pytest
@@ -47,8 +48,8 @@ from .test_finance_extended import (
 )
 
 
-def policy_payload(**overrides: object) -> dict:
-    payload: dict = {
+def policy_payload(**overrides: object) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "policy_number": "POL-100",
         "insurer": "Oriental Insurance",
         "sum_insured": 15000.0,

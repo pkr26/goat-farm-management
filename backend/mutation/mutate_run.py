@@ -28,6 +28,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 BACKEND = Path(__file__).resolve().parent.parent
 MUTDIR = BACKEND / "mutation"
@@ -107,7 +108,7 @@ class Runner:
         self.file_locks: dict[str, threading.Lock] = {}
         self.locks_guard = threading.Lock()
         self.stop = threading.Event()
-        self.counter = collections.Counter()
+        self.counter: collections.Counter[str] = collections.Counter()
         self.print_lock = threading.Lock()
         self.results_path = MUTDIR / "results.jsonl"
         self.done_ids: set[str] = set()
@@ -120,7 +121,7 @@ class Runner:
         with self.locks_guard:
             return self.file_locks.setdefault(rel, threading.Lock())
 
-    def select_tests(self, m: dict) -> tuple[list[str], bool]:
+    def select_tests(self, m: dict[str, Any]) -> tuple[list[str], bool]:
         """Return (selection, module_level)."""
         lines = self.ctx.get(m["file"], {})
         tests = sorted(lines.get(m["line"], set()))
@@ -187,20 +188,20 @@ class Runner:
                 return line[:220]
         return out.strip().splitlines()[-1][:220] if out.strip() else ""
 
-    def apply_mutant(self, m: dict) -> str:
+    def apply_mutant(self, m: dict[str, Any]) -> str:
         """Splice the mutated statement into the file; returns mutated text."""
         path = BACKEND / m["file"]
         source = path.read_text()
         lines = source.splitlines(keepends=True)
         s, e = m["stmt_line"] - 1, m["stmt_end_line"]  # half-open span
-        replacement = " " * m["stmt_col"] + m["mut_stmt"] + "\n"
+        replacement = " " * int(m["stmt_col"]) + str(m["mut_stmt"]) + "\n"
         return "".join(lines[:s]) + replacement + "".join(lines[e:])
 
-    def execute(self, m: dict, worker: int) -> dict:
+    def execute(self, m: dict[str, Any], worker: int) -> dict[str, Any]:
         path = BACKEND / m["file"]
         original = path.read_bytes()
         digest = hashlib.sha256(original).hexdigest()
-        rec: dict = {
+        rec: dict[str, Any] = {
             "id": m["id"],
             "file": m["file"],
             "line": m["line"],
@@ -249,7 +250,9 @@ class Runner:
             if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
                 raise RuntimeError(f"RESTORE FAILED for {m['file']}")
 
-    def worker_loop(self, worker: int, queue: collections.deque[dict], qlock: threading.Lock):
+    def worker_loop(
+        self, worker: int, queue: collections.deque[dict[str, Any]], qlock: threading.Lock
+    ) -> None:
         while not self.stop.is_set():
             if self.deadline and time.monotonic() > self.deadline:
                 return
@@ -297,7 +300,7 @@ class Runner:
                 if held is not None:
                     self.lock_for(held).release()
 
-    def run(self, mutants: list[dict]):
+    def run(self, mutants: list[dict[str, Any]]) -> None:
         queue = collections.deque(mutants)
         qlock = threading.Lock()
         threads = [
@@ -336,7 +339,7 @@ def main() -> None:
     todo = [m for m in todo if m["id"] not in runner.done_ids]
 
     # cheapest-first inside each tier: fewest covering tests = fastest kills
-    def cost(m: dict) -> tuple:
+    def cost(m: dict[str, Any]) -> tuple[int, int]:
         lines = runner.ctx.get(m["file"], {})
         return (m["tier"], len(lines.get(m["line"], ())) or 10_000)
 

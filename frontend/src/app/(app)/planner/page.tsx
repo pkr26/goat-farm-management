@@ -92,6 +92,7 @@ import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { farmVocabulary, type FarmVocabulary } from "@/lib/farm-vocabulary";
 import { farmToday, formatFarmDateTime, formatMoney } from "@/lib/format";
 import { useLanguage, useT, type TFn } from "@/lib/i18n";
+import { mapServerError } from "@/lib/server-error-phrases";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 
@@ -215,8 +216,8 @@ function formatPlanClass(
   return eventClassItems(vocabulary, t, language)[animalClass] ?? animalClass;
 }
 
-function errorMessage(err: unknown, fallback: string): string {
-  return err instanceof ApiError ? err.detail : fallback;
+function errorMessage(t: TFn, err: unknown, fallback: string): string {
+  return err instanceof ApiError ? mapServerError(t, err.detail, err.status, err.code) : fallback;
 }
 
 const ACTION_ICONS: Record<PlannerActionKind, LucideIcon> = {
@@ -354,7 +355,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       // Stryker disable next-line OptionalChaining: the isError arm short-circuits whenever data is undefined, so the optional chain is only evaluated with data present
       if (res.isError || res.data?.status !== 200) {
         if (!farmScope()) return;
-        toast.error(errorMessage(res.error, t("planner.toast.herdSnapshotFailed")));
+        toast.error(errorMessage(t, res.error, t("planner.toast.herdSnapshotFailed")));
         return;
       }
       const snap = res.data.data;
@@ -382,7 +383,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       // Stryker disable BlockStatement, BooleanLiteral, ConditionalExpression, StringLiteral: react-query v5 refetch() resolves with an error result instead of rejecting (throwOnError stays false), so this catch is unreachable defense-in-depth
     } catch (err) {
       if (!farmScope()) return;
-      toast.error(errorMessage(err, t("planner.toast.herdSnapshotFailed")));
+      toast.error(errorMessage(t, err, t("planner.toast.herdSnapshotFailed")));
     }
     // Stryker restore BlockStatement, BooleanLiteral, ConditionalExpression, StringLiteral, CallExpression
   }
@@ -399,7 +400,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       // Stryker disable next-line OptionalChaining: the isError arm short-circuits whenever data is undefined, so the optional chain is only evaluated with data present
       if (res.isError || res.data?.status !== 200) {
         if (!farmScope()) return;
-        toast.error(errorMessage(res.error, t("planner.toast.calibrateFailed")));
+        toast.error(errorMessage(t, res.error, t("planner.toast.calibrateFailed")));
         return;
       }
       const calibrated = res.data.data;
@@ -412,7 +413,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       // Stryker disable BlockStatement, BooleanLiteral, ConditionalExpression, StringLiteral: react-query v5 refetch() resolves with an error result instead of rejecting (throwOnError stays false), so this catch is unreachable defense-in-depth
     } catch (err) {
       if (!farmScope()) return;
-      toast.error(errorMessage(err, t("planner.toast.calibrateFailed")));
+      toast.error(errorMessage(t, err, t("planner.toast.calibrateFailed")));
     }
     // Stryker restore BlockStatement, BooleanLiteral, ConditionalExpression, StringLiteral, CallExpression
   }
@@ -513,7 +514,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
         }
       } catch (err) {
         if (!farmScope()) return;
-        const message = errorMessage(err, t("planner.toast.planFailed"));
+        const message = errorMessage(t, err, t("planner.toast.planFailed"));
         setPlanError(message);
         toast.error(message);
       }
@@ -581,7 +582,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
         }
       } catch (err) {
         if (!farmScope()) return;
-        toast.error(errorMessage(err, t("planner.toast.saveFailed")));
+        toast.error(errorMessage(t, err, t("planner.toast.saveFailed")));
       }
     });
   }
@@ -633,7 +634,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
           if (refreshed) setOpenPlan(refreshed);
           return;
         }
-        toast.error(errorMessage(err, t("planner.toast.updateFailed")));
+        toast.error(errorMessage(t, err, t("planner.toast.updateFailed")));
       }
     });
   }
@@ -676,7 +677,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
         await invalidatePlans();
         return;
       }
-      toast.error(errorMessage(err, t("planner.toast.deleteFailed")));
+      toast.error(errorMessage(t, err, t("planner.toast.deleteFailed")));
     }
   }
 
@@ -703,7 +704,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       toast.success(t("planner.dprDownloaded"));
     } catch (err) {
       if (!farmScope()) return;
-      toast.error(errorMessage(err, t("planner.dprFailed")));
+      toast.error(errorMessage(t, err, t("planner.dprFailed")));
     } finally {
       setDprPendingId(null);
     }
