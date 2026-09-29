@@ -2640,7 +2640,7 @@ async def test_no_survivor_postpartum_task_completes_once_and_rests_doe(
     assert completed.status_code == 200, completed.text
     assert (await get_animal(client, headers, doe["id"]))["current_bucket"] == "RESTING"
     replay = await client.post(f"/api/tasks/{postpartum['id']}/complete", headers=headers)
-    assert replay.status_code == 400
+    assert replay.status_code == 409
     async with get_sessionmaker()() as db:
         moves = list(
             (
@@ -3395,6 +3395,9 @@ async def test_rebreed_prompt_reuses_the_pending_row(client: httpx.AsyncClient) 
         assert len(rows) == 1
         assert rows[0].due_date == second_due
         assert rows[0].status == "PENDING"
+        # The localized render follows the re-date (2026-09-28 audit): the
+        # args feeding the translated duty title carry the NEW date.
+        assert rows[0].title_args["due_date"] == second_due.isoformat()
 
 
 async def test_weaning_not_due_yet_conflict(client: httpx.AsyncClient) -> None:
@@ -3435,7 +3438,7 @@ async def test_weaning_complete_twice_rejected(client: httpx.AsyncClient) -> Non
     resp = await client.post(f"/api/tasks/{weaning['id']}/complete", headers=headers)
     assert resp.status_code == 200, resp.text
     resp = await client.post(f"/api/tasks/{weaning['id']}/complete", headers=headers)
-    assert resp.status_code == 400
+    assert resp.status_code == 409
 
 
 async def test_after_weaning_doe_is_breeding_candidate(client: httpx.AsyncClient) -> None:

@@ -35,8 +35,14 @@ KIDDING_LOCK_ORDER = "e7f9a1b3c5d8"
 # (cad1e2f3a4b5) made the previous pinned head stale, breaking every
 # upgrade-HEAD + alembic-check assertion in this suite.
 HEAD = (
-    # FAMACHA duty category (chain tail: screening_images bigint -> famacha)
-    "c3d4e5f6a7b8"
+    # Timestamp server defaults on the newest tables (chain tail:
+    # screening_images bigint -> famacha duty category -> notification
+    # composite FK + CHECKs + Date -> screening image FK bigint -> bounded
+    # sale_weight CHECK -> screening join indexes -> notification/totp
+    # timestamp server defaults -> screening run/crop FK bigint ->
+    # screening_images bucket varchar(20) -> index-hygiene wave 2 +
+    # subsumed birth-weight CHECK)
+    "c7d8e9f0a1b2"
 )
 SCREENING_CONTENT_CLAIMS_PARENT = "b7e8f9a0c1d2"
 SCREENING_CONTENT_CLAIMS = "f7a9c1e3b5d7"

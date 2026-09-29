@@ -142,12 +142,13 @@ class HealthEvent(Base):
     created_at: Mapped[datetime] = mapped_column(
         default=utcnow, server_default=text("timezone('UTC', now())")
     )
-    # farm_id single kept deliberately — see the matching note on
-    # Transaction in models/finance.py (2026-09-21 index review).
-    farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
-    animal_id: Mapped[int | None] = mapped_column(
-        ForeignKey("animals.id"), index=True
-    )  # null = batch event
+    # farm_id single dropped (2026-09-28 audit index hygiene):
+    # ix_health_events_farm_date_id and the uq_health_events_farm_id_id
+    # candidate key both lead with farm_id.
+    farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"))
+    # animal_id single dropped (same audit): ix_health_events_animal_template_latest
+    # leads with animal_id.
+    animal_id: Mapped[int | None] = mapped_column(ForeignKey("animals.id"))  # null = batch event
     purchase_batch_id: Mapped[int | None] = mapped_column(ForeignKey("purchase_batches.id"))
     date: Mapped[dt.date] = mapped_column(default=today)
     type: Mapped[str] = mapped_column(String(12))  # HealthEventType enum
@@ -249,7 +250,9 @@ class MovementRestrictionAction(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
+    # farm_id single dropped (2026-09-28 audit index hygiene): the
+    # uq_movement_restriction_action_episode candidate key leads with farm_id.
+    farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"))
     animal_id: Mapped[int] = mapped_column(ForeignKey("animals.id"), index=True)
     restriction_version: Mapped[int]
     action: Mapped[str] = mapped_column(String(10))

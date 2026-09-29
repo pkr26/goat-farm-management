@@ -12,11 +12,14 @@ from ..utils import today
 # SQLite-era overflow guard kept: PG bigint is also 64-bit.
 MAX_ID = 2**62
 
-# Every primary key is a PG INTEGER (int4): an id above this cannot exist.
+# Almost every primary key is a PG INTEGER (int4): an id above this cannot
+# exist on those tables. The exceptions are bigint — the screening fact
+# tables (images/crops/runs/findings) and idempotency_records.id — whose
+# routers guard with the int8 ceiling instead (2026-09-28 audit, D1).
 # BoundedId deliberately keeps the wider ceiling above so schema-valid but
 # impossible ids reach the routers, which answer with their documented
 # not-found/invalid-id 4xx instead of letting asyncpg raise an int32
-# DataError (500). Routers guard every lookup with this bound.
+# DataError (500). Routers guard every int4 lookup with this bound.
 MAX_INT32_ID = 2**31 - 1
 # Offset pagination remains part of the current SPA contract. Bound it low:
 # deep offsets are a deep-scan DoS (every page re-scans and re-sorts the rows
@@ -216,11 +219,19 @@ class RequestValidationErrorOut(BaseModel):
 # Annotated to match APIRouter's expected shape (dict[int | str, dict[str, Any]])
 # so the ~14 routers passing this to APIRouter(responses=...) stay strict-clean.
 COMMON_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
-    400: {"model": ErrorOut, "description": "Rejected (invalid state or values)"},
+    # 400 vs 409 vs 429 convention (2026-09-28 audit, A3/A4): 400 is the
+    # request itself being invalid against STABLE state (bad values); 409 is
+    # the resource's state refusing the transition — wrong lifecycle state,
+    # already-processed replay, race, or a standing quota; 429 is only ever a
+    # request-rate throttle and always carries Retry-After.
+    400: {"model": ErrorOut, "description": "Bad request (invalid values against stable state)"},
     401: {"model": ErrorOut, "description": "Not authenticated"},
     403: {"model": ErrorOut, "description": "Authenticated but not permitted"},
     404: {"model": ErrorOut, "description": "Not found (or belongs to another farm)"},
-    409: {"model": ErrorOut, "description": "Conflict (state, replay, or race)"},
+    409: {
+        "model": ErrorOut,
+        "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
+    },
     413: {"model": ErrorOut, "description": "Request body is too large"},
     414: {"model": ErrorOut, "description": "Request target is too long"},
     415: {"model": ErrorOut, "description": "Unsupported media type"},
@@ -237,7 +248,10 @@ COMMON_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
             }
         },
     },
-    429: {"model": ErrorOut, "description": "Rate limited"},
+    429: {
+        "model": ErrorOut,
+        "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
+    },
     500: {"model": ErrorOut, "description": "Internal server error"},
     503: {"model": ErrorOut, "description": "Temporarily unavailable"},
 }

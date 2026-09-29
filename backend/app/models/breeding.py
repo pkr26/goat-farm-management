@@ -176,7 +176,10 @@ class BreedingRecord(Base):
         default=utcnow, server_default=text("timezone('UTC', now())")
     )
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
-    doe_id: Mapped[int] = mapped_column(ForeignKey("animals.id"), index=True)
+    # doe_id single dropped (2026-09-28 audit index hygiene):
+    # ix_breeding_records_doe_date_id leads with doe_id and serves every
+    # per-doe history probe plus the animals-FK enforcement scan.
+    doe_id: Mapped[int] = mapped_column(ForeignKey("animals.id"))
     # Herd sire for NATURAL service. NULL is legal only for AI methods, where
     # the sire is a semen bull named in semen_sire_name (or unrecorded).
     buck_id: Mapped[int | None] = mapped_column(ForeignKey("animals.id"), index=True)

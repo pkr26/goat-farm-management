@@ -53,7 +53,7 @@ from ...models.enums import (
     ScreeningStage,
 )
 from ...schemas.screening import MAX_SCREENING_UPLOAD_BYTES
-from ...utils import today, utcnow
+from ...utils import DEFAULT_BUSINESS_TIMEZONE, today, utcnow
 from .detect import (
     DETECT_PROMPT_VERSION,
     DETECT_SYSTEM_PROMPT,
@@ -407,7 +407,7 @@ async def _farm_local_day_starts(db: AsyncSession, now: dt.datetime) -> dict[str
         try:
             tz = ZoneInfo(timezone_name)
         except ZoneInfoNotFoundError:
-            tz = ZoneInfo("Asia/Kolkata")
+            tz = ZoneInfo(DEFAULT_BUSINESS_TIMEZONE)
         local_midnight = dt.datetime.combine(
             now.replace(tzinfo=dt.UTC).astimezone(tz).date(), dt.time.min, tzinfo=tz
         )
@@ -664,7 +664,9 @@ async def run_screening_cycle(
             # Farm FK integrity guarantees this lookup.  The defensive India
             # fallback prevents a corrupt legacy row from crashing the whole
             # worker cycle while preserving existing date-helper behavior.
-            business_today = today(farm_timezones.get(image_farm_ids[image_id], "Asia/Kolkata"))
+            business_today = today(
+                farm_timezones.get(image_farm_ids[image_id], DEFAULT_BUSINESS_TIMEZONE)
+            )
             await _process_image(
                 db,
                 settings,

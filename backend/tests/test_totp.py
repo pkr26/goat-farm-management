@@ -16,7 +16,7 @@ from typing import Any
 import httpx
 import pytest
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from app import security
 from app.api import auth as auth_api
@@ -711,6 +711,19 @@ async def test_challenge_brute_force_is_throttled(
     assert locked.status_code == 429
 
 
+async def test_challenge_requires_a_json_content_type(client: httpx.AsyncClient) -> None:
+    # AUTH-2 parity (2026-09-28 audit, S5): the challenge mints the same
+    # refresh cookie as its login-flow siblings, so a non-JSON body is refused
+    # by the explicit content-type guard before any token is decoded.
+    refused = await client.post(
+        "/api/auth/totp/challenge",
+        content=json.dumps({"mfa_token": "any", "code": "000000"}),
+        headers={"Content-Type": "text/plain"},
+    )
+    assert refused.status_code == 415, refused.text
+    assert "application/json" in refused.json()["detail"]
+
+
 async def test_challenge_garbage_mfa_tokens_are_throttled_before_verification(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -1229,6 +1242,70 @@ async def test_recovery_codes_are_stored_as_argon2_hashes(
     assert len(rows) == 10
     assert all(row.code_hash.startswith("$argon2") for row in rows)
     assert all(row.used_at is None for row in rows)
+
+
+async def test_recovery_redemption_runs_under_a_password_work_reservation(
+    client: httpx.AsyncClient,
+) -> None:
+    """2026-09-28 audit, S4: the up-to-ten sequential Argon2 verifies of one
+    redemption hold the same one-per-account reservation as the other
+    credential workflows — while a redemption is in flight, another attempt
+    is a retryable busy 429, never a second unreserved Argon2 batch."""
+    email = "totp-recovery-busy@farm.in"
+    headers = await register(client, email)
+    _secret, codes = await _enroll_and_activate(client, headers)
+    async with get_sessionmaker()() as db:
+        user_id = (await db.execute(select(User.id).where(User.email == email))).scalar_one()
+
+    scope = auth_api.TOTP_RECOVERY_RESERVATION_SCOPE
+    assert auth_limiter.try_reserve(scope, str(user_id))
+    try:
+        mfa_token = await _mfa_login(client, email)
+        busy = await _redeem(client, email, mfa_token, codes[0])
+    finally:
+        auth_limiter.release(scope, str(user_id))
+    assert busy.status_code == 429, busy.text
+    assert "busy" in busy.json()["detail"].lower()
+
+    # The busy refusal neither burned the challenge nor the code: with the
+    # slot free again, the same code redeems normally.
+    mfa_token = await _mfa_login(client, email)
+    accepted = await _redeem(client, email, mfa_token, codes[0])
+    assert accepted.status_code == 200, accepted.text
+
+
+async def test_recovery_with_zero_unused_codes_still_pays_one_dummy_verify(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """2026-09-28 audit, S4: an account with no unused recovery codes left
+    still pays one dummy Argon2 verify before the generic 401, so the
+    response time cannot reveal the remaining-code count."""
+    email = "totp-recovery-parity@farm.in"
+    headers = await register(client, email)
+    _secret, codes = await _enroll_and_activate(client, headers)
+    async with get_sessionmaker()() as db:
+        user_id = (await db.execute(select(User.id).where(User.email == email))).scalar_one()
+        await db.execute(
+            update(TotpRecoveryCode)
+            .where(TotpRecoveryCode.user_id == user_id)
+            .values(used_at=utcnow())
+        )
+        await db.commit()
+
+    verify_calls = 0
+    real_verify = auth_api.verify_password_async
+
+    async def counted_verify(password: str, password_hash: str) -> tuple[bool, bool]:
+        nonlocal verify_calls
+        verify_calls += 1
+        return await real_verify(password, password_hash)
+
+    monkeypatch.setattr(auth_api, "verify_password_async", counted_verify)
+    mfa_token = await _mfa_login(client, email)
+    refused = await _redeem(client, email, mfa_token, codes[0])
+    assert refused.status_code == 401, refused.text
+    assert refused.json()["detail"] == "Invalid or expired challenge."
+    assert verify_calls == 1, "zero unused codes must still pay one dummy verify"
 
 
 async def test_recovery_regenerate_requires_password_and_totp_and_revokes(

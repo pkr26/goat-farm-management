@@ -13,6 +13,7 @@ attacker-controlled keys, mirroring test_adversarial.py.
 
 import asyncio
 import hashlib
+import logging
 import os
 import uuid
 from collections.abc import Iterator
@@ -2671,6 +2672,29 @@ async def test_account_export_includes_owned_farm_metadata(client: httpx.AsyncCl
     resp = await client.get("/api/auth/account/export", headers=owner)
     assert resp.status_code == 200, resp.text
     assert [farm["name"] for farm in resp.json()["owned_farms"]] == ["My Farm"]
+
+
+async def test_account_export_emits_a_security_event(
+    client: httpx.AsyncClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    """2026-09-28 audit, S1: the API's most PII-dense response leaves the
+    same durable goatfarm.audit trail the DPR download got (DET-2) — the
+    event names the account by id only, never the exported PII."""
+    owner = await owner_with_farm(client, email="export-event@farm.in")
+    with caplog.at_level(logging.INFO, logger="goatfarm.audit"):
+        resp = await client.get("/api/auth/account/export", headers=owner)
+    assert resp.status_code == 200, resp.text
+    events = [
+        record.getMessage()
+        for record in caplog.records
+        if record.getMessage().startswith("security_event")
+    ]
+    assert any(
+        "event='auth.account.exported'" in message
+        and f"user_id={resp.json()['account']['id']}" in message
+        for message in events
+    ), events
+    assert all("export-event@farm.in" not in message for message in events)
 
 
 async def test_account_delete_requires_password_rejects_owners_and_cleans_worker(

@@ -61,8 +61,9 @@ async def monthly_pnl(db: AsyncSession, farm: Farm, n_months: int = 12) -> list[
     including zero-activity months, most recent first.
 
     Ledger rows and immutable premium payments are each aggregated in SQL;
-    no transaction-by-transaction scan is loaded into Python. Output shape
-    and rounding are unchanged: row totals rounded to 2dp, category sums raw.
+    no transaction-by-transaction scan is loaded into Python. Output shape is
+    unchanged: row totals rounded to 2dp with the ledger's ROUND_HALF_UP
+    (money()), category sums raw.
     Voided ledger rows remain in the audit trail but never affect totals."""
     current_month = today(farm.timezone).replace(day=1)
     first_month = add_months(current_month, -(n_months - 1))
@@ -141,9 +142,12 @@ async def monthly_pnl(db: AsyncSession, farm: Farm, n_months: int = 12) -> list[
 
     rows = sorted(months.values(), key=lambda r: r["month"], reverse=True)
     for row in rows:
-        row["income"] = round(row["income"], 2)
-        row["expense"] = round(row["expense"], 2)
-        row["net"] = round(row["income"] - row["expense"], 2)
+        # money(), not round(): the ledger's ROUND_HALF_UP must round these
+        # totals too — Python's half-even round() disagrees on exact-half
+        # paise (2026-09-28 audit).
+        row["income"] = money(row["income"])
+        row["expense"] = money(row["expense"])
+        row["net"] = money(row["income"] - row["expense"])
     return rows
 
 

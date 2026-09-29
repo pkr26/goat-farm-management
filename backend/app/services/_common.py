@@ -151,6 +151,11 @@ async def _schedule_rebreed(db: AsyncSession, farm_id: int, doe: Animal, due: da
         )
     else:
         existing.due_date = due
+        # Keep the localized render in step with the re-date (2026-09-28
+        # audit): clients translate title_key with title_args, so the args
+        # must carry the new due date exactly like the fresh-insert path
+        # above — a stale arg would render the old date forever.
+        existing.title_args = {**existing.title_args, "due_date": due.isoformat()}
 
 
 async def _load_doe(db: AsyncSession, br: BreedingRecord) -> Animal:

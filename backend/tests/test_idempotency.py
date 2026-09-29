@@ -51,11 +51,12 @@ from app.models import (
     Task,
     TaskStatus,
     Transaction,
+    TransactionCategory,
     User,
     WeightRecord,
 )
 from app.schemas.finance import TransactionIn
-from app.schemas.team import MembershipOut, WorkerCreateIn
+from app.schemas.team import MembershipOut, PasswordResetIn, WorkerCreateIn
 from app.services.idempotency import (
     _request_hashes,
     purge_expired_idempotency_records,
@@ -1581,6 +1582,251 @@ async def test_recurring_task_create_retries_persist_one_task_per_submission(
     assert len({row.recurring_series_id for row in rows}) == 2
 
 
+# ---------------------------------------------------------------------------
+# 2026-09-28 audit, A1: optional-key coverage for the four replay gaps —
+# a network-lost first response must be recoverable, not a bare 409.
+# ---------------------------------------------------------------------------
+async def test_task_verify_replays_the_lost_response(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    duty = await client.post(
+        "/api/tasks",
+        json={
+            "title": "Verification replay duty",
+            "due_date": today().isoformat(),
+            "category": "CLEANING",
+        },
+        headers=owner,
+    )
+    assert duty.status_code == 201, duty.text
+    task_id = duty.json()["id"]
+    completed = await client.post(f"/api/tasks/{task_id}/complete", headers=owner)
+    assert completed.status_code == 200, completed.text
+
+    keyed = owner | {"Idempotency-Key": "task-verify-replay"}
+    first = await client.post(f"/api/tasks/{task_id}/verify", headers=keyed)
+    assert first.status_code == 200, first.text
+    assert first.json()["status"] == "VERIFIED"
+
+    # The tablet's queued retry gets the original response instead of a bare
+    # 409 "not awaiting verification" (2026-09-28 audit, A3).
+    replay = await client.post(f"/api/tasks/{task_id}/verify", headers=keyed)
+    assert replay.status_code == 200
+    assert replay.json() == first.json()
+    assert replay.headers["Idempotency-Replayed"] == "true"
+
+    # The same key against a different duty is a request mismatch.
+    other = await client.post(
+        "/api/tasks",
+        json={
+            "title": "Other verification duty",
+            "due_date": today().isoformat(),
+            "category": "CLEANING",
+        },
+        headers=owner,
+    )
+    assert other.status_code == 201, other.text
+    conflict = await client.post(f"/api/tasks/{other.json()['id']}/verify", headers=keyed)
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"] == REQUEST_MISMATCH_DETAIL
+
+    # Keyless still works (the owner is exempt from the two-person rule).
+    assert (
+        await client.post(f"/api/tasks/{other.json()['id']}/complete", headers=owner)
+    ).status_code == 200
+    keyless = await client.post(f"/api/tasks/{other.json()['id']}/verify", headers=owner)
+    assert keyless.status_code == 200, keyless.text
+    assert keyless.json()["status"] == "VERIFIED"
+
+
+async def test_task_reject_replays_the_lost_response(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    duty = await client.post(
+        "/api/tasks",
+        json={
+            "title": "Rejection replay duty",
+            "due_date": today().isoformat(),
+            "category": "CLEANING",
+        },
+        headers=owner,
+    )
+    assert duty.status_code == 201, duty.text
+    task_id = duty.json()["id"]
+    completed = await client.post(f"/api/tasks/{task_id}/complete", headers=owner)
+    assert completed.status_code == 200, completed.text
+
+    keyed = owner | {"Idempotency-Key": "task-reject-replay"}
+    first = await client.post(
+        f"/api/tasks/{task_id}/reject", json={"note": "redo the corners"}, headers=keyed
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["status"] == "PENDING"
+
+    replay = await client.post(
+        f"/api/tasks/{task_id}/reject", json={"note": "redo the corners"}, headers=keyed
+    )
+    assert replay.status_code == 200
+    assert replay.json() == first.json()
+    assert replay.headers["Idempotency-Replayed"] == "true"
+
+    conflict = await client.post(
+        f"/api/tasks/{task_id}/reject", json={"note": "a different reason"}, headers=keyed
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"] == REQUEST_MISMATCH_DETAIL
+
+    # Keyless still works: complete the reopened duty and send it back again.
+    assert (await client.post(f"/api/tasks/{task_id}/complete", headers=owner)).status_code == 200
+    keyless = await client.post(
+        f"/api/tasks/{task_id}/reject", json={"note": "still dirty"}, headers=owner
+    )
+    assert keyless.status_code == 200, keyless.text
+    assert keyless.json()["status"] == "PENDING"
+
+
+async def test_worker_password_reset_replays_with_a_keyed_hmac_fingerprint(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    team = await client.get("/api/team", headers=owner)
+    assert team.status_code == 200, team.text
+    cleaner = next(role["id"] for role in team.json()["roles"] if role["code"] == "CLEANER")
+    created = await client.post(
+        "/api/team/workers",
+        json={
+            "email": "reset-replay-worker@farm.in",
+            "name": "Reset Replay Worker",
+            "password": WORKER_PASSWORD,
+            "role_id": cleaner,
+        },
+        headers=owner,
+    )
+    assert created.status_code == 201, created.text
+    membership_id = created.json()["id"]
+
+    path = f"/api/team/workers/{membership_id}/reset-password"
+    keyed = owner | {"Idempotency-Key": "worker-password-reset-replay"}
+    first = await client.post(path, json={"password": "brandnewpass1"}, headers=keyed)
+    assert first.status_code == 200, first.text
+
+    # The network-lost rotation is recoverable: the retry returns the original
+    # response instead of forcing a second Argon rotation.
+    replay = await client.post(path, json={"password": "brandnewpass1"}, headers=keyed)
+    assert replay.status_code == 200
+    assert replay.json() == first.json()
+    assert replay.headers["Idempotency-Replayed"] == "true"
+
+    conflict = await client.post(path, json={"password": "differentpass1"}, headers=keyed)
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"] == REQUEST_MISMATCH_DETAIL
+
+    # Keyless still works.
+    keyless = await client.post(path, json={"password": "thirdnewpass1"}, headers=owner)
+    assert keyless.status_code == 200, keyless.text
+
+    async with get_sessionmaker()() as db:
+        records = list(
+            (
+                await db.execute(
+                    select(IdempotencyRecord).where(
+                        IdempotencyRecord.operation == "team.workers.reset-password"
+                    )
+                )
+            ).scalars()
+        )
+    assert len(records) == 1
+    record = records[0]
+    # Password material never reaches the durable record, and the fingerprint
+    # is the keyed HMAC (SENSITIVE_IDEMPOTENCY_OPERATIONS), not plain SHA-256.
+    assert "brandnewpass1" not in str(record.response_body)
+    canonical = json.dumps(
+        {
+            "version": 1,
+            "operation": "team.workers.reset-password",
+            "path": {"membership_id": membership_id},
+            "body": PasswordResetIn(password="brandnewpass1").model_dump(
+                mode="json", exclude_none=False
+            ),
+        },
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    assert record.request_hash != hashlib.sha256(canonical).hexdigest()
+
+
+async def test_animal_status_change_replays_one_ledger_booking(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    animal = await client.post(
+        "/api/animals",
+        json={
+            "tag_number": "STATUS-IDEMP-1",
+            "sex": "F",
+            "source": "PURCHASED",
+            "current_bucket": "FOUNDATION",
+            "historical_import_reason": "Existing-herd test fixture",
+        },
+        headers=owner,
+    )
+    assert animal.status_code == 201, animal.text
+    animal_id = animal.json()["id"]
+
+    path = f"/api/animals/{animal_id}/status"
+    payload: dict[str, object] = {"new_status": "SOLD", "sale_price": 5000}
+    keyed = owner | {"Idempotency-Key": "animal-status-replay"}
+    first = await client.post(path, json=payload, headers=keyed)
+    assert first.status_code == 200, first.text
+    assert first.json()["status"] == "SOLD"
+
+    # The network-lost sale is recoverable: the retry replays the original
+    # response instead of answering 400 "already sold" — and must not book a
+    # second ANIMAL_SALE transaction.
+    replay = await client.post(path, json=payload, headers=keyed)
+    assert replay.status_code == 200
+    assert replay.json() == first.json()
+    assert replay.headers["Idempotency-Replayed"] == "true"
+
+    conflict = await client.post(path, json=payload | {"sale_price": 6000}, headers=keyed)
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"] == REQUEST_MISMATCH_DETAIL
+
+    async with get_sessionmaker()() as db:
+        bookings = (
+            await db.execute(
+                select(func.count(Transaction.id)).where(
+                    Transaction.related_animal_id == animal_id,
+                    Transaction.category == TransactionCategory.ANIMAL_SALE.value,
+                )
+            )
+        ).scalar_one()
+    assert bookings == 1
+
+    # Keyless still works on another animal.
+    second = await client.post(
+        "/api/animals",
+        json={
+            "tag_number": "STATUS-IDEMP-2",
+            "sex": "F",
+            "source": "PURCHASED",
+            "current_bucket": "FOUNDATION",
+            "historical_import_reason": "Existing-herd test fixture",
+        },
+        headers=owner,
+    )
+    assert second.status_code == 201, second.text
+    keyless = await client.post(
+        f"/api/animals/{second.json()['id']}/status", json=payload, headers=owner
+    )
+    assert keyless.status_code == 200, keyless.text
+    assert keyless.json()["status"] == "SOLD"
+
+
 async def test_worker_create_replays_and_deduplicates_without_persisting_password(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -2248,8 +2494,12 @@ def test_openapi_declares_bounded_idempotency_header_on_all_routes() -> None:
         ("/api/health/events", "post"),
         ("/api/animals", "post"),
         ("/api/animals/{animal_id}/weight", "post"),
+        ("/api/animals/{animal_id}/status", "post"),
         ("/api/tasks", "post"),
+        ("/api/tasks/{task_id}/verify", "post"),
+        ("/api/tasks/{task_id}/reject", "post"),
         ("/api/team/workers", "post"),
+        ("/api/team/workers/{membership_id}/reset-password", "post"),
         ("/api/simulation/scenarios", "post"),
         ("/api/breeding", "post"),
         ("/api/kidding", "post"),

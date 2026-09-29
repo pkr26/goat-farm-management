@@ -2,10 +2,11 @@
 
 Covers: PIN provisioning (and the must-change-password fence exemption), the
 owner-only reset that revokes sessions, the throttled worker-login exchange
-(success, wrong-PIN lockout, spray scope, unknown-pair parity, tombstone /
-inactive / TOTP / must-change refusals), the unauthenticated roster's shape
-and throttle, idempotent duty completion/skip replay, and the production
-PIN-length validator.
+(success, wrong-PIN lockout, spray scope, the IP-agnostic per-membership
+account ceiling and its soft semantics, the never-reset spray bucket,
+unknown-pair parity, tombstone / inactive / TOTP / must-change refusals), the
+unauthenticated roster's shape and throttle, idempotent duty completion/skip
+replay, and the production PIN-length validator.
 """
 
 import json
@@ -336,6 +337,82 @@ async def test_spray_scope_limits_farm_wide_pin_guessing(
     assert (await _worker_login(client, farm_id, membership_b, "556677")).status_code == 429
 
 
+async def test_rotating_ips_cannot_reset_the_per_membership_ceiling(
+    client: httpx.AsyncClient,
+    rate_limits_on: None,
+) -> None:
+    """2026-09-28 audit H3: the account bucket keys on (farm, membership) with
+    no IP, so distributed guessing against ONE membership converges on 3x the
+    base ceiling no matter how many addresses the guesses arrive from."""
+    owner = await owner_with_farm(client, email="pin-owner-dist@farm.in")
+    membership_id, farm_id = await _make_pin_worker(client, owner, email="pin-worker-dist@farm.in")
+
+    # Twenty guesses "from other addresses": they charge only the IP-agnostic
+    # account bucket, never this client's (IP, farm, membership) identity key.
+    account_key = f"{farm_id}|{membership_id}"
+    for _ in range(20):
+        auth_limiter.record("worker-pin-account", account_key, window_seconds=300, max_attempts=30)
+
+    # Ten wrong guesses from THIS address exhaust the identity budget as usual
+    # and push the account bucket to its 3x ceiling (20 + 10 = 30).
+    for _ in range(10):
+        assert (await _worker_login(client, farm_id, membership_id, "0000")).status_code == 401
+
+    # A fresh address (empty identity/spray buckets) still hits the account
+    # ceiling: the next wrong PIN is answered 429, not 401.
+    auth_limiter.reset("worker-pin", f"127.0.0.1|{farm_id}|{membership_id}")
+    auth_limiter.reset("worker-pin-spray", f"127.0.0.1|{farm_id}")
+    throttled = await _worker_login(client, farm_id, membership_id, "0000")
+    assert throttled.status_code == 429, throttled.text
+
+
+async def test_correct_pin_still_works_when_the_account_bucket_is_full(
+    client: httpx.AsyncClient,
+    rate_limits_on: None,
+) -> None:
+    """Soft ceiling, mirroring login-email (RT-A-1): an attacker who pins the
+    account bucket at its ceiling cannot lock out the worker's own correct
+    PIN — the scope only ever answers a FAILED attempt."""
+    owner = await owner_with_farm(client, email="pin-owner-soft@farm.in")
+    membership_id, farm_id = await _make_pin_worker(client, owner, email="pin-worker-soft@farm.in")
+    account_key = f"{farm_id}|{membership_id}"
+    for _ in range(30):
+        auth_limiter.record("worker-pin-account", account_key, window_seconds=300, max_attempts=30)
+
+    ok = await _worker_login(client, farm_id, membership_id, "4321")
+    assert ok.status_code == 200, ok.text
+    # The success also cleared the account bucket with the identity bucket: a
+    # fresh wrong PIN is an ordinary 401, not a 429.
+    refused = await _worker_login(client, farm_id, membership_id, "0000")
+    assert refused.status_code == 401, refused.text
+
+
+async def test_success_never_resets_the_spray_bucket(
+    client: httpx.AsyncClient,
+    rate_limits_on: None,
+) -> None:
+    """2026-09-28 audit H3: a valid PIN must not refresh the (IP, farm) spray
+    budget — same rule as login's _reset_login_failures."""
+    owner = await owner_with_farm(client, email="pin-owner-noreset@farm.in")
+    membership_id, farm_id = await _make_pin_worker(
+        client, owner, email="pin-worker-noreset@farm.in"
+    )
+
+    # Spray budget one short of its 10x ceiling.
+    spray_key = f"127.0.0.1|{farm_id}"
+    for _ in range(99):
+        auth_limiter.record("worker-pin-spray", spray_key, window_seconds=300, max_attempts=100)
+
+    # A successful sign-in still passes (99 < 100)…
+    ok = await _worker_login(client, farm_id, membership_id, "4321")
+    assert ok.status_code == 200, ok.text
+    # …but must NOT have cleared the spray ledger: one more recorded failure
+    # crosses the ceiling and the next sign-in is refused farm-wide.
+    auth_limiter.record("worker-pin-spray", spray_key, window_seconds=300, max_attempts=100)
+    refused = await _worker_login(client, farm_id, membership_id, "4321")
+    assert refused.status_code == 429, refused.text
+
+
 async def test_unknown_pairs_answer_the_same_generic_401(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client, email="pin-owner-unknown@farm.in")
     farm_id = int(owner["X-Farm-Id"])
@@ -642,8 +719,9 @@ async def test_duty_completion_and_skip_are_idempotently_replayable(
         json={},
         headers={**worker, "Idempotency-Key": "other-key"},
     )
-    # (different key on an already-completed duty → the plain 400)
-    assert conflict.status_code == 400, conflict.text
+    # (different key on an already-completed duty → the plain 409 "not
+    # pending" of the 2026-09-28 audit, A3 convention)
+    assert conflict.status_code == 409, conflict.text
 
     # Skip replay: a second recurring duty.
     second = await client.post(

@@ -120,8 +120,9 @@ class TaskRejectIn(StrictInputModel):
 
 
 class TaskCompleteIn(StrictInputModel):
-    """Degenerate body for the bodyless completion (the idempotency claim's
-    request fingerprint: the identity is (actor, farm, task, key))."""
+    """Degenerate body for the bodyless transitions (completion and, since
+    2026-09-28 audit A1, verification): the idempotency claim's request
+    fingerprint, where the identity is (actor, farm, task, key)."""
 
     pass
 

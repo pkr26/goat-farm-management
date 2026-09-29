@@ -62,6 +62,7 @@ from .services.idempotency import (
     MAX_IDEMPOTENCY_KEY_LENGTH,
     purge_expired_idempotency_records,
 )
+from .services.retention import run_retention_sweep
 from .utils import utcnow
 
 logger = logging.getLogger("goatfarm")
@@ -367,6 +368,44 @@ async def _deleted_membership_cleanup_loop(
         await asyncio.sleep(interval_seconds)
 
 
+async def _retention_sweep_loop() -> None:
+    """Daily data-retention sweep (2026-09-28 audit, ITEM 9.1).
+
+    Aged screening fact chains and long-terminal duties grow without bound
+    otherwise. Opt-in like the notifications loop: a disabled deployment
+    exits immediately, so an unconfigured feature costs nothing. The sweep
+    itself commits per farm, so one interval's work is a series of small
+    tenant transactions, never one unbounded delete.
+    """
+    settings = get_settings()
+    if not settings.retention_sweep_enabled:
+        return
+    while True:
+        await asyncio.sleep(settings.retention_sweep_interval_seconds)
+        try:
+            async with get_sessionmaker()() as db:
+                summary = await run_retention_sweep(db, settings)
+                await db.commit()
+            metrics.record_maintenance_batch("retention_sweep", summary.total_deleted)
+            if summary.total_deleted:
+                logger.info(
+                    "retention sweep deleted findings=%d runs=%d crops=%d claims=%d "
+                    "images=%d terminal_tasks=%d",
+                    summary.screening_findings,
+                    summary.screening_runs,
+                    summary.screening_crops,
+                    summary.screening_content_claims,
+                    summary.screening_images,
+                    summary.terminal_tasks,
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # A transient database outage must not kill the maintenance loop;
+            # readiness reports the outage and the next interval retries.
+            logger.exception("periodic retention sweep failed")
+
+
 async def _notifications_loop() -> None:
     """Minute-tick notification dispatch (ITEM 4, 2026-09-21 playbook).
 
@@ -611,6 +650,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         ),
         name="deleted-membership-cleanup",
     )
+    retention_sweep_task = asyncio.create_task(_retention_sweep_loop(), name="retention-sweep")
     notifications_task = asyncio.create_task(_notifications_loop(), name="notifications")
     cadence_materialization_task = asyncio.create_task(
         _cadence_materialization_loop(
@@ -632,6 +672,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         inactive_animal_task_cleanup_task.cancel()
         deleted_membership_cleanup_task.cancel()
         cadence_materialization_task.cancel()
+        retention_sweep_task.cancel()
         for cleanup_task in (
             refresh_cleanup_task,
             notifications_task,
@@ -640,6 +681,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             inactive_animal_task_cleanup_task,
             deleted_membership_cleanup_task,
             cadence_materialization_task,
+            retention_sweep_task,
             throttle_summary_task,
         ):
             with suppress(asyncio.CancelledError):
@@ -904,12 +946,15 @@ def create_app() -> FastAPI:
         # with the default (trust nothing) a client can spoof the header but
         # it is ignored, so it can't steer the auth rate limiter.
         app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=trusted)
-    # Added last = outermost (add_middleware prepends). Innermost, CORS's
-    # short-circuited preflight responses skipped Host validation entirely —
-    # a fingerprinting oracle on which hosts the app accepts (P3,
-    # 2026-09-20 audit). Outermost, every request — preflight or not — is
-    # Host-checked first; nothing inside sees a request for a host the app
-    # does not serve.
+    # add_middleware prepends, so this sits outside CORS and ProxyHeaders —
+    # but NOT outermost: the request_id middleware registered just below is
+    # the true outermost layer (2026-09-28 audit; this comment previously
+    # claimed TrustedHost was outermost). The security property that matters
+    # is preserved and verified: TrustedHost stays OUTSIDE CORS, so CORS's
+    # short-circuited preflight responses can never skip Host validation —
+    # the fingerprinting oracle on which hosts the app accepts (P3,
+    # 2026-09-20 audit). Every routed request is Host-checked before
+    # anything inside CORS sees it.
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 
     def _route_template(request: Request) -> str:

@@ -6,8 +6,10 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
 from ..models import MAX_BATCH_COUNT, MAX_WITHDRAWAL_DAYS
+from .animals import BucketStr
 from .common import (
     MAX_FREE_TEXT_LENGTH,
+    MAX_INT32_ID,
     BoundedId,
     NonNegativeMoneyFloat,
     PastOrTodayDate,
@@ -47,7 +49,9 @@ class MovementRestrictionClearIn(StrictInputModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     clearance_reference: PostgresText = Field(min_length=1, max_length=255)
-    expected_restriction_version: Annotated[StrictInt, Field(ge=1, le=2_147_483_647)]
+    # int4 column ceiling via the shared bound, not a restated literal
+    # (2026-09-28 audit).
+    expected_restriction_version: Annotated[StrictInt, Field(ge=1, le=MAX_INT32_ID)]
 
 
 class HealthEventOut(BaseModel):
@@ -81,6 +85,10 @@ class HealthEventOut(BaseModel):
     authority_notified_at: dt.date | None
     isolation_started_at: dt.date | None
     notes: str | None
+    # Row-insertion timestamp: distinguishes a same-day entry from a backdated
+    # record, which is the insurance/withdrawal evidence the model carries the
+    # column for (2026-09-28 audit, D3).
+    created_at: dt.datetime
     animal_tag: str | None = None
 
 
@@ -107,7 +115,7 @@ class HealthAnimalOptionOut(BaseModel):
     id: int
     tag_number: str
     name: str | None
-    current_bucket: str
+    current_bucket: BucketStr
     movement_restricted: bool
     restriction_version: int
 

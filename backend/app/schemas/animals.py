@@ -82,7 +82,9 @@ class AnimalCreateIn(StrictInputModel):
     source: AnimalSourceStr
     current_bucket: BucketStr
     # Empty means the species default breed (Osmanabadi), resolved
-    # server-side.
+    # server-side. The 60-char cap stays deliberately tighter than the
+    # animals.breed String(80) column: headroom for legacy/imported rows,
+    # while new API writes keep breed names terse (2026-09-28 audit).
     breed: PostgresText = Field(default="", max_length=60)
     coat_color: CoatColorStr | None = None
     horned: StrictBool | None = None
@@ -215,6 +217,8 @@ class AnimalOut(BaseModel):
 class AnimalListOut(BaseModel):
     animals: list[AnimalOut]
     total: int
+    limit: int
+    offset: int
 
 
 class WeightIn(StrictInputModel):
@@ -234,6 +238,9 @@ class WeightRecordOut(BaseModel):
     weight_kg: float
     bcs: int | None
     notes: str | None
+    # Entry timestamp, exposed like every sibling Out so a backdated weighing
+    # is distinguishable from a same-day one (2026-09-28 audit, D3).
+    created_at: datetime
 
 
 class MoveIn(StrictInputModel):
@@ -283,10 +290,10 @@ class AnimalOffspringOut(BaseModel):
     id: int
     tag_number: str
     name: str | None
-    sex: str
+    sex: Sex
     date_of_birth: date | None
     estimated_dob: date | None
-    status: str
+    status: AnimalStatusStr
 
 
 class StatusChangeIn(StrictInputModel):

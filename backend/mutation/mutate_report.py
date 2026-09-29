@@ -26,21 +26,26 @@ def main() -> None:
 
     by_status = collections.Counter(r["status"] for r in results)
     ran = [r for r in results if r["status"] not in ("NOT_COVERED",)]
-    killed = [r for r in ran if r["status"] in ("KILLED", "TIMEOUT")]
     survived = [r for r in ran if r["status"] == "SURVIVED"]
     errors = [r for r in ran if r["status"] == "RUN_ERROR"]
 
     def score(rs) -> str:
         if not rs:
             return "n/a"
-        return f"{100 * len([r for r in rs if r['status'] in ('KILLED', 'TIMEOUT')]) / len(rs):.1f}%"
+        return (
+            f"{100 * len([r for r in rs if r['status'] in ('KILLED', 'TIMEOUT')]) / len(rs):.1f}%"
+        )
 
-    print(f"manifest: {len(manifest)} mutants | run: {len(results)} | missing: {len(missing)} | "
-          f"| purged annotation-only records excluded: {len(purged)} "
-          f"({dict(collections.Counter(r['status'] for r in purged))})")
-    print(f"killed: {by_status['KILLED']} | timeout-killed: {by_status['TIMEOUT']} | "
-          f"survived: {by_status['SURVIVED']} | not-covered: {by_status['NOT_COVERED']} | "
-          f"errors: {by_status['RUN_ERROR']}")
+    print(
+        f"manifest: {len(manifest)} mutants | run: {len(results)} | missing: {len(missing)} | "
+        f"| purged annotation-only records excluded: {len(purged)} "
+        f"({dict(collections.Counter(r['status'] for r in purged))})"
+    )
+    print(
+        f"killed: {by_status['KILLED']} | timeout-killed: {by_status['TIMEOUT']} | "
+        f"survived: {by_status['SURVIVED']} | not-covered: {by_status['NOT_COVERED']} | "
+        f"errors: {by_status['RUN_ERROR']}"
+    )
     print(f"mutation score (run, covered-only): {score(ran)}")
 
     per_file = collections.defaultdict(list)
@@ -48,7 +53,11 @@ def main() -> None:
         per_file[r["file"]].append(r)
     rows = sorted(
         ((f, len(rs), score(rs)) for f, rs in per_file.items()),
-        key=lambda x: (x[2].rstrip('%') == 'n/a', float(x[2].rstrip('%') if x[2] != 'n/a' else 0), -x[1]),
+        key=lambda x: (
+            x[2].rstrip("%") == "n/a",
+            float(x[2].rstrip("%") if x[2] != "n/a" else 0),
+            -x[1],
+        ),
     )
 
     print("\nper-module (worst first):")
@@ -64,10 +73,12 @@ def main() -> None:
 
     out = ["# Backend mutation testing report", ""]
     out.append(f"- mutants in manifest: **{len(manifest)}**")
-    out.append(f"- executed: **{len(results)}** "
-               f"(killed {by_status['KILLED']}, timeout {by_status['TIMEOUT']}, "
-               f"survived {by_status['SURVIVED']}, not-covered {by_status['NOT_COVERED']}, "
-               f"errors {by_status['RUN_ERROR']})")
+    out.append(
+        f"- executed: **{len(results)}** "
+        f"(killed {by_status['KILLED']}, timeout {by_status['TIMEOUT']}, "
+        f"survived {by_status['SURVIVED']}, not-covered {by_status['NOT_COVERED']}, "
+        f"errors {by_status['RUN_ERROR']})"
+    )
     out.append(f"- **mutation score: {score(ran)}** (killed / executed-with-coverage)")
     out.append("")
     out.append("## Surviving mutants")

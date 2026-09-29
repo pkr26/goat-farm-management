@@ -1,5 +1,6 @@
 """Notifications subsystem (ITEM 4, 2026-09-21 playbook)."""
 
+from ...models.notifications import ALERT_CLASSES
 from .hooks import emit_alert
 from .providers import (
     ConsoleNotificationProvider,
@@ -11,7 +12,6 @@ from .providers import (
     redact_phone_numbers,
 )
 from .service import (
-    ALERT_CLASSES,
     DigestSummary,
     farms_ready_for_digest,
     feed_reorder_daily,

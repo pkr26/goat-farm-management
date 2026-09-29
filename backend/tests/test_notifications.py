@@ -1,12 +1,15 @@
 """Notifications subsystem (ITEM 4, 2026-09-21 playbook).
 
 Covers: provider-mocked sends through the console provider, the day-dedupe
-ledger, quiet hours, the per-farm daily cap, the per-worker digest content
-(role-scoped duties), the daily kidding-watch and feed-reorder scans, the
-overdue-critical sweep, and the owner-only preferences API (plus the
-screening-confirm alert hook end to end).
+ledger (including the ON CONFLICT claim's exactly-once behaviour under
+concurrency and the single-batch daily cap — 2026-09-28 audit N1/N2), the
+alert hook's provider-transport lifecycle (N3), quiet hours, the per-worker
+digest content (role-scoped duties), the daily kidding-watch and feed-reorder
+scans, the overdue-critical sweep, and the owner-only preferences API (plus
+the screening-confirm alert hook end to end).
 """
 
+import asyncio
 import importlib
 import logging
 from datetime import UTC, datetime, timedelta
@@ -26,6 +29,7 @@ from app.services.notifications import (
     farms_ready_for_digest,
     feed_reorder_daily,
     kidding_watch_daily,
+    notify_alert_class,
     overdue_critical_sweep,
     redact_phone_numbers,
     run_digest_for_farm,
@@ -209,6 +213,123 @@ async def test_farm_daily_cap_stops_sends_and_logs_the_reason(client: httpx.Asyn
 
     assert status.status == "SKIPPED_CAP"
     assert len(provider.sent) == 2
+
+
+async def test_farm_daily_cap_holds_inside_a_single_fanout_batch(
+    client: httpx.AsyncClient,
+) -> None:
+    """2026-09-28 audit N1: the cap used to count only COMMITTED rows, so one
+    alert batch with N recipients sent N SMS regardless of the cap. Status
+    writes now flush per recipient, and the batch stops at the ceiling."""
+    owner = await owner_with_farm(client, email="notif-cap-batch@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+    settings = Settings(**DEFAULTS, notifications_farm_daily_cap=2)
+    provider = RecordingProvider()
+
+    async with get_sessionmaker()() as db:
+        farm = await _farm(db, farm_id)
+        for phone in ("+919111111111", "+919222222222", "+919333333333"):
+            await _recipient(db, farm_id, await _membership_id(client, owner), phone=phone)
+        # One session, no interim commits: the exact fan-out shape that used
+        # to defeat the cap.
+        sent = await notify_alert_class(
+            db,
+            settings,
+            provider,
+            farm=farm,
+            alert_class="SCREENING_FLAG",
+            message="m",
+            payload="finding:cap-batch",
+            now_local=midday(farm),
+        )
+        rows = list(
+            (
+                await db.execute(select(NotificationLog).where(NotificationLog.farm_id == farm_id))
+            ).scalars()
+        )
+
+    assert sent == 2
+    assert len(provider.sent) == 2
+    assert [row.status for row in rows].count("SKIPPED_CAP") == 1
+
+
+async def test_concurrent_same_fact_delivery_sends_exactly_once(
+    client: httpx.AsyncClient,
+) -> None:
+    """2026-09-28 audit N2: the dedupe slot is claimed ON CONFLICT before any
+    send, so two concurrent sessions for the same fact produce exactly one
+    SMS and one log row — never two sends plus an aborted batch."""
+    owner = await owner_with_farm(client, email="notif-race@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+    membership_id = await _membership_id(client, owner)
+    settings = Settings(**DEFAULTS)
+    provider = RecordingProvider()
+
+    async with get_sessionmaker()() as db:
+        recipient = await _recipient(db, farm_id, membership_id)
+        recipient_id = recipient.id
+
+    async def send_once():
+        async with get_sessionmaker()() as db:
+            farm = await _farm(db, farm_id)
+            recipient = await db.get(NotificationRecipient, recipient_id)
+            assert recipient is not None
+            outcome = await send_notification(
+                db,
+                settings,
+                provider,
+                farm=farm,
+                recipient=recipient,
+                alert_class="SCREENING_FLAG",
+                message="m",
+                payload="finding:race:1",
+                now_local=midday(farm),
+            )
+            await db.commit()
+            return outcome
+
+    first, second = await asyncio.gather(send_once(), send_once())
+
+    assert {first.status, second.status} == {"SENT"}
+    assert [first.fresh, second.fresh].count(True) == 1  # one sender, one replay
+    assert len(provider.sent) == 1
+    async with get_sessionmaker()() as db:
+        rows = list((await db.execute(select(NotificationLog))).scalars())
+    assert len(rows) == 1
+
+
+async def test_emit_alert_closes_the_provider_transport(client: httpx.AsyncClient) -> None:
+    """2026-09-28 audit N3: emit_alert built a fresh Msg91Provider per alert
+    and never closed it — one leaked httpx transport per alert. The hook now
+    closes any provider-owned client, like the digest loop's shutdown."""
+    owner = await owner_with_farm(client, email="notif-close@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+
+    from app.core.config import get_settings
+
+    get_settings().notifications_enabled = True
+
+    class ClosingProvider(ConsoleNotificationProvider):
+        def __init__(self) -> None:
+            self.closed = 0
+
+        async def aclose(self) -> None:
+            self.closed += 1
+
+    provider = ClosingProvider()
+    import app.services.notifications.hooks as hooks
+
+    original = hooks.build_notification_provider
+    hooks.build_notification_provider = lambda _s: provider
+    try:
+        # No recipients opted in: the provider is still built and must still
+        # be closed.
+        await hooks.emit_alert(farm_id, "SCREENING_FLAG", "m", "finding:close:1")
+    finally:
+        hooks.build_notification_provider = original
+        get_settings().notifications_enabled = False
+
+    assert provider.closed == 1
 
 
 class FlakyProvider:

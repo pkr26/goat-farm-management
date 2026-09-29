@@ -867,7 +867,12 @@ async def list_insurance_policies(
         .scalars()
         .all()
     )
-    return InsuranceListOut(policies=[_policy_out(policy) for policy in policies], total=total)
+    return InsuranceListOut(
+        policies=[_policy_out(policy) for policy in policies],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.post("/insurance", status_code=201)
@@ -1085,6 +1090,8 @@ async def insurance_policy_history(
         policy=_policy_out(policy),
         premiums=[InsurancePremiumOut.model_validate(premium) for premium in premiums],
         total=total,
+        limit=limit,
+        offset=offset,
     )
 
 

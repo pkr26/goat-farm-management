@@ -95,8 +95,12 @@ TIME_NIGHT_CLEAN = "20:15"
 # (operational does return to service on the next observed heat).
 _HEAT_CYCLE_DAYS = 21
 # Resting / dry-off + flush stay before returning to the breeding bucket
-# (seeded RESTING bucket rule: "Post-weaning does, ~30 days").
-_RESTING_FLUSH_DAYS = 30
+# (seeded RESTING bucket rule: "Post-weaning does, ~30 days"). Restates the
+# domain re-breeding prompt (services._common.REBREED_AFTER_RESTING_DAYS =
+# 30 — the simulation layer must not import the services layer), floored at
+# the legal minimum GOAT_PROFILE.min_rest_flush_days so a shortened prompt
+# could never project a re-breed the API would still block (2026-09-28 audit).
+_RESTING_FLUSH_DAYS = max(30, GOAT_PROFILE.min_rest_flush_days)
 # Maximum doe age before the age cull fires (mirrors CullingAssumptions
 # default max_doe_age_months used by the monthly engine).
 _MAX_DOE_AGE_MONTHS = 72

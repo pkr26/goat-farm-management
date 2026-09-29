@@ -1,10 +1,24 @@
 """Re-verify sampled survivors: confirms verdict stability (no flaky kills
-hiding as survivors, no corruption-window artifacts)."""
+hiding as survivors, no corruption-window artifacts).
+
+Usage:
+    .venv/bin/python mutation/mutate_verify.py [--sample N] [--seed S]
+
+verify_sample.json is a run artifact, not committed (2026-09-28 audit, T6):
+pass --sample N to derive it from mutation/results.jsonl first — the
+SURVIVED mutants (last record per id wins; re-runs append), rehydrated from
+the committed manifest (result records carry no mutation payload), seeded-
+shuffled and capped at N — so the flow is reproducible end-to-end. Without
+--sample the file is read as-is, exactly as before.
+"""
 
 from __future__ import annotations
 
+import argparse
 import collections
+import contextlib
 import json
+import random
 import sys
 from pathlib import Path
 
@@ -12,16 +26,52 @@ BACKEND = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND / "mutation"))
 from mutate_run import Runner  # noqa: E402
 
+DEFAULT_SEED = 20260928
+
+
+def derive_sample(n: int, seed: int) -> list[dict]:
+    """N SURVIVED mutants from results.jsonl, deterministically shuffled."""
+    last_status: dict[str, str] = {}
+    for line in (BACKEND / "mutation" / "results.jsonl").read_text().splitlines():
+        with contextlib.suppress(Exception):
+            rec = json.loads(line)
+            last_status[rec["id"]] = rec["status"]
+    survivors = {mid for mid, status in last_status.items() if status == "SURVIVED"}
+    manifest = json.loads((BACKEND / "mutation" / "manifest.json").read_text())
+    pool = sorted((m for m in manifest if m["id"] in survivors), key=lambda m: m["id"])
+    random.Random(seed).shuffle(pool)
+    return pool[:n]
+
 
 def main() -> None:
-    sample = json.loads((BACKEND / "mutation" / "verify_sample.json").read_text())
+    ap = argparse.ArgumentParser()
+    ap.add_argument(
+        "--sample",
+        type=int,
+        default=None,
+        help="derive verify_sample.json from results.jsonl first (N SURVIVED mutants)",
+    )
+    ap.add_argument(
+        "--seed",
+        type=int,
+        default=DEFAULT_SEED,
+        help="shuffle seed for --sample (fixed default: reproducible)",
+    )
+    args = ap.parse_args()
+
+    sample_path = BACKEND / "mutation" / "verify_sample.json"
+    if args.sample is not None:
+        derived = derive_sample(args.sample, args.seed)
+        sample_path.write_text(json.dumps(derived, indent=1) + "\n")
+        print(f"wrote {sample_path.name}: {len(derived)} survivors (seed {args.seed})")
+    sample = json.loads(sample_path.read_text())
     runner = Runner(workers=8, max_seconds=None)
     runner.results_path = BACKEND / "mutation" / "verify_results.jsonl"
     verdicts = collections.Counter()
     for m in sample:
         rec = runner.execute(m, worker=9)
         verdicts[rec["status"]] += 1
-        with open(runner.results_path, "a") as fh:
+        with runner.results_path.open("a") as fh:
             fh.write(json.dumps(rec) + "\n")
         print(rec["status"], m["file"], m["line"], m["kind"], flush=True)
     print(dict(verdicts))

@@ -365,6 +365,7 @@ def breeding_out(br: BreedingRecord) -> BreedingRecordOut:
         loss_notes=br.loss_notes,
         loss_recorded_by_id=br.loss_recorded_by_id,
         loss_recorded_at=br.loss_recorded_at,
+        created_at=br.created_at,
         has_kidding=br.kidding_record is not None,
         doe_tag=br.doe.tag_number,
         buck_tag=br.buck.tag_number if br.buck is not None else None,

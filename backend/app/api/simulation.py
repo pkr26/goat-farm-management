@@ -556,12 +556,10 @@ async def list_scenarios(
         .offset(offset)
         .limit(limit)
     )
-    out: list[ScenarioOut] = []
-    for scenario in result.scalars():
-        try:
-            out.append(_scenario_out(scenario, allow_invalid=True))
-        except HTTPException:  # pragma: no cover - allow_invalid handles validation
-            raise
+    # Bare call like the planner list sibling: allow_invalid=True means
+    # _scenario_out does not raise for stored-but-stale documents, so a
+    # catch-and-re-raise guard would be dead code (2026-09-28 audit).
+    out = [_scenario_out(scenario, allow_invalid=True) for scenario in result.scalars()]
     return ScenarioListOut(items=out, total=total, limit=limit, offset=offset)
 
 

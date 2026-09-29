@@ -26,7 +26,14 @@ from ..services import (
     require_farm_not_future,
 )
 from ..utils import today
-from ._shared import TASK_LOADS, animal_computed_facts, animal_out, task_out, visible_to
+from ._shared import (
+    TASK_LOADS,
+    animal_computed_facts,
+    animal_out,
+    task_out,
+    unique_constraint_name,
+    visible_to,
+)
 
 router = APIRouter(prefix="/api/purchases", tags=["purchases"], responses=COMMON_ERROR_RESPONSES)
 
@@ -93,6 +100,9 @@ async def list_batches(
     Text searches supplier names literally (LIKE wildcards are escaped); a
     numeric query, with an optional leading ``#``, also matches an exact batch
     id. This keeps selectors bounded without hiding old purchase batches.
+    (``q`` semantics deliberately differ per router — 2026-09-28 audit:
+    animals matches tag/name only, health exact-matches an id only when
+    ``#``-prefixed.)
     """
     base = select(PurchaseBatch).where(PurchaseBatch.farm_id == farm.id)
     if q and q.strip():
@@ -198,18 +208,7 @@ async def create_batch(
             # Only a generated-tag collision with the farm's tag unique index
             # is the retryable 409; any other constraint failure must surface
             # as itself rather than misdiagnosed retry advice (RT-HIJ-6).
-            # Driver layers disagree about where the constraint name lives
-            # (asyncpg native errors expose it directly; SQLAlchemy's dbapi
-            # adapter does not), so walk the cause chain and fall back to the
-            # DETAIL line, which always carries it.
-            constraint_name: str | None = None
-            linked: BaseException | None = exc
-            while linked is not None and constraint_name is None:
-                constraint_name = getattr(linked, "constraint_name", None)
-                linked = getattr(linked, "orig", None) or linked.__cause__
-            if constraint_name is None and "uq_animal_tag_per_farm" in str(exc):
-                constraint_name = "uq_animal_tag_per_farm"
-            if constraint_name != "uq_animal_tag_per_farm":
+            if unique_constraint_name(exc) != "uq_animal_tag_per_farm":
                 raise
             # The outer idempotency transaction rolls the whole batch/claim
             # back.

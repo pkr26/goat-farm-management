@@ -82,7 +82,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -122,7 +122,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -179,7 +179,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -240,7 +240,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -280,7 +280,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -337,7 +337,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -402,7 +402,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -442,7 +442,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -499,7 +499,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -537,7 +537,7 @@
           "auth"
         ],
         "summary": "Worker Login",
-        "description": "Shared-tablet quick sign-in: farm + tap + PIN, throttled like login.\n\nThe PIN is a convenience credential scoped to ONE membership. It never\nbypasses the second factor (an ACTIVE TOTP refuses \u2014 the tablet is not an\nauthenticator) and never admits an owner (owners hold no membership row).\nEvery failure answers the same generic 401 after identical Argon work, so\nthe exchange cannot enumerate farms, memberships or PINs by timing.",
+        "description": "Shared-tablet quick sign-in: farm + tap + PIN, throttled like login.\n\nThe PIN is a convenience credential scoped to ONE membership. It never\nbypasses the second factor (an ACTIVE TOTP refuses \u2014 the tablet is not an\nauthenticator) and never admits an owner (owners hold no membership row).\nEvery failure answers the same generic 401 after identical Argon work, so\nthe exchange cannot enumerate farms, memberships or PINs by timing.\nTwo deliberate exceptions AFTER a proven-correct PIN: an ACTIVE-TOTP\naccount and a must-change-password account answer distinguishable 403s\nnaming the flow to use instead \u2014 an oracle that opens only for a caller\nwho already knows the PIN, kept deliberately and pinned by tests\n(2026-09-28 audit, S5; test_worker_pin_auth.py).",
         "operationId": "worker_login_api_auth_worker_login_post",
         "requestBody": {
           "content": {
@@ -561,7 +561,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -601,7 +601,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -658,7 +658,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -709,7 +709,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -749,7 +749,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -806,7 +806,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -850,7 +850,7 @@
             "description": "Successful Response"
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -890,7 +890,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -947,7 +947,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1009,7 +1009,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1049,7 +1049,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1106,7 +1106,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1162,7 +1162,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1202,7 +1202,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1259,7 +1259,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1316,7 +1316,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1356,7 +1356,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1413,7 +1413,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1473,7 +1473,7 @@
             "description": "Successful Response"
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1513,7 +1513,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1570,7 +1570,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1642,7 +1642,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1682,7 +1682,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1739,7 +1739,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1799,7 +1799,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1839,7 +1839,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1896,7 +1896,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1973,7 +1973,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2013,7 +2013,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2070,7 +2070,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2132,7 +2132,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2172,7 +2172,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2229,7 +2229,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2296,7 +2296,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2336,7 +2336,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2393,7 +2393,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2453,7 +2453,7 @@
             "description": "Successful Response"
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2493,7 +2493,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2550,7 +2550,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2617,7 +2617,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2657,7 +2657,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2714,7 +2714,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2781,7 +2781,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2821,7 +2821,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2878,7 +2878,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2916,6 +2916,7 @@
           "animals"
         ],
         "summary": "List Animals",
+        "description": "Paginated herd register, bucket/tag ordered.\n\n``q`` semantics (2026-09-28 audit \u2014 they deliberately differ per\nrouter): matches tag_number/name substring only; a numeric query does\nNOT resolve an id here (purchases exact-matches bare digits, health\nexact-matches only ``#``-prefixed digits).",
         "operationId": "list_animals_api_animals_get",
         "security": [
           {
@@ -3066,7 +3067,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3106,7 +3107,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3163,7 +3164,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3199,6 +3200,7 @@
           "animals"
         ],
         "summary": "Create Animal",
+        "description": "Register one animal.\n\nIdempotency-Key is CONDITIONALLY required (2026-09-28 audit): any\npurchased-animal create that books money \u2014 a managed purchase (batch +\nquarantine schedule + ANIMAL_PURCHASE expense) or a historical import\nwith a purchase_price \u2014 answers 422 without the header, because a\nkeyless retry would double-book the expense. Creates that book no money\n(BORN, or price-less imports) accept a keyless request, so the header\ncannot be published as unconditionally required on this route.",
         "operationId": "create_animal_api_animals_post",
         "security": [
           {
@@ -3257,7 +3259,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3297,7 +3299,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3354,7 +3356,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3441,7 +3443,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3481,7 +3483,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3538,7 +3540,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3684,7 +3686,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3724,7 +3726,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3781,7 +3783,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3867,7 +3869,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3907,7 +3909,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3964,7 +3966,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4069,7 +4071,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4109,7 +4111,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4166,7 +4168,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4228,6 +4230,25 @@
               "type": "string",
               "title": "X-Farm-Id"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "requestBody": {
@@ -4252,7 +4273,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4292,7 +4313,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4349,7 +4370,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4421,7 +4442,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4461,7 +4482,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4518,7 +4539,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4609,7 +4630,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4649,7 +4670,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4706,7 +4727,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4800,7 +4821,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4840,7 +4861,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4897,7 +4918,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5019,7 +5040,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5059,7 +5080,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5116,7 +5137,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5192,7 +5213,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5232,7 +5253,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5289,7 +5310,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5375,7 +5396,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5415,7 +5436,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5472,7 +5493,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5558,7 +5579,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5598,7 +5619,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5655,7 +5676,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5794,7 +5815,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5834,7 +5855,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5891,7 +5912,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -5985,7 +6006,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -6025,7 +6046,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -6082,7 +6103,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -6159,7 +6180,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -6199,7 +6220,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -6256,7 +6277,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -6324,7 +6345,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -6364,7 +6385,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -6421,7 +6442,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -6459,7 +6480,7 @@
           "health"
         ],
         "summary": "Health Animal Options",
-        "description": "Farm-local active-animal summaries for health schedules and events.\n\nA numeric query, optionally prefixed by ``#``, resolves an exact selected\nid without requiring access to the full animal profile endpoint.",
+        "description": "Farm-local active-animal summaries for health schedules and events.\n\nA numeric query, optionally prefixed by ``#``, resolves an exact selected\nid without requiring access to the full animal profile endpoint.\n``q`` semantics (2026-09-28 audit \u2014 they deliberately differ per\nrouter): ``#123`` resolves id 123 only; bare ``123`` matches the id OR\na tag/name substring (purchases exact-matches bare digits too, animals\nnever resolves an id).",
         "operationId": "health_animal_options_api_health_animals_get",
         "security": [
           {
@@ -6530,7 +6551,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -6570,7 +6591,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -6627,7 +6648,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -6736,7 +6757,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -6776,7 +6797,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -6833,7 +6854,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -6933,7 +6954,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -6973,7 +6994,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -7030,7 +7051,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -7110,7 +7131,7 @@
             "description": "Successful Response"
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -7150,7 +7171,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -7207,7 +7228,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -7299,7 +7320,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -7339,7 +7360,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -7396,7 +7417,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -7491,7 +7512,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -7531,7 +7552,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -7588,7 +7609,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -7666,7 +7687,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -7706,7 +7727,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -7763,7 +7784,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -7840,7 +7861,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -7880,7 +7901,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -7937,7 +7958,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -8089,7 +8110,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -8129,7 +8150,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -8186,7 +8207,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -8281,7 +8302,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -8321,7 +8342,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -8378,7 +8399,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -8455,7 +8476,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -8495,7 +8516,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -8552,7 +8573,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -8647,7 +8668,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -8687,7 +8708,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -8744,7 +8765,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -8849,7 +8870,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -8889,7 +8910,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -8946,7 +8967,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -9008,6 +9029,25 @@
               "type": "string",
               "title": "X-Farm-Id"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "responses": {
@@ -9022,7 +9062,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -9062,7 +9102,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -9119,7 +9159,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -9181,6 +9221,25 @@
               "type": "string",
               "title": "X-Farm-Id"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "requestBody": {
@@ -9205,7 +9264,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -9245,7 +9304,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -9302,7 +9361,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -9370,7 +9429,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -9410,7 +9469,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -9467,7 +9526,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -9538,7 +9597,7 @@
             "description": "Successful Response"
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -9578,7 +9637,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -9635,7 +9694,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -9724,7 +9783,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -9764,7 +9823,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -9821,7 +9880,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -9947,7 +10006,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -9987,7 +10046,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -10044,7 +10103,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -10112,7 +10171,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -10152,7 +10211,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -10209,7 +10268,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -10281,7 +10340,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -10321,7 +10380,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -10378,7 +10437,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -10467,7 +10526,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -10507,7 +10566,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -10564,7 +10623,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -10636,7 +10695,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -10676,7 +10735,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -10733,7 +10792,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -10831,7 +10890,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -10871,7 +10930,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -10928,7 +10987,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -11083,7 +11142,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -11123,7 +11182,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -11180,7 +11239,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -11269,7 +11328,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -11309,7 +11368,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -11366,7 +11425,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -11472,7 +11531,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -11512,7 +11571,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -11569,7 +11628,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -11700,7 +11759,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -11740,7 +11799,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -11797,7 +11856,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -11873,7 +11932,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -11913,7 +11972,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -11970,7 +12029,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -12076,7 +12135,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -12116,7 +12175,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -12173,7 +12232,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -12260,7 +12319,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -12300,7 +12359,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -12357,7 +12416,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -12458,7 +12517,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -12498,7 +12557,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -12555,7 +12614,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -12632,7 +12691,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -12672,7 +12731,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -12729,7 +12788,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -12767,7 +12826,7 @@
           "purchases"
         ],
         "summary": "List Batches",
-        "description": "Searched, paginated purchase batches for this farm, newest first.\n\nText searches supplier names literally (LIKE wildcards are escaped); a\nnumeric query, with an optional leading ``#``, also matches an exact batch\nid. This keeps selectors bounded without hiding old purchase batches.",
+        "description": "Searched, paginated purchase batches for this farm, newest first.\n\nText searches supplier names literally (LIKE wildcards are escaped); a\nnumeric query, with an optional leading ``#``, also matches an exact batch\nid. This keeps selectors bounded without hiding old purchase batches.\n(``q`` semantics deliberately differ per router \u2014 2026-09-28 audit:\nanimals matches tag/name only, health exact-matches an id only when\n``#``-prefixed.)",
         "operationId": "list_batches_api_purchases_get",
         "security": [
           {
@@ -12838,7 +12897,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -12878,7 +12937,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -12935,7 +12994,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -13024,7 +13083,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -13064,7 +13123,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -13121,7 +13180,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -13222,7 +13281,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -13262,7 +13321,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -13319,7 +13378,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -13387,7 +13446,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -13427,7 +13486,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -13484,7 +13543,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -13552,7 +13611,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -13592,7 +13651,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -13649,7 +13708,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -13716,7 +13775,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -13756,7 +13815,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -13813,7 +13872,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -13910,7 +13969,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -13950,7 +14009,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -14007,7 +14066,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -14093,7 +14152,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -14133,7 +14192,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -14190,7 +14249,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -14276,7 +14335,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -14316,7 +14375,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -14373,7 +14432,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -14436,6 +14495,25 @@
               "type": "string",
               "title": "X-Farm-Id"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "requestBody": {
@@ -14460,7 +14538,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -14500,7 +14578,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -14557,7 +14635,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -14663,7 +14741,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -14703,7 +14781,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -14760,7 +14838,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -14845,7 +14923,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -14885,7 +14963,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -14942,7 +15020,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -15027,7 +15105,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -15067,7 +15145,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -15124,7 +15202,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -15201,7 +15279,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -15241,7 +15319,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -15298,7 +15376,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -15384,7 +15462,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -15424,7 +15502,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -15481,7 +15559,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -15548,7 +15626,7 @@
             "description": "Successful Response"
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -15588,7 +15666,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -15645,7 +15723,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -15697,7 +15775,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -15737,7 +15815,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -15794,7 +15872,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -15882,7 +15960,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -15922,7 +16000,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -15979,7 +16057,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -16057,7 +16135,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -16097,7 +16175,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -16154,7 +16232,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -16258,7 +16336,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -16298,7 +16376,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -16355,7 +16433,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -16433,7 +16511,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -16473,7 +16551,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -16530,7 +16608,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -16626,7 +16704,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -16666,7 +16744,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -16723,7 +16801,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -16812,7 +16890,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -16852,7 +16930,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -16909,7 +16987,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -16987,7 +17065,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17027,7 +17105,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17084,7 +17162,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17160,7 +17238,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17200,7 +17278,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17257,7 +17335,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17341,7 +17419,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17381,7 +17459,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17438,7 +17516,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17517,7 +17595,7 @@
             "description": "Successful Response"
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17557,7 +17635,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17614,7 +17692,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17721,7 +17799,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17761,7 +17839,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17818,7 +17896,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17896,7 +17974,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17936,7 +18014,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -17993,7 +18071,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18089,7 +18167,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18129,7 +18207,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18186,7 +18264,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18275,7 +18353,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18315,7 +18393,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18372,7 +18450,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18448,7 +18526,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18488,7 +18566,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18545,7 +18623,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18629,7 +18707,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18669,7 +18747,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18726,7 +18804,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18805,7 +18883,7 @@
             "description": "Successful Response"
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18845,7 +18923,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18902,7 +18980,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -18977,7 +19055,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19017,7 +19095,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19074,7 +19152,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19109,7 +19187,7 @@
     "/api/ops-sim/run": {
       "post": {
         "tags": [
-          "ops-simulation"
+          "ops-sim"
         ],
         "summary": "Run Daily Ops Simulation",
         "description": "Simulate the farm day by day: the full duty schedule per building,\nevery bucket move with its cause, feed manifests, births and exits.",
@@ -19152,7 +19230,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19192,7 +19270,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19249,7 +19327,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19393,7 +19471,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19433,7 +19511,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19490,7 +19568,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19567,7 +19645,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19607,7 +19685,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19664,7 +19742,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19751,7 +19829,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19791,7 +19869,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19848,7 +19926,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19928,7 +20006,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -19968,7 +20046,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20025,7 +20103,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20120,7 +20198,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20160,7 +20238,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20217,7 +20295,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20304,7 +20382,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20344,7 +20422,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20401,7 +20479,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20437,7 +20515,7 @@
           "screening"
         ],
         "summary": "List Batches",
-        "description": "Recent disease-check walkthroughs with per-pen progress.",
+        "description": "A page of disease-check walkthroughs, newest first, with per-pen\nprogress. ``total`` is the farm's full batch count so clients can page\npast the newest screen (2026-09-28 audit, A2).",
         "operationId": "list_batches_api_screening_batches_get",
         "security": [
           {
@@ -20455,6 +20533,18 @@
               "minimum": 1,
               "default": 10,
               "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 10000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
             }
           },
           {
@@ -20479,7 +20569,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20519,7 +20609,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20576,7 +20666,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20653,7 +20743,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20693,7 +20783,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20750,7 +20840,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20847,7 +20937,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20887,7 +20977,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20944,7 +21034,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -20996,7 +21086,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21036,7 +21126,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21093,7 +21183,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21169,7 +21259,7 @@
             }
           },
           "400": {
-            "description": "Rejected (invalid state or values)",
+            "description": "Bad request (invalid values against stable state)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21209,7 +21299,7 @@
             }
           },
           "409": {
-            "description": "Conflict (state, replay, or race)",
+            "description": "Conflict (wrong lifecycle state, replay, race, or standing quota)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21266,7 +21356,7 @@
             }
           },
           "429": {
-            "description": "Rate limited",
+            "description": "Rate limited (request-rate throttle only; always carries Retry-After)",
             "content": {
               "application/json": {
                 "schema": {
@@ -21820,12 +21910,22 @@
           "total": {
             "type": "integer",
             "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
           }
         },
         "type": "object",
         "required": [
           "animals",
-          "total"
+          "total",
+          "limit",
+          "offset"
         ],
         "title": "AnimalListOut"
       },
@@ -21852,6 +21952,10 @@
           },
           "sex": {
             "type": "string",
+            "enum": [
+              "M",
+              "F"
+            ],
             "title": "Sex"
           },
           "date_of_birth": {
@@ -21880,6 +21984,12 @@
           },
           "status": {
             "type": "string",
+            "enum": [
+              "ACTIVE",
+              "SOLD",
+              "DEAD",
+              "CULLED"
+            ],
             "title": "Status"
           }
         },
@@ -23289,6 +23399,11 @@
             ],
             "title": "Loss Recorded At"
           },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
           "has_kidding": {
             "type": "boolean",
             "title": "Has Kidding",
@@ -23337,7 +23452,8 @@
           "loss_cause",
           "loss_notes",
           "loss_recorded_by_id",
-          "loss_recorded_at"
+          "loss_recorded_at",
+          "created_at"
         ],
         "title": "BreedingRecordOut"
       },
@@ -23549,6 +23665,18 @@
         "properties": {
           "bucket": {
             "type": "string",
+            "enum": [
+              "QUARANTINE",
+              "FOUNDATION",
+              "BREEDING",
+              "PREGNANCY_EARLY",
+              "PREGNANCY_LATE",
+              "DELIVERY",
+              "RECOVERY",
+              "RESTING",
+              "MALE_KIDS",
+              "FEMALE_KIDS"
+            ],
             "title": "Bucket"
           },
           "name": {
@@ -25810,6 +25938,11 @@
           "qty_kg": {
             "type": "number",
             "title": "Qty Kg"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
           }
         },
         "type": "object",
@@ -25819,7 +25952,8 @@
           "shift",
           "bucket",
           "recipe_code",
-          "qty_kg"
+          "qty_kg",
+          "created_at"
         ],
         "title": "FeedingRecordOut"
       },
@@ -26149,6 +26283,18 @@
           },
           "current_bucket": {
             "type": "string",
+            "enum": [
+              "QUARANTINE",
+              "FOUNDATION",
+              "BREEDING",
+              "PREGNANCY_EARLY",
+              "PREGNANCY_LATE",
+              "DELIVERY",
+              "RECOVERY",
+              "RESTING",
+              "MALE_KIDS",
+              "FEMALE_KIDS"
+            ],
             "title": "Current Bucket"
           },
           "movement_restricted": {
@@ -27047,6 +27193,11 @@
             ],
             "title": "Notes"
           },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
           "animal_tag": {
             "anyOf": [
               {
@@ -27086,7 +27237,8 @@
           "suspected_scheduled_disease",
           "authority_notified_at",
           "isolation_started_at",
-          "notes"
+          "notes",
+          "created_at"
         ],
         "title": "HealthEventOut"
       },
@@ -27492,12 +27644,22 @@
           "total": {
             "type": "integer",
             "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
           }
         },
         "type": "object",
         "required": [
           "policies",
-          "total"
+          "total",
+          "limit",
+          "offset"
         ],
         "title": "InsuranceListOut"
       },
@@ -27516,13 +27678,23 @@
           "total": {
             "type": "integer",
             "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
           }
         },
         "type": "object",
         "required": [
           "policy",
           "premiums",
-          "total"
+          "total",
+          "limit",
+          "offset"
         ],
         "title": "InsurancePolicyHistoryOut",
         "description": "A policy plus a page of its append-only payment/claim audit facts.\n\n``total`` is the full premium-row count for honest pagination \u2014 a\nlong-lived policy with frequent renewals grows without bound."
@@ -27950,6 +28122,11 @@
               }
             ],
             "title": "Animal Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
           }
         },
         "type": "object",
@@ -27963,7 +28140,8 @@
           "colostrum_within_2h",
           "navel_dipped",
           "dam_rejected",
-          "animal_id"
+          "animal_id",
+          "created_at"
         ],
         "title": "KidEntryOut"
       },
@@ -28115,7 +28293,7 @@
               "$ref": "#/components/schemas/KidIn"
             },
             "type": "array",
-            "maxItems": 10,
+            "maxItems": 4,
             "minItems": 1,
             "title": "Kids"
           }
@@ -28279,6 +28457,11 @@
             ],
             "title": "Notes"
           },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
           "kids": {
             "items": {
               "$ref": "#/components/schemas/KidEntryOut"
@@ -28309,7 +28492,8 @@
           "parity",
           "placenta_passed",
           "mastitis_suspected",
-          "notes"
+          "notes",
+          "created_at"
         ],
         "title": "KiddingRecordOut"
       },
@@ -30603,7 +30787,7 @@
           },
           "start_year_month": {
             "type": "string",
-            "pattern": "^(19\\d{2}|20\\d{2}|21[0-1]\\d|2200)-(0[1-9]|1[0-2])$",
+            "pattern": "^(19\\d{2}|20\\d{2}|21\\d{2}|2200)-(0[1-9]|1[0-2])$",
             "title": "Start Year Month"
           },
           "targets": {
@@ -30870,7 +31054,7 @@
         "properties": {
           "year_month": {
             "type": "string",
-            "pattern": "^(19\\d{2}|20\\d{2}|21[0-1]\\d|2200)-(0[1-9]|1[0-2])$",
+            "pattern": "^(19\\d{2}|20\\d{2}|21\\d{2}|2200)-(0[1-9]|1[0-2])$",
             "title": "Year Month"
           },
           "animal_class": {
@@ -32876,11 +33060,26 @@
             },
             "type": "array",
             "title": "Batches"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
           }
         },
         "type": "object",
         "required": [
-          "batches"
+          "batches",
+          "total",
+          "limit",
+          "offset"
         ],
         "title": "ScreeningBatchListOut"
       },
@@ -33304,6 +33503,17 @@
             ],
             "title": "Review Note"
           },
+          "reviewed_by_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed By Id"
+          },
           "reviewed_at": {
             "anyOf": [
               {
@@ -33333,6 +33543,7 @@
           "note",
           "status",
           "review_note",
+          "reviewed_by_id",
           "reviewed_at",
           "created_at"
         ],
@@ -33405,6 +33616,17 @@
             ],
             "title": "Review Note"
           },
+          "reviewed_by_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed By Id"
+          },
           "reviewed_at": {
             "anyOf": [
               {
@@ -33423,6 +33645,7 @@
           "id",
           "status",
           "review_note",
+          "reviewed_by_id",
           "reviewed_at"
         ],
         "title": "ScreeningFindingReviewOut"
@@ -33890,6 +34113,16 @@
           },
           "stage": {
             "type": "string",
+            "enum": [
+              "DETECT",
+              "GATE",
+              "CROSS_CHECK",
+              "SPECIALIST_SKIN",
+              "SPECIALIST_EYE",
+              "SPECIALIST_HOOF",
+              "SPECIALIST_UDDER",
+              "SPECIALIST_GENERAL"
+            ],
             "title": "Stage"
           },
           "run_status": {
@@ -36394,6 +36627,11 @@
               }
             ],
             "title": "Notes"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
           }
         },
         "type": "object",
@@ -36402,7 +36640,8 @@
           "date",
           "weight_kg",
           "bcs",
-          "notes"
+          "notes",
+          "created_at"
         ],
         "title": "WeightRecordOut"
       },

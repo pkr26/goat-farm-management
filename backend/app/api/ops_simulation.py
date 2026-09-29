@@ -38,7 +38,8 @@ from ._run_limits import (
     _with_run_limits,
 )
 
-router = APIRouter(prefix="/api/ops-sim", tags=["ops-simulation"], responses=COMMON_ERROR_RESPONSES)
+# Tag mirrors the path prefix, like every other router (2026-09-28 audit).
+router = APIRouter(prefix="/api/ops-sim", tags=["ops-sim"], responses=COMMON_ERROR_RESPONSES)
 
 SimView = Annotated[set[str], Depends(require_perm("simulation.view"))]
 
@@ -65,7 +66,7 @@ MAX_RESULT_HEAD_DAYS = MAX_LEDGER_HEAD_DAYS
 _BIRTH_AMPLIFICATION_FACTOR = 10
 
 
-@router.post("/run", response_model=DailyOpsRunOut)
+@router.post("/run")
 async def run_daily_ops_simulation(
     payload: DailyOpsRunIn,
     db: DbSession,

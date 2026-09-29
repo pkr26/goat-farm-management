@@ -2013,7 +2013,7 @@ async def test_direct_upload_intake_limits_reclaim_stale_batches_and_preflight_s
         assert response.status_code == 201, response.text
         batch_ids.append(response.json()["id"])
     full = await client.post("/api/screening/batches", headers=headers)
-    assert full.status_code == 429
+    assert full.status_code == 409  # standing quota, not a rate limit (2026-09-28 audit, A4)
 
     # Empty abandoned batches must not block this farm forever.  Their old
     # ids cannot be reused to bypass the same cap after they age out.
@@ -2074,7 +2074,7 @@ async def test_direct_upload_intake_limits_reclaim_stale_batches_and_preflight_s
     batch_limited = await client.post(
         "/api/screening/uploads", json=upload_payload, headers=headers
     )
-    assert batch_limited.status_code == 429
+    assert batch_limited.status_code == 409
 
     # The farm-wide in-flight quota counts rows across all walkthroughs,
     # including legacy/unbatched intake, so a client cannot avoid it by
@@ -2101,7 +2101,7 @@ async def test_direct_upload_intake_limits_reclaim_stale_batches_and_preflight_s
         json={**upload_payload, "batch_id": batch_ids[1]},
         headers=headers,
     )
-    assert farm_limited.status_code == 429
+    assert farm_limited.status_code == 409
 
 
 async def test_daily_call_budget_per_farm_parks_over_budget_photos(
@@ -3092,6 +3092,47 @@ async def test_batch_progress_tolerates_null_bucket_rows(
     assert row["images_screened"] == 1
     assert row["images_flagged"] == 1
     assert row["buckets"] == []
+
+
+async def test_batches_list_pages_with_total_limit_and_offset(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The walkthrough list mirrors its images-list sibling: newest first,
+    the page window echoed, and ``total`` carrying the farm's full batch
+    count so walkthroughs older than the newest page stay reachable
+    (2026-09-28 audit, A2)."""
+    import app.api.screening as screening_api
+
+    headers = await owner_with_farm(client, email="batch-page@farm.in")
+    monkeypatch.setattr(
+        screening_api, "get_settings", lambda: _cycle_settings(crop_detection=False)
+    )
+    batch_ids: list[int] = []
+    for _ in range(3):
+        created = await client.post("/api/screening/batches", headers=headers)
+        assert created.status_code == 201, created.text
+        batch_ids.append(created.json()["id"])
+
+    listed = await client.get("/api/screening/batches", headers=headers)
+    assert listed.status_code == 200, listed.text
+    full = listed.json()
+    assert full["total"] == 3
+    assert (full["limit"], full["offset"]) == (10, 0)
+    assert [row["id"] for row in full["batches"]] == list(reversed(batch_ids))
+
+    page = await client.get(
+        "/api/screening/batches", params={"limit": 2, "offset": 2}, headers=headers
+    )
+    assert page.status_code == 200, page.text
+    tail = page.json()
+    assert tail["total"] == 3
+    assert (tail["limit"], tail["offset"]) == (2, 2)
+    assert [row["id"] for row in tail["batches"]] == batch_ids[:1]
+
+    # The page is bounded exactly like the images list.
+    for params in ({"limit": 0}, {"limit": 51}, {"offset": -1}, {"offset": 10001}):
+        rejected = await client.get("/api/screening/batches", params=params, headers=headers)
+        assert rejected.status_code == 422, params
 
 
 # --------------------------------------------------------------------------

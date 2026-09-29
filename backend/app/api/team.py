@@ -1228,60 +1228,82 @@ async def set_worker_status(
 async def reset_password(
     prepared: PreparedPasswordResetDep,
     membership_id: int,
+    response: Response,
     db: DbSession,
+    idempotency_key: IdempotencyKey = None,
 ) -> MembershipOut:
     """Owner-only reset of a global account this farm demonstrably provisioned."""
-    user, farm = await _reauthorize_prepared_owner(
-        db,
-        actor_id=prepared.actor_id,
-        actor_token_version=prepared.actor_token_version,
-        farm_id=prepared.farm_id,
-    )
-    # Owner-only variant of the lifecycle lock bundle: no self-service guard
-    # (an owner is never a member) and no shared User pin — this route takes
-    # the stronger FOR UPDATE User row lock itself below, because it rewrites
-    # that row, and must keep its own distinct 400 on a vanished account.
-    membership = await _locked_membership(db, farm, user, membership_id, pin_user=False)
-    # Serialize with farm creation and new foreign-key affiliations before the
-    # eligibility query; otherwise an account could gain a global affiliation
-    # between the check and the password rewrite.
-    locked_user = (
-        await db.execute(
-            select(User)
-            .where(User.id == membership.user_id, User.deleted_at.is_(None))
-            # _get_membership selectinloads this exact User, so the row is
-            # already in the identity map with its pre-lock column values.
-            # Without populate_existing the ORM hands back that stale instance
-            # and `token_version += 1` below increments a value the locked
-            # SELECT was taken to re-read — a lost update that can re-write the
-            # version a concurrent change-password just committed and leave the
-            # revoked worker holding a still-valid access token.
-            .execution_options(populate_existing=True)
-            .with_for_update()
+
+    async def mutate() -> MembershipOut:
+        user, farm = await _reauthorize_prepared_owner(
+            db,
+            actor_id=prepared.actor_id,
+            actor_token_version=prepared.actor_token_version,
+            farm_id=prepared.farm_id,
         )
-    ).scalar_one_or_none()
-    if locked_user is None:
-        raise HTTPException(status_code=400, detail="Worker account no longer exists")
-    reset_policy = await _reset_password_policy_for_membership(db, membership)
-    if not reset_policy[0]:
-        raise HTTPException(status_code=400, detail=reset_policy[1])
-    locked_user.password_hash = prepared.password_hash
-    locked_user.token_version += 1
-    # Owner chose this password; the worker must rotate it before acting.
-    locked_user.must_change_password = True
-    await revoke_user_sessions(db, membership.user_id)
-    await db.commit()
-    _audit_event(
-        "team.worker.password_reset",
-        farm_id=farm.id,
-        actor_id=user.id,
-        summary="reset provisioned worker credential and revoked sessions",
-        targets={
-            "membership_id": membership.id,
-            "user_id": membership.user_id,
-        },
+        # Owner-only variant of the lifecycle lock bundle: no self-service guard
+        # (an owner is never a member) and no shared User pin — this route takes
+        # the stronger FOR UPDATE User row lock itself below, because it rewrites
+        # that row, and must keep its own distinct 400 on a vanished account.
+        membership = await _locked_membership(db, farm, user, membership_id, pin_user=False)
+        # Serialize with farm creation and new foreign-key affiliations before the
+        # eligibility query; otherwise an account could gain a global affiliation
+        # between the check and the password rewrite.
+        locked_user = (
+            await db.execute(
+                select(User)
+                .where(User.id == membership.user_id, User.deleted_at.is_(None))
+                # _get_membership selectinloads this exact User, so the row is
+                # already in the identity map with its pre-lock column values.
+                # Without populate_existing the ORM hands back that stale instance
+                # and `token_version += 1` below increments a value the locked
+                # SELECT was taken to re-read — a lost update that can re-write the
+                # version a concurrent change-password just committed and leave the
+                # revoked worker holding a still-valid access token.
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if locked_user is None:
+            raise HTTPException(status_code=400, detail="Worker account no longer exists")
+        reset_policy = await _reset_password_policy_for_membership(db, membership)
+        if not reset_policy[0]:
+            raise HTTPException(status_code=400, detail=reset_policy[1])
+        locked_user.password_hash = prepared.password_hash
+        locked_user.token_version += 1
+        # Owner chose this password; the worker must rotate it before acting.
+        locked_user.must_change_password = True
+        await revoke_user_sessions(db, membership.user_id)
+        await db.flush()
+        _audit_event(
+            "team.worker.password_reset",
+            farm_id=farm.id,
+            actor_id=user.id,
+            summary="reset provisioned worker credential and revoked sessions",
+            targets={
+                "membership_id": membership.id,
+                "user_id": membership.user_id,
+            },
+        )
+        return _membership_out(membership, reset_policy, user, farm)
+
+    # Same keyed-HMAC fingerprint contract as reset-pin (2026-09-28 audit,
+    # A1): the raw password never enters the idempotency record or its
+    # response, and a network-lost first response replays instead of forcing
+    # the owner through a second Argon rotation.
+    return await execute_idempotent(
+        db,
+        http_response=response,
+        key=idempotency_key,
+        farm_id=prepared.farm_id,
+        actor_id=prepared.actor_id,
+        operation="team.workers.reset-password",
+        payload=prepared.payload,
+        path_identity={"membership_id": membership_id},
+        success_status=200,
+        response_type=MembershipOut,
+        mutate=mutate,
     )
-    return _membership_out(membership, reset_policy, user, farm)
 
 
 @router.post("/workers/{membership_id}/reset-pin", status_code=200)

@@ -21,7 +21,7 @@ import httpx
 from sqlalchemy import select
 
 from app.db import get_sessionmaker
-from app.models import FeedInventory, KidEntry, KiddingRecord, Task
+from app.models import FeedInventory, KiddingRecord, KidEntry, Task
 from app.utils import today
 
 from .conftest import owner_with_farm
@@ -106,10 +106,16 @@ async def test_mixed_workload_one_farm_final_state_is_exact(client: httpx.AsyncC
         return await client.post(f"/api/tasks/{duties[i]}/complete", headers=owner)
 
     responses = await asyncio.gather(
-        kidding(0), kidding(1), kidding(2),
-        move(0), move(1),
-        mix(0), mix(1),
-        complete(0), complete(1), complete(2),
+        kidding(0),
+        kidding(1),
+        kidding(2),
+        move(0),
+        move(1),
+        mix(0),
+        mix(1),
+        complete(0),
+        complete(1),
+        complete(2),
     )
     for resp in responses:
         assert resp.status_code < 500, f"5xx under mixed load: {resp.status_code} {resp.text[:150]}"
@@ -118,17 +124,21 @@ async def test_mixed_workload_one_farm_final_state_is_exact(client: httpx.AsyncC
     async with get_sessionmaker()() as db:
         for i, br in enumerate(breedings):
             rows = (
-                await db.execute(
-                    select(KiddingRecord).where(KiddingRecord.breeding_record_id == br["id"])
+                (
+                    await db.execute(
+                        select(KiddingRecord).where(KiddingRecord.breeding_record_id == br["id"])
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             assert len(rows) == 1, f"doe {i}: {len(rows)} kidding rows"
             assert rows[0].parity == 1
             kids = (
-                await db.execute(
-                    select(KidEntry).where(KidEntry.kidding_record_id == rows[0].id)
-                )
-            ).scalars().all()
+                (await db.execute(select(KidEntry).where(KidEntry.kidding_record_id == rows[0].id)))
+                .scalars()
+                .all()
+            )
             assert len(kids) == 1
 
         from app.models import Animal
@@ -138,14 +148,14 @@ async def test_mixed_workload_one_farm_final_state_is_exact(client: httpx.AsyncC
             assert row.current_bucket == "BREEDING", row.current_bucket
 
         inventory = (
-            await db.execute(select(FeedInventory).where(FeedInventory.farm_id == farm_id))
-        ).scalars().all()
+            (await db.execute(select(FeedInventory).where(FeedInventory.farm_id == farm_id)))
+            .scalars()
+            .all()
+        )
         for item in inventory:
             assert item.qty_on_hand >= 0, f"{item.ingredient} went negative: {item.qty_on_hand}"
 
-        tasks = (
-            await db.execute(select(Task).where(Task.id.in_(duties)))
-        ).scalars().all()
+        tasks = (await db.execute(select(Task).where(Task.id.in_(duties)))).scalars().all()
         assert all(t.status == "DONE" for t in tasks), [t.status for t in tasks]
 
 

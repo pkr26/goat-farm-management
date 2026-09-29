@@ -18,9 +18,10 @@ from app.models.constants import (
     MIN_REST_FLUSH_DAYS,
     POSTPARTUM_CARE_LEAD_DAYS,
 )
+from app.models.finance import INSURANCE_POLICY_STATUSES
 from app.models.species import GOAT_PROFILE
 from app.permissions import ROLE_PRESET_CODES, ROLE_PRESETS
-from app.schemas import animals, breeding, finance, health, kidding, purchases, tasks
+from app.schemas import animals, breeding, finance, health, kidding, purchases, screening, tasks
 from app.schemas.feeding import IngredientCategoryStr, ShiftStr
 
 
@@ -52,6 +53,13 @@ def test_transaction_category_str_matches_enum() -> None:
     assert _literal_values(finance.TransactionTypeStr) == {t.value for t in models.TransactionType}
 
 
+def test_insurance_status_str_matches_model_vocabulary() -> None:
+    # There is no InsuranceStatus enum: the canonical vocabulary is the
+    # models.finance.INSURANCE_POLICY_STATUSES tuple, the same list the DB
+    # CHECK on insurance_policies.status is built from (2026-09-28 audit, D4).
+    assert _literal_values(finance.InsuranceStatusStr) == set(INSURANCE_POLICY_STATUSES)
+
+
 def test_kid_status_and_ease_strs_match_enums() -> None:
     assert _literal_values(kidding.KidStatusStr) == {s.value for s in models.KidStatus}
     # CAESAREAN is enum/DB vocabulary ahead of the wire (see the health-event
@@ -68,6 +76,7 @@ def test_animal_vocabularies_match_enums() -> None:
     assert _literal_values(animals.Sex) == {s.value for s in models.Sex}
     assert _literal_values(animals.DisposalMethodStr) == {m.value for m in models.DisposalMethod}
     assert _literal_values(animals.CoatColorStr) == {c.value for c in models.CoatColor}
+    assert _literal_values(animals.MortalityCauseStr) == {c.value for c in models.MortalityCause}
 
 
 def test_health_route_str_matches_enum() -> None:
@@ -92,6 +101,26 @@ def test_breeding_vocabularies_match_enums() -> None:
 def test_feeding_vocabularies_match_enums() -> None:
     assert _literal_values(ShiftStr) == {s.value for s in models.FeedingShift}
     assert _literal_values(IngredientCategoryStr) == {c.value for c in models.IngredientCategory}
+
+
+def test_screening_vocabularies_match_enums() -> None:
+    assert _literal_values(screening.ScreeningImageStatusStr) == {
+        s.value for s in models.ScreeningImageStatus
+    }
+    assert _literal_values(screening.ScreeningFindingStatusStr) == {
+        s.value for s in models.ScreeningFindingStatus
+    }
+    assert _literal_values(screening.ScreeningRunStatusStr) == {
+        s.value for s in models.ScreeningRunStatus
+    }
+    assert _literal_values(screening.ScreeningStageStr) == {s.value for s in models.ScreeningStage}
+    assert _literal_values(screening.ScreeningSeverityStr) == {
+        s.value for s in models.ScreeningSeverity
+    }
+    # ScreeningBucketStr is a second hand-copied Bucket list (the first,
+    # animals.BucketStr, is pinned above); both must equal the same enum
+    # (2026-09-28 audit, D4).
+    assert _literal_values(screening.ScreeningBucketStr) == {b.value for b in models.Bucket}
 
 
 def test_sanity_caps_are_shared_from_models() -> None:

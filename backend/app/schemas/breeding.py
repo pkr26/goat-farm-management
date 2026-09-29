@@ -133,6 +133,9 @@ class BreedingRecordOut(BaseModel):
     loss_notes: str | None
     loss_recorded_by_id: int | None
     loss_recorded_at: datetime | None
+    # Entry timestamp: separates the day the service was keyed in from the
+    # (possibly backdated) breeding_date (2026-09-28 audit, D3).
+    created_at: datetime
     has_kidding: bool = False
     doe_tag: str | None = None
     buck_tag: str | None = None

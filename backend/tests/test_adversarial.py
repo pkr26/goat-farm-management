@@ -500,7 +500,7 @@ async def test_kidding_requires_confirmed_pregnancy(client: httpx.AsyncClient) -
     owner = await owner_with_farm(client)
     _, _, br_id = await breed_doe(client, owner)  # still PENDING
     resp = await post_kidding(client, owner, br_id, kids=[{"sex": "M"}])
-    assert resp.status_code == 400
+    assert resp.status_code == 409
     assert resp.json()["detail"] == "Kidding requires a confirmed pregnancy"
     assert await kidding_records(client, owner) == []  # no kidding without confirmation
 
@@ -575,7 +575,7 @@ async def test_complete_task_is_idempotent(client: httpx.AsyncClient) -> None:
     resp = await client.post(f"/api/tasks/{task_id}/complete", headers=owner)
     assert resp.status_code == 200, resp.text
     resp = await client.post(f"/api/tasks/{task_id}/complete", headers=owner)  # replay on DONE
-    assert resp.status_code == 400
+    assert resp.status_code == 409
     # Completion is not terminal for CLEANING, so neither attempt spawned.
     spawned = [t for t in all_tasks(await task_tabs(client, owner)) if t["id"] != task_id]
     assert len(spawned) == 0
@@ -583,7 +583,7 @@ async def test_complete_task_is_idempotent(client: httpx.AsyncClient) -> None:
     resp = await client.post(f"/api/tasks/{task_id}/verify", headers=owner)
     assert resp.status_code == 200, resp.text
     resp = await client.post(f"/api/tasks/{task_id}/verify", headers=owner)  # replay on VERIFIED
-    assert resp.status_code == 400
+    assert resp.status_code == 409
     spawned = [t for t in all_tasks(await task_tabs(client, owner)) if t["id"] != task_id]
     assert len(spawned) == 1
 

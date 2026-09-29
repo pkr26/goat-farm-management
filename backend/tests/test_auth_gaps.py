@@ -64,9 +64,7 @@ async def test_wrong_pin_timing_is_equalized_between_known_and_unknown_names(
     assert worker.status_code in (201, 200), worker.text
     farm_id = owner["X-Farm-Id"]
 
-    roster = await client.get(
-        "/api/auth/worker-roster", params={"farm_id": farm_id}
-    )
+    roster = await client.get("/api/auth/worker-roster", params={"farm_id": farm_id})
     assert roster.status_code == 200, roster.text
     body = roster.json()
     entries = body["items"] if isinstance(body, dict) else body
@@ -93,6 +91,5 @@ async def test_wrong_pin_timing_is_equalized_between_known_and_unknown_names(
     # for unknown names) is typically a 2-3x gap; allow 5x/150ms so only a
     # genuine structural difference trips this.
     assert k_med < max(150.0, 5 * u_med) and u_med < max(150.0, 5 * k_med), (
-        f"PIN timing oracle: known-name median {k_med:.1f} ms vs "
-        f"unknown-name median {u_med:.1f} ms"
+        f"PIN timing oracle: known-name median {k_med:.1f} ms vs unknown-name median {u_med:.1f} ms"
     )

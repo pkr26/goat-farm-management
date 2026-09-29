@@ -70,6 +70,9 @@ class ScenarioOut(BaseModel):
 class ScenarioListOut(BaseModel):
     """One bounded page of saved scenarios plus the full farm-scoped count."""
 
+    # Deliberate legacy name (2026-09-28 audit): siblings use domain nouns
+    # (animals, batches, events), but ``items`` is locked into the wire
+    # contract — renaming would break existing clients for cosmetics.
     items: list[ScenarioOut]
     total: int
     limit: int

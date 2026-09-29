@@ -15,7 +15,6 @@ test_animals_extended. This module pins the gaps that remained:
 - every workflow-driven move carries the full audit tuple.
 """
 
-import asyncio
 from datetime import timedelta
 
 import httpx
@@ -30,7 +29,6 @@ from .conftest import login_and_rotate, owner_with_farm
 from .test_e2e_lifecycle_audit import (
     breed,
     change_status,
-    find_task,
     get_animal,
     make_animal,
     record_kidding,
@@ -62,10 +60,16 @@ async def _mover_worker_headers(client: httpx.AsyncClient, owner: dict) -> dict:
 async def _moves_of(animal_id: int) -> list[BucketMove]:
     async with get_sessionmaker()() as db:
         rows = (
-            await db.execute(
-                select(BucketMove).where(BucketMove.animal_id == animal_id).order_by(BucketMove.id)
+            (
+                await db.execute(
+                    select(BucketMove)
+                    .where(BucketMove.animal_id == animal_id)
+                    .order_by(BucketMove.id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for row in rows:
             await db.refresh(row)
         return list(rows)
@@ -106,7 +110,9 @@ async def test_history_override_fence_gaps(client: httpx.AsyncClient) -> None:
     assert overridden.status_code == 200, overridden.text
     moves = await _moves_of(doe["id"])
     assert moves, "no bucket moves recorded"
-    override_moves = [m for m in moves if (m.reason or "").startswith(HISTORY_OVERRIDE_REASON_PREFIX)]
+    override_moves = [
+        m for m in moves if (m.reason or "").startswith(HISTORY_OVERRIDE_REASON_PREFIX)
+    ]
     assert override_moves, f"no audit marker on any move: {[m.reason for m in moves]}"
     assert override_moves[-1].to_bucket == "PREGNANCY_EARLY"
     assert override_moves[-1].created_by_id is not None, "move lacks actor attribution"
@@ -172,12 +178,8 @@ async def test_owner_override_cannot_bypass_started_quarantine_protocol(
     # Before any protocol work: an owner override may still exit (pristine).
     # Start the protocol by completing the first arrival task.
     tasks = await client.get("/api/tasks", headers=owner)
-    all_rows = (
-        tasks.json()["today"] + tasks.json()["upcoming"] + tasks.json()["overdue"]
-    )
-    arrival = next(
-        t for t in all_rows if t.get("purchase_batch_id") == batch.json()["id"]
-    )
+    all_rows = tasks.json()["today"] + tasks.json()["upcoming"] + tasks.json()["overdue"]
+    arrival = next(t for t in all_rows if t.get("purchase_batch_id") == batch.json()["id"])
     done = await client.post(f"/api/tasks/{arrival['id']}/complete", headers=owner)
     assert done.status_code in (200, 409), done.text
     if done.status_code == 409:
@@ -224,7 +226,7 @@ async def test_weaning_boundary_days_59_60_61(client: httpx.AsyncClient) -> None
             headers=owner,
         )
         assert scan.status_code == 200, scan.text
-        kidding = await record_kidding(
+        await record_kidding(
             client,
             owner,
             bred["id"],
@@ -237,11 +239,19 @@ async def test_weaning_boundary_days_59_60_61(client: httpx.AsyncClient) -> None
         resp = None
         tasks_resp = await client.get("/api/tasks", headers=owner)
         tabs = tasks_resp.json()
-        rows = tabs["today"] + tabs["overdue"] + tabs["upcoming"] + tabs["awaiting"] + tabs["completed"]
+        rows = (
+            tabs["today"]
+            + tabs["overdue"]
+            + tabs["upcoming"]
+            + tabs["awaiting"]
+            + tabs["completed"]
+        )
         wean_task = next(
             (t for t in rows if t["title"].startswith(f"Wean kids of WEAN-F-{days}")), None
         )
-        assert wean_task, f"no weaning duty for WEAN-F-{days} among {[t['title'] for t in rows][:5]}"
+        assert wean_task, (
+            f"no weaning duty for WEAN-F-{days} among {[t['title'] for t in rows][:5]}"
+        )
         resp = await client.post(f"/api/tasks/{wean_task['id']}/complete", headers=owner)
         results[days] = (str(resp.status_code), wean_task.get("due_date"))
 
@@ -252,8 +262,12 @@ async def test_weaning_boundary_days_59_60_61(client: httpx.AsyncClient) -> None
     _ = due_59
 
     # Sex split: the day-60 litter's kids are now in their sex pens.
-    doe60 = await get_animal(client, owner, (await _animal_by_tag(client, owner, "WEAN-F-60"))["id"])
-    listed = (await client.get("/api/animals", params={"limit": 100}, headers=owner)).json()["animals"]
+    doe60 = await get_animal(
+        client, owner, (await _animal_by_tag(client, owner, "WEAN-F-60"))["id"]
+    )
+    listed = (await client.get("/api/animals", params={"limit": 100}, headers=owner)).json()[
+        "animals"
+    ]
     kids60 = [a for a in listed if a.get("dam_id") == doe60["id"]]
     by_sex = {k["sex"]: k["current_bucket"] for k in kids60}
     assert by_sex.get("M") == "MALE_KIDS", by_sex

@@ -140,6 +140,7 @@ from .health import (
 from .idempotency import IdempotencyKey, RequiredIdempotencyKey, execute_idempotent
 from .kidding import KidSpec, LitterSizeError, record_kidding, replan_dam_after_last_kid_death
 from .purchases import create_purchase_batch, schedule_quarantine_tasks
+from .retention import RetentionSummary, run_retention_sweep
 from .tasks import (
     ManualTaskCapacityError,
     actionable_pending_task_predicate,
@@ -200,6 +201,7 @@ __all__ = [
     "ManualTaskCapacityError",
     "PurchaseBatch",
     "RequiredIdempotencyKey",
+    "RetentionSummary",
     "Role",
     "Task",
     "TaskCategory",
@@ -258,6 +260,7 @@ __all__ = [
     "require_purchase_before_recorded_facts",
     "require_status_after_recorded_facts",
     "resolve_personal_task_role_fallback",
+    "run_retention_sweep",
     "schedule_quarantine_tasks",
     "set_daily_kg_per_head",
     "skip_inactive_animal_tasks_batch",

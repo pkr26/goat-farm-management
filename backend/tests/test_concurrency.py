@@ -422,8 +422,9 @@ async def test_concurrent_double_complete_spawns_one_occurrence(
             client.post(f"/api/tasks/{task_id}/complete", headers=owner),
             other.post(f"/api/tasks/{task_id}/complete", headers=owner),
         )
-    # The loser re-reads DONE after the lock and gets "Task is not pending".
-    assert sorted([r1.status_code, r2.status_code]) == [200, 400]
+    # The loser re-reads DONE after the lock and gets "Task is not pending"
+    # (409 since the 2026-09-28 audit, A3 — wrong lifecycle state).
+    assert sorted([r1.status_code, r2.status_code]) == [200, 409]
     tabs = await task_tabs(client, owner)
     mine = [t for t in all_tasks(tabs) if t["title"] == "Daily sweep"]
     original = next(t for t in mine if t["id"] == task_id)

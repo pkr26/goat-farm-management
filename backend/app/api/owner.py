@@ -20,7 +20,7 @@ evaluated in the FARM's own timezone inside SQL, not the deployment default.
 from decimal import Decimal
 from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import Date, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -90,12 +90,12 @@ def _rate(numerator: int | Decimal | None, denominator: int | Decimal | None) ->
 
 @router.get("/overview")
 async def owner_overview(
-    response: Response,
     db: DbSession,
     user: CurrentUser,
 ) -> OwnerOverviewOut:
     """Attention headlines for every farm the caller owns, in one response."""
-    response.headers["Cache-Control"] = "no-store"
+    # No per-route Cache-Control: the baseline header middleware already
+    # answers no-store for every /api response (2026-09-28 audit).
     farms = _require_owned(await _owned_farms(db, user.id))
     farm_ids = [farm.id for farm in farms]
     farms_by_id = {farm.id: farm for farm in farms}
@@ -211,13 +211,13 @@ async def owner_overview(
 
 @router.get("/benchmarks")
 async def owner_benchmarks(
-    response: Response,
     db: DbSession,
     user: CurrentUser,
     days: Annotated[int, Query(ge=1, le=365)] = 90,
 ) -> OwnerBenchmarksOut:
     """Per-farm performance figures over the trailing window, for ranking."""
-    response.headers["Cache-Control"] = "no-store"
+    # no-store comes from the baseline header middleware, like every /api
+    # response (2026-09-28 audit).
     farms = _require_owned(await _owned_farms(db, user.id))
     farm_ids = [farm.id for farm in farms]
     farms_by_id = {farm.id: farm for farm in farms}

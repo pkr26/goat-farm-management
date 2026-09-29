@@ -39,10 +39,16 @@ async def _bump_first_line(code: str, delta: Decimal) -> None:
     async with get_sessionmaker()() as db:
         recipe = (await db.execute(select(FeedRecipe).where(FeedRecipe.code == code))).scalar_one()
         line = (
-            await db.execute(
-                select(FeedRecipeLine).where(FeedRecipeLine.recipe_id == recipe.id).order_by(FeedRecipeLine.id)
+            (
+                await db.execute(
+                    select(FeedRecipeLine)
+                    .where(FeedRecipeLine.recipe_id == recipe.id)
+                    .order_by(FeedRecipeLine.id)
+                )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         assert line is not None
         line.kg_per_100kg = float(Decimal(str(line.kg_per_100kg)) + delta)
         await db.commit()
@@ -52,10 +58,16 @@ async def _negate_first_line(code: str) -> None:
     async with get_sessionmaker()() as db:
         recipe = (await db.execute(select(FeedRecipe).where(FeedRecipe.code == code))).scalar_one()
         line = (
-            await db.execute(
-                select(FeedRecipeLine).where(FeedRecipeLine.recipe_id == recipe.id).order_by(FeedRecipeLine.id)
+            (
+                await db.execute(
+                    select(FeedRecipeLine)
+                    .where(FeedRecipeLine.recipe_id == recipe.id)
+                    .order_by(FeedRecipeLine.id)
+                )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         assert line is not None
         line.kg_per_100kg = -abs(float(line.kg_per_100kg))
         await db.commit()
@@ -68,9 +80,7 @@ async def _stock_up(client: httpx.AsyncClient, owner: dict, ingredient: str, kg:
     path = f"/api/feeding/inventory/{match['id']}/add" if match else None
     if path is None:  # ingredient not stocked for this farm yet — seed via a mix later
         raise AssertionError(f"ingredient {ingredient} not in inventory")
-    resp = await client.post(
-        path, json={"qty_kg": kg, "price_per_kg": 10.0}, headers=owner
-    )
+    resp = await client.post(path, json={"qty_kg": kg, "price_per_kg": 10.0}, headers=owner)
     assert resp.status_code in (200, 201), resp.text
 
 
@@ -101,6 +111,7 @@ async def test_mix_rejects_drifted_recipe_totals(client: httpx.AsyncClient) -> N
     # mix-time guard is the second line of defense, not the first.
     import pytest
     from sqlalchemy.exc import IntegrityError
+
     with pytest.raises(IntegrityError, match="ck_feed_recipe_lines_kg"):
         await _negate_first_line(code)
 
@@ -143,10 +154,14 @@ async def test_thousand_tiny_mixes_equal_one_big_mix_exactly(client: httpx.Async
                 await db.execute(select(FeedRecipe).where(FeedRecipe.code == code))
             ).scalar_one()
             lines = (
-                await db.execute(
-                    select(FeedRecipeLine).where(FeedRecipeLine.recipe_id == recipe.id)
+                (
+                    await db.execute(
+                        select(FeedRecipeLine).where(FeedRecipeLine.recipe_id == recipe.id)
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
         for line in lines:
             if line.ingredient not in stocked:
                 raise AssertionError(f"seeded recipe ingredient {line.ingredient} not stocked")
@@ -164,10 +179,20 @@ async def test_thousand_tiny_mixes_equal_one_big_mix_exactly(client: httpx.Async
 
         async with get_sessionmaker()() as db:
             rows = (
-                await db.execute(select(FeedInventory).where(FeedInventory.farm_id == int(owner["X-Farm-Id"])))
-            ).scalars().all()
+                (
+                    await db.execute(
+                        select(FeedInventory).where(
+                            FeedInventory.farm_id == int(owner["X-Farm-Id"])
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
         totals[label] = {
-            r.ingredient: r.qty_on_hand for r in rows if r.ingredient in {l.ingredient for l in lines}
+            r.ingredient: r.qty_on_hand
+            for r in rows
+            if r.ingredient in {line.ingredient for line in lines}
         }
         _ = today()
 

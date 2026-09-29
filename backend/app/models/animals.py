@@ -73,10 +73,9 @@ class Animal(Base):
             ["animals.farm_id", "animals.id"],
             name="fk_animals_farm_sire",
         ),
-        CheckConstraint(
-            "birth_weight IS NULL OR birth_weight >= 0",
-            name="ck_animals_birth_weight_nonneg",
-        ),
+        # ck_animals_birth_weight_nonneg was dropped (2026-09-28 audit): the
+        # bounded CHECK below implies non-negativity, so the second guard was
+        # a duplicate evaluation on every write.
         CheckConstraint(
             "purchase_price IS NULL OR purchase_price >= 0",
             name="ck_animals_purchase_price_nonneg",
@@ -175,8 +174,12 @@ class Animal(Base):
         ),
         # Market-convention sale capture: a recorded weight-at-sale is a
         # positive measurement (₹/kg benchmarking divides by it), never zero.
+        # Bounded like every sibling weight CHECK (2026-09-28 audit, D5):
+        # Infinity > 0 is true in PostgreSQL, so the text guard does the work.
         CheckConstraint(
-            "sale_weight_kg IS NULL OR sale_weight_kg > 0",
+            "sale_weight_kg IS NULL OR "
+            "(sale_weight_kg > 0 AND sale_weight_kg <= 1000 AND "
+            "sale_weight_kg::text NOT IN ('NaN', 'Infinity', '-Infinity'))",
             name="ck_animals_sale_weight_positive",
         ),
         CheckConstraint(
@@ -518,7 +521,10 @@ class WeightRecord(Base):
         default=utcnow, server_default=text("timezone('UTC', now())")
     )
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
-    animal_id: Mapped[int] = mapped_column(ForeignKey("animals.id"), index=True)
+    # animal_id single dropped (2026-09-28 audit index hygiene):
+    # ix_weight_records_animal_date_id_desc leads with animal_id and serves
+    # every per-animal probe plus the animals-FK enforcement scan.
+    animal_id: Mapped[int] = mapped_column(ForeignKey("animals.id"))
     date: Mapped[date] = mapped_column(default=today)
     weight_kg: Mapped[float] = mapped_column(Numeric(8, 2, asdecimal=False))
     bcs: Mapped[int | None]  # body condition score 1–5
@@ -552,7 +558,9 @@ class BucketMove(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
-    animal_id: Mapped[int] = mapped_column(ForeignKey("animals.id"), index=True)
+    # animal_id single dropped (2026-09-28 audit index hygiene):
+    # ix_bucket_moves_animal_moved_id_desc leads with animal_id.
+    animal_id: Mapped[int] = mapped_column(ForeignKey("animals.id"))
     from_bucket: Mapped[str | None] = mapped_column(String(20))  # None = initial placement
     to_bucket: Mapped[str] = mapped_column(String(20))
     moved_at: Mapped[datetime] = mapped_column(default=utcnow)

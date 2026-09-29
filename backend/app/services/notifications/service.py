@@ -1,13 +1,23 @@
 """Notification service (ITEM 4, 2026-09-21 playbook).
 
-Everything a delivery passes through, in order:
+Every delivery passes through, in order:
 
-1. quiet hours (farm-local) — outside the window the attempt is LOGGED as
-   SKIPPED_QUIET, never sent, and the day-dedupe key means the same fact will
-   not retry tomorrow either (an alert is same-day information);
-2. the per-farm daily cap — counted on committed rows of the local day;
-3. day dedupe — one attempt per (farm, recipient, class, payload, local day);
-4. the provider send — the outcome lands in the log either way.
+1. quiet-hours placeholder cleanup — a SKIPPED_QUIET row holds the day's
+   dedupe slot only until the window opens, so it is deleted on re-entry;
+2. the dedupe CLAIM — ``INSERT ... ON CONFLICT DO NOTHING`` on
+   (farm, recipient, class, payload, local day) BEFORE any send, so two
+   concurrent sessions can never both send the same paid SMS (2026-09-28
+   audit, N2); a loser blocks on the winner's uncommitted claim, then reads
+   the settled row once it commits;
+3. quiet hours (farm-local) — inside the window the claim settles as
+   SKIPPED_QUIET, never sent (an alert is same-day information);
+4. the per-farm daily cap — every status write flushes immediately, so one
+   fan-out batch cannot outrun the cap (2026-09-28 audit, N1);
+5. the provider send — the outcome lands in the log either way.
+
+A claim left in SENDING by a crash settles the slot for the day without a
+delivery: the safe side for paid SMS (no double-send), at the price of one
+missed alert for that fact that day.
 
 The daily digest aggregates each worker's duties due today (``task_scope``)
 into one SMS per opted-in recipient; alert callers pass a stable ``payload``
@@ -25,11 +35,13 @@ from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.config import Settings
 from ...models import Farm, NotificationLog, NotificationRecipient, Task, TaskStatus
+from ...models.notifications import ALERT_CLASSES
 from ...utils import today
 from .providers import (
     DeliveryResult,
@@ -51,16 +63,6 @@ class SendOutcome:
     fresh: bool
 
 
-ALERT_CLASSES = (
-    "DAILY_DIGEST",
-    "SCREENING_FLAG",
-    "KIDDING_WATCH",
-    "OVERDUE_CRITICAL",
-    "FEED_REORDER",
-    "MOVEMENT_RESTRICTION",
-)
-
-
 def payload_hash(payload: str) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -75,7 +77,13 @@ def _in_quiet_hours(settings: Settings, now_local: datetime) -> bool:
     return start <= hour < end
 
 
-async def _farm_send_count_today(db: AsyncSession, farm_id: int, local_date: str) -> int:
+async def _farm_send_count_today(
+    db: AsyncSession, farm_id: int, local_date: date, excluding_id: int
+) -> int:
+    # In-flight SENDING claims from OTHER sessions count too (they are about
+    # to settle as SENT/FAILED) — conservative for the money cap; the caller's
+    # own fresh claim is excluded. In-session rows are visible because every
+    # settle flushes (2026-09-28 audit, N1).
     return int(
         (
             await db.execute(
@@ -84,7 +92,8 @@ async def _farm_send_count_today(db: AsyncSession, farm_id: int, local_date: str
                 .where(
                     NotificationLog.farm_id == farm_id,
                     NotificationLog.local_date == local_date,
-                    NotificationLog.status.in_(["SENT", "FAILED"]),
+                    NotificationLog.status.in_(["SENDING", "SENT", "FAILED"]),
+                    NotificationLog.id != excluding_id,
                 )
             )
         ).scalar_one()
@@ -140,7 +149,7 @@ async def send_notification(
     if alert_class not in ALERT_CLASSES:
         raise ValueError(f"Unknown alert class {alert_class!r}")
     now = now_local or datetime.now(ZoneInfo(farm.timezone))
-    local_date = now.date().isoformat()
+    local_date = now.date()
     digest = payload_hash(f"{alert_class}:{payload}")
 
     # Dedupe: a settled attempt (SENT/FAILED/SKIPPED_CAP) for the same fact
@@ -162,43 +171,66 @@ async def send_notification(
     )
     if quiet_placeholder.rowcount:
         await db.flush()
-    existing = (
-        await db.execute(
-            select(NotificationLog).where(
-                NotificationLog.farm_id == farm.id,
-                NotificationLog.recipient_id == recipient.id,
-                NotificationLog.alert_class == alert_class,
-                NotificationLog.payload_hash == digest,
-                NotificationLog.local_date == local_date,
-            )
-        )
-    ).scalar_one_or_none()
-    if existing is not None:
-        return SendOutcome(status=existing.status, fresh=False)
 
-    def record(status: str, message_id: str | None = None, error: str | None = None) -> SendOutcome:
-        db.add(
-            NotificationLog(
+    # Claim the dedupe slot BEFORE any send (2026-09-28 audit, N2). The old
+    # check-then-insert probe let two concurrent sessions both pass and both
+    # send the SMS; the loser's commit then raised IntegrityError, aborting
+    # the digest batch AFTER earlier recipients' SMSs had gone out, and the
+    # rolled-back rows re-sent on the next tick. ON CONFLICT arbitration makes
+    # exactly one session the sender.
+    claimed_id = (
+        await db.execute(
+            pg_insert(NotificationLog)
+            .values(
                 farm_id=farm.id,
                 recipient_id=recipient.id,
                 alert_class=alert_class,
                 payload_hash=digest,
                 local_date=local_date,
-                status=status,
-                provider_message_id=message_id,
-                # Provider payloads can echo the recipient's number (MSG91);
-                # it never belongs in the durable log.
-                error=None if error is None else redact_phone_numbers(error)[:500],
+                status="SENDING",
             )
+            .on_conflict_do_nothing(constraint="uq_notification_log_day_dedupe")
+            .returning(NotificationLog.id)
         )
+    ).scalar_one_or_none()
+    if claimed_id is None:
+        settled_row = (
+            await db.execute(
+                select(NotificationLog).where(
+                    NotificationLog.farm_id == farm.id,
+                    NotificationLog.recipient_id == recipient.id,
+                    NotificationLog.alert_class == alert_class,
+                    NotificationLog.payload_hash == digest,
+                    NotificationLog.local_date == local_date,
+                )
+            )
+        ).scalar_one()
+        return SendOutcome(status=settled_row.status, fresh=False)
+
+    log = (
+        await db.execute(select(NotificationLog).where(NotificationLog.id == claimed_id))
+    ).scalar_one()
+
+    async def settle(
+        status: str, message_id: str | None = None, error: str | None = None
+    ) -> SendOutcome:
+        log.status = status
+        log.provider_message_id = message_id
+        # Provider payloads can echo the recipient's number (MSG91); it never
+        # belongs in the durable log.
+        log.error = None if error is None else redact_phone_numbers(error)[:500]
+        # Flush EVERY status write so the per-farm daily cap sees this
+        # session's settled rows — the cap used to count only committed rows
+        # and was defeated inside a single fan-out batch (2026-09-28 audit, N1).
+        await db.flush()
         return SendOutcome(status=status, fresh=True)
 
     if _in_quiet_hours(settings, now):
-        return record("SKIPPED_QUIET", error="quiet hours")
+        return await settle("SKIPPED_QUIET", error="quiet hours")
 
-    sent_today = await _farm_send_count_today(db, farm.id, local_date)
+    sent_today = await _farm_send_count_today(db, farm.id, local_date, log.id)
     if sent_today >= settings.notifications_farm_daily_cap:
-        return record("SKIPPED_CAP", error="farm daily cap reached")
+        return await settle("SKIPPED_CAP", error="farm daily cap reached")
 
     try:
         result: DeliveryResult = await _send_with_retry(
@@ -206,10 +238,10 @@ async def send_notification(
         )
     except NotificationDeliveryError as exc:
         logger.warning("notification transport failed (farm=%s): %s", farm.id, exc)
-        return record("FAILED", error=str(exc))
+        return await settle("FAILED", error=str(exc))
     if result.ok:
-        return record("SENT", message_id=result.message_id)
-    return record("FAILED", error=result.error)
+        return await settle("SENT", message_id=result.message_id)
+    return await settle("FAILED", error=result.error)
 
 
 # --- the daily digest -------------------------------------------------------
@@ -354,7 +386,7 @@ async def farms_ready_for_digest(
                 .where(
                     NotificationLog.farm_id == farm.id,
                     NotificationLog.alert_class == "DAILY_DIGEST",
-                    NotificationLog.local_date == local.date().isoformat(),
+                    NotificationLog.local_date == local.date(),
                     NotificationLog.status != "SKIPPED_QUIET",
                 )
                 .limit(1)

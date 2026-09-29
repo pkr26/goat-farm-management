@@ -73,18 +73,21 @@ async def test_queued_completion_replayed_after_another_worker_completes(
     assert first.status_code == 200, first.text
 
     # Worker B's offline queue drains later with ITS OWN key. The server
-    # answers a DEFINITIVE 4xx ("Task is not pending", 400) — the queue's
-    # documented drop bucket (409 = same-key replay; any 4xx = definitive
+    # answers a DEFINITIVE 409 ("Task is not pending" — 2026-09-28 audit, A3:
+    # wrong lifecycle state) — the queue's documented drop bucket (409 =
+    # same-key replay or an already-transitioned duty; any 4xx = definitive
     # rejection, dropped without wedging). A 200 double-effect or a 5xx
     # would both be queue-drain bugs.
     second = await client.post(
         f"/api/tasks/{task_id}/complete",
         headers=worker_b | {"Idempotency-Key": "tablet-B-1"},
     )
-    assert second.status_code in (400, 409), (
+    assert second.status_code == 409, (
         f"replayed foreign completion → {second.status_code}: {second.text[:150]}"
     )
-    assert "pending" in second.json()["detail"].lower() or "already" in second.json()["detail"].lower()
+    assert (
+        "pending" in second.json()["detail"].lower() or "already" in second.json()["detail"].lower()
+    )
 
     # The same for a queued skip arriving after completion.
     late_skip = await client.post(
@@ -92,7 +95,7 @@ async def test_queued_completion_replayed_after_another_worker_completes(
         json={"reason": "queued from the field"},
         headers=worker_b | {"Idempotency-Key": "tablet-B-2"},
     )
-    assert late_skip.status_code in (400, 409), (
+    assert late_skip.status_code == 409, (
         f"replayed foreign skip → {late_skip.status_code}: {late_skip.text[:150]}"
     )
 

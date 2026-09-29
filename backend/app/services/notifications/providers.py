@@ -58,7 +58,10 @@ class ConsoleNotificationProvider:
     name = "console"
 
     async def send_sms(self, phone: str, message: str) -> DeliveryResult:
-        logger.info("notification (console) to=%s text=%r", phone, message)
+        # Dev sink: the message text is the point of the console provider, but
+        # the recipient's number is PII and stays redacted even here
+        # (2026-09-28 audit, N4 — the df4951c PII-log cleanup missed this sink).
+        logger.info("notification (console) to=%s text=%r", redact_phone_numbers(phone), message)
         return DeliveryResult(ok=True, message_id="console")
 
 

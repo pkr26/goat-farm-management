@@ -118,8 +118,17 @@ async def test_insurance_register_create_list_and_tenant_scoping(
     assert listing.status_code == 200, listing.text
     body = listing.json()
     assert body["total"] == 2
+    # The page window echoes like every sibling list (2026-09-28 audit, A2).
+    assert (body["limit"], body["offset"]) == (200, 0)
     # Most urgent renewal first.
     assert [p["policy_number"] for p in body["policies"]] == ["POL-100", "POL-200"]
+
+    page = await list_policies(client, owner, limit=1, offset=1)
+    assert page.status_code == 200, page.text
+    page_body = page.json()
+    assert page_body["total"] == 2
+    assert (page_body["limit"], page_body["offset"]) == (1, 1)
+    assert [p["policy_number"] for p in page_body["policies"]] == ["POL-200"]
 
     # Filters: status, per-animal, and a cross-farm/unknown animal id that
     # simply matches nothing (a filter, not an enumeration oracle).
@@ -1420,11 +1429,14 @@ async def test_insurance_history_is_paginated_with_an_honest_total(
     assert full.status_code == 200, full.text
     assert len(full.json()["premiums"]) == 5
     assert full.json()["total"] == 5
+    # The page window echoes like every sibling list (2026-09-28 audit, A2).
+    assert (full.json()["limit"], full.json()["offset"]) == (200, 0)
 
     page_one = await client.get(f"{base}?limit=2", headers=owner)
     assert page_one.status_code == 200, page_one.text
     body_one = page_one.json()
     assert body_one["total"] == 5
+    assert (body_one["limit"], body_one["offset"]) == (2, 0)
     assert [entry["id"] for entry in body_one["premiums"]] == [
         entry["id"] for entry in full.json()["premiums"][:2]
     ]
@@ -1432,6 +1444,7 @@ async def test_insurance_history_is_paginated_with_an_honest_total(
     page_three = await client.get(f"{base}?limit=2&offset=4", headers=owner)
     assert page_three.status_code == 200, page_three.text
     assert page_three.json()["total"] == 5
+    assert (page_three.json()["limit"], page_three.json()["offset"]) == (2, 4)
     assert len(page_three.json()["premiums"]) == 1
 
     # Past-the-end pages are empty, not errors; ``total`` stays honest.

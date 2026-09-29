@@ -4,7 +4,7 @@ batch), per-animal vaccination schedule from seeded templates.
 Port of v1 app/routers/health.py."""
 
 from datetime import date
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import false, func, or_, select
@@ -27,6 +27,7 @@ from ..models import (
     TaskStatus,
     VaccineTemplate,
 )
+from ..schemas.animals import BucketStr
 from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET, PostgresText
 from ..schemas.health import (
     MAX_BULK_BUCKET_TARGETS,
@@ -141,6 +142,10 @@ async def health_animal_options(
 
     A numeric query, optionally prefixed by ``#``, resolves an exact selected
     id without requiring access to the full animal profile endpoint.
+    ``q`` semantics (2026-09-28 audit — they deliberately differ per
+    router): ``#123`` resolves id 123 only; bare ``123`` matches the id OR
+    a tag/name substring (purchases exact-matches bare digits too, animals
+    never resolves an id).
     """
     stmt = select(Animal).where(
         Animal.farm_id == farm.id,
@@ -176,7 +181,8 @@ async def health_animal_options(
                 id=animal.id,
                 tag_number=animal.tag_number,
                 name=animal.name,
-                current_bucket=animal.current_bucket,
+                # CHECK-constrained to the Bucket vocabulary.
+                current_bucket=cast(BucketStr, animal.current_bucket),
                 movement_restricted=bool(
                     animal.movement_restricted or animal.suspected_scheduled_disease
                 ),
@@ -477,7 +483,11 @@ async def _bulk_target_snapshot(
     farm_id: int,
     target: HealthBulkTargetIn,
     *,
-    reference_date: date | None = None,
+    # Required (2026-09-28 audit): the old `or today()` fallback evaluated
+    # the deployment-default timezone, not the farm's business calendar —
+    # the same fix bucket_transition_error's reference_date got. The only
+    # caller passes today(farm.timezone).
+    reference_date: date,
 ) -> tuple[list[int], list[AnimalIdentityOut], list[int | None]]:
     target_limit = MAX_BULK_BUCKET_TARGETS if target.scope == "bucket" else MAX_BULK_HEALTH_TARGETS
     filters: list[ColumnElement[bool]] = [
@@ -545,8 +555,7 @@ async def _bulk_target_snapshot(
             ),
         )
     ids = [int(row.id) for row in rows]
-    when = reference_date or today()
-    ages = [animal.age_months_on(when) for animal in rows]
+    ages = [animal.age_months_on(reference_date) for animal in rows]
     return (
         ids,
         [

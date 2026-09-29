@@ -94,7 +94,9 @@ async def test_simulation_run_rejection_is_wall_clock_bounded(client: httpx.Asyn
     assert resp.status_code in (400, 409, 422), (
         f"maximal run accepted or blew up: {resp.status_code} {resp.text[:150]}"
     )
-    assert elapsed < 10.0, f"admission control took {elapsed:.1f}s — it computed instead of refusing"
+    assert elapsed < 10.0, (
+        f"admission control took {elapsed:.1f}s — it computed instead of refusing"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +104,9 @@ async def test_simulation_run_rejection_is_wall_clock_bounded(client: httpx.Asyn
 # ---------------------------------------------------------------------------
 
 
-async def test_gate_healthy_photo_costs_exactly_one_provider_call(client: httpx.AsyncClient) -> None:
+async def test_gate_healthy_photo_costs_exactly_one_provider_call(
+    client: httpx.AsyncClient,
+) -> None:
     from app.services.screening.pipeline import run_screening_cycle
     from app.services.screening.rotation import ProviderRotation
 
@@ -179,13 +183,17 @@ async def test_kidding_watch_opens_exactly_five_days_before_due(client: httpx.As
 
     async with get_sessionmaker()() as db:
         duties = (
-            await db.execute(
-                select(Task).where(
-                    Task.farm_id == int(owner["X-Farm-Id"]),
-                    Task.category == "KIDDING_WATCH",
+            (
+                await db.execute(
+                    select(Task).where(
+                        Task.farm_id == int(owner["X-Farm-Id"]),
+                        Task.category == "KIDDING_WATCH",
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
     assert duties, "no kidding-watch duties generated"
     earliest = min(d.due_date for d in duties)
     assert earliest == expected - timedelta(days=5), (
@@ -193,4 +201,4 @@ async def test_kidding_watch_opens_exactly_five_days_before_due(client: httpx.As
         f"expected exactly E-5 (expected {expected})"
     )
     assert all(expected - timedelta(days=5) <= d.due_date <= expected for d in duties)
-    _ = Decimal  # noqa: F841
+    _ = Decimal

@@ -123,9 +123,10 @@ class Task(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    # farm_id single kept deliberately — see the matching note on
-    # Transaction in models/finance.py (2026-09-21 index review).
-    farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
+    # farm_id single dropped (2026-09-28 audit index hygiene):
+    # ix_tasks_farm_status_due and the uq_task_recurring_series_due candidate
+    # key both lead with farm_id (supersedes the 2026-09-21 keep note).
+    farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"))
     title: Mapped[str] = mapped_column(String(MAX_TASK_TITLE_LENGTH))
     # Localization contract for server-generated duties: a stable snake_case
     # key plus structured args the client renders in the worker's language

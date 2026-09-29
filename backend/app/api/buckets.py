@@ -1,6 +1,6 @@
 """Buckets board: all 10 buckets with bounded active-animal previews."""
 
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select, true
@@ -14,6 +14,7 @@ from ..models import (
     BucketMove,
     WeightRecord,
 )
+from ..schemas.animals import BucketStr
 from ..schemas.buckets import BucketBoardRow
 from ..schemas.common import COMMON_ERROR_RESPONSES
 from ..schemas.summaries import BucketAnimalOut
@@ -128,7 +129,8 @@ async def buckets_board(
     for d in defs:
         rows.append(
             BucketBoardRow(
-                bucket=d.code,
+                # d.code is CHECK-constrained to the Bucket vocabulary.
+                bucket=cast(BucketStr, d.code),
                 name=d.name,
                 who=d.who or "",
                 exit_rule=d.exit_rule or "",

@@ -1108,9 +1108,10 @@ async def test_concurrent_task_completion_single_effect(client: httpx.AsyncClien
         complete(client, headers, release["id"]),
     )
     statuses = sorted([first.status_code, second.status_code])
-    # The route refuses the replay ("Task is not pending", 400) — the service
-    # no-op makes even a raced double-submit single-effect.
-    assert statuses in ([200, 200], [200, 400], [200, 409]), (first.text, second.text)
+    # The route refuses the replay ("Task is not pending", 409 since the
+    # 2026-09-28 audit A3) — the service no-op makes even a raced
+    # double-submit single-effect.
+    assert statuses in ([200, 200], [200, 409]), (first.text, second.text)
     for animal in detail["animals"]:
         assert (await get_animal(client, headers, animal["id"]))["current_bucket"] == "FOUNDATION"
     # Exactly one release move per animal in the audit trail.

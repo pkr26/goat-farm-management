@@ -2607,7 +2607,13 @@ def test_edge_auth_flood_zone_is_scoped_and_explicit() -> None:
     """
     proxy_conf = _dev_edge_proxy_template()
 
-    assert "limit_req_zone $binary_remote_addr zone=auth_flood:10m rate=5r/s;" in proxy_conf
+    # Rate/burst are entrypoint-substituted operator knobs (2026-09-28 audit,
+    # F2 — hard-coded literals silently discarded the compose-forwarded
+    # GOATFARM_EDGE_AUTH_RATE/_BURST values).
+    assert (
+        "limit_req_zone $binary_remote_addr zone=auth_flood:10m "
+        "rate=__GOATFARM_EDGE_AUTH_RATE__;" in proxy_conf
+    )
 
     # Extract each location block and require exactly one throttled one.
     # L-1 (2026-09-20 audit): the location has no trailing slash so the
@@ -2618,8 +2624,21 @@ def test_edge_auth_flood_zone_is_scoped_and_explicit() -> None:
     assert "/api/auth/" not in locations
     auth_block = re.search(r"location /api/auth \{(.*?)\n\s*\}", proxy_conf, re.DOTALL)
     assert auth_block is not None
-    assert "limit_req zone=auth_flood burst=20 nodelay;" in auth_block.group(1)
+    assert "limit_req zone=auth_flood burst=__GOATFARM_EDGE_AUTH_BURST__ nodelay;" in (
+        auth_block.group(1)
+    )
     assert "limit_req_status 429;" in auth_block.group(1)
+    # F1 (2026-09-28 audit): the edge-generated 429 is error_page-routed into
+    # a named location that owns the edge's minimal header set, so no
+    # add_header sits on a proxied context (nginx would stamp it onto the
+    # app's responses too — the duplicate/conflicting-headers bug).
+    assert "error_page 429 = @auth_flood_rejected;" in auth_block.group(1)
+    rejected_block = re.search(
+        r"location @auth_flood_rejected \{(.*?)\n\s*\}", proxy_conf, re.DOTALL
+    )
+    assert rejected_block is not None
+    assert "add_header X-Content-Type-Options nosniff always;" in rejected_block.group(1)
+    assert "add_header Referrer-Policy no-referrer always;" in rejected_block.group(1)
     # No other location may throttle: shaping the whole API would couple
     # normal traffic to the login-flood budget.
     for name in locations:
@@ -2929,6 +2948,52 @@ def test_local_compose_fails_closed_for_production_and_forwards_documented_knobs
     assert "GOATFARM_MAX_REQUEST_BODY_BYTES" in api_env
     assert "GOATFARM_MAX_REQUEST_TARGET_BYTES" in api_env
 
+    # 2026-09-28 audit F3: the screening provider-timeout/stale-horizon pair
+    # is cross-validated at boot (the horizon must cover (2 x providers + 6)
+    # x the timeout), so BOTH knobs must reach BOTH screening processes —
+    # forwarding only the timeout to the worker made a raise an
+    # unrecoverable boot refusal.
+    worker_env = services["screening-worker"]["environment"]
+    for env in (api_env, worker_env):
+        assert env["GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS"] == (
+            "${GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS:-120}"
+        )
+        assert env["GOATFARM_SCREENING_STALE_PROCESSING_AFTER_SECONDS"] == (
+            "${GOATFARM_SCREENING_STALE_PROCESSING_AFTER_SECONDS:-1800}"
+        )
+
+    # 2026-09-28 audit F7: the dev stack forwards the same newer feature
+    # knobs as the production compose so notifications/PIN tuning is
+    # exercisable locally. Fallbacks stay the Settings defaults (production
+    # deliberately pins MAX_FARMS_PER_USER=25 and WORKER_PIN_MIN_LENGTH=6).
+    for knob in (
+        "GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM",
+        "GOATFARM_MAX_FARMS_PER_USER",
+        "GOATFARM_NOTIFICATIONS_ENABLED",
+        "GOATFARM_NOTIFICATIONS_PROVIDER",
+        "GOATFARM_MSG91_AUTH_KEY",
+        "GOATFARM_MSG91_SENDER_ID",
+        "GOATFARM_MSG91_TEMPLATE_ID",
+        "GOATFARM_NOTIFICATIONS_DIGEST_HOUR",
+        "GOATFARM_NOTIFICATIONS_DIGEST_MINUTE",
+        "GOATFARM_NOTIFICATIONS_FARM_DAILY_CAP",
+        "GOATFARM_NOTIFICATIONS_QUIET_START_HOUR",
+        "GOATFARM_NOTIFICATIONS_QUIET_END_HOUR",
+        "GOATFARM_NOTIFICATIONS_SEND_RETRY_ATTEMPTS",
+        "GOATFARM_NOTIFICATIONS_SEND_RETRY_BACKOFF_SECONDS",
+        "GOATFARM_NOTIFICATIONS_LOOP_BATCH_SIZE",
+        "GOATFARM_WORKER_PIN_MIN_LENGTH",
+        "GOATFARM_WORKER_PIN_RATE_LIMIT_MAX_ATTEMPTS",
+        "GOATFARM_WORKER_PIN_RATE_LIMIT_WINDOW_SECONDS",
+    ):
+        assert knob in api_env, knob
+    assert api_env["GOATFARM_MAX_FARMS_PER_USER"] == "${GOATFARM_MAX_FARMS_PER_USER:-10}"
+    assert api_env["GOATFARM_WORKER_PIN_MIN_LENGTH"] == "${GOATFARM_WORKER_PIN_MIN_LENGTH:-4}"
+    # The budget's sole enforcement point is the worker's pipeline claim path.
+    assert worker_env["GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM"] == (
+        "${GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM:-400}"
+    )
+
 
 def test_production_compose_is_a_standalone_external_tls_topology() -> None:
     """Production must not inherit the bundled, TLS-off development DB."""
@@ -3063,13 +3128,34 @@ def test_production_compose_is_a_standalone_external_tls_topology() -> None:
     # policy (frontend/src/proxy.ts) — a nonce must be minted at the render
     # boundary so Next.js can stamp it on its own scripts, which the edge
     # cannot do. The template therefore carries NO CSP header and, with it,
-    # no 'unsafe-inline' script-src escape hatch. Baseline headers cover the
-    # responses nginx itself generates.
+    # no 'unsafe-inline' script-src escape hatch.
     assert "Content-Security-Policy" not in template
     assert "__GOATFARM_CSP_" not in template
-    assert "add_header X-Content-Type-Options nosniff always;" in template
-    assert "add_header Referrer-Policy no-referrer always;" in template
-    assert "add_header Strict-Transport-Security" in template
+    # F1 (2026-09-28 audit): the edge's minimal header set covers ONLY the
+    # responses nginx itself generates. A server-level `add_header ... always`
+    # also stamped proxied responses — duplicate X-Frame-Options/
+    # X-Content-Type-Options and a Referrer-Policy conflicting with the app's
+    # on every response. Pin the scoping: no add_header at server level or on
+    # any proxied location; the two edge-generated response locations
+    # (/edge-healthz, @auth_flood_rejected) own the set.
+    server_directives = re.search(r"server \{(.*?)\n    location", template, re.DOTALL)
+    assert server_directives is not None
+    server_code = re.sub(r"^\s*#.*$", "", server_directives.group(1), flags=re.MULTILINE)
+    assert "add_header" not in server_code
+    for proxied in ("/api/auth", "/api/", "/"):
+        block = re.search(rf"location {re.escape(proxied)} \{{(.*?)\n\s*\}}", template, re.DOTALL)
+        assert block is not None
+        proxied_code = re.sub(r"^\s*#.*$", "", block.group(1), flags=re.MULTILINE)
+        assert "add_header" not in proxied_code, proxied
+    healthz = re.search(r"location = /edge-healthz \{(.*?)\n\s*\}", template, re.DOTALL)
+    assert healthz is not None
+    assert "add_header X-Content-Type-Options nosniff always;" in healthz.group(1)
+    rejected = re.search(r"location @auth_flood_rejected \{(.*?)\n\s*\}", template, re.DOTALL)
+    assert rejected is not None
+    assert "add_header X-Content-Type-Options nosniff always;" in rejected.group(1)
+    assert "add_header Referrer-Policy no-referrer always;" in rejected.group(1)
+    assert "add_header Strict-Transport-Security" in rejected.group(1)
+    assert "error_page 429 = @auth_flood_rejected;" in template
     # The deployment-owned origins reach the frontend container instead.
     production_compose = yaml.safe_load((REPO_ROOT / "docker-compose.production.yml").read_text())
     frontend_env = production_compose["services"]["frontend"]["environment"]
@@ -3168,6 +3254,22 @@ def test_production_compose_forwards_every_new_playbook_knob() -> None:
         f"{settings.screening_daily_call_budget_per_farm}}}"
     )
     assert "GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM" in api_env
+
+    # 2026-09-28 audit F3: the provider-timeout/stale-horizon pair is
+    # cross-validated at boot in BOTH processes (the horizon must cover
+    # (2 x providers + 6) x the timeout), so both services must receive both
+    # knobs with fallbacks equal to the Settings defaults.
+    both_service_knobs = {
+        "GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS": (
+            settings.screening_provider_timeout_seconds
+        ),
+        "GOATFARM_SCREENING_STALE_PROCESSING_AFTER_SECONDS": (
+            settings.screening_stale_processing_after_seconds
+        ),
+    }
+    for knob, default in both_service_knobs.items():
+        for env in (api_env, worker_env):
+            assert env[knob] == "${" + knob + ":-" + str(default) + "}", knob
 
     api_only_knobs = {
         "GOATFARM_MSG91_TEMPLATE_ID": settings.msg91_template_id,
@@ -3447,6 +3549,18 @@ def test_edge_runtime_csp_is_validated_before_the_template_is_rendered(tmp_path:
     # frontend proxy) and no unsafe-inline escape hatch anywhere.
     assert "Content-Security-Policy" not in proxy
     assert "__GOATFARM_CSP_" not in proxy
+    # F1 (2026-09-28 audit): the dev edge scopes its minimal header set the
+    # same way as production — nothing at server level or on the proxied
+    # locations (nginx would stamp it onto the app's own header set).
+    dev_server = re.search(r"server \{(.*?)\n    location", proxy, re.DOTALL)
+    assert dev_server is not None
+    assert "add_header" not in re.sub(r"^\s*#.*$", "", dev_server.group(1), flags=re.MULTILINE)
+    for proxied in ("/api/auth", "/api/", "/"):
+        block = re.search(rf"location {re.escape(proxied)} \{{(.*?)\n\s*\}}", proxy, re.DOTALL)
+        assert block is not None
+        assert "add_header" not in re.sub(r"^\s*#.*$", "", block.group(1), flags=re.MULTILINE), (
+            proxied
+        )
     assert "add_header X-Content-Type-Options nosniff always;" in proxy
     assert "add_header Referrer-Policy no-referrer always;" in proxy
     # The dev edge is deliberately HTTP: no HSTS header here.
@@ -3593,6 +3707,14 @@ def test_edge_runtime_csp_is_validated_before_the_template_is_rendered(tmp_path:
     local_text = local_rendered.read_text()
     assert "proxy_set_header X-Forwarded-Proto http;" in local_text
     assert "client_max_body_size 2m;" in local_text
+    # F2 (2026-09-28 audit): the dev template carries the same rate/burst
+    # placeholders as production, so the compose-forwarded knobs ride the
+    # identical validated rendering path. No placeholder may survive, and
+    # with no rate env set the documented defaults render verbatim.
+    assert "__GOATFARM_EDGE_" not in local_text
+    assert "limit_req_zone $binary_remote_addr zone=auth_flood:10m rate=5r/s;" in local_text
+    assert "burst=20 nodelay;" in local_text
+    assert "error_page 429 = @auth_flood_rejected;" in local_text
 
 
 def test_migrations_and_restores_share_the_same_release_writer_lock() -> None:

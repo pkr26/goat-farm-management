@@ -21,7 +21,9 @@ from .conftest import owner_with_farm
 from .test_rbac_exhaustive import _app_routes
 
 
-async def _batch_prices(client: httpx.AsyncClient, owner: dict, count: int, total: float) -> list[Decimal]:
+async def _batch_prices(
+    client: httpx.AsyncClient, owner: dict, count: int, total: float
+) -> list[Decimal]:
     resp = await client.post(
         "/api/purchases/new",
         json={
@@ -43,9 +45,7 @@ async def _batch_prices(client: httpx.AsyncClient, owner: dict, count: int, tota
 async def test_purchase_split_hand_case_100001_over_3(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client, email="split@farm.in")
     prices = await _batch_prices(client, owner, 3, 100_001.00)
-    assert sum(prices) == Decimal("100001.00"), (
-        f"paise drift: {prices} sums to {sum(prices)}"
-    )
+    assert sum(prices) == Decimal("100001.00"), f"paise drift: {prices} sums to {sum(prices)}"
     # Deterministic residue: the first head carries the extra paisa.
     assert prices[0] - prices[-1] in (Decimal("0.00"), Decimal("0.01"), Decimal("-0.01"))
 
@@ -113,14 +113,15 @@ async def test_ledger_correction_voids_and_replaces(client: httpx.AsyncClient) -
     by_id = {t["id"]: t for t in rows}
     assert original["id"] in by_id
     voided = by_id[original["id"]]
-    assert voided.get("voided") or voided.get("is_void") or voided.get("status") == "VOIDED" or (
-        voided.get("correction_of_id") is None and voided.get("amount") == 0
-    ) or voided.get("voided_at") or voided.get("void_reason"), (
-        f"original row not visibly voided: {voided}"
-    )
-    replacement = next(
-        (t for t in rows if t.get("correction_of_id") == original["id"]), None
-    )
+    assert (
+        voided.get("voided")
+        or voided.get("is_void")
+        or voided.get("status") == "VOIDED"
+        or (voided.get("correction_of_id") is None and voided.get("amount") == 0)
+        or voided.get("voided_at")
+        or voided.get("void_reason")
+    ), f"original row not visibly voided: {voided}"
+    replacement = next((t for t in rows if t.get("correction_of_id") == original["id"]), None)
     assert replacement is not None, f"no replacement row references the original: {rows}"
     assert Decimal(str(replacement["amount"])) == Decimal("150.00")
 

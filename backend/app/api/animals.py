@@ -264,6 +264,13 @@ async def list_animals(
     limit: Annotated[int, Query(ge=1, le=200)] = 100,
     offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
 ) -> AnimalListOut:
+    """Paginated herd register, bucket/tag ordered.
+
+    ``q`` semantics (2026-09-28 audit — they deliberately differ per
+    router): matches tag_number/name substring only; a numeric query does
+    NOT resolve an id here (purchases exact-matches bare digits, health
+    exact-matches only ``#``-prefixed digits).
+    """
     stmt = select(Animal).where(Animal.farm_id == farm.id)
     if bucket is not None:
         stmt = stmt.where(Animal.current_bucket == bucket)
@@ -305,7 +312,7 @@ async def list_animals(
         )
         for animal in page_animals
     ]
-    return AnimalListOut(animals=animals, total=total)
+    return AnimalListOut(animals=animals, total=total, limit=limit, offset=offset)
 
 
 @router.post("", status_code=201)
@@ -318,6 +325,16 @@ async def create_animal(
     response: Response,
     idempotency_key: IdempotencyKey = None,
 ) -> AnimalOut:
+    """Register one animal.
+
+    Idempotency-Key is CONDITIONALLY required (2026-09-28 audit): any
+    purchased-animal create that books money — a managed purchase (batch +
+    quarantine schedule + ANIMAL_PURCHASE expense) or a historical import
+    with a purchase_price — answers 422 without the header, because a
+    keyless retry would double-book the expense. Creates that book no money
+    (BORN, or price-less imports) accept a keyless request, so the header
+    cannot be published as unconditionally required on this route.
+    """
     farm_date = today(farm.timezone)
     try:
         for field_name, value in (
@@ -801,6 +818,7 @@ async def animal_profile(
                 # free text and can carry clinical detail, so it follows the
                 # same health.view boundary as dashboard weight narratives.
                 notes=weight.notes if "health.view" in perms else None,
+                created_at=weight.created_at,
             )
             for weight in weights_result.scalars()
         ],
@@ -1099,15 +1117,22 @@ async def record_weight(
     )
 
 
-@router.post("/{animal_id}/status")
-async def change_status(
-    animal_id: int,
+async def _change_status_mutation(
     payload: StatusChangeIn,
+    animal_id: int,
     db: DbSession,
     farm: CurrentFarm,
     user: CurrentUser,
-    perms: Annotated[set[str], Depends(require_perm("animals.status"))],
-) -> AnimalOut:
+    perms: set[str],
+) -> tuple[AnimalOut, tuple[str, str] | None]:
+    """Apply a terminal herd-status transition and its cascade atomically.
+
+    Returns the serialized animal plus, when a scheduled-disease mortality
+    placed a movement restriction, the (text, dedupe key) pair for the
+    post-commit alert fan-out — carried out of the mutation so an idempotent
+    replay never re-alerts.
+    """
+    restriction_alert: tuple[str, str] | None = None
     animal = await _get_animal(db, farm.id, animal_id, for_update=True)
     # Only an ACTIVE animal can change status — replaying a sale on an
     # already-SOLD animal must not book a second income transaction. The row
@@ -1254,6 +1279,11 @@ async def change_status(
                 acted_by_id=user.id,
             )
             animal.authority_notified_at = payload.authority_notified_at
+            restriction_alert = (
+                f"Herdly: {animal.tag_number} placed under movement restriction "
+                f"(suspected {payload.suspected_disease or 'scheduled disease'}).",
+                f"movement-restriction:{animal.id}:{animal.restriction_version}",
+            )
         try:
             await replan_dam_after_last_kid_death(db, farm, animal, status_date)
         except DBAPIError as exc:
@@ -1468,20 +1498,59 @@ async def change_status(
     # this, a policy for sold/dead stock keeps nagging the dashboard expiry
     # card forever (the register has no edit path to close it by hand).
     await lapse_policies_for_animal(db, farm, animal)
-    await db.commit()
-    if payload.new_status == AnimalStatus.DEAD.value and payload.suspected_scheduled_disease:
+    # The session deliberately disables autoflush. Persist every status fact
+    # before the SQL-backed serializer recomputes the animal's facts,
+    # otherwise an incorrect response would also be cached by durable
+    # idempotency (same reasoning as animal creation).
+    await db.flush()
+    out = await _animal_out(db, animal, today(farm.timezone), farm.timezone, perms)
+    return out, restriction_alert
+
+
+@router.post("/{animal_id}/status")
+async def change_status(
+    animal_id: int,
+    payload: StatusChangeIn,
+    response: Response,
+    db: DbSession,
+    farm: CurrentFarm,
+    user: CurrentUser,
+    perms: Annotated[set[str], Depends(require_perm("animals.status"))],
+    idempotency_key: IdempotencyKey = None,
+) -> AnimalOut:
+    # (2026-09-28 audit, A1): the SOLD/CULLED branch books a ledger
+    # transaction, so a network-lost first response must be recoverable — an
+    # optional Idempotency-Key replays it instead of answering a bare 400
+    # "already sold".
+    restriction_alert: tuple[str, str] | None = None
+
+    async def mutate() -> AnimalOut:
+        nonlocal restriction_alert
+        out, restriction_alert = await _change_status_mutation(
+            payload, animal_id, db, farm, user, perms
+        )
+        return out
+
+    result = await execute_idempotent(
+        db,
+        http_response=response,
+        key=idempotency_key,
+        farm_id=farm.id,
+        actor_id=user.id,
+        operation="POST /api/animals/{animal_id}/status",
+        payload=payload,
+        path_identity={"animal_id": animal_id},
+        success_status=200,
+        response_type=AnimalOut,
+        mutate=mutate,
+    )
+    if restriction_alert is not None:
         # ITEM 4 alert hook: a scheduled-disease restriction is the same-day
         # regulatory signal the owner opted into. Best-effort, own session —
-        # the committed mortality write must not fail on it.
+        # the committed mortality write must not fail on it. Only a fresh
+        # mutation carries a fan-out; a replayed response never re-alerts
+        # (same contract as /api/health/events).
         from ..services.notifications import emit_alert
 
-        await emit_alert(
-            farm.id,
-            "MOVEMENT_RESTRICTION",
-            (
-                f"Herdly: {animal.tag_number} placed under movement restriction "
-                f"(suspected {payload.suspected_disease or 'scheduled disease'})."
-            ),
-            f"movement-restriction:{animal.id}:{animal.restriction_version}",
-        )
-    return await _animal_out(db, animal, today(farm.timezone), farm.timezone, perms)
+        await emit_alert(farm.id, "MOVEMENT_RESTRICTION", *restriction_alert)
+    return result

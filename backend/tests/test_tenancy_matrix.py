@@ -42,9 +42,7 @@ UNKNOWN_FARM = 999_999_999  # inside int32, never created
 
 def _farm_scoped_routes() -> list[tuple[str, str]]:
     """(method, path) for every route that resolves X-Farm-Id."""
-    return sorted(
-        {(method, path) for method, path, _perm, scoped in _app_routes() if scoped}
-    )
+    return sorted({(method, path) for method, path, _perm, scoped in _app_routes() if scoped})
 
 
 async def _seed_farm_objects(
@@ -176,9 +174,7 @@ async def test_unknown_and_forbidden_farm_404s_are_byte_identical(
 
     # Every farm-scoped route WITHOUT a path parameter — the 404 can only
     # come from the tenant lookup, so the comparison is meaningful.
-    list_routes = [
-        (m, p) for m, p in _farm_scoped_routes() if "{" not in p and m == "GET"
-    ]
+    list_routes = [(m, p) for m, p in _farm_scoped_routes() if "{" not in p and m == "GET"]
     assert len(list_routes) >= 20, f"only {len(list_routes)} parameterless GETs found"
 
     failures: list[str] = []
@@ -235,8 +231,7 @@ async def test_unknown_and_forbidden_farm_404_latency_is_indistinguishable(
     # real oracle (e.g. a second ownership query, a different error path)
     # still trips it.
     assert f_med < max(75.0, 5 * u_med) and u_med < max(75.0, 5 * f_med), (
-        f"404 latency asymmetry: forbidden median={f_med:.1f} ms, "
-        f"unknown median={u_med:.1f} ms"
+        f"404 latency asymmetry: forbidden median={f_med:.1f} ms, unknown median={u_med:.1f} ms"
     )
 
 
@@ -294,7 +289,9 @@ async def test_idor_foreign_object_ids_answer_404_for_reads_and_writes(
         if resp.status_code != 404:
             failures.append(f"{method} {url} → {resp.status_code} (expected 404)")
         twin = await client.request(
-            method, url.replace(str(animal_id), "99999").replace(str(task_id), "99999"), headers=a_headers
+            method,
+            url.replace(str(animal_id), "99999").replace(str(task_id), "99999"),
+            headers=a_headers,
         )
         if twin.status_code == 404 and resp.content != twin.content:
             failures.append(
@@ -381,7 +378,9 @@ async def test_cross_tenant_foreign_keys_rejected_at_the_api_boundary(
     assert health.status_code not in (200, 201, 403), (
         f"cross-farm health event accepted: {health.status_code} {health.text[:200]}"
     )
-    assert health.status_code == health_twin.status_code and health.content == health_twin.content, (
+    assert (
+        health.status_code == health_twin.status_code and health.content == health_twin.content
+    ), (
         "health-event rejection differs between a foreign animal and a nonexistent one "
         f"({health.status_code} {health.content[:100]!r} vs "
         f"{health_twin.status_code} {health_twin.content[:100]!r}) — an existence oracle"
@@ -427,7 +426,9 @@ async def test_cross_tenant_foreign_keys_rejected_at_the_api_boundary(
     assert policy.status_code not in (200, 201, 403), (
         f"cross-farm insurance policy accepted: {policy.status_code} {policy.text[:200]}"
     )
-    assert policy.status_code == policy_twin.status_code and policy.content == policy_twin.content, (
+    assert (
+        policy.status_code == policy_twin.status_code and policy.content == policy_twin.content
+    ), (
         "insurance animal rejection differs between foreign and nonexistent ids "
         f"({policy.status_code} {policy.content[:100]!r} vs {policy_twin.status_code} "
         f"{policy_twin.content[:100]!r}) — an existence oracle"
@@ -497,13 +498,17 @@ async def test_owner_console_and_defaults_do_not_leak_other_farms(
             await db.execute(select(User).where(User.email == "console-owner@farm.in"))
         ).scalar_one()
         other_role = (
-            await db.execute(
-                select(Role).where(
-                    Role.farm_id == int(other_headers["X-Farm-Id"]),
-                    Role.deleted_at.is_(None),
+            (
+                await db.execute(
+                    select(Role).where(
+                        Role.farm_id == int(other_headers["X-Farm-Id"]),
+                        Role.deleted_at.is_(None),
+                    )
                 )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         assert other_role is not None, "farm seeding did not create any role"
         db.add(
             FarmMembership(

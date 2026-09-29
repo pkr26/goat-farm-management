@@ -598,7 +598,8 @@ async def complete(
 ) -> TaskOut:
     # ITEM 2 Phase 1 (2026-09-21 playbook): the tablet's offline queue retries
     # this mutation; an optional Idempotency-Key turns a retry into the
-    # original response instead of a second 400 "not pending".
+    # original response instead of a fresh 409 "not pending" (2026-09-28
+    # audit, A3 — wrong lifecycle state answers 409 everywhere).
 
     async def mutate() -> TaskOut:
         # A recurrence inserts another Task and therefore starts with FARM. The
@@ -610,7 +611,7 @@ async def complete(
         locked_animals = await _lock_completion_animals(db, farm, task_id)
         task = await _get_task(db, farm, task_id, for_update=True)
         if task.status != TaskStatus.PENDING.value:
-            raise HTTPException(status_code=400, detail="Task is not pending")
+            raise HTTPException(status_code=409, detail="Task is not pending")
         _require_locked_linked_animal_active(task, locked_animals)
         try:
             await resolve_personal_task_role_fallback(db, task)
@@ -688,7 +689,7 @@ async def skip(
         locked_animals = await _lock_completion_animals(db, farm, task_id)
         task = await _get_task(db, farm, task_id, for_update=True)
         if task.status != TaskStatus.PENDING.value:
-            raise HTTPException(status_code=400, detail="Task is not pending")
+            raise HTTPException(status_code=409, detail="Task is not pending")
         _require_locked_linked_animal_active(task, locked_animals)
         try:
             await resolve_personal_task_role_fallback(db, task)
@@ -793,89 +794,135 @@ async def skip(
 
 @router.post("/{task_id}/verify")
 async def verify(
-    task_id: int, db: DbSession, user: CurrentUser, farm: CurrentFarm, perms: VERIFY
+    task_id: int,
+    response: Response,
+    db: DbSession,
+    user: CurrentUser,
+    farm: CurrentFarm,
+    perms: VERIFY,
+    idempotency_key: IdempotencyKey = None,
 ) -> TaskOut:
-    # Verifying a recurring verification-required duty is the transition that
-    # spawns its successor (see verify_task) — completion cannot, because a
-    # reject can reopen it. The successor insert takes FK KEY SHARE on the
-    # linked animal, so this route follows the same canonical FARM -> ANIMAL
-    # -> TASK lock order as complete/skip; locking the Task row first would
-    # invert against animal-first writes (sales, status sweeps) and deadlock.
-    await _lock_farm_for_recurring_transition(db, farm, task_id)
-    locked_animals = await _lock_completion_animals(db, farm, task_id)
-    task = await _get_task(db, farm, task_id, for_update=True)
-    if task.status != TaskStatus.DONE.value or not task.needs_verification:
-        raise HTTPException(status_code=400, detail="Task is not awaiting verification")
-    # Two-person rule: the worker who did the duty cannot verify his own
-    # work; the farm owner is exempt.
-    if task.completed_by_id == user.id and farm.owner_id != user.id:
-        raise HTTPException(status_code=409, detail="Someone else must verify this duty")
-    # Completion could only act while the linked animal was ACTIVE; by review
-    # time the animal may be sold/dead and its pending duties already swept.
-    # Spawning then would plant a PENDING row no sweep revisits and no action
-    # can close (complete/skip 409 on an inactive animal), permanently holding
-    # one slot of the farm's manual-duty capacity — the series ends instead.
-    spawn_successor = task.recur_days is not None and (
-        task.animal_id is None
-        or any(
-            animal.id == task.animal_id and animal.status == AnimalStatus.ACTIVE.value
-            for animal in locked_animals
+    # (2026-09-28 audit, A1): same tablet-offline retry story as complete/skip
+    # — an optional Idempotency-Key turns a retry into the original response
+    # instead of an unrecoverable bare 409 "not awaiting verification"
+    # (2026-09-28 audit, A3 — wrong lifecycle state answers 409 everywhere).
+
+    async def mutate() -> TaskOut:
+        # Verifying a recurring verification-required duty is the transition that
+        # spawns its successor (see verify_task) — completion cannot, because a
+        # reject can reopen it. The successor insert takes FK KEY SHARE on the
+        # linked animal, so this route follows the same canonical FARM -> ANIMAL
+        # -> TASK lock order as complete/skip; locking the Task row first would
+        # invert against animal-first writes (sales, status sweeps) and deadlock.
+        await _lock_farm_for_recurring_transition(db, farm, task_id)
+        locked_animals = await _lock_completion_animals(db, farm, task_id)
+        task = await _get_task(db, farm, task_id, for_update=True)
+        if task.status != TaskStatus.DONE.value or not task.needs_verification:
+            raise HTTPException(status_code=409, detail="Task is not awaiting verification")
+        # Two-person rule: the worker who did the duty cannot verify his own
+        # work; the farm owner is exempt.
+        if task.completed_by_id == user.id and farm.owner_id != user.id:
+            raise HTTPException(status_code=409, detail="Someone else must verify this duty")
+        # Completion could only act while the linked animal was ACTIVE; by review
+        # time the animal may be sold/dead and its pending duties already swept.
+        # Spawning then would plant a PENDING row no sweep revisits and no action
+        # can close (complete/skip 409 on an inactive animal), permanently holding
+        # one slot of the farm's manual-duty capacity — the series ends instead.
+        spawn_successor = task.recur_days is not None and (
+            task.animal_id is None
+            or any(
+                animal.id == task.animal_id and animal.status == AnimalStatus.ACTIVE.value
+                for animal in locked_animals
+            )
         )
+        live_successor = await find_live_recurring_successor(db, task) if spawn_successor else None
+        if spawn_successor and not task.auto_generated and live_successor is None:
+            # Unlike completion/skip, verification does not close a PENDING row to
+            # pay for the successor it spawns — the occurrence being verified is
+            # already DONE — so a genuinely net-new manual PENDING row is bounded
+            # exactly like creation and rejection, under the same held Farm lock.
+            # A retained occurrence may already have produced the series' one live
+            # successor; reusing that row consumes no slot and must remain possible
+            # even when the queue is currently full.
+            await _guard_manual_task_capacity_locked(db, farm)
+        try:
+            await verify_task(db, task, user, spawn_successor=spawn_successor)
+        except ValueError as exc:
+            await db.rollback()
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+        return task_out(task)
+
+    return await execute_idempotent(
+        db,
+        http_response=response,
+        key=idempotency_key,
+        farm_id=farm.id,
+        actor_id=user.id,
+        operation="POST /api/tasks/{task_id}/verify",
+        payload=TaskCompleteIn(),
+        path_identity={"task_id": task_id},
+        success_status=200,
+        response_type=TaskOut,
+        mutate=mutate,
     )
-    live_successor = await find_live_recurring_successor(db, task) if spawn_successor else None
-    if spawn_successor and not task.auto_generated and live_successor is None:
-        # Unlike completion/skip, verification does not close a PENDING row to
-        # pay for the successor it spawns — the occurrence being verified is
-        # already DONE — so a genuinely net-new manual PENDING row is bounded
-        # exactly like creation and rejection, under the same held Farm lock.
-        # A retained occurrence may already have produced the series' one live
-        # successor; reusing that row consumes no slot and must remain possible
-        # even when the queue is currently full.
-        await _guard_manual_task_capacity_locked(db, farm)
-    try:
-        await verify_task(db, task, user, spawn_successor=spawn_successor)
-    except ValueError as exc:
-        await db.rollback()
-        raise HTTPException(status_code=409, detail=str(exc)) from None
-    await db.commit()
-    return task_out(task)
 
 
 @router.post("/{task_id}/reject")
 async def reject(
     payload: TaskRejectIn,
     task_id: int,
+    response: Response,
     db: DbSession,
     user: CurrentUser,
     farm: CurrentFarm,
     perms: VERIFY,
+    idempotency_key: IdempotencyKey = None,
 ) -> TaskOut:
-    # Reject is the other transition that can add a PENDING manual duty. Take
-    # Farm before Task so it serializes with create and recurring successor
-    # insertion without forming a Farm/Task lock cycle.
-    await lock_manual_task_queue(db, farm)
-    # Match complete/skip's canonical FARM -> ANIMAL -> TASK order: reject also
-    # sends the duty back to PENDING, so it needs the same re-check that the
-    # linked animal is still ACTIVE or the row becomes a stranded PENDING duty
-    # no list/sweep can ever reach again.
-    locked_animals = await _lock_completion_animals(db, farm, task_id)
-    task = await _get_task(db, farm, task_id, for_update=True)
-    if task.status != TaskStatus.DONE.value or not task.needs_verification:
-        raise HTTPException(status_code=400, detail="Task is not awaiting verification")
-    _require_locked_linked_animal_active(task, locked_animals)
-    # Rejection returns the duty to PENDING, which is exactly the state
-    # ck_tasks_user_assignment_has_role constrains. Repair a pre-D9 personal row
-    # first, like complete/skip do: without it the flush raises IntegrityError
-    # and the duty can never be sent back to its worker. reject_task repeats the
-    # repair for callers other than this route; resolving here maps the failure
-    # to a 409 before any capacity check runs.
-    try:
-        await resolve_personal_task_role_fallback(db, task)
-    except ValueError as exc:
-        await db.rollback()
-        raise HTTPException(status_code=409, detail=str(exc)) from None
-    if not task.auto_generated:
-        await _guard_manual_task_capacity_locked(db, farm)
-    await reject_task(db, task, user, payload.note)
-    await db.commit()
-    return task_out(task)
+    # (2026-09-28 audit, A1): same tablet-offline retry story as complete/skip
+    # — an optional Idempotency-Key replays the original response instead of a
+    # bare 409 once the duty is no longer awaiting verification (2026-09-28
+    # audit, A3 — wrong lifecycle state answers 409 everywhere).
+
+    async def mutate() -> TaskOut:
+        # Reject is the other transition that can add a PENDING manual duty. Take
+        # Farm before Task so it serializes with create and recurring successor
+        # insertion without forming a Farm/Task lock cycle.
+        await lock_manual_task_queue(db, farm)
+        # Match complete/skip's canonical FARM -> ANIMAL -> TASK order: reject also
+        # sends the duty back to PENDING, so it needs the same re-check that the
+        # linked animal is still ACTIVE or the row becomes a stranded PENDING duty
+        # no list/sweep can ever reach again.
+        locked_animals = await _lock_completion_animals(db, farm, task_id)
+        task = await _get_task(db, farm, task_id, for_update=True)
+        if task.status != TaskStatus.DONE.value or not task.needs_verification:
+            raise HTTPException(status_code=409, detail="Task is not awaiting verification")
+        _require_locked_linked_animal_active(task, locked_animals)
+        # Rejection returns the duty to PENDING, which is exactly the state
+        # ck_tasks_user_assignment_has_role constrains. Repair a pre-D9 personal row
+        # first, like complete/skip do: without it the flush raises IntegrityError
+        # and the duty can never be sent back to its worker. reject_task repeats the
+        # repair for callers other than this route; resolving here maps the failure
+        # to a 409 before any capacity check runs.
+        try:
+            await resolve_personal_task_role_fallback(db, task)
+        except ValueError as exc:
+            await db.rollback()
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+        if not task.auto_generated:
+            await _guard_manual_task_capacity_locked(db, farm)
+        await reject_task(db, task, user, payload.note)
+        return task_out(task)
+
+    return await execute_idempotent(
+        db,
+        http_response=response,
+        key=idempotency_key,
+        farm_id=farm.id,
+        actor_id=user.id,
+        operation="POST /api/tasks/{task_id}/reject",
+        payload=payload,
+        path_identity={"task_id": task_id},
+        success_status=200,
+        response_type=TaskOut,
+        mutate=mutate,
+    )

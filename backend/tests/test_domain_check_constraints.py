@@ -375,6 +375,17 @@ _VOCABULARY_CONSTRAINT_SQL: dict[tuple[str, str], str] = {
         "category IN ('ANIMAL_SALE', 'ANIMAL_PURCHASE', 'FEED', 'MEDICINE', "
         "'VET', 'LABOUR', 'EQUIPMENT', 'MANURE', 'OTHER')"
     ),
+    (
+        "notification_log",
+        "ck_notification_log_alert_class",
+    ): (
+        "alert_class IN ('DAILY_DIGEST', 'SCREENING_FLAG', 'KIDDING_WATCH', "
+        "'OVERDUE_CRITICAL', 'FEED_REORDER', 'MOVEMENT_RESTRICTION')"
+    ),
+    (
+        "notification_log",
+        "ck_notification_log_status",
+    ): "status IN ('SENDING', 'SENT', 'FAILED', 'SKIPPED_QUIET', 'SKIPPED_CAP')",
 }
 
 

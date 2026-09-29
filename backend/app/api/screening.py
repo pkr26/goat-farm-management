@@ -215,7 +215,9 @@ async def get_image(
 ) -> ScreeningImageDetailOut:
     """One image's full review payload: bounded image URL, every run, every
     finding. Missing and cross-farm ids deliberately share one 404."""
-    if not 1 <= image_id <= MAX_INT32_ID:
+    # screening_images.id is bigint (2026-09-28 audit, D1): the int8 ceiling
+    # bounds the id guard now, not the lifted int4 MAX_INT32_ID.
+    if not 1 <= image_id <= 9_223_372_036_854_775_807:
         raise HTTPException(status_code=404, detail="Screening image not found")
     image = (
         await db.execute(
@@ -294,7 +296,9 @@ async def review_finding(
     Re-reviewing a settled finding re-submits with its current status as
     ``expected_status``.
     """
-    if not 1 <= finding_id <= MAX_INT32_ID:
+    # screening_findings.id is bigint (2026-09-28 audit, D1): the int8
+    # ceiling bounds the id guard now, like the image_id guard above.
+    if not 1 <= finding_id <= 9_223_372_036_854_775_807:
         raise HTTPException(status_code=404, detail="Screening finding not found")
     finding = (
         await db.execute(
@@ -702,8 +706,10 @@ async def create_batch(
             )
         ).scalar_one()
         if open_batches >= MAX_OPEN_SCREENING_BATCHES_PER_FARM:
+            # A standing quota, not a request-rate throttle: 409 like every
+            # other capacity cap in the API (2026-09-28 audit, A4).
             raise HTTPException(
-                status_code=429,
+                status_code=409,
                 detail=(
                     "Too many open screening walkthroughs for this farm; submit or let an "
                     "abandoned walkthrough expire before starting another"
@@ -741,21 +747,35 @@ async def list_batches(
     limit: Annotated[
         int, Query(ge=1, le=SCREENING_BATCH_LIST_MAX_LIMIT)
     ] = SCREENING_BATCH_LIST_DEFAULT_LIMIT,
+    offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
 ) -> ScreeningBatchListOut:
-    """Recent disease-check walkthroughs with per-pen progress."""
+    """A page of disease-check walkthroughs, newest first, with per-pen
+    progress. ``total`` is the farm's full batch count so clients can page
+    past the newest screen (2026-09-28 audit, A2)."""
+    total = (
+        await db.execute(
+            select(func.count())
+            .select_from(ScreeningBatch)
+            .where(ScreeningBatch.farm_id == farm.id)
+        )
+    ).scalar_one()
     batches = list(
         (
             await db.execute(
                 select(ScreeningBatch)
                 .where(ScreeningBatch.farm_id == farm.id)
                 .order_by(ScreeningBatch.created_at.desc(), ScreeningBatch.id.desc())
+                .offset(offset)
                 .limit(limit)
             )
         ).scalars()
     )
     progress = await _batch_progress(db, farm.id, [batch.id for batch in batches])
     return ScreeningBatchListOut(
-        batches=[_batch_out_with_row(batch, progress) for batch in batches]
+        batches=[_batch_out_with_row(batch, progress) for batch in batches],
+        total=total,
+        limit=limit,
+        offset=offset,
     )
 
 
@@ -878,8 +898,9 @@ async def request_upload(
             )
         ).scalar_one()
         if images_in_batch >= MAX_SCREENING_IMAGES_PER_BATCH:
+            # Standing per-walkthrough quota → 409 (2026-09-28 audit, A4).
             raise HTTPException(
-                status_code=429,
+                status_code=409,
                 detail=(
                     "A screening walkthrough may contain at most "
                     f"{MAX_SCREENING_IMAGES_PER_BATCH} photos"
@@ -896,8 +917,10 @@ async def request_upload(
             )
         ).scalar_one()
         if in_flight >= MAX_IN_FLIGHT_SCREENING_IMAGES_PER_FARM:
+            # Standing in-flight quota → 409 (2026-09-28 audit, A4); 429 stays
+            # reserved for request-rate throttles that carry Retry-After.
             raise HTTPException(
-                status_code=429,
+                status_code=409,
                 detail=(
                     "Too many screening photos are already awaiting processing for this "
                     "farm; wait for the queue to drain"

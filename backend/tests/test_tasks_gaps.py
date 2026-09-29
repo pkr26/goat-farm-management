@@ -15,11 +15,11 @@ import httpx
 from sqlalchemy import select
 
 from app.db import get_sessionmaker
-from app.models import Farm, Task
+from app.models import Task
 from app.services.cadence import _ensure_interval_rounds
 from app.utils import today
 
-from .conftest import owner_with_farm, register
+from .conftest import register
 
 
 def _local_today(tz_name: str) -> date:
@@ -38,9 +38,7 @@ async def test_overdue_classification_uses_farm_local_today(client: httpx.AsyncC
         "Asia/Kolkata",
         "America/New_York",
     ]
-    tz_name = next(
-        (name for name in candidates if _local_today(name) != server_today), None
-    )
+    tz_name = next((name for name in candidates if _local_today(name) != server_today), None)
     if tz_name is None:
         # Every candidate happens to share the server's date right now —
         # the boundary is untestable at this instant; assert the invariant
@@ -70,10 +68,7 @@ async def test_overdue_classification_uses_farm_local_today(client: httpx.AsyncC
         assert resp.status_code == 201, resp.text
 
     board = (await client.get("/api/tasks", headers=owner)).json()
-    by_title = {
-        tab: [t["title"] for t in board[tab]]
-        for tab in ("today", "overdue", "upcoming")
-    }
+    by_title = {tab: [t["title"] for t in board[tab]] for tab in ("today", "overdue", "upcoming")}
     assert any("EDGE-TODAY" in title for title in by_title["today"]), by_title
     assert any("EDGE-YESTERDAY" in title for title in by_title["overdue"]), by_title
     assert any("EDGE-TOMORROW" in title for title in by_title["upcoming"]), by_title
@@ -87,9 +82,7 @@ async def test_interval_rounds_jan31_to_feb1_no_duplicate_no_gap(client: httpx.A
     """Sweep the monthly (30-day lookback) WEIGHING round on Jan 31 and
     again on Feb 1: exactly one duty must exist across the window."""
     headers = await register(client, email="cadence@farm.in")
-    created = await client.post(
-        "/api/auth/farms", json={"name": "Cadence Farm"}, headers=headers
-    )
+    created = await client.post("/api/auth/farms", json={"name": "Cadence Farm"}, headers=headers)
     assert created.status_code == 201, created.text
     farm_id = int(created.json()["id"])
     owner = headers | {"X-Farm-Id": str(farm_id)}
@@ -108,7 +101,6 @@ async def test_interval_rounds_jan31_to_feb1_no_duplicate_no_gap(client: httpx.A
     assert animal.status_code == 201, animal.text
 
     async with get_sessionmaker()() as db:
-        farm = (await db.execute(select(Farm).where(Farm.id == farm_id))).scalar_one()
         # Farm was introduced "today"; the interval rounds' backfill floor is
         # the earliest introduction, so anchor it a month back.
         from app.models import Animal
@@ -123,10 +115,14 @@ async def test_interval_rounds_jan31_to_feb1_no_duplicate_no_gap(client: httpx.A
         await db.commit()
 
         rounds = (
-            await db.execute(
-                select(Task).where(Task.farm_id == farm_id, Task.category == "WEIGHING")
+            (
+                await db.execute(
+                    select(Task).where(Task.farm_id == farm_id, Task.category == "WEIGHING")
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
     assert len(rounds) == 1, (
         f"Jan-31→Feb-1 sweep produced {len(rounds)} weighing rounds (dup/gap): "

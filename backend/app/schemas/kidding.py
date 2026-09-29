@@ -1,10 +1,11 @@
 """Pydantic schemas for the kidding module."""
 
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from ..models.species import GOAT_PROFILE
 from .animals import IdentifierText, Sex
 from .breeding import BreedingRecordOut
 from .common import (
@@ -71,7 +72,10 @@ class KiddingCreateIn(StrictInputModel):
     placenta_passed: bool | None = None
     mastitis_suspected: bool = False
     notes: PostgresText | None = Field(default=None, max_length=MAX_FREE_TEXT_LENGTH)
-    kids: list[KidIn] = Field(min_length=1, max_length=10)
+    # Litter bound is the species ceiling (GOAT_PROFILE.max_litter_size = 4,
+    # enforced again by services.kidding), not an arbitrary round number
+    # (2026-09-28 audit).
+    kids: list[KidIn] = Field(min_length=1, max_length=GOAT_PROFILE.max_litter_size)
 
 
 class KidEntryOut(BaseModel):
@@ -87,6 +91,7 @@ class KidEntryOut(BaseModel):
     navel_dipped: bool | None
     dam_rejected: bool
     animal_id: int | None
+    created_at: datetime
 
 
 class KiddingRecordOut(BaseModel):
@@ -101,6 +106,7 @@ class KiddingRecordOut(BaseModel):
     placenta_passed: bool | None
     mastitis_suspected: bool
     notes: str | None
+    created_at: datetime
     kids: list[KidEntryOut] = []
     doe_tag: str | None = None
 

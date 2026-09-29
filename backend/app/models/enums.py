@@ -104,9 +104,10 @@ class HealthEventType(str, enum.Enum):
     FECAL_EXAM = "FECAL_EXAM"
 
 
-# Bounded mortality vocabulary for death recording and reporting. No column
-# binds it yet (wave 0 vocabulary): the mortality write path lands with its
-# own migration, so reports stay stable across farms and clients meanwhile.
+# Bounded mortality vocabulary for death recording and reporting. Bound to
+# animals.mortality_cause_code since c9d0e1f2a3b4 (ck_animals_mortality_cause_code),
+# beside the legacy free-text mortality_cause: the coded column keeps
+# mortality reports comparable across farms and clients.
 class MortalityCause(str, enum.Enum):
     PNEUMONIA = "PNEUMONIA"
     DIARRHOEA = "DIARRHOEA"

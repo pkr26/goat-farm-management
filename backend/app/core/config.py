@@ -645,6 +645,20 @@ class Settings(BaseSettings):
     cadence_materialization_farm_batch_size: int = Field(default=100, ge=1, le=1000)
     cadence_materialization_max_batches: int = Field(default=10, ge=1, le=100)
 
+    # Data retention sweep (2026-09-28 audit, ITEM 9.1): an opt-in daily job
+    # deletes aged screening fact chains and long-terminal duties in bounded,
+    # farm-scoped batches committed incrementally. Off by default — operators
+    # opt in once data accumulates (the playbook marks it "do when data
+    # accumulates; not urgent"), so an unconfigured deployment pays nothing,
+    # same posture as notifications/screening. Sibling cleanup settings carry
+    # no production validator and neither do these: enabling the sweep is a
+    # deliberate retention decision, not a security invariant.
+    retention_sweep_enabled: bool = False
+    retention_sweep_interval_seconds: int = Field(default=86_400, ge=60)
+    retention_screening_days: int = Field(default=180, ge=30)
+    retention_terminal_task_days: int = Field(default=365, ge=30)
+    retention_delete_batch_size: int = Field(default=500, ge=1, le=10_000)
+
     # Reject oversized JSON/form bodies before Starlette buffers/parses them.
     # This is an application backstop; the edge proxy should enforce the same
     # or a smaller limit before traffic reaches uvicorn.

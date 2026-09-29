@@ -1462,18 +1462,21 @@ async def test_list_includes_computed_fields(client: httpx.AsyncClient) -> None:
 
 async def test_list_limit_offset_pagination(client: httpx.AsyncClient) -> None:
     """limit/offset page the (bucket, tag)-ordered list; `total` remains the
-    full filtered count and omission uses the finite 100-row default."""
+    full filtered count, the page window is echoed like every sibling list
+    (2026-09-28 audit, A2), and omission uses the finite 100-row default."""
     owner = await owner_with_farm(client)
     for i in range(5):
         await make_animal(client, owner, tag=f"P-{i}")
     resp = await client.get("/api/animals", headers=owner)
     full = resp.json()
     assert full["total"] == len(full["animals"]) == 5
+    assert (full["limit"], full["offset"]) == (100, 0)
 
     resp = await client.get("/api/animals", headers=owner, params={"limit": "2", "offset": "1"})
     assert resp.status_code == 200
     body = resp.json()
     assert body["total"] == 5
+    assert (body["limit"], body["offset"]) == (2, 1)
     assert [a["tag_number"] for a in body["animals"]] == ["P-1", "P-2"]
 
     resp = await client.get("/api/animals", headers=owner, params={"limit": "200"})

@@ -140,7 +140,13 @@ async def test_backward_plan_rejects_event_cap_overflow_with_422(
     )
     resp = await client.post("/api/planner/plan", json=document, headers=headers)
     assert resp.status_code == 422, resp.text
-    assert "cannot be represented" in resp.text
+    detail = resp.json()["detail"]
+    assert "cannot be represented" in detail
+    # (2026-09-28 audit, A5): the embedded pydantic errors are stripped to
+    # type/loc/msg like the global 422 handler — the rejected plan document
+    # is never reflected back under "input"/"ctx".
+    assert "'type'" in detail and "'loc'" in detail and "'msg'" in detail
+    assert "'input'" not in detail and "'ctx'" not in detail and "'url'" not in detail
 
 
 async def test_backward_plan_survives_schema_max_target_count(client: httpx.AsyncClient) -> None:
@@ -381,6 +387,26 @@ async def test_planner_plan_rejects_out_of_range_years_at_the_schema(
             headers=owner,
         )
         assert resp.status_code == 422, resp.text
+
+
+async def test_planner_plan_accepts_years_through_2200_at_the_schema(
+    client: httpx.AsyncClient,
+) -> None:
+    """The documented 1900-2200 range includes 2120-2199 — the old
+    21[0-1]\\d regex alternative silently excluded them (2026-09-28 audit)."""
+    owner = await owner_with_farm(client)
+    assumptions = await default_assumptions(client, owner)
+    resp = await client.post(
+        "/api/planner/plans",
+        json={
+            "name": "Far-future boundary plan",
+            "start_year_month": "2150-06",
+            "targets": [{"year_month": "2200-12", "animal_class": "doe", "count": 1.0}],
+            "assumptions": assumptions,
+        },
+        headers=owner,
+    )
+    assert resp.status_code == 201, resp.text
 
 
 async def test_planner_plan_patch_answers_422_not_500_on_stale_stored_assumptions(

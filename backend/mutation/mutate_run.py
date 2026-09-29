@@ -19,12 +19,12 @@ from __future__ import annotations
 
 import argparse
 import collections
+import contextlib
 import hashlib
 import json
 import os
 import signal
 import subprocess
-import sys
 import threading
 import time
 from pathlib import Path
@@ -113,10 +113,8 @@ class Runner:
         self.done_ids: set[str] = set()
         if self.results_path.exists():
             for line in self.results_path.read_text().splitlines():
-                try:
+                with contextlib.suppress(Exception):
                     self.done_ids.add(json.loads(line)["id"])
-                except Exception:
-                    pass
 
     def lock_for(self, rel: str) -> threading.Lock:
         with self.locks_guard:
@@ -172,10 +170,8 @@ class Runner:
             out, _ = proc.communicate(timeout=300)
             status = "fail" if proc.returncode != 0 else "pass"
         except subprocess.TimeoutExpired:
-            try:
+            with contextlib.suppress(ProcessLookupError):
                 os.killpg(proc.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
             proc.wait()
             out, _ = proc.communicate()
             status = "timeout"
@@ -204,15 +200,15 @@ class Runner:
         path = BACKEND / m["file"]
         original = path.read_bytes()
         digest = hashlib.sha256(original).hexdigest()
-        rec: dict = dict(
-            id=m["id"],
-            file=m["file"],
-            line=m["line"],
-            kind=m["kind"],
-            detail=m["detail"],
-            tier=m["tier"],
-            stmt_line=m["stmt_line"],
-        )
+        rec: dict = {
+            "id": m["id"],
+            "file": m["file"],
+            "line": m["line"],
+            "kind": m["kind"],
+            "detail": m["detail"],
+            "tier": m["tier"],
+            "stmt_line": m["stmt_line"],
+        }
         try:
             path.write_text(self.apply_mutant(m))
             selection, module_level = self.select_tests(m)
@@ -221,17 +217,12 @@ class Runner:
                 rec["status"] = "NOT_COVERED"
                 rec["n_tests"] = 0
                 return rec
-            phase1 = sample_tests(selection, SAMPLE_CAP)
             rec["n_tests"] = len(selection)
             # escalating nested phases: a kill usually falls in the first few
             # tests; survivors pay for the capped spread (60 tests across all
             # covering files) — enough spread that a 4th full phase adds cost
             # without changing verdicts.
-            phases = (
-                [FULL_CAP]
-                if os.environ.get("MUTATE_FULL_PHASE")
-                else [15, SAMPLE_CAP]
-            )
+            phases = [FULL_CAP] if os.environ.get("MUTATE_FULL_PHASE") else [15, SAMPLE_CAP]
             total_dur = 0.0
             for pi, cap in enumerate(phases, start=1):
                 subset = sample_tests(selection, cap)
@@ -258,7 +249,7 @@ class Runner:
             if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
                 raise RuntimeError(f"RESTORE FAILED for {m['file']}")
 
-    def worker_loop(self, worker: int, queue: "collections.deque[dict]", qlock: threading.Lock):
+    def worker_loop(self, worker: int, queue: collections.deque[dict], qlock: threading.Lock):
         while not self.stop.is_set():
             if self.deadline and time.monotonic() > self.deadline:
                 return
@@ -282,16 +273,16 @@ class Runner:
                 try:
                     rec = self.execute(m, worker)
                 except Exception as exc:  # runner-level error: record, keep going
-                    rec = dict(
-                        id=m["id"],
-                        file=m["file"],
-                        line=m["line"],
-                        kind=m["kind"],
-                        detail=m["detail"],
-                        tier=m["tier"],
-                        status="RUN_ERROR",
-                        error=repr(exc)[:300],
-                    )
+                    rec = {
+                        "id": m["id"],
+                        "file": m["file"],
+                        "line": m["line"],
+                        "kind": m["kind"],
+                        "detail": m["detail"],
+                        "tier": m["tier"],
+                        "status": "RUN_ERROR",
+                        "error": repr(exc)[:300],
+                    }
                 with self.print_lock:
                     self.counter[rec["status"]] += 1
                     self.counter["total"] += 1
@@ -300,7 +291,7 @@ class Runner:
                         f"{m['kind']}/{m['detail']} ({self.counter['total']})",
                         flush=True,
                     )
-                    with open(self.results_path, "a") as fh:
+                    with self.results_path.open("a") as fh:
                         fh.write(json.dumps(rec) + "\n")
             finally:
                 if held is not None:
@@ -319,7 +310,7 @@ class Runner:
         for t in threads:
             t.join()
         dt = time.monotonic() - t0
-        print(f"\n== done in {dt/60:.1f} min: {dict(self.counter)}")
+        print(f"\n== done in {dt / 60:.1f} min: {dict(self.counter)}")
 
 
 def main() -> None:
@@ -343,6 +334,7 @@ def main() -> None:
         todo = [m for m in todo if m["kind"] in kinds]
     runner = Runner(args.workers, args.max_seconds)
     todo = [m for m in todo if m["id"] not in runner.done_ids]
+
     # cheapest-first inside each tier: fewest covering tests = fastest kills
     def cost(m: dict) -> tuple:
         lines = runner.ctx.get(m["file"], {})

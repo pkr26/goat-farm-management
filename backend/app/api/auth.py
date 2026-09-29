@@ -11,6 +11,7 @@ from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import Annotated, Any, NoReturn, cast
 from urllib.parse import urlsplit
 
@@ -1038,12 +1039,16 @@ async def worker_roster(
     ):
         metrics.record_auth_rate_limit_rejection(WORKER_ROSTER_SCOPE)
         raise _too_many_attempts()
-    auth_limiter.record(
-        WORKER_ROSTER_SCOPE,
-        _client_key(request),
-        s.auth_rate_limit_window_seconds,
-        max_attempts=_WORKER_ROSTER_MAX_ATTEMPTS,
-    )
+    if s.auth_rate_limit_enabled:
+        # The only record among the auth call sites that must be gated
+        # explicitly: with limiting disabled, an unauthenticated roster probe
+        # must leave no limiter bookkeeping at all (2026-09-28 audit, S5).
+        auth_limiter.record(
+            WORKER_ROSTER_SCOPE,
+            _client_key(request),
+            s.auth_rate_limit_window_seconds,
+            max_attempts=_WORKER_ROSTER_MAX_ATTEMPTS,
+        )
     rows = (
         await db.execute(
             select(FarmMembership.id, User)
@@ -1092,9 +1097,19 @@ async def worker_login(
     authenticator) and never admits an owner (owners hold no membership row).
     Every failure answers the same generic 401 after identical Argon work, so
     the exchange cannot enumerate farms, memberships or PINs by timing.
+    Two deliberate exceptions AFTER a proven-correct PIN: an ACTIVE-TOTP
+    account and a must-change-password account answer distinguishable 403s
+    naming the flow to use instead — an oracle that opens only for a caller
+    who already knows the PIN, kept deliberately and pinned by tests
+    (2026-09-28 audit, S5; test_worker_pin_auth.py).
     """
     s = get_settings()
     identity_key = f"{_client_key(request)}|{payload.farm_id}|{payload.membership_id}"
+    # IP-agnostic per-membership budget: rotating source addresses cannot reset
+    # it (the login-email analogue). Soft like login's — it only ever answers a
+    # FAILED pin, so an attacker's burst can never lock out the worker's own
+    # correct PIN (2026-09-28 audit, H3).
+    account_key = f"{payload.farm_id}|{payload.membership_id}"
     spray_key = f"{_client_key(request)}|{payload.farm_id}"
     if s.auth_rate_limit_enabled and (
         auth_limiter.is_blocked(
@@ -1114,6 +1129,11 @@ async def worker_login(
         raise _too_many_attempts()
 
     generic = HTTPException(status_code=401, detail="Invalid PIN.")
+    # Snapshot the credential scalars WITHOUT the row lock and end the read
+    # transaction, so Argon2 never holds a row lock, transaction, or
+    # checked-out DB connection — the same invariant login states
+    # (2026-09-28 audit, S2). The locked reload below exact-compares this
+    # snapshot before a token can be minted.
     row = (
         await db.execute(
             select(FarmMembership, User)
@@ -1125,17 +1145,19 @@ async def worker_login(
                 FarmMembership.role_id.is_not(None),
                 User.deleted_at.is_(None),
             )
-            .execution_options(populate_existing=True)
-            .with_for_update(of=User)
         )
     ).first()
-    membership = row[0] if row is not None else None
-    user = row[1] if row is not None else None
-    stored_hash = (
-        membership.pin_hash
-        if membership is not None and membership.pin_hash is not None
-        else _dummy_password_hash()
-    )
+    membership_id: int | None = None
+    user_id: int | None = None
+    pin_hash: str | None = None
+    token_version: int | None = None
+    if row is not None:
+        membership_id = row[0].id
+        pin_hash = row[0].pin_hash
+        user_id = row[1].id
+        token_version = row[1].token_version
+    await db.rollback()
+    stored_hash = pin_hash if pin_hash is not None else _dummy_password_hash()
     reservation = _reserve_password_work(WORKER_PIN_RESERVATION_SCOPE, identity_key)
     try:
         ok, _needs_rehash = await reservation.run(
@@ -1153,6 +1175,13 @@ async def worker_login(
                 max_attempts=s.worker_pin_rate_limit_max_attempts,
             )
             auth_limiter.record(
+                WORKER_PIN_ACCOUNT_SCOPE,
+                account_key,
+                s.worker_pin_rate_limit_window_seconds,
+                max_attempts=s.worker_pin_rate_limit_max_attempts
+                * WORKER_PIN_ACCOUNT_LIMIT_MULTIPLIER,
+            )
+            auth_limiter.record(
                 WORKER_PIN_SPRAY_SCOPE,
                 spray_key,
                 s.worker_pin_rate_limit_window_seconds,
@@ -1164,10 +1193,53 @@ async def worker_login(
             farm_id=payload.farm_id,
             membership_id=payload.membership_id,
         )
+        if s.auth_rate_limit_enabled and auth_limiter.is_blocked(
+            WORKER_PIN_ACCOUNT_SCOPE,
+            account_key,
+            s.worker_pin_rate_limit_max_attempts * WORKER_PIN_ACCOUNT_LIMIT_MULTIPLIER,
+            s.worker_pin_rate_limit_window_seconds,
+        ):
+            # Soft per-membership ceiling (the login-email analogue): the wrong
+            # PIN answers the block; the right one still proceeds below. This
+            # is the only place the account scope becomes a 429, so its
+            # rejection metric belongs here.
+            metrics.record_auth_rate_limit_rejection(WORKER_PIN_ACCOUNT_SCOPE)
+            raise _too_many_attempts()
         raise generic
 
-    if membership is None or user is None or membership.pin_hash is None or not ok:
-        await db.rollback()
+    if membership_id is None or user_id is None or pin_hash is None or not ok:
+        _failed()
+    # Re-read under the row lock only after the PIN is proven, and revalidate
+    # the snapshot before minting: a deactivation, deletion or credential
+    # rotation that won during verification must not ride this proof (login
+    # reloads and revalidates exactly the same way).
+    row = (
+        await db.execute(
+            select(FarmMembership, User)
+            .join(User, FarmMembership.user_id == User.id)
+            .where(
+                FarmMembership.id == membership_id,
+                FarmMembership.farm_id == payload.farm_id,
+                FarmMembership.is_active.is_(True),
+                FarmMembership.role_id.is_not(None),
+                User.deleted_at.is_(None),
+            )
+            # Every locked re-read repopulates: a row already in the identity
+            # map would otherwise be returned with its pre-lock column values,
+            # silently discarding the row this SELECT locked to read.
+            .execution_options(populate_existing=True)
+            .with_for_update(of=User)
+        )
+    ).first()
+    if row is None:
+        # Deactivated or deleted while the PIN was being verified: the pair
+        # is unknown now, and the answer stays the generic failure.
+        _failed()
+    user = row[1]
+    if user.token_version != token_version:
+        # Every PIN/password rotation and every deletion bumps token_version
+        # under this same User lock, so the proven credential is stale — the
+        # login reload-mismatch case, answered with the generic failure.
         _failed()
     if user.totp_state == "ACTIVE":
         # The tablet is not an authenticator; a second-factor account must use
@@ -1189,8 +1261,12 @@ async def worker_login(
     out = await _issue_tokens(db, user, response)
     await db.commit()
     if s.auth_rate_limit_enabled:
+        # A success clears only the failure counts of the membership that
+        # authenticated; the (IP, farm) spray bucket is NEVER reset by a
+        # success — same rule as _reset_login_failures, so one valid PIN
+        # cannot refresh an attacker's spray budget (2026-09-28 audit, H3).
         auth_limiter.reset(WORKER_PIN_SCOPE, identity_key)
-        auth_limiter.reset(WORKER_PIN_SPRAY_SCOPE, spray_key)
+        auth_limiter.reset(WORKER_PIN_ACCOUNT_SCOPE, account_key)
     security_event(
         "auth.worker_pin.login_succeeded",
         "worker signed in on the tablet by PIN",
@@ -1678,6 +1754,14 @@ async def export_account(response: Response, db: DbSession, user: CurrentUser) -
     response.headers["Content-Disposition"] = (
         f'attachment; filename="goatfarm-account-{user.id}.json"'
     )
+    # 2026-09-28 audit, S1: this is the API's most PII-dense response, so it
+    # leaves the same durable security-event trail the DPR download got
+    # (DET-2, planner.dpr.download) — ids only, never the exported PII itself.
+    security_event(
+        "auth.account.exported",
+        "account identity and tenant relationships exported",
+        user_id=user.id,
+    )
     return AccountExportOut(
         exported_at=utcnow(),
         account=AccountIdentityExport(
@@ -1942,6 +2026,10 @@ TOTP_CONFIRM_USER_SCOPE = "totp-confirm"
 # burst cannot lock out a legitimate disable (and vice versa).
 TOTP_DISABLE_USER_SCOPE = "totp-disable"
 TOTP_RECOVERY_REGEN_SCOPE = "totp-recovery-regen"
+# Recovery-code redemption runs up to ten sequential Argon2 verifies in one
+# request, so it takes the same one-per-account work reservation as the other
+# credential workflows (2026-09-28 audit, S4).
+TOTP_RECOVERY_RESERVATION_SCOPE = "totp-recovery-work"
 # Garbage mfa_tokens each cost an RS256 verify, so the challenge path carries
 # the same pre-verification budget as /refresh (REFRESH_PREVERIFY_SCOPE): a
 # per-token bucket keyed on a hash of the PRESENTED token refuses a repeat of
@@ -1952,9 +2040,14 @@ TOTP_RECOVERY_REGEN_SCOPE = "totp-recovery-regen"
 TOTP_CHALLENGE_PREVERIFY_SCOPE = "totp-challenge-preverify"
 TOTP_CHALLENGE_INVALID_SCOPE = "totp-challenge-invalid"
 # Worker-tablet PIN login (ITEM 2, 2026-09-21 playbook): one scope for the
-# exact (IP, farm, membership) identity and one spray scope for the whole
-# (IP, farm) pair so spraying many memberships cannot multiply the budget.
+# exact (IP, farm, membership) identity, one IP-AGNOSTIC per-membership
+# ceiling (the login-email analogue — without it, rotating source addresses
+# reset every budget and PIN guessing becomes distributable; 2026-09-28 audit
+# H3), and one spray scope for the whole (IP, farm) pair so spraying many
+# memberships cannot multiply the budget.
 WORKER_PIN_SCOPE = "worker-pin"
+WORKER_PIN_ACCOUNT_SCOPE = "worker-pin-account"
+WORKER_PIN_ACCOUNT_LIMIT_MULTIPLIER = 3
 WORKER_PIN_SPRAY_SCOPE = "worker-pin-spray"
 WORKER_PIN_RESERVATION_SCOPE = "worker-pin-work"
 WORKER_ROSTER_SCOPE = "worker-roster"
@@ -1997,7 +2090,13 @@ async def _decrypt_totp_secret_or_unavailable(
 
 # Single-use challenge tokens: consumed jtis with their signed expiry, so the
 # cache is bounded by the token TTL, not by attacker volume. Per-process by
-# design (the deployment invariant is one API worker).
+# design (the deployment invariant is one API worker). Accepted tradeoff
+# (2026-09-28 audit, S5): being in-memory, the cache is lost on a process
+# restart, so a restart inside TOTP_CHALLENGE_TTL_SECONDS lets one already-
+# consumed challenge token replay exactly once. That bounded window is
+# accepted — a consumed token still demands its TOTP/recovery code — rather
+# than DB-backing the cache; do not widen it (multi-worker deploys must move
+# this to shared storage first).
 _mfa_jti_replay_cache: OrderedDict[str, datetime] = OrderedDict()
 _MFA_REPLAY_CACHE_MAX = 4096
 
@@ -2537,7 +2636,7 @@ def _raise_invalid_mfa_challenge(request: Request, token: str, generic: HTTPExce
     raise generic
 
 
-@router.post("/totp/challenge")
+@router.post("/totp/challenge", dependencies=[Depends(_require_json_content_type)])
 async def totp_challenge(
     payload: TotpChallengeIn,
     request: Request,
@@ -2635,24 +2734,41 @@ async def totp_challenge(
             .scalars()
             .all()
         )
-        for candidate in candidates:
-            ok, _needs_rehash = await verify_password_async(normalized, candidate.code_hash)
-            if not ok:
-                continue
-            claimed = cast(
-                CursorResult[Any],
-                await db.execute(
-                    update(TotpRecoveryCode)
-                    .where(
-                        TotpRecoveryCode.id == candidate.id,
-                        TotpRecoveryCode.used_at.is_(None),
-                    )
-                    .values(used_at=utcnow())
-                ),
-            )
-            if claimed.rowcount == 1:
-                recovery_redeemed = True
-            break
+        # 2026-09-28 audit, S4: the batch below is up to ten sequential Argon2
+        # verifies in one request, so it holds a per-account work reservation
+        # like every other credential workflow.
+        reservation = _reserve_password_work(TOTP_RECOVERY_RESERVATION_SCOPE, str(user.id))
+        try:
+            if not candidates:
+                # Zero unused codes still pays one dummy verify (S4): the
+                # response time must not reveal the remaining-code count.
+                await reservation.run(
+                    lambda: verify_password_async(normalized, _dummy_password_hash())
+                )
+            for candidate in candidates:
+                ok, _needs_rehash = await reservation.run(
+                    # partial, not a closure: one hash is bound per iteration
+                    # (B023) and mypy keeps the exact coroutine type.
+                    partial(verify_password_async, normalized, candidate.code_hash)
+                )
+                if not ok:
+                    continue
+                claimed = cast(
+                    CursorResult[Any],
+                    await db.execute(
+                        update(TotpRecoveryCode)
+                        .where(
+                            TotpRecoveryCode.id == candidate.id,
+                            TotpRecoveryCode.used_at.is_(None),
+                        )
+                        .values(used_at=utcnow())
+                    ),
+                )
+                if claimed.rowcount == 1:
+                    recovery_redeemed = True
+                break
+        finally:
+            reservation.release_when_idle()
     if matched is None and not recovery_redeemed:
         auth_limiter.record(
             TOTP_CHALLENGE_USER_SCOPE,

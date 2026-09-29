@@ -2359,7 +2359,7 @@ async def test_day45_completion_not_idempotent_via_api(client: httpx.AsyncClient
     resp = await client.post(f"/api/tasks/{release['id']}/complete", headers=headers)
     assert resp.status_code == 200, resp.text
     resp = await client.post(f"/api/tasks/{release['id']}/complete", headers=headers)
-    assert resp.status_code == 400, resp.text  # not pending anymore
+    assert resp.status_code == 409, resp.text  # not pending anymore (2026-09-28 audit, A3)
 
 
 async def test_future_quarantine_task_cannot_be_completed_early(client: httpx.AsyncClient) -> None:

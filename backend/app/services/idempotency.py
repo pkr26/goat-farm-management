@@ -29,7 +29,15 @@ from ..utils import utcnow
 MAX_IDEMPOTENCY_KEY_LENGTH = 128
 # Password/PIN-bearing operations: keyed HMAC fingerprints only, so a
 # database/backup reader cannot test guesses offline.
-SENSITIVE_IDEMPOTENCY_OPERATIONS = frozenset({"team.workers.create", "team.workers.reset-pin"})
+SENSITIVE_IDEMPOTENCY_OPERATIONS = frozenset(
+    {
+        "team.workers.create",
+        "team.workers.reset-pin",
+        # Owner credential rotation (2026-09-28 audit, A1): the body carries
+        # the chosen password, same offline-guess surface as the other two.
+        "team.workers.reset-password",
+    }
+)
 
 # Printable, non-whitespace ASCII; shared by the header contract and the
 # OpenAPI parameter schema published for the required-key routes.

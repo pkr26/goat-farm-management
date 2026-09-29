@@ -275,12 +275,18 @@ async def plan_sales(
         except ValidationError as exc:
             # The planner composes new event documents inside the worker; a
             # plan that cannot be represented inside the schema (event-cap or
-            # head-count ceilings) is a client-input problem, not a 500.
+            # head-count ceilings) is a client-input problem, not a 500. Keep
+            # only JSON-serializable fields (2026-09-28 audit, A5): raw errors
+            # carry the rejected document under "input"/"ctx", against the
+            # global 422 handler's no-reflect policy.
+            errors = [
+                {key: value for key, value in error.items() if key in ("type", "loc", "msg")}
+                for error in exc.errors(include_url=False)
+            ]
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    "This plan cannot be represented within the simulation's "
-                    f"limits: {exc.errors()[:3]}"
+                    f"This plan cannot be represented within the simulation's limits: {errors[:3]}"
                 ),
             ) from exc
         except ValueError as exc:

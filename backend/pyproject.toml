@@ -150,9 +150,16 @@ branch = true
 # Keep it at or below the measured app-wide coverage on main — raise it as
 # coverage improves, never above the measured value.
 # B7 (2026-09-21 audit): with branch = true coverage.py's headline TOTAL is
-# the COMBINED line+branch metric (~92.7% measured on main), not the branch
-# figure alone — the old 85 evaluated the combined number while its comment
-# claimed a branch floor, so the ratchet was ~8 points weaker than
-# documented. 92 sits just under the measured combined figure so ordinary
-# fluctuation does not fail CI while a real regression still trips the floor.
+# the COMBINED line+branch metric, not the branch figure alone — the old 85
+# evaluated the combined number while its comment claimed a branch floor, so
+# the ratchet was ~8 points weaker than documented.
+# T7 (2026-09-28 audit): the two recorded combined measurements are 92.48%
+# (MUTATION_TESTING_REPORT.md baseline run) and 92.54% (committed
+# backend/coverage.xml) — so headroom over this floor is ~0.5pt, which IS
+# the ordinary run-to-run fluctuation band. A failure here therefore means
+# coverage genuinely dropped below 92: that is the ratchet working, not
+# flake, and the remedy is to restore the coverage (or re-measure and
+# re-justify a lower floor in the same commit), never to re-run CI until it
+# passes. Re-measured 2026-09-28; the suite needs PostgreSQL, so hosts
+# without a database cannot re-derive the number — floor unchanged.
 fail_under = 92

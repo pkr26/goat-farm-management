@@ -110,12 +110,6 @@ def parse_detection_response(text: str, max_goats: int) -> list[DetectionBox]:
     return boxes
 
 
-def detection_instruction() -> tuple[str, str]:
-    """(system prompt, prompt version) — tuple keeps providers decoupled
-    from this module's versioning."""
-    return DETECT_SYSTEM_PROMPT, DETECT_PROMPT_VERSION
-
-
 @dataclass(frozen=True)
 class DetectionCallResult:
     boxes: list[DetectionBox]

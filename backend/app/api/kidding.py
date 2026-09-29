@@ -63,6 +63,7 @@ def _kidding_out(record: KiddingRecord) -> KiddingRecordOut:
         placenta_passed=record.placenta_passed,
         mastitis_suspected=record.mastitis_suspected,
         notes=record.notes,
+        created_at=record.created_at,
         kids=[KidEntryOut.model_validate(kid) for kid in record.kids],
         doe_tag=record.doe.tag_number,
     )
@@ -268,8 +269,10 @@ async def create_kidding(
             raise HTTPException(status_code=409, detail=ALREADY_KIDDED)
         # A kidding only makes sense against an ultrasound-confirmed pregnancy —
         # a forged request against a PENDING/FAILED/ABORTED breeding is rejected.
+        # 409 like ALREADY_KIDDED above: the breeding's lifecycle state, not the
+        # request shape, is what refuses this (2026-09-28 audit, A3).
         if br.outcome != BreedingOutcome.CONFIRMED_PREGNANT.value:
-            raise HTTPException(status_code=400, detail="Kidding requires a confirmed pregnancy")
+            raise HTTPException(status_code=409, detail="Kidding requires a confirmed pregnancy")
         try:
             require_farm_not_future(payload.date, farm, "kidding date")
             for kid in payload.kids:

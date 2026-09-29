@@ -151,6 +151,8 @@ class WorkerRosterOut(BaseModel):
     provisioned without a name is listed as "Worker <membership_id>", never
     their email."""
 
+    # Deliberate legacy name (2026-09-28 audit): domain-noun siblings use
+    # e.g. ``animals``, but ``items`` is locked into the wire contract.
     items: list[WorkerRosterEntryOut]
 
 

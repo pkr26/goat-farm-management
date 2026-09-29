@@ -118,6 +118,9 @@ class MortalityMemoOut(BaseModel):
 
 class FinanceOut(BaseModel):
     transactions: list[TransactionOut]
+    # Deliberate legacy name (2026-09-28 audit): every sibling paginated
+    # envelope calls this field ``total``, but the wire contract is locked —
+    # renaming would break existing clients for cosmetics.
     transactions_total: int
     limit: int
     offset: int
@@ -163,9 +166,10 @@ class InsurancePolicyIn(StrictInputModel):
     # start_date it may lie ahead (the renewal duty is spawned from it).
     renewal_date: date
     animal_id: BoundedId | None = None  # API verifies same-farm existence
-    # insurance_policies.notes String(255) — the missing max_length let a
-    # longer narrative reach the column and surface as a raw 500 (P3,
-    # 2026-09-20 audit).
+    # insurance_policies.notes Text — the 255-char API cap is deliberate
+    # narrative terseness, not the column width (Text is unbounded); the
+    # missing max_length let a longer narrative reach the column and surface
+    # as a raw 500 (P3, 2026-09-20 audit; comment corrected 2026-09-28).
     notes: PostgresText | None = Field(default=None, max_length=255)
 
     @model_validator(mode="after")
@@ -210,6 +214,8 @@ class InsurancePolicyOut(BaseModel):
 class InsuranceListOut(BaseModel):
     policies: list[InsurancePolicyOut]
     total: int
+    limit: int
+    offset: int
 
 
 class InsurancePremiumOut(BaseModel):
@@ -238,6 +244,8 @@ class InsurancePolicyHistoryOut(BaseModel):
     policy: InsurancePolicyOut
     premiums: list[InsurancePremiumOut]
     total: int
+    limit: int
+    offset: int
 
 
 class InsuranceRenewalIn(StrictInputModel):

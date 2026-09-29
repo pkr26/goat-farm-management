@@ -1604,26 +1604,26 @@ async def test_tasks_only_worker_cannot_trigger_legacy_manual_animal_side_effect
     assert after.json()["moves"] == before.json()["moves"]
 
 
-async def test_complete_done_duty_400(client: httpx.AsyncClient) -> None:
+async def test_complete_done_duty_409(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     duty = await make_duty(client, owner, "Job")
     assert (await complete_duty(client, owner, duty["id"])).status_code == 200
     resp = await complete_duty(client, owner, duty["id"])
-    assert resp.status_code == 400
+    assert resp.status_code == 409
     assert resp.json()["detail"] == "Task is not pending"
 
 
-async def test_complete_verified_duty_400(client: httpx.AsyncClient) -> None:
+async def test_complete_verified_duty_409(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     duty = await make_duty(client, owner, "Job", category="CLEANING")
     assert (await complete_duty(client, owner, duty["id"])).status_code == 200
     resp = await client.post(f"/api/tasks/{duty['id']}/verify", headers=owner)
     assert resp.status_code == 200, resp.text
     resp = await complete_duty(client, owner, duty["id"])
-    assert resp.status_code == 400
+    assert resp.status_code == 409
 
 
-async def test_complete_skipped_duty_400(client: httpx.AsyncClient) -> None:
+async def test_complete_skipped_duty_409(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     duty = await make_duty(client, owner, "Job")
     resp = await client.post(
@@ -1631,7 +1631,7 @@ async def test_complete_skipped_duty_400(client: httpx.AsyncClient) -> None:
     )
     assert resp.status_code == 200, resp.text
     resp = await complete_duty(client, owner, duty["id"])
-    assert resp.status_code == 400
+    assert resp.status_code == 409
 
 
 async def test_complete_nonexistent_404(client: httpx.AsyncClient) -> None:
@@ -1775,7 +1775,7 @@ async def test_double_complete_spawns_only_one_occurrence(client: httpx.AsyncCli
     owner = await owner_with_farm(client)
     duty = await make_duty(client, owner, "Weekly", recur_days=7)
     assert (await complete_duty(client, owner, duty["id"])).status_code == 200
-    assert (await complete_duty(client, owner, duty["id"])).status_code == 400
+    assert (await complete_duty(client, owner, duty["id"])).status_code == 409
     tabs = await get_tabs(client, owner)
     spawned = [t for t in tabs["upcoming"] if t["title"] == "Weekly"]
     assert len(spawned) == 1
@@ -1830,18 +1830,18 @@ async def test_skip_leaves_no_attribution(client: httpx.AsyncClient) -> None:
     assert body["completed_at"] is None
 
 
-async def test_skip_done_duty_400(client: httpx.AsyncClient) -> None:
+async def test_skip_done_duty_409(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     duty = await make_duty(client, owner, "Job")
     assert (await complete_duty(client, owner, duty["id"])).status_code == 200
     resp = await client.post(
         f"/api/tasks/{duty['id']}/skip", json={"reason": "seasonal standdown"}, headers=owner
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 409
     assert resp.json()["detail"] == "Task is not pending"
 
 
-async def test_skip_skipped_duty_400(client: httpx.AsyncClient) -> None:
+async def test_skip_skipped_duty_409(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     duty = await make_duty(client, owner, "Job")
     resp = await client.post(
@@ -1851,7 +1851,7 @@ async def test_skip_skipped_duty_400(client: httpx.AsyncClient) -> None:
     resp = await client.post(
         f"/api/tasks/{duty['id']}/skip", json={"reason": "seasonal standdown"}, headers=owner
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 409
 
 
 async def test_skip_nonexistent_404(client: httpx.AsyncClient) -> None:
@@ -2137,7 +2137,7 @@ async def test_late_review_cannot_reopen_a_verified_occurrence(
         json={"note": "Redo the first occurrence"},
         headers=manager,
     )
-    assert rejected.status_code == 400, rejected.text
+    assert rejected.status_code == 409, rejected.text
     assert rejected.json()["detail"] == "Task is not awaiting verification"
 
     # The series carries exactly one live successor; the closed occurrence
@@ -2373,23 +2373,23 @@ async def test_owner_can_verify_own_completion(client: httpx.AsyncClient) -> Non
     assert resp.json()["status"] == "VERIFIED"
 
 
-async def test_verify_non_cleaning_done_duty_400(client: httpx.AsyncClient) -> None:
+async def test_verify_non_cleaning_done_duty_409(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     duty = await make_duty(client, owner, "Plain")
     assert (await complete_duty(client, owner, duty["id"])).status_code == 200
     resp = await client.post(f"/api/tasks/{duty['id']}/verify", headers=owner)
-    assert resp.status_code == 400
+    assert resp.status_code == 409
     assert resp.json()["detail"] == "Task is not awaiting verification"
 
 
-async def test_verify_pending_duty_400(client: httpx.AsyncClient) -> None:
+async def test_verify_pending_duty_409(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     duty = await make_duty(client, owner, "Scrub", category="CLEANING")
     resp = await client.post(f"/api/tasks/{duty['id']}/verify", headers=owner)
-    assert resp.status_code == 400
+    assert resp.status_code == 409
 
 
-async def test_double_verify_400(client: httpx.AsyncClient) -> None:
+async def test_double_verify_409(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     manager, _ = await worker_headers(client, owner, "CLEANER_MANAGER", "cm@farm.in")
     duty = await make_duty(client, owner, "Scrub", category="CLEANING")
@@ -2397,17 +2397,17 @@ async def test_double_verify_400(client: httpx.AsyncClient) -> None:
     resp = await client.post(f"/api/tasks/{duty['id']}/verify", headers=manager)
     assert resp.status_code == 200, resp.text
     resp = await client.post(f"/api/tasks/{duty['id']}/verify", headers=manager)
-    assert resp.status_code == 400
+    assert resp.status_code == 409
 
 
-async def test_reject_pending_duty_400(client: httpx.AsyncClient) -> None:
+async def test_reject_pending_duty_409(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     duty = await make_duty(client, owner, "Scrub", category="CLEANING")
     resp = await client.post(f"/api/tasks/{duty['id']}/reject", json={"note": "x"}, headers=owner)
-    assert resp.status_code == 400
+    assert resp.status_code == 409
 
 
-async def test_reject_verified_duty_400(client: httpx.AsyncClient) -> None:
+async def test_reject_verified_duty_409(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     manager, _ = await worker_headers(client, owner, "CLEANER_MANAGER", "cm@farm.in")
     duty = await make_duty(client, owner, "Scrub", category="CLEANING")
@@ -2415,15 +2415,15 @@ async def test_reject_verified_duty_400(client: httpx.AsyncClient) -> None:
     resp = await client.post(f"/api/tasks/{duty['id']}/verify", headers=manager)
     assert resp.status_code == 200, resp.text
     resp = await client.post(f"/api/tasks/{duty['id']}/reject", json={"note": "x"}, headers=manager)
-    assert resp.status_code == 400
+    assert resp.status_code == 409
 
 
-async def test_reject_non_cleaning_done_duty_400(client: httpx.AsyncClient) -> None:
+async def test_reject_non_cleaning_done_duty_409(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     duty = await make_duty(client, owner, "Plain")
     assert (await complete_duty(client, owner, duty["id"])).status_code == 200
     resp = await client.post(f"/api/tasks/{duty['id']}/reject", json={"note": "x"}, headers=owner)
-    assert resp.status_code == 400
+    assert resp.status_code == 409
 
 
 async def test_reject_with_note_sends_back_to_worker(client: httpx.AsyncClient) -> None:
@@ -2596,7 +2596,7 @@ async def test_reject_note_256_chars_422(client: httpx.AsyncClient) -> None:
     assert resp.status_code == 422
 
 
-async def test_verify_after_reject_400(client: httpx.AsyncClient) -> None:
+async def test_verify_after_reject_409(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     manager, _ = await worker_headers(client, owner, "CLEANER_MANAGER", "cm@farm.in")
     duty = await make_duty(client, owner, "Scrub", category="CLEANING")
@@ -2606,7 +2606,7 @@ async def test_verify_after_reject_400(client: httpx.AsyncClient) -> None:
     )
     assert resp.status_code == 200, resp.text
     resp = await client.post(f"/api/tasks/{duty['id']}/verify", headers=manager)
-    assert resp.status_code == 400  # PENDING again — nothing to verify
+    assert resp.status_code == 409  # PENDING again — nothing to verify
 
 
 async def test_verify_nonexistent_404(client: httpx.AsyncClient) -> None:
@@ -3319,9 +3319,9 @@ async def test_manual_queue_lock_does_not_deadlock_with_an_animal_first_sale(
 
     assert sale_response.status_code == 200, sale_response.text
     # The sale committed first and swept the duty to SKIPPED, so completion
-    # loses on its own state re-check — a domain 400, never the deadlock 500
-    # the farm ROW lock produced.
-    assert complete_response.status_code == 400, complete_response.text
+    # loses on its own state re-check — a domain 409 (2026-09-28 audit, A3),
+    # never the deadlock 500 the farm ROW lock produced.
+    assert complete_response.status_code == 409, complete_response.text
     assert complete_response.json()["detail"] == "Task is not pending"
 
 

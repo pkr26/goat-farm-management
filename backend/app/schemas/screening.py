@@ -18,6 +18,17 @@ ScreeningImageStatusStr = Literal["PENDING", "PROCESSING", "HEALTHY", "FLAGGED",
 ScreeningFindingStatusStr = Literal["PENDING_REVIEW", "CONFIRMED", "REJECTED"]
 # Mirrors models.enums.ScreeningRunStatus.
 ScreeningRunStatusStr = Literal["OK", "ERROR"]
+# Mirrors models.enums.ScreeningStage.
+ScreeningStageStr = Literal[
+    "DETECT",
+    "GATE",
+    "CROSS_CHECK",
+    "SPECIALIST_SKIN",
+    "SPECIALIST_EYE",
+    "SPECIALIST_HOOF",
+    "SPECIALIST_UDDER",
+    "SPECIALIST_GENERAL",
+]
 # Mirrors models.enums.Bucket (herd buckets / pens) — same vocabulary as
 # schemas.animals.BucketStr, restated locally to keep the screening schema
 # self-contained for the generated client.
@@ -41,9 +52,6 @@ ALLOWED_UPLOAD_CONTENT_TYPES = ("image/jpeg", "image/png")
 MAX_SCREENING_UPLOAD_BYTES = 25 * 1024 * 1024
 
 
-ScreeningImageId = Annotated[int, Field(ge=1, le=MAX_INT32_ID)]
-
-
 # Mirrors models.enums.ScreeningSeverity.
 ScreeningSeverityStr = Literal["mild", "moderate", "severe"]
 
@@ -61,6 +69,9 @@ class ScreeningFindingOut(BaseModel):
     note: str | None
     status: ScreeningFindingStatusStr
     review_note: str | None
+    # Reviewer attribution, exposed like every sibling's *_by_id (2026-09-28
+    # audit): it was the one attribution the review payload hid.
+    reviewed_by_id: int | None
     reviewed_at: datetime | None
     created_at: datetime
 
@@ -94,6 +105,8 @@ class ScreeningFindingReviewOut(BaseModel):
     id: int
     status: ScreeningFindingStatusStr
     review_note: str | None
+    # Reviewer attribution, like ScreeningFindingOut (2026-09-28 audit).
+    reviewed_by_id: int | None
     reviewed_at: datetime | None
 
 
@@ -122,7 +135,7 @@ class ScreeningRunOut(BaseModel):
     id: int
     image_id: int
     crop_id: int | None = None
-    stage: str
+    stage: ScreeningStageStr
     run_status: ScreeningRunStatusStr
     verdict: str | None
     confidence: Decimal | None
@@ -264,6 +277,9 @@ class ScreeningBatchOut(BaseModel):
 
 class ScreeningBatchListOut(BaseModel):
     batches: list[ScreeningBatchOut]
+    total: int
+    limit: int
+    offset: int
 
 
 class ScreeningBatchCreateIn(StrictInputModel):

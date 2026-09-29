@@ -167,9 +167,7 @@ def excluded_node_ids(tree: ast.AST) -> set[int]:
                 mark(node.returns)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
                 a = node.args
-                for arg in (
-                    a.posonlyargs + a.args + a.kwonlyargs + [a.vararg, a.kwarg]
-                ):
+                for arg in a.posonlyargs + a.args + a.kwonlyargs + [a.vararg, a.kwarg]:
                     if arg is not None:
                         mark(arg.annotation)
     return bad
@@ -225,14 +223,14 @@ def collect_sites(tree: ast.AST, bad: set[int]) -> list[Site]:
         elif isinstance(node, ast.Constant):
             if type(node.value) is bool:
                 sites.append(
-                    Site(kind="boolconst", detail=f"{node.value} -> {not node.value}", node_index=idx)
+                    Site(
+                        kind="boolconst", detail=f"{node.value} -> {not node.value}", node_index=idx
+                    )
                 )
             elif type(node.value) is int:
                 sites.append(Site(kind="intconst", detail="n -> n+1", node_index=idx, delta=1))
                 if node.value > 0:
-                    sites.append(
-                        Site(kind="intconst", detail="n -> n-1", node_index=idx, delta=-1)
-                    )
+                    sites.append(Site(kind="intconst", detail="n -> n-1", node_index=idx, delta=-1))
         elif isinstance(node, ast.IfExp):
             sites.append(Site(kind="ifexp", detail="swap branches", node_index=idx))
         elif isinstance(node, (ast.Break, ast.Continue)):
@@ -343,7 +341,7 @@ def generate() -> None:
                 local_nodes = nodes_in_walk_order(stmt)
                 if not any(n is node for n in local_nodes):
                     continue
-                li = [i for i, n in enumerate(local_nodes) if n is node][0]
+                li = next(i for i, n in enumerate(local_nodes) if n is node)
                 stmt_copy = copy.deepcopy(stmt)
                 copy_local = nodes_in_walk_order(stmt_copy)
                 target = copy_local[li]
@@ -373,8 +371,11 @@ def generate() -> None:
                     depth += 1
                 probe = parents.get(id(probe))
             scope = "module" if depth == 0 else "function"
+            node_text = (
+                ast.unparse(node) if not isinstance(node, ast.Constant) else repr(node.value)
+            )
             mid = hashlib.sha1(
-                f"{rel}:{stmt.lineno}:{site.kind}:{site.detail}:{ast.unparse(node) if not isinstance(node, ast.Constant) else repr(node.value)}".encode()
+                f"{rel}:{stmt.lineno}:{site.kind}:{site.detail}:{node_text}".encode()
             ).hexdigest()[:12]
             manifest.append(
                 {

@@ -14,7 +14,6 @@ from .detect import (
     DetectionBox,
     DetectionCallResult,
     DetectionParseError,
-    detection_instruction,
     parse_detection_response,
 )
 from .gate import (
@@ -119,7 +118,6 @@ __all__ = [
     "VisionProvider",
     "build_provider_rotation",
     "crop_image",
-    "detection_instruction",
     "get_screening_storage",
     "normalize_image",
     "normalized_derivative_key",

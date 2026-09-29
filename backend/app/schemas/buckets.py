@@ -2,11 +2,12 @@
 
 from pydantic import BaseModel
 
+from .animals import BucketStr
 from .summaries import BucketAnimalOut
 
 
 class BucketBoardRow(BaseModel):
-    bucket: str
+    bucket: BucketStr
     name: str
     who: str
     exit_rule: str

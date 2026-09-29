@@ -366,15 +366,13 @@ async def active_membership(
     db: AsyncSession,
     user_id: int,
     farm_id: int,
-    *,
-    lock_authorization: bool = False,
 ) -> FarmMembership | None:
-    """Load an active farm membership, optionally pinning authorization.
+    """Load an active farm membership for the lock-free read path.
 
-    A caller may hold SHARE locks on both the membership and effective role
-    until commit. Generic mutating-request authorization uses the stricter
-    Membership -> User -> Role helpers below so password reset, tombstoning,
-    deactivation, and permission edits serialize without a lock inversion.
+    Mutating-request authorization never calls this (2026-09-28 audit, S3):
+    it uses the stricter Membership -> User -> Role helpers below so password
+    reset, tombstoning, deactivation, and permission edits serialize without
+    a lock inversion.
     """
     active_role = (
         select(Role.id)
@@ -391,35 +389,8 @@ async def active_membership(
         FarmMembership.is_active.is_(True),
         active_role,
     )
-    if not lock_authorization:
-        result = await db.execute(statement.options(selectinload(FarmMembership.role)))
-        return result.scalar_one_or_none()
-
-    membership = (
-        await db.execute(
-            statement.execution_options(populate_existing=True).with_for_update(read=True)
-        )
-    ).scalar_one_or_none()
-    if membership is None:
-        return None
-    role = (
-        await db.execute(
-            select(Role)
-            .where(
-                Role.id == membership.role_id,
-                Role.farm_id == farm_id,
-                Role.deleted_at.is_(None),
-            )
-            .execution_options(populate_existing=True)
-            .with_for_update(read=True)
-        )
-    ).scalar_one_or_none()
-    if role is None:
-        # The composite FK should make this impossible outside manual damage;
-        # fail closed rather than authorizing from a stale relationship.
-        return None
-    membership.role = role
-    return membership
+    result = await db.execute(statement.options(selectinload(FarmMembership.role)))
+    return result.scalar_one_or_none()
 
 
 async def _lock_membership_row(
@@ -633,12 +604,7 @@ async def current_membership(
     cached_farm_id = getattr(request.state, "unlocked_membership_farm_id", None)
     if isinstance(cached, FarmMembership) and cached_farm_id == farm.id:
         return cached
-    return await active_membership(
-        db,
-        user.id,
-        farm.id,
-        lock_authorization=False,
-    )
+    return await active_membership(db, user.id, farm.id)
 
 
 CurrentMembership = Annotated[FarmMembership | None, Depends(current_membership)]

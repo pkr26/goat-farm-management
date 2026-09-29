@@ -32,8 +32,10 @@ class PlannerTargetIn(StrictInputModel):
     """One sale target: ``count`` head of one class in one calendar month."""
 
     # Years bounded to the engine's 1900-2200 calendar range, so a plan can
-    # never be stored with a date the engine rejects on every later run.
-    year_month: PostgresText = Field(pattern=r"^(19\d{2}|20\d{2}|21[0-1]\d|2200)-(0[1-9]|1[0-2])$")
+    # never be stored with a date the engine rejects on every later run. The
+    # fourth alternative used to read 21[0-1]\d, silently excluding
+    # 2120-2199 inside the documented range (2026-09-28 audit).
+    year_month: PostgresText = Field(pattern=r"^(19\d{2}|20\d{2}|21\d{2}|2200)-(0[1-9]|1[0-2])$")
     animal_class: Literal[
         "doe",
         "buck",
@@ -62,7 +64,8 @@ class PlannerPlanCreateIn(StrictInputModel):
     name: PostgresText = Field(min_length=1, max_length=120)  # planner_plans.name String(120)
     notes: PostgresText = Field(default="", max_length=2000)
     start_year_month: PostgresText = Field(
-        pattern=r"^(19\d{2}|20\d{2}|21[0-1]\d|2200)-(0[1-9]|1[0-2])$"
+        # 1900-2200, the engine's calendar range (see PlannerTargetIn).
+        pattern=r"^(19\d{2}|20\d{2}|21\d{2}|2200)-(0[1-9]|1[0-2])$"
     )
     targets: list[PlannerTargetIn] = Field(min_length=1, max_length=50)
     assumptions: SimulationAssumptions
@@ -77,7 +80,8 @@ class PlannerPlanUpdateIn(StrictInputModel):
     notes: PostgresText | None = Field(default=None, max_length=2000)
     start_year_month: PostgresText | None = Field(
         default=None,
-        pattern=r"^(19\d{2}|20\d{2}|21[0-1]\d|2200)-(0[1-9]|1[0-2])$",
+        # 1900-2200, the engine's calendar range (see PlannerTargetIn).
+        pattern=r"^(19\d{2}|20\d{2}|21\d{2}|2200)-(0[1-9]|1[0-2])$",
     )
     targets: list[PlannerTargetIn] | None = Field(default=None, min_length=1, max_length=50)
     assumptions: SimulationAssumptions | None = None
@@ -104,6 +108,8 @@ class PlannerPlanOut(BaseModel):
 class PlannerPlanListOut(BaseModel):
     """One bounded page of saved plans plus the full farm-scoped count."""
 
+    # Deliberate legacy name (2026-09-28 audit): siblings use domain nouns,
+    # but ``items`` is locked into the wire contract (see ScenarioListOut).
     items: list[PlannerPlanOut]
     total: int
     limit: int

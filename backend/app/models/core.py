@@ -114,7 +114,11 @@ class TotpRecoveryCode(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     code_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     used_at: Mapped[datetime | None] = mapped_column()
-    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # UTC server default standardized by the housekeeping wave (2026-09-28
+    # audit, D7).
+    created_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
 
 
 class Farm(Base):
@@ -235,6 +239,12 @@ class FarmMembership(Base):
 
     __tablename__ = "farm_memberships"
     __table_args__ = (
+        # Both orders stay (2026-09-28 audit review): (farm_id, user_id) is
+        # the tenant composite-FK target, and (user_id, farm_id) is the only
+        # index serving the user→farms affiliation lookups that carry no
+        # is_active predicate (api/auth.py's membership list, api/team.py's
+        # owns-other-farm probe) — the partial index below cannot serve
+        # those, so dropping this constraint would seq-scan them.
         UniqueConstraint("user_id", "farm_id", name="uq_membership_user_farm"),
         UniqueConstraint("farm_id", "user_id", name="uq_farm_memberships_farm_user"),
         Index(
