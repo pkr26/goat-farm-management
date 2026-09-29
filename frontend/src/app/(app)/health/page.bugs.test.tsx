@@ -189,7 +189,7 @@ describe("HealthPage prefill display (regression: labels, not raw values)", () =
     const dutyTrigger = within(dialog).getByLabelText("Linked duty (completes it)");
     await pickOption(user, dutyTrigger, /Deworm Kaveri/);
 
-    const animalTrigger = within(dialog).getAllByRole("combobox")[0];
+    const animalTrigger = within(dialog).getByRole("button", { name: "Animal *" });
     await waitFor(() => expect(animalTrigger).toHaveTextContent(ANIMAL_LABEL));
     expect(animalTrigger).not.toHaveTextContent(/^3$/);
   });
@@ -204,7 +204,7 @@ describe("HealthPage prefill display (regression: labels, not raw values)", () =
     const dutyTrigger = within(dialog).getByLabelText("Linked duty (completes it)");
     await pickOption(user, dutyTrigger, /Deworm Kaveri/);
 
-    const animalTrigger = within(dialog).getAllByRole("combobox")[0];
+    const animalTrigger = within(dialog).getByRole("button", { name: "Animal *" });
     await user.click(animalTrigger);
     await screen.findByRole("option", { name: /G-003/ });
     await user.keyboard("{Escape}");
@@ -222,8 +222,8 @@ describe("HealthPage prefill display (regression: labels, not raw values)", () =
     const dialog = await screen.findByRole("dialog");
 
     await waitFor(() => {
-      const combos = within(dialog).getAllByRole("combobox");
-      expect(combos[0]).toHaveTextContent(ANIMAL_LABEL);
+      const animalTrigger = within(dialog).getByRole("button", { name: "Animal *" });
+      expect(animalTrigger).toHaveTextContent(ANIMAL_LABEL);
     });
     expect(within(dialog).getByLabelText("Linked duty (completes it)")).toHaveTextContent(
       /Deworm Kaveri/,

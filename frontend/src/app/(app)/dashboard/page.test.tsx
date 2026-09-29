@@ -32,9 +32,8 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({}),
 }));
 
-/** UTC-relative fixture dates: the page compares due dates against
- * utcToday(), so fixtures built from browser-local dates drift
- * one day whenever the local and UTC dates differ. */
+/** Farm-relative fixture dates: the page compares due dates against
+ * farmToday(), so fixtures must anchor on the same business date. */
 const TODAY = farmToday();
 const THREE_DAYS_AGO = addDays(TODAY, -3);
 

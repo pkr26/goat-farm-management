@@ -24,8 +24,8 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({}),
 }));
 
-/** UTC-relative fixture dates: the page compares against utcToday()
- *, so browser-local fixtures drift a day near midnight. */
+/** Farm-calendar fixture dates: the page compares against farmToday(),
+ * so browser-local fixtures drift a day near the farm's midnight. */
 const TODAY = farmToday();
 const TOMORROW = addDays(TODAY, 1);
 

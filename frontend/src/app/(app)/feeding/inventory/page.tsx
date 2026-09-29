@@ -6,7 +6,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { Package, TriangleAlert } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -53,15 +53,15 @@ import { ApiError } from "@/lib/api-client";
 import { useMutationError } from "@/lib/mutations";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { formatMoney } from "@/lib/format";
-import { useT } from "@/lib/i18n";
+import { useT, type TFn } from "@/lib/i18n";
+import { mapServerError } from "@/lib/server-error-phrases";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import {
   formatPersistedKg,
   isPersistableNonnegativeMoney,
   MIN_PERSISTED_KG,
-  MIN_PERSISTED_KG_MESSAGE,
 } from "@/lib/persisted-numbers";
-import { FeedingNav } from "@/components/feeding-nav";
+import { FEEDING_TABS, SectionNav } from "@/components/section-nav";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 
@@ -73,53 +73,54 @@ const optNum = (schema: z.ZodNumber) =>
     schema.optional(),
   );
 
-const addStockSchema = z
-  .object({
-    qty_kg: z.coerce
-      .number()
-      .positive("Quantity must be greater than 0")
-      .min(MIN_PERSISTED_KG, MIN_PERSISTED_KG_MESSAGE)
-      // Mirrors QuantityKgFloat (le=1_000_000, schemas/common.py): a fat-fingered
-      // quantity should fail inline instead of as an opaque server 422.
-      .max(1_000_000, "Quantity cannot exceed 1,000,000 kg"),
-    price_per_kg: optNum(
-      z
+const buildAddStockSchema = (t: TFn) =>
+  z
+    .object({
+      qty_kg: z.coerce
         .number()
-        .nonnegative("Price cannot be negative")
-        .max(1_000_000_000, "Price cannot exceed ₹1,000,000,000 per kg")
-        .refine(
-          isPersistableNonnegativeMoney,
-          "Price must be ₹0 or at least ₹0.005 (or leave blank)",
-        ),
-    ),
-  })
-  .superRefine((values, ctx) => {
-    if (values.price_per_kg === undefined || values.price_per_kg === 0) return;
+        .positive(t("feeding.validation.qtyPositive"))
+        .min(MIN_PERSISTED_KG, t("feeding.validation.kgMin"))
+        // Mirrors QuantityKgFloat (le=1_000_000, schemas/common.py): a fat-fingered
+        // quantity should fail inline instead of as an opaque server 422.
+        .max(1_000_000, t("feeding.validation.qtyMax")),
+      price_per_kg: optNum(
+        z
+          .number()
+          .nonnegative(t("feedingInventory.validation.priceNegative"))
+          .max(1_000_000_000, t("feedingInventory.validation.priceMax"))
+          .refine(
+            isPersistableNonnegativeMoney,
+            t("feedingInventory.validation.priceFloor"),
+          ),
+      ),
+    })
+    .superRefine((values, ctx) => {
+      if (values.price_per_kg === undefined || values.price_per_kg === 0) return;
 
-    // Mirror the service's persisted precision closely enough to catch an
-    // inevitably zero or over-limit derived expense before submission.  The
-    // backend remains authoritative and performs Decimal HALF_UP arithmetic.
-    const normalizedQty = Math.round(values.qty_kg * 1_000) / 1_000;
-    const normalizedPrice = Math.round(values.price_per_kg * 100) / 100;
-    const total = normalizedQty * normalizedPrice;
-    if (total < 0.005) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["price_per_kg"],
-        // The backend rounds derived expense HALF_UP to whole paise; a total
-        // under half a paisa rounds to ₹0.00 and is not bookable.
-        message: "Restock total is too small to round up to ₹0.01",
-      });
-    } else if (total > 1_000_000_000.004) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["price_per_kg"],
-        message: "Restock cost cannot exceed ₹1,000,000,000",
-      });
-    }
-  });
-type AddStockInput = z.input<typeof addStockSchema>;
-type AddStockValues = z.output<typeof addStockSchema>;
+      // Mirror the service's persisted precision closely enough to catch an
+      // inevitably zero or over-limit derived expense before submission.  The
+      // backend remains authoritative and performs Decimal HALF_UP arithmetic.
+      const normalizedQty = Math.round(values.qty_kg * 1_000) / 1_000;
+      const normalizedPrice = Math.round(values.price_per_kg * 100) / 100;
+      const total = normalizedQty * normalizedPrice;
+      if (total < 0.005) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["price_per_kg"],
+          // The backend rounds derived expense HALF_UP to whole paise; a total
+          // under half a paisa rounds to ₹0.00 and is not bookable.
+          message: t("feedingInventory.validation.restockTotalTooSmall"),
+        });
+      } else if (total > 1_000_000_000.004) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["price_per_kg"],
+          message: t("feedingInventory.validation.restockCostMax"),
+        });
+      }
+    });
+type AddStockInput = z.input<ReturnType<typeof buildAddStockSchema>>;
+type AddStockValues = z.output<ReturnType<typeof buildAddStockSchema>>;
 
 /** Add stock for one inventory row (feeding.manage). */
 function AddStockDialog({ item, touch = false }: { item: FeedInventoryOut; touch?: boolean }) {
@@ -129,6 +130,7 @@ function AddStockDialog({ item, touch = false }: { item: FeedInventoryOut; touch
   const t = useT();
   const mut = useAddStockApiFeedingInventoryItemIdAddPost();
   const addFlight = useSingleFlight();
+  const addStockSchema = useMemo(() => buildAddStockSchema(t), [t]);
   const {
     register,
     handleSubmit,
@@ -238,16 +240,17 @@ function AddStockDialog({ item, touch = false }: { item: FeedInventoryOut; touch
   );
 }
 
-const mixSchema = z.object({
-  recipe_code: z.string().min(1, "Pick a recipe"),
-  batches: z.coerce
-    .number()
-    .int("Whole batches only")
-    .min(1, "At least 1 batch")
-    .max(50, "At most 50 batches"),
-});
-type MixInput = z.input<typeof mixSchema>;
-type MixValues = z.output<typeof mixSchema>;
+const buildMixSchema = (t: TFn) =>
+  z.object({
+    recipe_code: z.string().min(1, t("feeding.validation.pickRecipe")),
+    batches: z.coerce
+      .number()
+      .int(t("feedingInventory.validation.wholeBatches"))
+      .min(1, t("feedingInventory.validation.batchesMin"))
+      .max(50, t("feedingInventory.validation.batchesMax")),
+  });
+type MixInput = z.input<ReturnType<typeof buildMixSchema>>;
+type MixValues = z.output<ReturnType<typeof buildMixSchema>>;
 
 /** Mix recipe batches (1 batch = 100 kg), decrementing inventory (feeding.manage).
  * Controlled by the page: the header action and the mixed-feed empty state
@@ -268,6 +271,7 @@ function MixBatchDialog({
   const t = useT();
   const mut = useMixBatchApiFeedingMixPost();
   const mixFlight = flight;
+  const mixSchema = useMemo(() => buildMixSchema(t), [t]);
 
   const recipesQuery = useListRecipesApiFeedingRecipesGet({ query: { enabled: open } });
   const recipes = recipesQuery.data?.status === 200 ? recipesQuery.data.data.recipes : [];
@@ -494,14 +498,14 @@ function InventoryPageContent({ perms }: { perms: PermissionsState }) {
         }
       />
 
-      <FeedingNav active="inventory" />
+      <SectionNav tabs={FEEDING_TABS} active="inventory" ariaLabelKey="feeding.nav.aria" />
 
       <DataTableCard title={t("feedingInventory.stockOnHand")}>
         {query.isError ? (
           <div role="alert" className="space-y-3">
             <p className="text-sm text-destructive">
               {query.error instanceof ApiError
-                ? query.error.detail
+                ? mapServerError(t, query.error.detail, query.error.status, query.error.code)
                 : t("feedingInventory.loadFailed")}
             </p>
             <Button type="button" variant="outline" onClick={() => void query.refetch()}>
@@ -621,7 +625,7 @@ function InventoryPageContent({ perms }: { perms: PermissionsState }) {
         ) : finishedQuery.isError ? (
           <p role="alert" className="text-sm text-destructive">
             {finishedQuery.error instanceof ApiError
-              ? finishedQuery.error.detail
+              ? mapServerError(t, finishedQuery.error.detail, finishedQuery.error.status, finishedQuery.error.code)
               : t("feedingInventory.finishedLoadFailed")}
           </p>
         ) : !finishedStock || finishedStock.length === 0 ? (

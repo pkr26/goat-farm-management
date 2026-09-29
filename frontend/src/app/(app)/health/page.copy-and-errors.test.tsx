@@ -83,6 +83,7 @@ function makeEvent(overrides: Partial<HealthEventOut>): HealthEventOut {
     authority_notified_at: null,
     isolation_started_at: null,
     notes: null,
+    created_at: "2026-01-01T00:00:00Z",
     animal_tag: "G-003",
     ...overrides,
   };
@@ -310,7 +311,7 @@ describe("HealthPage copy and error wiring", () => {
 
   it("confirms a single-animal save without a herd count", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003 · Kaveri/);
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
 
     await waitFor(() => expect(postBody).not.toBeNull());
@@ -502,7 +503,7 @@ describe("HealthPage copy and error wiring", () => {
     // The snapshot named bucket members; nothing about it survives into a
     // single-animal event, so it must not stay on screen or in the payload.
     expect(within(dialog).queryByRole("status")).not.toBeInTheDocument();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003 · Kaveri/);
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
 
     await waitFor(() => expect(postBody).not.toBeNull());
@@ -560,7 +561,7 @@ describe("HealthPage copy and error wiring", () => {
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("Pick an animal");
 
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003 · Kaveri/);
 
     await waitFor(() =>
       expect(within(dialog).queryByText("Pick an animal")).not.toBeInTheDocument(),
@@ -589,7 +590,7 @@ describe("HealthPage copy and error wiring", () => {
   it("clears the batch requirement the moment a batch is picked", async () => {
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("radio", { name: "Purchase batch" }));
-    const batchTrigger = within(dialog).getByRole("combobox", { name: "Purchase batch *" });
+    const batchTrigger = within(dialog).getByRole("button", { name: "Purchase batch *" });
     expect(batchTrigger).toHaveTextContent("Pick a batch");
 
     await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
@@ -627,7 +628,7 @@ describe("HealthPage copy and error wiring", () => {
 
   it("describes every traceability date by its own error message", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003 · Kaveri/);
     await openAdvanced(user, dialog);
     const field = (label: string) => within(dialog).getByLabelText(label);
     fireEvent.change(field("Next due date"), { target: { value: TODAY } });
@@ -681,7 +682,7 @@ describe("HealthPage copy and error wiring", () => {
 
   it("records the free-text programme a treatment event names", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003 · Kaveri/);
     await pickOption(user, within(dialog).getByLabelText("Type"), "Treatment");
     await openAdvanced(user, dialog);
     fireEvent.change(within(dialog).getByLabelText("Next due date"), {
@@ -713,7 +714,7 @@ describe("HealthPage copy and error wiring", () => {
 
   it("drops the statutory dates and their errors when the suspicion is withdrawn", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003 · Kaveri/);
     fireEvent.change(within(dialog).getByLabelText("Disease target"), {
       target: { value: "PPR" },
     });

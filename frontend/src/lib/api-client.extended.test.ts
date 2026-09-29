@@ -745,10 +745,12 @@ describe("apiFetch refresh-retry edge cases", () => {
     "/api/auth/register?invitation=abc",
     "/api/auth/refresh?source=bootstrap",
     "/api/auth/logout?all=true",
+    "/api/auth/worker-login?source=tablet",
     "/api/auth/login/",
     "/api/auth/register/",
     "/api/auth/refresh/",
     "/api/auth/logout/",
+    "/api/auth/worker-login/",
   ])("does not refresh a terminal auth path spelling %s", async (path) => {
     fetchMock.mockResolvedValueOnce(jsonResponse(401, { detail: "Unauthorized" }));
 

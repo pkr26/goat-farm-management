@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Download, KeyRound, Trash2 } from "lucide-react";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -28,20 +28,22 @@ import {
 } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { farmToday } from "@/lib/format";
-import { useT } from "@/lib/i18n";
+import { type TFn, useT } from "@/lib/i18n";
 
-const passwordSchema = z
-  .object({
-    current_password: z.string().min(1, "Current password is required").max(128),
-    new_password: z.string().min(12, "Password must be at least 12 characters").max(128),
-    confirm_password: z.string().min(1, "Confirm the new password").max(128),
-  })
-  .refine((values) => values.new_password === values.confirm_password, {
-    path: ["confirm_password"],
-    message: "Passwords do not match",
-  });
+function buildPasswordSchema(t: TFn) {
+  return z
+    .object({
+      current_password: z.string().min(1, t("account.validation.currentRequired")).max(128),
+      new_password: z.string().min(12, t("account.validation.newTooShort")).max(128),
+      confirm_password: z.string().min(1, t("account.validation.confirmRequired")).max(128),
+    })
+    .refine((values) => values.new_password === values.confirm_password, {
+      path: ["confirm_password"],
+      message: t("account.validation.mismatch"),
+    });
+}
 
-type PasswordValues = z.infer<typeof passwordSchema>;
+type PasswordValues = z.infer<ReturnType<typeof buildPasswordSchema>>;
 type AccountAction = "export" | "password" | "delete";
 
 export function AccountDialog({ name, email }: { name: string | null; email: string }) {
@@ -75,6 +77,10 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
   // Stryker disable next-line BooleanLiteral: the mount effect below overwrites the initial value before any continuation can observe it
   const mounted = useRef(true);
   const mutation = useChangePasswordApiAuthChangePasswordPost();
+  // Rebuilt when the language changes so client-side validation messages
+  // render in the active language; react-hook-form re-reads the resolver
+  // option every render.
+  const passwordSchema = useMemo(() => buildPasswordSchema(t), [t]);
   const {
     register,
     handleSubmit,
@@ -259,10 +265,23 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
 
   function copyRecoveryCodes() {
     if (recoveryCodes === null) return;
-    void navigator.clipboard?.writeText(recoveryCodes.join("\n")).then(() => {
-      setCodesCopied(true);
-      toast.success(t("totp.recoveryCopied"));
-    });
+    const clipboard = navigator.clipboard;
+    // No Clipboard API (insecure context, older webview) or a rejected write
+    // (permission denied) must not strand the one-time reveal: say so and let
+    // the operator select-copy the codes by hand.
+    if (!clipboard) {
+      toast.error(t("totp.recoveryCopyFailed"));
+      return;
+    }
+    void clipboard.writeText(recoveryCodes.join("\n")).then(
+      () => {
+        setCodesCopied(true);
+        toast.success(t("totp.recoveryCopied"));
+      },
+      () => {
+        toast.error(t("totp.recoveryCopyFailed"));
+      },
+    );
   }
 
   async function downloadExport() {
@@ -293,7 +312,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
       // toast for a lifecycle the operator already abandoned — the same
       // double fence the error path below uses.
       if (operationEpoch === dialogEpoch.current) {
-        toast.success("Your account data export was downloaded.");
+        toast.success(t("account.export.toast"));
       }
     } catch (error) {
       if (
@@ -301,7 +320,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         operationEpoch === dialogEpoch.current
       ) {
         setExportError(
-          error instanceof ApiError ? error.detail : "Could not download your account data.",
+          error instanceof ApiError ? error.detail : t("account.export.failed"),
         );
       }
     } finally {
@@ -323,9 +342,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         body: JSON.stringify(payload),
       });
       if (authSessionEpochValue() !== sessionEpoch) return;
-      toast.success(
-        "Your sign-in identity and profile were removed, and your farm access was disabled. Inactive membership audit anchors and de-identified operational references may remain.",
-      );
+      toast.success(t("account.delete.toast"));
       await signOut();
     } catch (error) {
       if (
@@ -333,7 +350,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         operationEpoch === dialogEpoch.current
       ) {
         setDeleteError(
-          error instanceof ApiError ? error.detail : "Could not delete your account.",
+          error instanceof ApiError ? error.detail : t("account.delete.failed"),
         );
       }
     } finally {
@@ -375,7 +392,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         if (authSessionEpochValue() !== sessionEpoch) return;
         if (outcome.kind === "rejected") {
           // The server answered: the rotated cookie will not produce a token.
-          toast.success("Password changed. Sign in again to continue.");
+          toast.success(t("account.password.toastSignInAgain"));
           if (operationEpoch === dialogEpoch.current && mounted.current) close();
           await signOut();
           return;
@@ -386,7 +403,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
           // still honours, over one transient 5xx or dropped request — and
           // that is unrecoverable. Keep the installed token; the ordinary
           // 401 → refresh retry self-heals once the network is back.
-          toast.success("Password changed. Reconnecting to your session…");
+          toast.success(t("account.password.toastReconnecting"));
           if (operationEpoch === dialogEpoch.current && mounted.current) close();
           return;
         }
@@ -395,14 +412,14 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         // is actually satisfied, instead of on the next full reload.
         updateUser(outcome.body.user);
       }
-      toast.success("Password changed. Other signed-in sessions were revoked.");
+      toast.success(t("account.password.toastRevoked"));
       if (operationEpoch === dialogEpoch.current && mounted.current) close();
     } catch (error) {
       if (
         authSessionEpochValue() === sessionEpoch &&
         operationEpoch === dialogEpoch.current
       ) {
-        setServerError(error instanceof ApiError ? error.detail : "Could not change the password.");
+        setServerError(error instanceof ApiError ? error.detail : t("account.password.failed"));
       }
     }
   }
@@ -428,7 +445,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
             variant="ghost"
             size="sm"
             className="gap-2 px-1.5 font-normal"
-            aria-label={`Account — ${name || email}`}
+            aria-label={t("account.triggerAria", { name: name || email })}
           />
         }
       >
@@ -443,7 +460,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Account & password</DialogTitle>
+          <DialogTitle>{t("account.title")}</DialogTitle>
         </DialogHeader>
         <div className="rounded-lg bg-muted/60 p-3 text-sm">
           <p className="font-medium">{name || email}</p>
@@ -451,10 +468,10 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         </div>
         <section className="space-y-2" aria-labelledby="account-data-heading">
           <h3 id="account-data-heading" className="text-sm font-medium">
-            Your data
+            {t("account.export.heading")}
           </h3>
           <p className="text-xs text-muted-foreground">
-            Download a JSON copy of your account, owned farms and memberships.
+            {t("account.export.description")}
           </p>
           {exportError && (
             <p role="alert" className="text-sm text-destructive">
@@ -468,7 +485,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
             disabled={activeAction !== null}
           >
             <Download aria-hidden />
-            {activeAction === "export" ? "Preparing…" : "Download my data"}
+            {activeAction === "export" ? t("account.export.preparing") : t("account.export.button")}
           </Button>
         </section>
         <form
@@ -479,7 +496,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         >
           <fieldset disabled={activeAction !== null || isSubmitting} className="space-y-4">
           <h3 id="change-password-heading" className="text-sm font-medium">
-            Change password
+            {t("account.password.change")}
           </h3>
           {serverError && (
             <p role="alert" className="text-sm text-destructive">
@@ -487,7 +504,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
             </p>
           )}
           <div className="space-y-1.5">
-            <Label htmlFor="account-current-password">Current password for password change</Label>
+            <Label htmlFor="account-current-password">{t("account.password.currentLabel")}</Label>
             <Input
               id="account-current-password"
               type="password" maxLength={128}
@@ -503,7 +520,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
             )}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="account-new-password">New password</Label>
+            <Label htmlFor="account-new-password">{t("account.password.newLabel")}</Label>
             <Input
               id="account-new-password"
               type="password" maxLength={128}
@@ -519,7 +536,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
             )}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="account-confirm-password">Confirm new password</Label>
+            <Label htmlFor="account-confirm-password">{t("account.password.confirmLabel")}</Label>
             <Input
               id="account-confirm-password"
               type="password" maxLength={128}
@@ -535,14 +552,14 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
             )}
           </div>
           <p className="text-xs text-muted-foreground">
-            Changing your password signs out every other device and keeps this one active.
+            {t("account.password.hint")}
           </p>
           <DialogFooter>
             <Button type="submit" disabled={activeAction !== null || isSubmitting}>
               {/* react-hook-form's isSubmitting spans the entire password-action
                  window (beginAction runs inside the submit handler), so it
                  alone decides the label. */}
-              {isSubmitting ? "Changing…" : "Change password"}
+              {isSubmitting ? t("account.password.submitting") : t("account.password.change")}
             </Button>
           </DialogFooter>
           </fieldset>
@@ -590,6 +607,8 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
                     maxLength={128}
                     value={totpPassword}
                     onChange={(e) => setTotpPassword(e.target.value)}
+                    aria-invalid={Boolean(totpError) || undefined}
+                    aria-describedby={totpError ? "totp-disable-error" : undefined}
                   />
                   <Label htmlFor="totp-disable-code">{t("login.totpCodeLabel")}</Label>
                   <Input
@@ -598,9 +617,11 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
                     maxLength={6}
                     value={totpCode}
                     onChange={(e) => setTotpCode(e.target.value)}
+                    aria-invalid={Boolean(totpError) || undefined}
+                    aria-describedby={totpError ? "totp-disable-error" : undefined}
                   />
                   {totpError && (
-                    <p role="alert" className="text-sm text-destructive">
+                    <p id="totp-disable-error" role="alert" className="text-sm text-destructive">
                       {totpError}
                     </p>
                   )}
@@ -637,6 +658,8 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
                     maxLength={128}
                     value={totpPassword}
                     onChange={(e) => setTotpPassword(e.target.value)}
+                    aria-invalid={Boolean(totpError) || undefined}
+                    aria-describedby={totpError ? "totp-regen-error" : undefined}
                   />
                   <Label htmlFor="totp-regen-code">{t("login.totpCodeLabel")}</Label>
                   <Input
@@ -645,9 +668,11 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
                     maxLength={6}
                     value={totpCode}
                     onChange={(e) => setTotpCode(e.target.value)}
+                    aria-invalid={Boolean(totpError) || undefined}
+                    aria-describedby={totpError ? "totp-regen-error" : undefined}
                   />
                   {totpError && (
-                    <p role="alert" className="text-sm text-destructive">
+                    <p id="totp-regen-error" role="alert" className="text-sm text-destructive">
                       {totpError}
                     </p>
                   )}
@@ -733,9 +758,11 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
                 maxLength={6}
                 value={totpCode}
                 onChange={(e) => setTotpCode(e.target.value)}
+                aria-invalid={Boolean(totpError) || undefined}
+                aria-describedby={totpError ? "totp-confirm-error" : undefined}
               />
               {totpError && (
-                <p role="alert" className="text-sm text-destructive">
+                <p id="totp-confirm-error" role="alert" className="text-sm text-destructive">
                   {totpError}
                 </p>
               )}
@@ -771,9 +798,11 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
                 maxLength={128}
                 value={totpPassword}
                 onChange={(e) => setTotpPassword(e.target.value)}
+                aria-invalid={Boolean(totpError) || undefined}
+                aria-describedby={totpError ? "totp-enable-error" : undefined}
               />
               {totpError && (
-                <p role="alert" className="text-sm text-destructive">
+                <p id="totp-enable-error" role="alert" className="text-sm text-destructive">
                   {totpError}
                 </p>
               )}
@@ -820,13 +849,10 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
           aria-labelledby="delete-account-heading"
         >
           <h3 id="delete-account-heading" className="text-sm font-medium text-destructive">
-            Delete account
+            {t("account.delete.heading")}
           </h3>
           <p className="text-xs text-muted-foreground">
-            Deletion removes your sign-in identity and profile and disables your farm access.
-            Inactive membership rows and operational records may retain a pseudonymous audit
-            reference.
-            If you own any farm, deletion is blocked so its records cannot be orphaned.
+            {t("account.delete.description")}
           </p>
           {!deleteMode ? (
             <Button
@@ -836,13 +862,12 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
               onClick={() => setDeleteMode(true)}
             >
               <Trash2 aria-hidden />
-              Delete my account…
+              {t("account.delete.start")}
             </Button>
           ) : (
             <div className="space-y-3">
               <p className="text-sm font-medium">
-                Enter your current password to confirm deletion of your sign-in identity and farm
-                access.
+                {t("account.delete.confirmPrompt")}
               </p>
               {deleteError && (
                 <p role="alert" className="text-sm text-destructive">
@@ -850,7 +875,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
                 </p>
               )}
               <div className="space-y-1.5">
-                <Label htmlFor="account-delete-password">Current password to delete account</Label>
+                <Label htmlFor="account-delete-password">{t("account.delete.passwordLabel")}</Label>
                 <Input
                   id="account-delete-password"
                   type="password" maxLength={128}
@@ -871,7 +896,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
                     setDeleteError(null);
                   }}
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </Button>
                 <Button
                   type="button"
@@ -879,7 +904,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
                   disabled={!deletePassword || activeAction !== null}
                   onClick={() => void deleteAccount()}
                 >
-                  {activeAction === "delete" ? "Deleting…" : "Delete account and access"}
+                  {activeAction === "delete" ? t("account.delete.deleting") : t("account.delete.confirm")}
                 </Button>
               </div>
             </div>

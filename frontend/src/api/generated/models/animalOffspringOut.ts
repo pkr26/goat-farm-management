@@ -4,6 +4,8 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { AnimalOffspringOutSex } from './animalOffspringOutSex';
+import type { AnimalOffspringOutStatus } from './animalOffspringOutStatus';
 
 /**
  * Identity/lifecycle fields rendered in a parent's kids table.
@@ -12,8 +14,8 @@ export interface AnimalOffspringOut {
   id: number;
   tag_number: string;
   name: string | null;
-  sex: string;
+  sex: AnimalOffspringOutSex;
   date_of_birth: string | null;
   estimated_dob: string | null;
-  status: string;
+  status: AnimalOffspringOutStatus;
 }

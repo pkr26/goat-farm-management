@@ -31,6 +31,7 @@ import {
 } from "@/lib/api-client";
 import { clearPersistedIdempotencyRequestState } from "@/lib/idempotent-request";
 import { wipeOfflineQueue } from "@/lib/offline-queue";
+import { safeStorage } from "@/lib/safe-storage";
 import { setActiveFarmTimezone } from "@/lib/format";
 
 // Raw auth responses stay anchored to generated contract models so backend
@@ -67,15 +68,13 @@ const FARM_STORAGE_KEY = "goatfarm.farmId";
 // Stryker disable next-line ArrayDeclaration, StringLiteral: a module-level initializer cannot be attributed to the asserting test by per-test coverage; the list is pinned by the redirect suite
 const PUBLIC_PATHS = ["/login", "/register", "/worker/login"];
 
-/** Site data can be blocked for the origin (reading `window.localStorage`
- * itself throws SecurityError) or over quota. The farm selection is a
- * convenience — degrade to "nothing persisted" rather than throwing out of a
- * session transition, mirroring idempotent-request's availableSessionStorage.
- */
+/** Site data can be blocked for the origin or over quota, and the realm is
+ * missing under SSR. The farm selection is a convenience — degrade to
+ * "nothing persisted" rather than throwing out of a session transition. The
+ * guarded realm accessor is shared: lib/safe-storage.ts (2026-09-28 audit). */
 function readStoredFarmId(): number | null {
   try {
-    if (typeof window === "undefined") return null;
-    const raw = window.localStorage.getItem(FARM_STORAGE_KEY);
+    const raw = safeStorage("local")?.getItem(FARM_STORAGE_KEY) ?? null;
     if (raw === null) return null;
     const stored = Number(raw);
     // Stryker disable BlockStatement: the catch's only statement returns null, and the sole caller reads this via ??, which treats the mutant's undefined exactly like null
@@ -88,7 +87,7 @@ function readStoredFarmId(): number | null {
 
 function writeStoredFarmId(id: number): void {
   try {
-    window.localStorage.setItem(FARM_STORAGE_KEY, String(id));
+    safeStorage("local")?.setItem(FARM_STORAGE_KEY, String(id));
   } catch {
     /* blocked or over quota: the selection just won't survive a reload */
   }
@@ -96,7 +95,7 @@ function writeStoredFarmId(id: number): void {
 
 function clearStoredFarmId(): void {
   try {
-    window.localStorage.removeItem(FARM_STORAGE_KEY);
+    safeStorage("local")?.removeItem(FARM_STORAGE_KEY);
   } catch {
     /* nothing was persisted to clear */
   }
@@ -114,7 +113,7 @@ const FARM_STORAGE_REVOKED_PREFIX = "revoked:";
 
 function writeStoredFarmRevoked(id: number): void {
   try {
-    window.localStorage.setItem(
+    safeStorage("local")?.setItem(
       FARM_STORAGE_KEY,
       `${FARM_STORAGE_REVOKED_PREFIX}${id}`,
     );
@@ -135,9 +134,8 @@ function revokedFarmIdFromStorage(value: string | null): number | null {
  * OTHER tabs, so a freshly opened tab must look at the raw value itself). */
 function readStoredFarmRevokedId(): number | null {
   try {
-    if (typeof window === "undefined") return null;
     return revokedFarmIdFromStorage(
-      window.localStorage.getItem(FARM_STORAGE_KEY),
+      safeStorage("local")?.getItem(FARM_STORAGE_KEY) ?? null,
     );
   } catch {
     return null;

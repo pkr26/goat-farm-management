@@ -87,6 +87,7 @@ function makeBreeding(overrides: Partial<BreedingRecordOut>): BreedingRecordOut 
     loss_notes: null,
     loss_recorded_by_id: null,
     loss_recorded_at: null,
+    created_at: "2026-01-01T00:00:00Z",
     has_kidding: false,
     doe_tag: "G-010",
     buck_tag: "G-020",
@@ -105,6 +106,7 @@ function makeKidding(overrides: Partial<KiddingRecordOut>): KiddingRecordOut {
     placenta_passed: null,
     mastitis_suspected: false,
     notes: "big twins",
+    created_at: "2026-01-01T00:00:00Z",
     kids: [],
     doe_tag: "G-010",
     ...overrides,
@@ -127,6 +129,7 @@ const HISTORY = makeKidding({
       navel_dipped: null,
       dam_rejected: false,
       animal_id: 55,
+      created_at: "2026-01-01T00:00:00Z",
     },
   ],
 });
@@ -354,6 +357,7 @@ describe("KiddingPage copy and field wiring", () => {
             navel_dipped: null,
             dam_rejected: false,
             animal_id: 55,
+            created_at: "2026-01-01T00:00:00Z",
           },
           {
             id: 2,
@@ -366,6 +370,7 @@ describe("KiddingPage copy and field wiring", () => {
             navel_dipped: null,
             dam_rejected: false,
             animal_id: 56,
+            created_at: "2026-01-01T00:00:00Z",
           },
         ],
       }),
@@ -374,7 +379,7 @@ describe("KiddingPage copy and field wiring", () => {
 
     const row = within(card("Recent kiddings")).getAllByRole("row")[1];
     const kidsCell = within(row).getAllByRole("cell")[3];
-    expect(kidsCell).toHaveTextContent(/^G-101 \(Female, alive\), kid \(Male, died\)$/);
+    expect(kidsCell).toHaveTextContent(/^G-101 \(Female, Alive\), kid \(Male, Died\)$/);
     expect(within(kidsCell).getByRole("link", { name: "kid" })).toHaveAttribute(
       "href",
       "/animals/56",

@@ -228,7 +228,7 @@ function AppSidebar({
           </div>
         )}
       </SidebarHeader>
-      <SidebarContent>
+      <SidebarContent aria-label={t("nav.primaryAria")}>
         {/* A failed permissions call must not look like "no access" (7-6). */}
         {permsError && <PermissionsError onRetry={() => void permsRefetch()} />}
         {groups.map((group) => (
@@ -255,9 +255,11 @@ function AppSidebar({
         ))}
       </SidebarContent>
       <SidebarFooter className="px-4 pb-4">
-        {/* Full-strength muted token: the /70 tint sat under 4.5:1 on the
-            sidebar background (sub-AA microtext, 2026-09-21 audit). */}
-        <p className="text-[0.68rem] leading-relaxed text-muted-foreground">
+        {/* Full-strength muted token at text-xs: the /70 tint sat under 4.5:1
+            on the sidebar background (2026-09-21 audit), and the 0.68rem
+            microtext stayed sub-AA for permanent chrome copy (2026-09-28
+            audit — sidebar tagline). */}
+        <p className="text-xs leading-relaxed text-muted-foreground">
           {t("shell.tagline")}
         </p>
       </SidebarFooter>

@@ -129,8 +129,12 @@ export function RowActions({
         setRecurringConfirmOpen(false);
         invalidate();
       } catch (error) {
+        // Guard BEFORE rollback: after a farm switch the board cache was
+        // cleared, and restoring the pre-patch snapshots would resurrect the
+        // OLD farm's rows (2026-09-28 audit, W6).
+        if (!farmScope()) return;
         rollback();
-        if (farmScope()) reportActionError("complete", error);
+        reportActionError("complete", error);
       }
     });
   }

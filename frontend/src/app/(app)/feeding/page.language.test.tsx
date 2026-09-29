@@ -9,7 +9,8 @@ import { HttpResponse, http } from "msw";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { LanguageProvider, LANGUAGE_STORAGE_KEY } from "@/lib/i18n";
+import { LanguageProvider, LANGUAGE_STORAGE_KEY, translate } from "@/lib/i18n";
+import { MIN_PERSISTED_KG_MESSAGE } from "@/lib/persisted-numbers";
 import { renderWithProviders } from "@/test/render";
 import { server } from "@/test/msw-server";
 
@@ -79,9 +80,44 @@ describe("FeedingPage language wiring", () => {
     const dialog = await screen.findByRole("dialog", { name: "మేత నమోదు చేయండి" });
     // An empty plan prefills the only available recipe (the virtual dry
     // roughage code); the operator just types the quantity.
-    await user.type(within(dialog).getByLabelText(/quantity \(kg\)/i), "5");
+    await user.type(within(dialog).getByLabelText("పరిమాణం (కి.గ్రా) *"), "5");
     await user.click(within(dialog).getByRole("button", { name: "నమోదు చేయండి" }));
 
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("మేత నమోదు అయింది."));
+  });
+
+  it("renders the dispense dialog fields and zod validation in Telugu", async () => {
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, "te");
+    const user = userEvent.setup();
+    renderWithProviders(
+      <LanguageProvider>
+        <FeedingPage />
+      </LanguageProvider>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "మేత నమోదు చేయండి" }));
+    const dialog = await screen.findByRole("dialog", { name: "మేత నమోదు చేయండి" });
+
+    // Field labels resolve through the feeding.dispense.* catalog keys.
+    expect(within(dialog).getByLabelText("పరిమాణం (కి.గ్రా) *")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("తేదీ")).toBeInTheDocument();
+    expect(within(dialog).getByText("రెసిపీ *")).toBeInTheDocument();
+    expect(within(dialog).queryByText("Recipe *")).not.toBeInTheDocument();
+
+    // A zero quantity fails the per-language schema with a Telugu message.
+    await user.type(within(dialog).getByLabelText("పరిమాణం (కి.గ్రా) *"), "0");
+    await user.click(within(dialog).getByRole("button", { name: "నమోదు చేయండి" }));
+    expect(
+      await within(dialog).findByText("పరిమాణం 0 కంటే ఎక్కువ ఉండాలి", {
+        selector: "p[role='alert']",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the catalog kg floor identical to the shared persisted-kg constant", () => {
+    // Same pin as health/purchases for the money floor: the shared
+    // lib/persisted-numbers constants stay English until every consumer is
+    // converted, so the catalog value must match byte-for-byte.
+    expect(translate("en", "feeding.validation.kgMin")).toBe(MIN_PERSISTED_KG_MESSAGE);
   });
 });

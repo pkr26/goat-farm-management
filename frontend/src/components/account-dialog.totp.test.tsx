@@ -702,7 +702,7 @@ describe("AccountDialog stale-busy recovery and empty-name fallback", () => {
     const user = userEvent.setup();
     render(<AccountDialog name="Owner" email="owner@goatfarm.test" />);
     await openAccount(user);
-    let totp = screen.getByRole("region", { name: /two-factor authentication/i });
+    const totp = screen.getByRole("region", { name: /two-factor authentication/i });
 
     await user.click(within(totp).getByRole("button", { name: /disable two-factor/i }));
     await user.type(within(totp).getByLabelText(/current password/i), "owner-password-1");

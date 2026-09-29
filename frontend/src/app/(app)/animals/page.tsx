@@ -64,8 +64,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/lib/api-client";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { MAX_ANIMAL_TAG_LENGTH, MAX_FREE_TEXT_LENGTH } from "@/lib/backend-caps";
+import { BUCKET_REQUIRED_SEX, bucketAllowsSex } from "@/lib/bucket-sex";
 import { enumLabel } from "@/lib/enum-labels";
-import { useLanguage, useT } from "@/lib/i18n";
+import { useLanguage, useT, type TFn } from "@/lib/i18n";
+import { mapServerError } from "@/lib/server-error-phrases";
 import { farmVocabulary, type FarmVocabulary } from "@/lib/farm-vocabulary";
 import { farmToday } from "@/lib/format";
 import {
@@ -109,15 +111,8 @@ const WORKFLOW_ONLY_INITIAL_BUCKETS = new Set<string>([
 const HISTORICAL_IMPORT_BUCKETS = BUCKETS.filter(
   (bucket) => !WORKFLOW_ONLY_INITIAL_BUCKETS.has(bucket),
 );
-/** Sex each bucket is reserved for, mirroring backend/app/schemas/animals.py
- * (and the ck_animals_bucket_sex CHECK). Buckets absent here take both. */
-const BUCKET_REQUIRED_SEX: Record<string, string> = {
-  [AnimalCreateInCurrentBucket.MALE_KIDS]: AnimalCreateInSex.M,
-  [AnimalCreateInCurrentBucket.FEMALE_KIDS]: AnimalCreateInSex.F,
-  [AnimalCreateInCurrentBucket.RESTING]: AnimalCreateInSex.F,
-};
-const bucketAllowsSex = (bucket: string, sex: string) =>
-  (BUCKET_REQUIRED_SEX[bucket] ?? sex) === sex;
+// BUCKET_REQUIRED_SEX / bucketAllowsSex live in @/lib/bucket-sex, shared with
+// the animal profile's move dialog.
 
 const bucketLabel = (b: string, language: "en" | "te") => enumLabel("bucket", b, language);
 /** value → label map for the root `items` prop: without it, Base UI's
@@ -128,10 +123,6 @@ const sexItems = (language: "en" | "te"): Record<string, string> => ({
   [AnimalCreateInSex.F]: enumLabel("sex", "F", language),
   [AnimalCreateInSex.M]: enumLabel("sex", "M", language),
 });
-const SOURCE_ITEMS: Record<string, string> = {
-  [AnimalCreateInSource.BORN]: "Historical born-on-farm import",
-  [AnimalCreateInSource.PURCHASED]: "Purchased",
-};
 // 2026-09-17 audit (M-12): the ALL sentinel labels were hardcoded English;
 // the caller passes the localized label (the closed trigger shows it via the
 // `items` map, so it must be translated here too, not just in the menu).
@@ -152,8 +143,20 @@ const statusFilterItems = (language: "en" | "te", allLabel: string): Record<stri
   ),
 });
 
-/** Zero is meaningful for optional weights; anything smaller rounds away. */
-const MIN_PERSISTED_WEIGHT_MESSAGE = "Weight must be 0 kg or at least 0.0005 kg";
+/** Species nouns interpolated into validation messages and dialog hints.
+ * English reads the farm vocabulary; Telugu resolves catalog tokens
+ * (simulation.token.* precedent, like the animal profile page). */
+interface AnimalNouns {
+  young: string;
+  maleAdult: string;
+  femaleAdult: string;
+}
+
+const vocabularyNouns = (vocabulary: FarmVocabulary): AnimalNouns => ({
+  young: vocabulary.young,
+  maleAdult: vocabulary.maleAdult,
+  femaleAdult: vocabulary.femaleAdult,
+});
 
 const optNum = (schema: z.ZodNumber) =>
   z.preprocess(
@@ -182,8 +185,16 @@ export function completedMonths(dateOfBirth: string, referenceDate: string): num
 
 /** Species-aware create schema: breeding-entry gates and nouns come from the
  * goat thresholds. Exported for direct schema-level testing of the gates the
- * dialog's native inputs cannot produce (e.g. malformed dates). */
-export const createAnimalSchema = (vocabulary: FarmVocabulary) =>
+ * dialog's native inputs cannot produce (e.g. malformed dates). The messages
+ * resolve through the i18n catalog, so the factory takes the caller's `t`
+ * (animalDetail.buildWeightSchema precedent); the mounted dialog rebuilds it
+ * whenever the active language changes. The money/kg floor messages stay the
+ * shared persisted-numbers constants the other forms pin. */
+export const createAnimalSchema = (
+  t: TFn,
+  vocabulary: FarmVocabulary,
+  nouns: AnimalNouns = vocabularyNouns(vocabulary),
+) =>
   z
   .object({
     // Stryker disable next-line StringLiteral: z.string() already accepts "" (length 0 is within max), so the .or(z.literal("")) arm is a readability hint, not a distinct acceptance
@@ -201,34 +212,40 @@ export const createAnimalSchema = (vocabulary: FarmVocabulary) =>
     date_of_birth: z
       .string()
       .optional()
-      .refine((value) => !value || value <= farmToday(), "Date can't be in the future"),
+      .refine((value) => !value || value <= farmToday(), t("animals.validation.dateFuture")),
     estimated_dob: z
       .string()
       .optional()
-      .refine((value) => !value || value <= farmToday(), "Date can't be in the future"),
+      .refine((value) => !value || value <= farmToday(), t("animals.validation.dateFuture")),
     birth_type: z.enum([...BIRTH_TYPES] as [string, ...string[]]).optional(),
     birth_weight: optNum(
       z
         .number()
         .min(
           vocabulary.facts.birthWeightKg.min,
-          `A newborn ${vocabulary.young} weighs at least ${vocabulary.facts.birthWeightKg.min} kg`,
+          t("animals.validation.birthWeightMin", {
+            young: nouns.young,
+            min: vocabulary.facts.birthWeightKg.min,
+          }),
         )
         .max(
           vocabulary.facts.birthWeightKg.max,
-          `A newborn ${vocabulary.young} weighs at most ${vocabulary.facts.birthWeightKg.max} kg`,
+          t("animals.validation.birthWeightMax", {
+            young: nouns.young,
+            max: vocabulary.facts.birthWeightKg.max,
+          }),
         )
-        .refine(isPersistableNonnegativeWeight, MIN_PERSISTED_WEIGHT_MESSAGE),
+        .refine(isPersistableNonnegativeWeight, t("animals.validation.weightMin")),
     ),
     purchase_date: z
       .string()
       .optional()
-      .refine((value) => !value || value <= farmToday(), "Date can't be in the future"),
+      .refine((value) => !value || value <= farmToday(), t("animals.validation.dateFuture")),
     purchase_price: optNum(
       z
         .number()
         .nonnegative()
-        .max(1_000_000_000, "Purchase price cannot exceed ₹1,000,000,000")
+        .max(1_000_000_000, t("animals.validation.purchasePriceMax"))
         .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
     ),
     seller_name: z.string().max(120).optional(),
@@ -239,26 +256,29 @@ export const createAnimalSchema = (vocabulary: FarmVocabulary) =>
         .min(MIN_PERSISTED_KG, MIN_PERSISTED_KG_MESSAGE)
         .max(
           vocabulary.facts.maxWeightKg,
-          `At most ${vocabulary.facts.maxWeightKg} kg for this farm's species`,
+          t("animals.validation.weightMax", { max: vocabulary.facts.maxWeightKg }),
         ),
     ),
     weight_date: z
       .string()
       .optional()
-      .refine((value) => !value || value <= farmToday(), "Date can't be in the future"),
+      .refine((value) => !value || value <= farmToday(), t("animals.validation.dateFuture")),
     // Keep the resolver output total before the BORN-only audit requirement
     // below. Programmatic/legacy form submissions may omit this optional
     // input, but validation should still follow the normal issue path rather
     // than relying on an undefined-safe string operation.
     historical_import_reason: z.string().max(255).optional().default(""),
-    notes: z.string().max(MAX_FREE_TEXT_LENGTH, `Max ${MAX_FREE_TEXT_LENGTH} characters`).optional(),
+    notes: z
+      .string()
+      .max(MAX_FREE_TEXT_LENGTH, t("animals.validation.textMax", { max: MAX_FREE_TEXT_LENGTH }))
+      .optional(),
   })
   .superRefine((values, ctx) => {
     if (values.weight_date && values.weight_kg === undefined) {
       ctx.addIssue({
         code: "custom",
         path: ["weight_kg"],
-        message: "Entry weight date requires an entry weight",
+        message: t("animals.validation.weightDateNeedsWeight"),
       });
     }
     if (values.source !== AnimalCreateInSource.BORN) return;
@@ -268,21 +288,28 @@ export const createAnimalSchema = (vocabulary: FarmVocabulary) =>
       ctx.addIssue({
         code: "custom",
         path: ["current_bucket"],
-        message: `Only ${requiredSex === AnimalCreateInSex.M ? "male" : "female"} animals may enter ${values.current_bucket}`,
+        message: t("animals.validation.bucketSex", {
+          sex: t(
+            requiredSex === AnimalCreateInSex.M
+              ? "animals.validation.sexMale"
+              : "animals.validation.sexFemale",
+          ),
+          bucket: values.current_bucket,
+        }),
       });
     }
     if (!values.historical_import_reason.trim()) {
       ctx.addIssue({
         code: "custom",
         path: ["historical_import_reason"],
-        message: "Explain why this historical animal is being imported",
+        message: t("animals.validation.importReasonRequired"),
       });
     }
     if (WORKFLOW_ONLY_INITIAL_BUCKETS.has(values.current_bucket)) {
       ctx.addIssue({
         code: "custom",
         path: ["current_bucket"],
-        message: "Pregnancy, delivery and recovery buckets require their linked workflow records",
+        message: t("animals.validation.workflowBuckets"),
       });
     }
     if (values.current_bucket !== AnimalCreateInCurrentBucket.BREEDING) return;
@@ -298,7 +325,7 @@ export const createAnimalSchema = (vocabulary: FarmVocabulary) =>
       ctx.addIssue({
         code: "custom",
         path: ["date_of_birth"],
-        message: "A breeding import requires a date of birth or estimated DOB",
+        message: t("animals.validation.breedingNeedsDob"),
       });
     } else {
       const ageMonths = completedMonths(recordedDob, farmToday());
@@ -307,7 +334,10 @@ export const createAnimalSchema = (vocabulary: FarmVocabulary) =>
         ctx.addIssue({
           code: "custom",
           path: ["date_of_birth"],
-          message: `A ${values.sex === AnimalCreateInSex.M ? vocabulary.maleAdult : vocabulary.femaleAdult} must be at least ${minimumAge} months old to enter BREEDING`,
+          message: t("animals.validation.breedingMinAge", {
+            animal: values.sex === AnimalCreateInSex.M ? nouns.maleAdult : nouns.femaleAdult,
+            min: minimumAge,
+          }),
         });
       }
     }
@@ -315,7 +345,7 @@ export const createAnimalSchema = (vocabulary: FarmVocabulary) =>
       ctx.addIssue({
         code: "custom",
         path: ["weight_kg"],
-        message: `Entry weight must be at least ${minimumWeight} kg to enter BREEDING`,
+        message: t("animals.validation.breedingMinWeight", { min: minimumWeight }),
       });
     }
   });
@@ -416,8 +446,22 @@ function CreateAnimalDialog({
   const { language } = useLanguage();
   const t = useT();
   const vocabulary = farmVocabulary;
-  // Stryker disable next-line ArrayDeclaration: farmVocabulary is a module constant, so the dep list can never go stale
-  const schema = useMemo(() => createAnimalSchema(vocabulary), [vocabulary]);
+  // Validation messages and dialog hints interpolate species nouns in the
+  // active language (English reads the vocabulary; Telugu the catalog tokens).
+  const nouns = useMemo<AnimalNouns>(
+    () =>
+      language === "en"
+        ? vocabularyNouns(vocabulary)
+        : {
+            young: t("simulation.token.kid"),
+            maleAdult: t("simulation.token.buck"),
+            femaleAdult: t("simulation.token.doe"),
+          },
+    // Stryker disable next-line ArrayDeclaration: farmVocabulary is a module constant, so the dep list can never go stale
+    [language, t, vocabulary],
+  );
+  // Stryker disable next-line ArrayDeclaration: the schema rebuilds exactly when the language or a noun changes — the inputs are the dep list
+  const schema = useMemo(() => createAnimalSchema(t, vocabulary, nouns), [t, vocabulary, nouns]);
   const {
     register,
     handleSubmit,
@@ -444,7 +488,12 @@ function CreateAnimalDialog({
   const source = useWatch({ control, name: "source" });
   const sex = useWatch({ control, name: "sex" });
   const currentBucket = useWatch({ control, name: "current_bucket" });
-  /** value → label maps for the phenotype selects (active language). */
+  /** value → label maps for the source and phenotype selects (active
+   * language). */
+  const sourceItems: Record<string, string> = {
+    [AnimalCreateInSource.BORN]: t("animals.create.sourceBorn"),
+    [AnimalCreateInSource.PURCHASED]: t("animals.create.sourcePurchased"),
+  };
   const coatColorItems: Record<string, string> = {
     "": t("animals.notRecorded"),
     black: t("animals.coatColor.black"),
@@ -526,14 +575,14 @@ function CreateAnimalDialog({
         // The write landed on the farm it was aimed at; a switch since then
         // means this continuation belongs to the previous farm's UI.
         if (!farmScope()) return;
-        toast.success("Animal added.");
+        toast.success(t("animals.toast.added"));
         // Stryker disable next-line CallExpression: shouldUnregister:true drops every field value when Radix unmounts the closed dialog's inputs, so the explicit reset is redundant with the remount defaults (pinned by the reopen-blank test)
         reset();
         setOpen(false);
         onCreated();
       } catch (err) {
         if (!farmScope()) return;
-        toast.error(err instanceof ApiError ? err.detail : "Something went wrong");
+        toast.error(err instanceof ApiError ? err.detail : t("common.somethingWentWrong"));
       }
     });
   }
@@ -548,11 +597,11 @@ function CreateAnimalDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <Button disabled={createFlight.pending} onClick={() => setOpen(true)}>
-        Add animal
+        {t("animals.create.title")}
       </Button>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Add animal</DialogTitle>
+          <DialogTitle>{t("animals.create.title")}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3" noValidate>
           <fieldset disabled={isSubmitting || createFlight.pending} className="contents">
@@ -560,10 +609,10 @@ function CreateAnimalDialog({
            * date input and a select into ~160px slivers. */}
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="tag_number">Tag number</Label>
+              <Label htmlFor="tag_number">{t("animals.create.tagNumber")}</Label>
               <Input
                 id="tag_number"
-                placeholder={`Auto-generated if blank (e.g. ${vocabulary.tagPrefix}-7KP2D)`}
+                placeholder={t("animals.create.tagPlaceholder", { prefix: vocabulary.tagPrefix })}
                 maxLength={MAX_ANIMAL_TAG_LENGTH}
                 aria-invalid={Boolean(errors.tag_number) || undefined}
                 aria-describedby={errors.tag_number ? "create-tag-error" : undefined}
@@ -576,7 +625,7 @@ function CreateAnimalDialog({
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="name">Name</Label>
+              <Label htmlFor="name">{t("animals.create.name")}</Label>
               <Input
                 id="name"
                 maxLength={80}
@@ -591,7 +640,7 @@ function CreateAnimalDialog({
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="animal-sex">Sex *</Label>
+              <Label htmlFor="animal-sex">{t("animals.create.sexLabel")}</Label>
               <Controller
                 control={control}
                 name="sex"
@@ -613,33 +662,33 @@ function CreateAnimalDialog({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="animal-source">Source *</Label>
+              <Label htmlFor="animal-source">{t("animals.create.sourceLabel")}</Label>
               {/* The managed-purchase cascade makes PURCHASED a
                   purchases.manage action (BORN stays owner-only), so a
                   caller holding neither grant has no creatable source and the
                   form explains itself instead of offering a dead submit. */}
               {!canManagePurchases && !isOwner && (
                 <p role="alert" className="text-sm text-destructive">
-                  You cannot create animals directly: purchased entries need
-                  purchases.manage, and the historical born-on-farm import is
-                  owner-only. Ask the farm owner to record the purchase batch.
+                  {t("animals.create.noGrantHint")}
                 </p>
               )}
               <Controller
                 control={control}
                 name="source"
                 render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange} items={SOURCE_ITEMS}>
+                  <Select value={field.value} onValueChange={field.onChange} items={sourceItems}>
                     <SelectTrigger id="animal-source" className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       {canManagePurchases && (
-                        <SelectItem value={AnimalCreateInSource.PURCHASED}>Purchased</SelectItem>
+                        <SelectItem value={AnimalCreateInSource.PURCHASED}>
+                          {t("animals.create.sourcePurchased")}
+                        </SelectItem>
                       )}
                       {isOwner && (
                         <SelectItem value={AnimalCreateInSource.BORN}>
-                          Historical born-on-farm import
+                          {t("animals.create.sourceBorn")}
                         </SelectItem>
                       )}
                     </SelectContent>
@@ -648,7 +697,7 @@ function CreateAnimalDialog({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="animal-bucket">Bucket *</Label>
+              <Label htmlFor="animal-bucket">{t("animals.create.bucketLabel")}</Label>
               {source === AnimalCreateInSource.PURCHASED ? (
                 <>
                   <Input
@@ -658,8 +707,7 @@ function CreateAnimalDialog({
                     aria-describedby="purchased-quarantine-note"
                   />
                   <p id="purchased-quarantine-note" className="text-xs text-muted-foreground">
-                    Purchased animals must enter quarantine. Complete the quarantine protocol
-                    before moving this animal into the production herd.
+                    {t("animals.create.quarantineNote")}
                   </p>
                 </>
               ) : (
@@ -691,25 +739,32 @@ function CreateAnimalDialog({
               )}
               {showBreedingEntryHint && (
                   <p className="text-xs text-muted-foreground">
-                    BREEDING imports require{" "}
-                    {sex === AnimalCreateInSex.M ? "a " + vocabulary.maleAdult : "a " + vocabulary.femaleAdult}{" "}
-                    of at least{" "}
-                    {sex === AnimalCreateInSex.M
-                      ? vocabulary.breedingEntry.male.minMonths
-                      : vocabulary.breedingEntry.female.minMonths}{" "}
-                    months and{" "}
-                    {sex === AnimalCreateInSex.M
-                      ? vocabulary.breedingEntry.male.minWeightKg
-                      : vocabulary.breedingEntry.female.minWeightKg}{" "}
-                    kg.
+                    {t("animals.create.breedingHint", {
+                      animal:
+                        sex === AnimalCreateInSex.M
+                          ? language === "en"
+                            ? `a ${vocabulary.maleAdult}`
+                            : nouns.maleAdult
+                          : language === "en"
+                            ? `a ${vocabulary.femaleAdult}`
+                            : nouns.femaleAdult,
+                      months:
+                        sex === AnimalCreateInSex.M
+                          ? vocabulary.breedingEntry.male.minMonths
+                          : vocabulary.breedingEntry.female.minMonths,
+                      weight:
+                        sex === AnimalCreateInSex.M
+                          ? vocabulary.breedingEntry.male.minWeightKg
+                          : vocabulary.breedingEntry.female.minWeightKg,
+                    })}
                   </p>
                 )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="breed">Breed</Label>
+              <Label htmlFor="breed">{t("animals.create.breed")}</Label>
               <Input
                 id="breed"
-                placeholder={`e.g. ${vocabulary.defaultBreed} (the default when blank)`}
+                placeholder={t("animals.create.breedPlaceholder", { breed: vocabulary.defaultBreed })}
                 maxLength={60}
                 aria-invalid={Boolean(errors.breed) || undefined}
                 aria-describedby={errors.breed ? "create-breed-error" : undefined}
@@ -773,7 +828,7 @@ function CreateAnimalDialog({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="date_of_birth">Date of birth</Label>
+              <Label htmlFor="date_of_birth">{t("animals.create.dateOfBirth")}</Label>
               <Input
                 id="date_of_birth"
                 type="date"
@@ -785,7 +840,7 @@ function CreateAnimalDialog({
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="estimated_dob">Estimated DOB</Label>
+              <Label htmlFor="estimated_dob">{t("animals.create.estimatedDob")}</Label>
               <Input
                 id="estimated_dob"
                 type="date"
@@ -800,11 +855,12 @@ function CreateAnimalDialog({
               <>
                 <div className="col-span-2 space-y-1.5 rounded-lg border p-3">
                   <p className="text-sm text-muted-foreground">
-                    Historical import only. Normal births must be recorded through the{" "}
-                    {vocabulary.parturition} register so the dam, sire and {vocabulary.parturition}{" "}
-                    record remain linked.
+                    {t("animals.create.historicalNote", {
+                      parturition:
+                        language === "en" ? vocabulary.parturition : t("simulation.token.litter"),
+                    })}
                   </p>
-                  <Label htmlFor="historical_import_reason">Historical import reason *</Label>
+                  <Label htmlFor="historical_import_reason">{t("animals.create.importReasonLabel")}</Label>
                   <Textarea
                     id="historical_import_reason"
                     rows={2}
@@ -819,7 +875,7 @@ function CreateAnimalDialog({
                   )}
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="animal-birth-type">Birth type</Label>
+                  <Label htmlFor="animal-birth-type">{t("animals.create.birthType")}</Label>
                   <Controller
                     control={control}
                     name="birth_type"
@@ -845,7 +901,7 @@ function CreateAnimalDialog({
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="birth_weight">Birth weight (kg)</Label>
+                  <Label htmlFor="birth_weight">{t("animals.create.birthWeight")}</Label>
                   <Input
                     id="birth_weight"
                     type="number"
@@ -860,7 +916,7 @@ function CreateAnimalDialog({
               </>
             )}
             <div className="space-y-1.5">
-              <Label htmlFor="weight_kg">Entry weight (kg)</Label>
+              <Label htmlFor="weight_kg">{t("animals.create.entryWeight")}</Label>
               <Input
                 id="weight_kg"
                 type="number"
@@ -871,12 +927,12 @@ function CreateAnimalDialog({
                 {...register("weight_kg")}
               />
               {errors.weight_kg && (
-                <p role="alert" className="text-sm text-destructive">{errors.weight_kg.message}</p>
+                <p id="create-weight-error" role="alert" className="text-sm text-destructive">{errors.weight_kg.message}</p>
               )}
             </div>
             {source === AnimalCreateInSource.BORN && (
               <div className="space-y-1.5">
-                <Label htmlFor="weight_date">Entry weight date</Label>
+                <Label htmlFor="weight_date">{t("animals.create.entryWeightDate")}</Label>
                 <Input
                   id="weight_date"
                   type="date"
@@ -893,7 +949,7 @@ function CreateAnimalDialog({
           {source === AnimalCreateInSource.PURCHASED && (
             <div className="grid gap-3 rounded-lg border p-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="purchase_date">Purchase date</Label>
+                <Label htmlFor="purchase_date">{t("animals.create.purchaseDate")}</Label>
                 <Input
                   id="purchase_date"
                   type="date"
@@ -905,7 +961,7 @@ function CreateAnimalDialog({
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="purchase_price">Purchase price (₹)</Label>
+                <Label htmlFor="purchase_price">{t("animals.create.purchasePrice")}</Label>
                 <Input
                   id="purchase_price"
                   type="number"
@@ -918,7 +974,7 @@ function CreateAnimalDialog({
                 )}
               </div>
               <div className="col-span-2 space-y-1.5">
-                <Label htmlFor="seller_name">Seller name</Label>
+                <Label htmlFor="seller_name">{t("animals.create.sellerName")}</Label>
                 <Input
                   id="seller_name"
                   maxLength={120}
@@ -936,7 +992,7 @@ function CreateAnimalDialog({
           )}
 
           <div className="space-y-1.5">
-            <Label htmlFor="notes">Notes</Label>
+            <Label htmlFor="notes">{t("animals.create.notes")}</Label>
             <Textarea
               id="notes"
               rows={2}
@@ -947,7 +1003,7 @@ function CreateAnimalDialog({
             {errors.notes && <p className="text-sm text-destructive">{errors.notes.message}</p>}
           </div>
 
-          <p className="text-xs text-muted-foreground">Fields marked * are required.</p>
+          <p className="text-xs text-muted-foreground">{t("animals.create.requiredNote")}</p>
           <DialogFooter>
             <Button
               type="button"
@@ -959,13 +1015,13 @@ function CreateAnimalDialog({
                 setOpen(false);
               }}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               type="submit"
               disabled={isSubmitting || createFlight.pending || (!canManagePurchases && !isOwner)}
             >
-              {isSubmitting || createFlight.pending ? "Saving…" : "Save animal"}
+              {isSubmitting || createFlight.pending ? t("animals.create.saving") : t("animals.create.submit")}
             </Button>
           </DialogFooter>
           </fieldset>
@@ -1411,7 +1467,7 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
           onValueChange={(value) => changeFilter("bucket", value)}
           items={bucketFilterItems}
         >
-          <SelectTrigger aria-label="Filter animals by bucket">
+          <SelectTrigger aria-label={t("animals.filter.byBucket")}>
             <SelectValue placeholder={t("animals.filter.allBuckets")} />
           </SelectTrigger>
           <SelectContent>
@@ -1428,7 +1484,7 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
           onValueChange={(value) => changeFilter("sex", value)}
           items={sexFilterItems(language, t("animals.filter.bothSexes"))}
         >
-          <SelectTrigger aria-label="Filter animals by sex">
+          <SelectTrigger aria-label={t("animals.filter.bySex")}>
             <SelectValue placeholder={t("animals.filter.bothSexes")} />
           </SelectTrigger>
           <SelectContent>
@@ -1446,7 +1502,7 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
           onValueChange={(value) => changeFilter("status", value)}
           items={statusItems}
         >
-          <SelectTrigger aria-label="Filter animals by status">
+          <SelectTrigger aria-label={t("animals.filter.byStatus")}>
             <SelectValue placeholder={t("animals.filter.allStatuses")} />
           </SelectTrigger>
           <SelectContent>
@@ -1465,7 +1521,7 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder={t("animals.filter.searchPlaceholder")}
-            aria-label="Search animals by tag"
+            aria-label={t("animals.filter.searchAriaLabel")}
             maxLength={60}
             className="w-full pl-8 sm:w-56"
           />
@@ -1476,21 +1532,23 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
         <div role="status" aria-live="polite" className="space-y-3">
           {/* Stale rows stand down during a refetch (they may describe the
            * previous filter/page); the spinner line is the polite signal. */}
-          <InlineLoading>{dataLoading ? "Loading animals…" : "Updating animals…"}</InlineLoading>
+          <InlineLoading>{dataLoading ? t("animals.list.loading") : t("animals.list.updating")}</InlineLoading>
           <TableSkeleton />
         </div>
       ) : query.isError ? (
         <div role="alert" className="space-y-3">
           <p className="text-sm text-destructive">
-            {query.error instanceof ApiError ? query.error.detail : "Could not load animals."}
+            {query.error instanceof ApiError
+              ? mapServerError(t, query.error.detail, query.error.status, query.error.code)
+              : t("animals.list.loadFailed")}
           </p>
           <div className="flex gap-2">
             <Button type="button" variant="outline" onClick={() => void query.refetch()}>
-              Retry animals
+              {t("animals.list.retry")}
             </Button>
             {filtersActive ? (
               <Button type="button" variant="ghost" onClick={clearFilters}>
-                Clear filters
+                {t("animals.empty.clearFilters")}
               </Button>
             ) : null}
           </div>
@@ -1524,8 +1582,13 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
         )
       ) : (
         <DataTableCard
-          title="Herd"
-          description={`${payload.total} animal(s)${sort ? " · sorted within the current page" : ""}`}
+          title={t("animals.list.title")}
+          description={
+            (payload.total === 1
+              ? t("animals.list.description_one", { count: payload.total })
+              : t("animals.list.description_many", { count: payload.total })) +
+            (sort ? t("animals.list.sortedSuffix") : "")
+          }
         >
           {/* Below md the 8-column table becomes a card per animal — panning
            * a 760px table inside a 390px phone is not a list, it's a scroll
@@ -1547,8 +1610,10 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
                   {a.breed}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {a.age_months !== null ? `${a.age_months} mo · ` : ""}
-                  {a.latest_weight_kg != null ? `${a.latest_weight_kg.toFixed(1)} kg` : "weight not recorded"}
+                  {a.age_months != null ? `${t("animals.list.ageMonths", { count: a.age_months })} · ` : ""}
+                  {a.latest_weight_kg != null
+                    ? `${a.latest_weight_kg.toFixed(1)} kg`
+                    : t("animals.list.weightNotRecorded")}
                 </p>
               </Link>
             ))}
@@ -1559,25 +1624,25 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
                 <TableRow>
                   <SortableTableHead
                     column="tag"
-                    label="Tag"
+                    label={t("animals.list.colTag")}
                     direction={sort?.column === "tag" ? sort.direction : null}
                     onSort={toggleSort}
                   />
-                  <TableHead>Name</TableHead>
-                  <TableHead>Sex</TableHead>
-                  <TableHead>Breed</TableHead>
-                  <TableHead>Bucket</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>{t("animals.list.colName")}</TableHead>
+                  <TableHead>{t("animals.list.colSex")}</TableHead>
+                  <TableHead>{t("animals.list.colBreed")}</TableHead>
+                  <TableHead>{t("animals.list.colBucket")}</TableHead>
+                  <TableHead>{t("animals.list.colStatus")}</TableHead>
                   <SortableTableHead
                     column="age"
-                    label="Age (mo)"
+                    label={t("animals.list.colAge")}
                     className="text-right"
                     direction={sort?.column === "age" ? sort.direction : null}
                     onSort={toggleSort}
                   />
                   <SortableTableHead
                     column="weight"
-                    label="Weight"
+                    label={t("animals.list.colWeight")}
                     className="text-right"
                     direction={sort?.column === "weight" ? sort.direction : null}
                     onSort={toggleSort}
@@ -1620,7 +1685,7 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
           limit={PAGE_SIZE}
           offset={(page - 1) * PAGE_SIZE}
           onOffsetChange={(nextOffset) => changePage(Math.floor(nextOffset / PAGE_SIZE) + 1)}
-          label="animals"
+          label={t("animals.list.paginationLabel")}
         />
       )}
     </div>
@@ -1637,7 +1702,7 @@ export default function AnimalsPage() {
     <Suspense
       fallback={
         <div role="status" aria-live="polite">
-          <span className="sr-only">Loading…</span>
+          <span className="sr-only">{t("common.loading")}</span>
           <PageSkeleton cards={1} />
         </div>
       }

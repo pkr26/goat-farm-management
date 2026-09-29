@@ -194,6 +194,9 @@ export function DiseaseCheckDialog({
       toast.success(t("screening.check.uploaded"));
     } catch (error) {
       if (!stillCurrentSession()) return;
+      // 409 covers the closed/expired/foreign batch and — since the
+      // 2026-09-28 audit (A4) — the standing upload quotas (per-batch and
+      // in-flight caps), which used to answer 429.
       if (error instanceof ApiError && error.status === 409) {
         toast.error(t("screening.check.noBatch"));
       } else {

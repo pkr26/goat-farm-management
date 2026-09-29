@@ -829,7 +829,7 @@ describe("TasksPage (extended)", () => {
     await user.type(within(dialog).getByLabelText(/title/i), "Check Radha");
     await pickOption(
       user,
-      within(dialog).getByRole("combobox", { name: "Animal (optional)" }),
+      within(dialog).getByRole("button", { name: "Animal (optional)" }),
       "G-007 — Radha",
     );
     await user.click(within(dialog).getByRole("button", { name: "Create duty" }));
@@ -892,15 +892,16 @@ describe("TasksPage (extended)", () => {
     expect(teamCalls).toBeGreaterThanOrEqual(1);
     await user.type(within(dialog).getByLabelText(/title/i), "Herd check");
 
-    const combos = () => within(dialog).getAllByRole("combobox");
+    const roleSelect = () => within(dialog).getByRole("combobox", { name: /assign to role/i });
+    const workerSelect = () => within(dialog).getByRole("combobox", { name: /assign to worker/i });
     // Order: category, animal, role, worker. Pick a worker first, then a role — the
     // role selection clears the worker.
-    await pickOption(user, combos()[3], /Raju \(Vet\)/);
-    await pickOption(user, combos()[2], "Vet");
+    await pickOption(user, workerSelect(), /Raju \(Vet\)/);
+    await pickOption(user, roleSelect(), "Vet");
 
     // Closed triggers show labels, not raw ids; picking a role cleared the worker.
-    expect(combos()[2]).toHaveTextContent("Vet");
-    expect(combos()[3]).toHaveTextContent("— none —");
+    expect(roleSelect()).toHaveTextContent("Vet");
+    expect(workerSelect()).toHaveTextContent("— none —");
 
     await user.click(within(dialog).getByRole("button", { name: "Create duty" }));
     await waitFor(() => expect(createBody).not.toBeNull());
@@ -909,7 +910,7 @@ describe("TasksPage (extended)", () => {
 
   it("lists only active workers in the worker select", async () => {
     const { user, dialog } = await openDialog();
-    const workerSelect = within(dialog).getAllByRole("combobox")[3];
+    const workerSelect = within(dialog).getByRole("combobox", { name: /assign to worker/i });
     await user.click(workerSelect);
     const options = await screen.findAllByRole("option");
     const names = options.map((o) => o.textContent ?? "");
@@ -920,11 +921,12 @@ describe("TasksPage (extended)", () => {
   it("keeps an active worker's label selected and posts only that worker id", async () => {
     const { user, dialog } = await openDialog();
     await user.type(within(dialog).getByLabelText(/title/i), "Check isolation pen");
-    const combos = () => within(dialog).getAllByRole("combobox");
+    const roleSelect = () => within(dialog).getByRole("combobox", { name: /assign to role/i });
+    const workerSelect = () => within(dialog).getByRole("combobox", { name: /assign to worker/i });
 
-    await pickOption(user, combos()[3], /Raju \(Vet\)/);
-    expect(combos()[3]).toHaveTextContent("Raju (Vet)");
-    expect(combos()[2]).toHaveTextContent("— none —");
+    await pickOption(user, workerSelect(), /Raju \(Vet\)/);
+    expect(workerSelect()).toHaveTextContent("Raju (Vet)");
+    expect(roleSelect()).toHaveTextContent("— none —");
     await user.click(within(dialog).getByRole("button", { name: "Create duty" }));
 
     await waitFor(() => expect(createBody).not.toBeNull());

@@ -391,6 +391,14 @@ describe("idempotency persistence and signature branches", () => {
   it.each([
     ["an actor without a stable identity", { actorScope: null }],
     ["the worker-create route", { url: "/api/team/workers" }],
+    // The PIN-reset body carries the new PIN — a persisted body digest would
+    // be an offline verifier for a 4–12 digit numeric credential, so it gets
+    // the same memory-only treatment as worker create (2026-09-28 audit).
+    ["the worker PIN-reset route", { url: "/api/team/workers/4/reset-pin" }],
+    // Batch creation is a void POST: every walkthrough's digest is identical,
+    // so recovery would hand a NEW walkthrough a prior one's key (and thus
+    // the OLD batch). Memory-only, like the credential routes above.
+    ["the screening batch-create route", { url: "/api/screening/batches" }],
   ])(
     "never rewrites the persisted container for a memory-only mutation: %s",
     async (_label, overrides) => {

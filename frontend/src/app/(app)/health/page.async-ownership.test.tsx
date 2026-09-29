@@ -82,6 +82,7 @@ function makeEvent(overrides: Partial<HealthEventOut>): HealthEventOut {
     authority_notified_at: null,
     isolation_started_at: null,
     notes: null,
+    created_at: "2026-01-01T00:00:00Z",
     animal_tag: "G-003",
     ...overrides,
   };
@@ -315,7 +316,7 @@ describe("HealthPage async ownership guards", () => {
     const view = renderWithProviders(<HealthPage />);
     const dialog = await screen.findByRole("dialog", { name: "Add health event" });
     await waitFor(() =>
-      expect(within(dialog).getByRole("combobox", { name: "Animal *" })).toHaveTextContent(
+      expect(within(dialog).getByRole("button", { name: "Animal *" })).toHaveTextContent(
         "G-003 · Kaveri — LACTATING",
       ),
     );
@@ -325,7 +326,7 @@ describe("HealthPage async ownership guards", () => {
     view.rerender(<HealthPage />);
 
     expect(within(dialog).getByLabelText("Product name")).toHaveValue("Ivermectin");
-    expect(within(dialog).getByRole("combobox", { name: "Animal *" })).toHaveTextContent(
+    expect(within(dialog).getByRole("button", { name: "Animal *" })).toHaveTextContent(
       "G-003 · Kaveri — LACTATING",
     );
   });
@@ -388,7 +389,7 @@ describe("HealthPage async ownership guards", () => {
     await lookup.reached;
 
     await waitFor(() =>
-      expect(within(dialog).getByRole("combobox", { name: "Animal *" })).toHaveTextContent(
+      expect(within(dialog).getByRole("button", { name: "Animal *" })).toHaveTextContent(
         "G-003 · Kaveri — LACTATING",
       ),
     );
@@ -416,7 +417,7 @@ describe("HealthPage async ownership guards", () => {
     const dialog = await screen.findByRole("dialog", { name: "Add health event" });
 
     await waitFor(() =>
-      expect(within(dialog).getByRole("combobox", { name: "Animal *" })).toHaveTextContent(
+      expect(within(dialog).getByRole("button", { name: "Animal *" })).toHaveTextContent(
         "G-003 · Kaveri — LACTATING",
       ),
     );
@@ -457,7 +458,7 @@ describe("HealthPage async ownership guards", () => {
     tabs.release();
 
     await waitFor(() =>
-      expect(within(dialog).getByRole("combobox", { name: "Animal *" })).toHaveTextContent(
+      expect(within(dialog).getByRole("button", { name: "Animal *" })).toHaveTextContent(
         "G-003 · Kaveri — LACTATING",
       ),
     );
@@ -490,7 +491,7 @@ describe("HealthPage async ownership guards", () => {
     renderWithProviders(<HealthPage />);
     const dialog = await screen.findByRole("dialog", { name: "Add health event" });
     await lookup.reached;
-    await pickOption(user, within(dialog).getByRole("combobox", { name: "Animal *" }), /G-004/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-004/);
 
     lookup.release();
     // The resolved duty is the only linkable one, so the select appearing at
@@ -500,7 +501,7 @@ describe("HealthPage async ownership guards", () => {
     await settleAct();
 
     expect(dutyTrigger).toHaveTextContent("— none —");
-    expect(within(dialog).getByRole("combobox", { name: "Animal *" })).toHaveTextContent(
+    expect(within(dialog).getByRole("button", { name: "Animal *" })).toHaveTextContent(
       "G-004",
     );
     expect(within(dialog).queryByText(/Could not link duty/)).not.toBeInTheDocument();
@@ -578,7 +579,7 @@ describe("HealthPage async ownership guards", () => {
     );
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("radio", { name: "Purchase batch" }));
-    const batchPicker = within(dialog).getByRole("combobox", { name: "Purchase batch *" });
+    const batchPicker = within(dialog).getByRole("button", { name: "Purchase batch *" });
     await pickOption(user, batchPicker, "Batch #2 — 12 active in quarantine");
     await user.click(reviewButton(dialog));
     await preview.reached;
@@ -607,7 +608,7 @@ describe("HealthPage async ownership guards", () => {
     await user.click(within(dialog).getByRole("radio", { name: "Purchase batch" }));
     await pickOption(
       user,
-      within(dialog).getByRole("combobox", { name: "Purchase batch *" }),
+      within(dialog).getByRole("button", { name: "Purchase batch *" }),
       "Batch #2 — 12 active in quarantine",
     );
 
@@ -675,7 +676,7 @@ describe("HealthPage async ownership guards", () => {
     const { user, dialog } = await openDialog();
     await pickOption(
       user,
-      within(dialog).getByRole("combobox", { name: "Animal *" }),
+      within(dialog).getByRole("button", { name: "Animal *" }),
       /G-003 · Kaveri/,
     );
 
@@ -704,7 +705,7 @@ describe("HealthPage async ownership guards", () => {
     const { user, dialog } = await openDialog();
     await pickOption(
       user,
-      within(dialog).getByRole("combobox", { name: "Animal *" }),
+      within(dialog).getByRole("button", { name: "Animal *" }),
       /G-003 · Kaveri/,
     );
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
@@ -739,7 +740,7 @@ describe("HealthPage async ownership guards", () => {
     const { user, dialog } = await openDialog();
     await pickOption(
       user,
-      within(dialog).getByRole("combobox", { name: "Animal *" }),
+      within(dialog).getByRole("button", { name: "Animal *" }),
       /G-003 · Kaveri/,
     );
     const save = within(dialog).getByRole("button", { name: "Save event" });
@@ -767,7 +768,7 @@ describe("HealthPage async ownership guards", () => {
     const { user, dialog } = await openDialog();
     await pickOption(
       user,
-      within(dialog).getByRole("combobox", { name: "Animal *" }),
+      within(dialog).getByRole("button", { name: "Animal *" }),
       /G-003 · Kaveri/,
     );
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));

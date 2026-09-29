@@ -11,6 +11,7 @@ import {
   type RemotePickerPage,
 } from "@/components/remote-picker";
 import { Label } from "@/components/ui/label";
+import { ApiError } from "@/lib/api-client";
 import { createTestQueryClient } from "@/test/render";
 
 function renderPicker({
@@ -71,7 +72,7 @@ describe("RemotePicker", () => {
     const Harness = renderPicker({ loadPage });
     render(<Harness />);
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     const dialog = screen.getByRole("dialog", { name: "Choose an animal" });
     expect(await within(dialog).findByText(/No eligible animals checked yet/)).toBeInTheDocument();
     expect(within(dialog).getByText(
@@ -105,13 +106,13 @@ describe("RemotePicker", () => {
     const Harness = renderPicker({ loadPage });
     render(<Harness />);
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     const firstDialog = screen.getByRole("dialog", { name: "Choose an animal" });
     await user.click(await within(firstDialog).findByRole("option", { name: /G-0001 · Nila/ }));
     expect(screen.getByLabelText("chosen value")).toHaveTextContent("1");
     expect(screen.getByLabelText("Animal")).toHaveTextContent("G-0001 · Nila");
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     const secondDialog = screen.getByRole("dialog", { name: "Choose an animal" });
     await user.type(within(secondDialog).getByLabelText("Search animals"), "other");
     expect(await within(secondDialog).findByRole("option", { name: /G-0002 · Other/ })).toBeInTheDocument();
@@ -131,7 +132,7 @@ describe("RemotePicker", () => {
     const Harness = renderPicker({ loadPage });
     render(<Harness />);
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     const dialog = screen.getByRole("dialog", { name: "Choose an animal" });
     await within(dialog).findByRole("option", { name: /G-0012 · Nila/ });
 
@@ -154,7 +155,7 @@ describe("RemotePicker", () => {
     const Harness = renderPicker({ loadPage });
     render(<Harness />);
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     const dialog = screen.getByRole("dialog", { name: "Choose an animal" });
     expect(await within(dialog).findByRole("button", { name: "Load more" })).toBeEnabled();
 
@@ -176,7 +177,7 @@ describe("RemotePicker", () => {
     const Harness = renderPicker({ loadPage });
     render(<Harness />);
 
-    const trigger = screen.getByRole("combobox", { name: "Animal" });
+    const trigger = screen.getByRole("button", { name: "Animal" });
     await user.click(trigger);
     const search = screen.getByLabelText("Search animals");
     expect(search).toHaveAttribute("placeholder", "Search…");
@@ -211,7 +212,7 @@ describe("RemotePicker", () => {
     const Harness = renderPicker({ loadPage });
     render(<Harness />);
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     const dialog = screen.getByRole("dialog", { name: "Choose an animal" });
     await within(dialog).findByRole("option", { name: /G-0001 · Nila/ });
 
@@ -251,7 +252,7 @@ describe("RemotePicker", () => {
     });
     render(<Harness />);
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     const listbox = screen.getByRole("listbox", { name: "Choose an animal results" });
     expect(listbox).toHaveAttribute("aria-busy", "true");
 
@@ -271,7 +272,7 @@ describe("RemotePicker", () => {
     });
     render(<Harness />);
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     await waitFor(() => expect(requestSignal).toBeDefined());
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
@@ -294,7 +295,7 @@ describe("RemotePicker", () => {
     const Harness = renderPicker({ loadPage });
     render(<Harness />);
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     const dialog = screen.getByRole("dialog", { name: "Choose an animal" });
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("Could not load options");
 
@@ -305,6 +306,26 @@ describe("RemotePicker", () => {
     releaseRetry?.();
     expect(await within(dialog).findByText("No matching options.")).toBeInTheDocument();
     expect(within(dialog).getByText(/Checked 0 of 0/)).toBeInTheDocument();
+  });
+
+  it("maps a coded ApiError through the language catalog instead of the raw detail", async () => {
+    const user = userEvent.setup();
+    const loadPage = vi.fn(async () => {
+      throw new ApiError(403, "You are not authorized for this farm", [], "PERMISSION_DENIED");
+    });
+    const Harness = renderPicker({ loadPage });
+    render(<Harness />);
+
+    await user.click(screen.getByRole("button", { name: "Animal" }));
+    const dialog = screen.getByRole("dialog", { name: "Choose an animal" });
+    // The backend's error code beats the English detail wording (2026-09-28
+    // audit, H6).
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "Your role does not allow this action.",
+    );
+    expect(
+      within(dialog).queryByText("You are not authorized for this farm"),
+    ).not.toBeInTheDocument();
   });
 
   it("warns when cached options cannot be refreshed", async () => {
@@ -321,7 +342,7 @@ describe("RemotePicker", () => {
     const Harness = renderPicker({ loadPage });
     render(<Harness />);
 
-    const trigger = screen.getByRole("combobox", { name: "Animal" });
+    const trigger = screen.getByRole("button", { name: "Animal" });
     await user.click(trigger);
     expect(await screen.findByRole("option", { name: /G-0001 · Nila/ })).toBeInTheDocument();
     await user.keyboard("{Escape}");
@@ -352,7 +373,7 @@ describe("RemotePicker", () => {
     const Harness = renderPicker({ loadPage });
     render(<Harness />);
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     const dialog = screen.getByRole("dialog", { name: "Choose an animal" });
     expect(await within(dialog).findByText(/No eligible animals checked yet/)).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Load more" }));
@@ -374,7 +395,7 @@ describe("RemotePicker", () => {
     const Harness = renderPicker({ loadPage });
     render(<Harness />);
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     const dialog = screen.getByRole("dialog", { name: "Choose an animal" });
     expect(await within(dialog).findByText("No matching options.")).toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
@@ -411,7 +432,7 @@ describe("RemotePicker", () => {
     });
     render(<Harness />);
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     const dialog = screen.getByRole("dialog", { name: "Choose an animal" });
     expect(await within(dialog).findByRole("option", { name: "Remote one" })).toBeInTheDocument();
     expect(within(dialog).queryByRole("option", { name: /Duplicate|Stale/ })).not.toBeInTheDocument();
@@ -439,7 +460,7 @@ describe("RemotePicker", () => {
     });
     render(<Harness />);
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     const dialog = screen.getByRole("dialog", { name: "Choose an animal" });
     // Wait for the (empty) server page to settle before asserting on the
     // empty-state block, which only renders once loading finishes.
@@ -482,7 +503,7 @@ describe("RemotePicker", () => {
       </QueryClientProvider>,
     );
 
-    expect(screen.getByRole("combobox", { name: "Animal" })).toHaveTextContent(
+    expect(screen.getByRole("button", { name: "Animal" })).toHaveTextContent(
       "Selected item 999",
     );
     expect(screen.queryByText("Wrong cached animal")).not.toBeInTheDocument();
@@ -511,7 +532,7 @@ describe("RemotePicker", () => {
       </QueryClientProvider>,
     );
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     await user.click(await screen.findByRole("option", { name: /G-0001 · Nila/ }));
 
     expect(onOptionChange).toHaveBeenCalledWith(option);
@@ -534,7 +555,7 @@ describe("RemotePicker", () => {
     });
     render(<Harness />);
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     const dialog = screen.getByRole("dialog", { name: "Choose an animal" });
     expect(within(dialog).getByText(
       "Search the farm records, then choose one option.",
@@ -579,7 +600,7 @@ describe("RemotePicker", () => {
       </QueryClientProvider>,
     );
 
-    const trigger = screen.getByRole("combobox", { name: "Animal" });
+    const trigger = screen.getByRole("button", { name: "Animal" });
     expect(trigger).toHaveClass("custom-picker");
     expect(trigger).toHaveAttribute("aria-invalid", "true");
     expect(trigger).toHaveAttribute(
@@ -596,7 +617,7 @@ describe("RemotePicker", () => {
     const Harness = renderPicker({ loadPage, searchMaxLength: 3 });
     render(<Harness />);
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     const search = screen.getByLabelText("Search animals");
     await user.type(search, "abcdef");
 
@@ -617,7 +638,7 @@ describe("RemotePicker", () => {
     const Harness = renderPicker({ loadPage, pageSize: requested });
     render(<Harness />);
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     await waitFor(() => expect(loadPage).toHaveBeenCalledOnce());
     expect(loadPage).toHaveBeenCalledWith(expect.objectContaining({ limit: expected }));
   });
@@ -647,15 +668,15 @@ describe("RemotePicker", () => {
     }
 
     const view = render(<Picker disabled={false} />);
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     expect(screen.getByRole("dialog", { name: "Choose an animal" })).toBeInTheDocument();
 
     view.rerender(<Picker disabled />);
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(screen.getByRole("combobox", { name: "Animal" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Animal" })).toBeDisabled();
 
     view.rerender(<Picker disabled={false} />);
-    expect(screen.getByRole("combobox", { name: "Animal" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Animal" })).toBeEnabled();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
@@ -675,7 +696,7 @@ describe("RemotePicker", () => {
     });
     render(<Harness />);
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     const first = await screen.findByRole("option", { name: /G-0001 · Nila/ });
     const selected = screen.getByRole("option", { name: /G-0002 · Tara/ });
     const last = screen.getByRole("option", { name: /G-0003 · Mira/ });
@@ -700,7 +721,7 @@ describe("RemotePicker", () => {
     });
     render(<Harness />);
 
-    const trigger = screen.getByRole("combobox", { name: "Animal" });
+    const trigger = screen.getByRole("button", { name: "Animal" });
     await user.click(trigger);
     const search = screen.getByLabelText("Search animals");
     const first = await screen.findByRole("option", { name: /G-0001 · Nila/ });
@@ -755,7 +776,7 @@ describe("RemotePicker", () => {
     });
     render(<Harness />);
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     const listbox = screen.getByRole("listbox", { name: "Choose an animal results" });
     await screen.findByText("No matching options.");
 
@@ -783,7 +804,7 @@ describe("RemotePicker", () => {
     });
     render(<Harness />);
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     const loadMore = await screen.findByRole("button", { name: "Load more" });
     await user.click(loadMore);
 

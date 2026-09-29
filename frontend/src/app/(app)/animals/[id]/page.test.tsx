@@ -1543,7 +1543,7 @@ describe("AnimalProfilePage", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      expect(within(dialog).getByLabelText(/new status/i)).toHaveTextContent("SOLD");
+      expect(within(dialog).getByLabelText(/new status/i)).toHaveTextContent("Sold");
       expect(within(dialog).getByLabelText(/sale price/i)).toBeInTheDocument();
       expect(within(dialog).getByLabelText(/buyer name/i)).toBeInTheDocument();
     });
@@ -1555,10 +1555,10 @@ describe("AnimalProfilePage", () => {
       const combo = () => within(dialog).getByLabelText(/new status/i);
       await user.type(within(dialog).getByLabelText(/sale price/i), "9000");
       await user.type(within(dialog).getByLabelText(/buyer name/i), "Old buyer");
-      await pickOption(user, combo(), "DEAD");
+      await pickOption(user, combo(), "Dead");
       expect(within(dialog).queryByLabelText(/sale price/i)).not.toBeInTheDocument();
       expect(within(dialog).queryByLabelText(/buyer name/i)).not.toBeInTheDocument();
-      await pickOption(user, combo(), "SOLD");
+      await pickOption(user, combo(), "Sold");
       expect(within(dialog).getByLabelText(/sale price/i)).toHaveValue(null);
       expect(within(dialog).getByLabelText(/buyer name/i)).toHaveValue("");
     });
@@ -1568,7 +1568,7 @@ describe("AnimalProfilePage", () => {
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
       const combo = () => within(dialog).getByLabelText(/new status/i);
-      await pickOption(user, combo(), "DEAD");
+      await pickOption(user, combo(), "Dead");
       const checkbox = within(dialog).getByRole("checkbox", {
         name: "Suspected scheduled/notifiable disease",
       });
@@ -1581,8 +1581,8 @@ describe("AnimalProfilePage", () => {
       expect(within(dialog).getByLabelText("Suspected disease *")).toHaveValue("");
       expect(within(dialog).getByLabelText("Authority notified date")).toHaveValue("");
 
-      await pickOption(user, combo(), "CULLED");
-      await pickOption(user, combo(), "DEAD");
+      await pickOption(user, combo(), "Culled");
+      await pickOption(user, combo(), "Dead");
       expect(
         within(dialog).getByRole("checkbox", {
           name: "Suspected scheduled/notifiable disease",
@@ -1595,7 +1595,7 @@ describe("AnimalProfilePage", () => {
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
       const combo = () => within(dialog).getByLabelText(/new status/i);
-      await pickOption(user, combo(), "DEAD");
+      await pickOption(user, combo(), "Dead");
       await user.type(within(dialog).getByLabelText("Mortality cause"), "Suspected PPR");
       setInput(within(dialog).getByLabelText("Mortality reported date"), farmToday());
       await user.click(
@@ -1606,7 +1606,7 @@ describe("AnimalProfilePage", () => {
       await user.type(within(dialog).getByLabelText("Suspected disease *"), "PPR");
       setInput(within(dialog).getByLabelText("Authority notified date"), farmToday());
 
-      await pickOption(user, combo(), "CULLED");
+      await pickOption(user, combo(), "Culled");
       await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
       await waitFor(() => expect(statusBodies).toHaveLength(1));
       expect(statusBodies[0]).toMatchObject({
@@ -1652,7 +1652,7 @@ describe("AnimalProfilePage", () => {
         suspected_disease: null,
         authority_notified_at: null,
       });
-      await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith("Marked SOLD."));
+      await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith("Marked Sold."));
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
       await waitFor(() => expect(getCalls).toBeGreaterThanOrEqual(2));
     });
@@ -1698,7 +1698,7 @@ describe("AnimalProfilePage", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      await pickOption(user, within(dialog).getByLabelText(/new status/i), "CULLED");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "Culled");
       expect(within(dialog).queryByLabelText(/weight at sale/i)).not.toBeInTheDocument();
       expect(within(dialog).queryByLabelText(/price per kg/i)).not.toBeInTheDocument();
 
@@ -1715,7 +1715,7 @@ describe("AnimalProfilePage", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "Dead");
       await user.type(within(dialog).getByLabelText("Mortality cause"), "Fever after rain");
       await pickOption(user, within(dialog).getByLabelText(/cause \(coded\)/i), "Pneumonia");
       await pickOption(user, within(dialog).getByLabelText(/disposal method/i), "Deep burial");
@@ -1771,7 +1771,7 @@ describe("AnimalProfilePage", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "Dead");
       await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
       await waitFor(() => expect(statusBodies).toHaveLength(1));
       expect(statusBodies[0]).toMatchObject({
@@ -1787,7 +1787,7 @@ describe("AnimalProfilePage", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "Dead");
       setInput(within(dialog).getByLabelText(/^Date/), "2026-08-08");
       await user.type(within(dialog).getByLabelText("Mortality cause"), "Sudden fever");
       setInput(within(dialog).getByLabelText("Mortality reported date"), "2026-08-07");
@@ -1848,7 +1848,7 @@ describe("AnimalProfilePage", () => {
       expect(statusBodies).toHaveLength(0);
 
       setInput(within(dialog).getByLabelText(/^Date/), farmToday());
-      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "Dead");
       setInput(within(dialog).getByLabelText("Mortality reported date"), tomorrow);
       await user.click(
         within(dialog).getByRole("checkbox", {
@@ -1877,7 +1877,7 @@ describe("AnimalProfilePage", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      await pickOption(user, within(dialog).getByLabelText(/new status/i), "CULLED");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "Culled");
       setInput(within(dialog).getByLabelText(/sale price/i), "4500");
       await user.type(within(dialog).getByLabelText(/buyer name/i), "Local processor");
       await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
@@ -1887,7 +1887,7 @@ describe("AnimalProfilePage", () => {
         sale_price: 4500,
         buyer_name: "Local processor",
       });
-      await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith("Marked CULLED."));
+      await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith("Marked Culled."));
     });
 
     it("rejects a negative sale price without a POST", async () => {
@@ -1947,7 +1947,7 @@ describe("AnimalProfilePage", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "Dead");
       const cause = within(dialog).getByLabelText("Mortality cause");
       setInput(cause, "c".repeat(121));
       await user.click(within(dialog).getByRole("button", { name: "Confirm" }));

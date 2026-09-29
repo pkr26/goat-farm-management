@@ -763,7 +763,7 @@ describe("AnimalProfilePage guards", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "Dead");
       await user.click(
         within(dialog).getByRole("checkbox", {
           name: "Suspected scheduled/notifiable disease",
@@ -783,7 +783,7 @@ describe("AnimalProfilePage guards", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "Dead");
       await user.click(
         within(dialog).getByRole("checkbox", {
           name: "Suspected scheduled/notifiable disease",
@@ -812,7 +812,7 @@ describe("AnimalProfilePage guards", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "Dead");
       const checkbox = within(dialog).getByRole("checkbox", {
         name: "Suspected scheduled/notifiable disease",
       });
@@ -874,12 +874,15 @@ describe("AnimalProfilePage guards", () => {
 
   describe("fatal background refresh failures", () => {
     it.each([
-      [404, "Animal not found"],
-      [403, "Animal belongs to another farm"],
-      [401, "Session is no longer valid"],
+      [404, "Animal not found", "Animal not found"],
+      [403, "Animal belongs to another farm", "Animal belongs to another farm"],
+      // A 401 whose detail names the session matches the catalog's
+      // session-expired status rule (2026-09-28 audit, H6) — the localized
+      // sentence renders, not the raw server wording.
+      [401, "Session is no longer valid", "Your session ended — sign in again."],
     ])(
       "tears the profile down when a background refresh answers %i",
-      async (status, detail) => {
+      async (status, detail, shown) => {
         const { queryClient } = await renderProfile();
         expect(screen.getByRole("button", { name: "Record weight" })).toBeInTheDocument();
         server.use(
@@ -892,7 +895,7 @@ describe("AnimalProfilePage guards", () => {
           expect(screen.queryByRole("heading", { level: 1, name: /G-001/ })).not
             .toBeInTheDocument(),
         );
-        expect(screen.getByRole("alert")).toHaveTextContent(detail);
+        expect(screen.getByRole("alert")).toHaveTextContent(shown);
         expect(
           screen.getByRole("button", { name: "Retry animal profile" }),
         ).toBeInTheDocument();

@@ -64,6 +64,7 @@ import { addDays, daysBetween, farmToday, formatDate, formatFarmDateTime } from 
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import { withReturnTo } from "@/lib/permission-navigation";
 import { useLanguage, useT, type TFn } from "@/lib/i18n";
+import { mapServerError } from "@/lib/server-error-phrases";
 import { resolveTaskTitle } from "@/lib/task-title";
 import { type PermissionCheck } from "@/lib/task-action-access";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
@@ -852,7 +853,9 @@ function TasksPageContent({ perms }: { perms: PermissionsState }) {
       return (
         <div role="alert" className="space-y-3 rounded-lg border border-destructive/40 p-4">
           <p className="text-sm text-destructive">
-            {query.error instanceof ApiError ? query.error.detail : t("tasks.loadFailed")}
+            {query.error instanceof ApiError
+              ? mapServerError(t, query.error.detail, query.error.status, query.error.code)
+              : t("tasks.loadFailed")}
           </p>
           <Button type="button" variant="outline" onClick={() => void query.refetch()}>
             {t("tasks.retryTasks")}
@@ -1145,7 +1148,7 @@ function TasksPageContent({ perms }: { perms: PermissionsState }) {
                   >
                     <p className="text-destructive">
                       {teamQuery.error instanceof ApiError
-                        ? teamQuery.error.detail
+                        ? mapServerError(t, teamQuery.error.detail, teamQuery.error.status, teamQuery.error.code)
                         : t("tasks.form.assignmentsFailed")}
                     </p>
                     <Button

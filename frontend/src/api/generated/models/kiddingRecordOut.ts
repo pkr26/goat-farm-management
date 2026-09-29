@@ -17,6 +17,7 @@ export interface KiddingRecordOut {
   placenta_passed: boolean | null;
   mastitis_suspected: boolean;
   notes: string | null;
+  created_at: string;
   kids?: KidEntryOut[];
   doe_tag?: string | null;
 }

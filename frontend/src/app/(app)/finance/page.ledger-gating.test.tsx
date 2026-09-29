@@ -523,7 +523,7 @@ describe("FinancePage correction dialog branches", () => {
     expect(within(dialog).getByLabelText("Amount (₹) *")).toHaveValue(150000);
     expect(within(dialog).getByLabelText("Notes")).toHaveValue("sold 10 bucks");
     // Type, Category, then the animal picker.
-    expect(within(dialog).getAllByRole("combobox")[2]).toHaveTextContent(/^G-011$/);
+    expect(within(dialog).getByRole("button", { name: "Animal (optional)" })).toHaveTextContent(/^G-011$/);
     // Nothing has failed yet: no field is flagged and no error is announced.
     for (const label of ["Date *", "Amount (₹) *", "Correction reason *"]) {
       expect(within(dialog).getByLabelText(label)).not.toHaveAttribute("aria-invalid");
@@ -534,7 +534,7 @@ describe("FinancePage correction dialog branches", () => {
   it("starts from the none sentinel when the entry has no animal", async () => {
     const { dialog } = await openCorrection("bagged maize", "Correct transaction #2");
 
-    expect(within(dialog).getAllByRole("combobox")[2]).toHaveTextContent(/^— none —$/);
+    expect(within(dialog).getByRole("button", { name: "Animal (optional)" })).toHaveTextContent(/^— none —$/);
   });
 
   it("reports an unlinked entry as such in the read-only animal field", async () => {

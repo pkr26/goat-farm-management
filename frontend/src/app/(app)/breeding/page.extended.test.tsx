@@ -126,6 +126,7 @@ function makeRecord(overrides: Partial<BreedingRecordOut>): BreedingRecordOut {
     loss_notes: null,
     loss_recorded_by_id: null,
     loss_recorded_at: null,
+    created_at: "2026-01-01T00:00:00Z",
     has_kidding: false,
     doe_tag: "G-010",
     buck_tag: "G-020",
@@ -433,7 +434,7 @@ describe("BreedingPage", () => {
     expect(screen.queryByRole("link", { name: "G-010" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Add breeding" }));
     const dialog = await screen.findByRole("dialog", { name: "Add breeding" });
-    await user.click(within(dialog).getByRole("combobox", { name: "Doe *" }));
+    await user.click(within(dialog).getByRole("button", { name: "Doe *" }));
     expect(await screen.findByRole("option", { name: /G-010 · Lakshmi/ })).toBeInTheDocument();
     expect(generalAnimalCalls).toBe(0);
   });
@@ -495,7 +496,8 @@ describe("BreedingPage", () => {
     await waitFor(() =>
       expect(within(dialog).queryByText("Loading animals…")).not.toBeInTheDocument(),
     );
-    const [doeTrigger, buckTrigger] = within(dialog).getAllByRole("combobox");
+    const doeTrigger = within(dialog).getByRole("button", { name: "Doe *" });
+    const buckTrigger = within(dialog).getByRole("button", { name: "Buck *" });
 
     await user.click(doeTrigger);
     expect(
@@ -516,7 +518,8 @@ describe("BreedingPage", () => {
     await waitFor(() =>
       expect(within(dialog).queryByText("Loading animals…")).not.toBeInTheDocument(),
     );
-    const [doeTrigger, buckTrigger] = within(dialog).getAllByRole("combobox");
+    const doeTrigger = within(dialog).getByRole("button", { name: "Doe *" });
+    const buckTrigger = within(dialog).getByRole("button", { name: "Buck *" });
 
     await pickOption(user, doeTrigger, /G-010 · Lakshmi — 18 mo, 30\.0 kg/);
     expect(doeTrigger).toHaveTextContent("G-010 · Lakshmi — 18 mo, 30.0 kg");
@@ -597,7 +600,7 @@ describe("BreedingPage", () => {
 
     const { dialog } = await openNewDialog();
     expect(await within(dialog).findByText(/No eligible bucks are available/)).toBeInTheDocument();
-    expect(within(dialog).getByRole("combobox", { name: "Buck *" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Buck *" })).toBeDisabled();
     expect(within(dialog).getByRole("button", { name: "Save breeding" })).toBeDisabled();
   });
 
@@ -618,7 +621,8 @@ describe("BreedingPage", () => {
   it("rejects a future breeding date (typed input bypasses the max attribute)", async () => {
     const { user, dialog } = await openNewDialog();
     await within(dialog).findByText("Select doe"); // animals loaded
-    const [doeTrigger, buckTrigger] = within(dialog).getAllByRole("combobox");
+    const doeTrigger = within(dialog).getByRole("button", { name: "Doe *" });
+    const buckTrigger = within(dialog).getByRole("button", { name: "Buck *" });
     await pickOption(user, doeTrigger, /G-010 · Lakshmi/);
     await pickOption(user, buckTrigger, /G-020 — 24 mo/);
     fireEvent.change(within(dialog).getByLabelText(/breeding date/i), {
@@ -635,7 +639,8 @@ describe("BreedingPage", () => {
   it("posts numeric ids with the date, closes, and refetches the list", async () => {
     const { user, dialog } = await openNewDialog();
     await within(dialog).findByText("Select doe");
-    const [doeTrigger, buckTrigger] = within(dialog).getAllByRole("combobox");
+    const doeTrigger = within(dialog).getByRole("button", { name: "Doe *" });
+    const buckTrigger = within(dialog).getByRole("button", { name: "Buck *" });
     await pickOption(user, doeTrigger, /G-010 · Lakshmi/);
     await pickOption(user, buckTrigger, /G-020 — 24 mo/);
     await user.click(within(dialog).getByRole("button", { name: "Save breeding" }));
@@ -658,7 +663,8 @@ describe("BreedingPage", () => {
     );
     const { user, dialog } = await openNewDialog();
     await within(dialog).findByText("Select doe");
-    const [doeTrigger, buckTrigger] = within(dialog).getAllByRole("combobox");
+    const doeTrigger = within(dialog).getByRole("button", { name: "Doe *" });
+    const buckTrigger = within(dialog).getByRole("button", { name: "Buck *" });
     await pickOption(user, doeTrigger, /G-010 · Lakshmi/);
     await pickOption(user, buckTrigger, /G-020 — 24 mo/);
     await user.click(within(dialog).getByRole("button", { name: "Save breeding" }));
@@ -679,7 +685,8 @@ describe("BreedingPage", () => {
     );
     const { user, dialog } = await openNewDialog();
     await within(dialog).findByText("Select doe");
-    const [doeTrigger, buckTrigger] = within(dialog).getAllByRole("combobox");
+    const doeTrigger = within(dialog).getByRole("button", { name: "Doe *" });
+    const buckTrigger = within(dialog).getByRole("button", { name: "Buck *" });
     await pickOption(user, doeTrigger, /G-010 · Lakshmi/);
     await pickOption(user, buckTrigger, /G-020 — 24 mo/);
     await user.click(within(dialog).getByRole("button", { name: "Save breeding" }));
@@ -703,7 +710,8 @@ describe("BreedingPage", () => {
     );
     const { user, dialog } = await openNewDialog();
     await within(dialog).findByText("Select doe");
-    const [doeTrigger, buckTrigger] = within(dialog).getAllByRole("combobox");
+    const doeTrigger = within(dialog).getByRole("button", { name: "Doe *" });
+    const buckTrigger = within(dialog).getByRole("button", { name: "Buck *" });
     await pickOption(user, doeTrigger, /G-010 · Lakshmi/);
     await pickOption(user, buckTrigger, /G-020 — 24 mo/);
 

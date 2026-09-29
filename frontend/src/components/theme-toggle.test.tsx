@@ -25,6 +25,9 @@ describe("ThemeToggle", () => {
 
     expect(markup).toContain('aria-label="Toggle theme"');
     expect(markup).not.toContain("<svg");
+    // Pre-mount the button does nothing — it must not be enabled
+    // (2026-09-28 audit: "enabled inert button").
+    expect(markup).toContain("disabled");
   });
 
   it("switches a light theme to dark", async () => {

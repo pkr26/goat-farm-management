@@ -20,9 +20,15 @@ import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 import { farmToday } from "@/lib/format";
 
-import BreedingPage, { breedingSchema } from "./page";
+import { translate, type TFn } from "@/lib/i18n";
+
+import BreedingPage, { buildBreedingSchema } from "./page";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { settle } from "@/test/settle";
+
+/** English resolver for direct schema-level assertions (the page itself
+ * builds its schema from the active language). */
+const enT: TFn = (key, vars) => translate("en", key, vars);
 
 const { navState, toastMock } = vi.hoisted(() => ({
   navState: { search: "" },
@@ -134,6 +140,7 @@ function makeRecord(overrides: Partial<BreedingRecordOut>): BreedingRecordOut {
     loss_notes: null,
     loss_recorded_by_id: null,
     loss_recorded_at: null,
+    created_at: "2026-01-01T00:00:00Z",
     has_kidding: false,
     doe_tag: "G-010",
     buck_tag: "G-020",
@@ -246,13 +253,13 @@ describe("BreedingPage mutation hardening", () => {
     await user.click(screen.getByRole("button", { name: "Add breeding" }));
     const dialog = await screen.findByRole("dialog", { name: "Add breeding" });
     await waitFor(() =>
-      expect(within(dialog).getAllByRole("combobox").length).toBeGreaterThan(0),
+      expect(within(dialog).getAllByRole("button", { name: "Doe *" }).length).toBeGreaterThan(0),
     ); // candidates loaded
     return { user, dialog };
   }
 
   async function pickDoe(user: User, dialog: HTMLElement) {
-    const [doeTrigger] = within(dialog).getAllByRole("combobox");
+    const doeTrigger = within(dialog).getByRole("button", { name: "Doe *" });
     await pickOption(user, doeTrigger, /G-010 · Lakshmi/);
   }
 
@@ -309,7 +316,7 @@ describe("BreedingPage mutation hardening", () => {
   it("posts a natural breeding with only the numeric buck id and no method", async () => {
     const { user, dialog } = await openNewDialog();
     await pickDoe(user, dialog);
-    const [, buckTrigger] = within(dialog).getAllByRole("combobox");
+    const buckTrigger = within(dialog).getByRole("button", { name: "Buck *" });
     await pickOption(user, buckTrigger, /G-020 — 24 mo/);
     await user.click(within(dialog).getByRole("button", { name: "Save breeding" }));
 
@@ -343,7 +350,7 @@ describe("BreedingPage mutation hardening", () => {
     await renderLoaded();
 
     const notice = await screen.findByText(/is not awaiting a result — nothing to record\./);
-    expect(notice).toHaveTextContent("Ultrasound record #2 (confirmed pregnant)");
+    expect(notice).toHaveTextContent("Ultrasound record #2 (Confirmed pregnant)");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
     await userEvent.setup().click(screen.getByRole("button", { name: "Clear link" }));
@@ -372,7 +379,7 @@ describe("BreedingPage mutation hardening", () => {
     const newDialog = await screen.findByRole("dialog", { name: "Add breeding" });
     await waitFor(() => expect(detailCalls).toBe(1));
     await waitFor(() =>
-      expect(within(newDialog).getAllByRole("combobox").length).toBeGreaterThan(0),
+      expect(within(newDialog).getAllByRole("button", { name: "Doe *" }).length).toBeGreaterThan(0),
     );
     expect(screen.queryByRole("dialog", { name: "Ultrasound result" })).not.toBeInTheDocument();
 
@@ -526,7 +533,7 @@ describe("BreedingPage mutation hardening", () => {
     // before max(120) accepts it. The AI radios are gone from the dialog (the
     // goat protocol rejects the write server-side), so the wire field's
     // trimming is pinned here against the exported schema instead.
-    const schema = breedingSchema(farmVocabulary);
+    const schema = buildBreedingSchema(enT);
     const ok = schema.safeParse({
       doe_id: "10",
       buck_id: "",
@@ -551,13 +558,13 @@ describe("BreedingPage mutation hardening", () => {
   it("titles the doe and buck candidate-picker dialogs", async () => {
     const { user, dialog } = await openNewDialog();
 
-    await user.click(within(dialog).getAllByRole("combobox")[0]);
+    await user.click(within(dialog).getByRole("button", { name: "Doe *" }));
     expect(
       await screen.findByRole("dialog", { name: "Choose a breeding-ready doe" }),
     ).toBeInTheDocument();
     await user.keyboard("{Escape}");
 
-    const [, buckTrigger] = within(dialog).getAllByRole("combobox");
+    const buckTrigger = within(dialog).getByRole("button", { name: "Buck *" });
     await user.click(buckTrigger);
     expect(
       await screen.findByRole("dialog", { name: "Choose an active buck" }),
@@ -679,10 +686,10 @@ describe("BreedingPage mutation hardening", () => {
     await user.click(screen.getByRole("button", { name: "Add breeding" }));
     const dialog = await screen.findByRole("dialog", { name: "Add breeding" });
     await waitFor(() =>
-      expect(within(dialog).getAllByRole("combobox").length).toBeGreaterThan(0),
+      expect(within(dialog).getAllByRole("button", { name: "Doe *" }).length).toBeGreaterThan(0),
     );
     await pickDoe(user, dialog);
-    const [, buckTrigger] = within(dialog).getAllByRole("combobox");
+    const buckTrigger = within(dialog).getByRole("button", { name: "Buck *" });
     await pickOption(user, buckTrigger, /G-020 — 24 mo/);
     await user.click(within(dialog).getByRole("button", { name: "Save breeding" }));
     await waitFor(() => expect(resolvePost).toBeDefined());
@@ -757,8 +764,8 @@ describe("BreedingPage mutation hardening", () => {
 });
 
 
-describe("breedingSchema — regex and message anchors", () => {
-  const schema = breedingSchema(farmVocabulary);
+describe("buildBreedingSchema — regex and message anchors", () => {
+  const schema = buildBreedingSchema(enT);
   const base = { doe_id: "10", buck_id: "20", breeding_date: "2026-01-01", method: "NATURAL" } as const;
 
   it("rejects trailing garbage behind a valid date prefix", () => {

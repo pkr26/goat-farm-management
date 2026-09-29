@@ -17,4 +17,6 @@ export interface InsurancePolicyHistoryOut {
   policy: InsurancePolicyOut;
   premiums: InsurancePremiumOut[];
   total: number;
+  limit: number;
+  offset: number;
 }

@@ -9,8 +9,10 @@ FROM node:24-alpine@sha256:50c8e8ca1d27439048670df5883f32d57cf81cff6233222c893fd
 WORKDIR /app
 ARG BACKEND_URL=http://backend:8000
 ENV BACKEND_URL=${BACKEND_URL}
-# CSP is set by the public edge at runtime, where a generic registry image
-# can receive the deployment's actual S3/MinIO origin after validation.
+# CSP is emitted per-request by src/proxy.ts (nonce policy) at runtime: the
+# deployment's S3/MinIO origins arrive as GOATFARM_CSP_IMG_ORIGINS /
+# GOATFARM_CSP_CONNECT_ORIGINS env, so a generic registry image stays
+# deployment-neutral. The edge only validates those values at boot.
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN corepack enable && pnpm build

@@ -156,6 +156,16 @@ describe("AppLayout — header", () => {
     );
   });
 
+  it("names the primary navigation landmark (2026-09-28 audit)", async () => {
+    // Multiple landmarks on a page need accessible names; the sidebar's <nav>
+    // was anonymous until this label (localized via nav.primaryAria).
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
+
+    expect(
+      await screen.findByRole("navigation", { name: "Primary navigation" }),
+    ).toBeInTheDocument();
+  });
+
   it("purges page state and routes to the picker when a membership refresh revokes the active farm", async () => {
     let membershipChanged = false;
     server.use(

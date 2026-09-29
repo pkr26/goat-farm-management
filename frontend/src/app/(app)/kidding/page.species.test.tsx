@@ -47,6 +47,7 @@ function makeBreeding(overrides: Partial<BreedingRecordOut>): BreedingRecordOut 
     loss_notes: null,
     loss_recorded_by_id: null,
     loss_recorded_at: null,
+    created_at: "2026-01-01T00:00:00Z",
     has_kidding: false,
     doe_tag: "G-010",
     buck_tag: "G-020",

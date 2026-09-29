@@ -27,11 +27,6 @@ export interface FieldHelp {
   body: string;
 }
 
-/** Humanized field label as displayed. */
-export function speciesAwareLabel(base: string): string {
-  return base;
-}
-
 /** Section-level help shown by the "?" beside each assumptions section. */
 export const SIMULATION_SECTION_HELP: Record<string, (v: FarmVocabulary) => string> = {
   meta: () =>
@@ -599,9 +594,7 @@ export function simulationFieldHelp(
   const factory = FIELD_HELP[path];
   if (!factory) return null;
   return {
-    label: speciesAwareLabel(
-      key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-    ),
+    label: key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
     help: factory(v),
   };
 }

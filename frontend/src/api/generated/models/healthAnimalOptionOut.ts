@@ -4,6 +4,7 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { HealthAnimalOptionOutCurrentBucket } from './healthAnimalOptionOutCurrentBucket';
 
 /**
  * Least-privilege animal identity exposed inside health workflows.
@@ -12,7 +13,7 @@ export interface HealthAnimalOptionOut {
   id: number;
   tag_number: string;
   name: string | null;
-  current_bucket: string;
+  current_bucket: HealthAnimalOptionOutCurrentBucket;
   movement_restricted: boolean;
   restriction_version: number;
 }

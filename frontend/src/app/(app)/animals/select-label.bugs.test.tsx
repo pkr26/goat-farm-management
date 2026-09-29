@@ -80,7 +80,7 @@ describe("Select trigger labels (suspected bug: raw value shown instead of label
   it("filter select shows 'Female kids' after picking that option, not 'FEMALE_KIDS'", async () => {
     const user = userEvent.setup();
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
     const trigger = screen.getAllByRole("combobox")[0];
     await user.click(trigger);
     await user.click(await screen.findByRole("option", { name: "Female kids" }));
@@ -91,7 +91,7 @@ describe("Select trigger labels (suspected bug: raw value shown instead of label
   it("filter select shows 'Female' after picking it, not 'F'", async () => {
     const user = userEvent.setup();
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
     const trigger = screen.getAllByRole("combobox")[1];
     await user.click(trigger);
     await user.click(await screen.findByRole("option", { name: "Female" }));
@@ -100,7 +100,7 @@ describe("Select trigger labels (suspected bug: raw value shown instead of label
 
   it("status filter shows 'All statuses' by default, not the raw 'ALL' sentinel", async () => {
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
     expect(screen.getByLabelText("Filter animals by status")).toHaveTextContent(
       "All statuses",
     );
@@ -109,7 +109,7 @@ describe("Select trigger labels (suspected bug: raw value shown instead of label
   it("create dialog defaults show 'Female' and 'Purchased', not raw enum values", async () => {
     const user = userEvent.setup();
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
     await user.click(screen.getByRole("button", { name: "Add animal" }));
     const dialog = await screen.findByRole("dialog");
     const combos = within(dialog).getAllByRole("combobox");

@@ -8,6 +8,8 @@
  * being collapsed together.
  */
 
+import { safeStorage } from "@/lib/safe-storage";
+
 // Stryker disable next-line ArithmeticOperator: a module-level initializer cannot be attributed to the asserting test by per-test coverage; the TTL window bounds are pinned by the readPersistedRecords suite
 const RETRY_KEY_TTL_MS = 2 * 60 * 1000;
 const MAX_LOGICAL_REQUESTS = 128;
@@ -38,17 +40,6 @@ type PersistedLogicalRequest = {
 };
 
 const logicalRequests = new Map<string, LogicalRequest<unknown>>();
-
-function availableSessionStorage(): Storage | null {
-  // Stryker disable BlockStatement: emptying the catch returns undefined instead of null; every caller treats both as "no storage"
-  try {
-    // Stryker disable next-line ConditionalExpression, StringLiteral: this transport only executes in the browser/jsdom realm, where window always exists — the SSR arm (and its null spelling) is unreachable in every test and in the shipped client bundle
-    return typeof window === "undefined" ? null : window.sessionStorage;
-  } catch {
-    return null;
-  }
-  // Stryker restore BlockStatement
-}
 
 function writePersistedRecords(
   storage: Storage,
@@ -128,7 +119,7 @@ export function readPersistedRecords(storage: Storage, now: number): PersistedLo
 }
 
 function loadPersistedKey(digest: string, now: number): string | null {
-  const storage = availableSessionStorage();
+  const storage = safeStorage("session");
   // Stryker disable next-line ConditionalExpression: readPersistedRecords already catches storage access failures and returns [], so a null storage yields the same miss either way
   if (!storage) return null;
   return readPersistedRecords(storage, now).find((record) => record.digest === digest)?.key ?? null;
@@ -137,7 +128,7 @@ function loadPersistedKey(digest: string, now: number): string | null {
 function persistKey(digest: string | null, key: string, now: number): void {
   // Stryker disable next-line ConditionalExpression: a record persisted under a null digest is filtered out by the digest typeof check on the next read, so nothing observable differs
   if (!digest) return;
-  const storage = availableSessionStorage();
+  const storage = safeStorage("session");
   // Stryker disable next-line ConditionalExpression: writePersistedRecords already catches storage failures, so the early return only skips a doomed write
   if (!storage) return;
   const records = readPersistedRecords(storage, now).filter(
@@ -189,7 +180,7 @@ function persistKey(digest: string | null, key: string, now: number): void {
 
 function removePersistedKey(digest: string | null): void {
   if (!digest) return;
-  const storage = availableSessionStorage();
+  const storage = safeStorage("session");
   // Stryker disable next-line ConditionalExpression: writePersistedRecords already catches storage failures, so the early return only skips a doomed removal
   if (!storage) return;
   const records = readPersistedRecords(storage, Date.now()).filter(
@@ -235,6 +226,9 @@ export function isIdempotencyProtectedMutation(url: string, method?: string): bo
   return (
     path === "/api/auth/farms" ||
     path === "/api/finance/new" ||
+    // Renewing a policy posts a new premium/period row; the spec declares
+    // the key, so an ambiguous retry must not duplicate the renewal.
+    /^\/api\/finance\/insurance\/\d+\/renew$/.test(path) ||
     /^\/api\/finance\/transactions\/\d+\/correct$/.test(path) ||
     path === "/api/purchases/new" ||
     path === "/api/animals" ||
@@ -243,12 +237,23 @@ export function isIdempotencyProtectedMutation(url: string, method?: string): bo
     // Duty completion/skip accept the key server-side (tablet offline retry).
     /^\/api\/tasks\/\d+\/(complete|skip)$/.test(path) ||
     path === "/api/team/workers" ||
+    // PIN resets re-key a worker's tablet credential; the server accepts the
+    // Idempotency-Key so an ambiguous retry cannot double-rotate it.
+    /^\/api\/team\/workers\/\d+\/reset-pin$/.test(path) ||
     path === "/api/health/events" ||
     path === "/api/simulation/scenarios" ||
     // Saving a plan creates durable planning state. Its server endpoint
     // accepts Idempotency-Key, so preserve the key across an ambiguous retry
     // instead of leaving a completed save indistinguishable from a timeout.
     path === "/api/planner/plans" ||
+    // Screening walkthroughs: a batch and its upload URLs are durable
+    // server-side state, and the spec declares the key on both — an
+    // ambiguous retry must not mint duplicate batches/upload sessions.
+    // (Batch creation gets its own carve-outs below: a void POST cannot
+    // tell two walkthroughs apart, so it never shares an in-flight promise
+    // or a persisted key.)
+    path === "/api/screening/batches" ||
+    path === "/api/screening/uploads" ||
     // Pregnancy/kidding creation auto-creates tasks and (for kidding) animals,
     // so an ambiguous replay duplicates durable stock. Both routes now
     // declare the Idempotency-Key server-side too, so the automatic network
@@ -268,13 +273,39 @@ export function isIdempotencyProtectedMutation(url: string, method?: string): bo
 /**
  * Cross-reload recovery stores a digest of the full request body in
  * sessionStorage so it can locate the original random idempotency key. That
- * is not acceptable for a password-bearing request: even a one-way, unsalted
- * body digest is an offline verifier for a guessed password. The worker
- * create endpoint still gets normal in-memory coalescing and its one automatic
+ * is not acceptable for a password- or PIN-bearing request: even a one-way,
+ * unsalted body digest is an offline verifier for a guessed credential (and
+ * a 4–12 digit numeric PIN is a far weaker secret than a password). Those
+ * endpoints still get normal in-memory coalescing and their one automatic
  * network retry; only recovery after a page reload is deliberately disabled.
+ *
+ * Batch creation is excluded for the opposite reason: it is a VOID POST, so
+ * every walkthrough's create has the same digest — a later, genuinely new
+ * batch create would load a prior walkthrough's key and be handed the OLD
+ * batch instead of a fresh one.
  */
 function allowsPersistedRecovery(url: string): boolean {
-  return requestPath(url) !== "/api/team/workers";
+  const path = requestPath(url);
+  return (
+    path !== "/api/team/workers" &&
+    !/^\/api\/team\/workers\/\d+\/reset-pin$/.test(path) &&
+    path !== "/api/screening/batches"
+  );
+}
+
+/**
+ * Whether two byte-identical in-flight requests are the same logical action
+ * and may share one promise (and one key). Everywhere except batch creation
+ * they are: a double-submitted form IS one action. Batch creation is a void
+ * POST, so a delayed create from a CLOSED walkthrough and the create from
+ * the REOPENED dialog are byte-identical yet two different batches — the
+ * reopened walkthrough must start its own immediately rather than waiting on
+ * (and inheriting) the abandoned request (pinned by the DiseaseCheckDialog
+ * isolation test). Each attempt still gets a fresh key with the usual
+ * same-key automatic network retry.
+ */
+function allowsInflightSharing(url: string): boolean {
+  return requestPath(url) !== "/api/screening/batches";
 }
 
 function randomIdempotencyKey(): string {
@@ -474,6 +505,13 @@ export async function runIdempotencyProtectedRequest<T>({
   cleanup(now);
 
   let entry = logicalRequests.get(signature) as LogicalRequest<T> | undefined;
+  if (entry?.promise && !allowsInflightSharing(url)) {
+    // The in-flight twin is NOT this action's retry (see
+    // allowsInflightSharing): drop the lookup so a fresh entry with its own
+    // key is created below. The replaced attempt's settle handlers are
+    // identity-guarded, so its late completion cannot touch the new entry.
+    entry = undefined;
+  }
   if (entry?.promise) {
     // Sharing is safe only when cancellation ownership is also shared. A
     // different signal must not be silently ignored or cancel another
@@ -559,7 +597,7 @@ export function clearIdempotencyRequestState(): void {
  */
 export function clearPersistedIdempotencyRequestState(): void {
   logicalRequests.clear();
-  const storage = availableSessionStorage();
+  const storage = safeStorage("session");
   // Stryker disable next-line ConditionalExpression: writePersistedRecords already catches storage failures, so a null storage cannot crash the cleanup
   if (storage) writePersistedRecords(storage, []);
 }

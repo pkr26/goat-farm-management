@@ -23,8 +23,9 @@ import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { formatDate } from "@/lib/format";
-import { useT } from "@/lib/i18n";
+import { captureFarmScope } from "@/lib/farm-scope-guard";
+import { farmToday, formatDate } from "@/lib/format";
+import { useLanguage, useT } from "@/lib/i18n";
 import {
   enqueueOfflineMutation,
   isOfflineQueueableFailure,
@@ -32,6 +33,7 @@ import {
 import { withReturnTo } from "@/lib/permission-navigation";
 import { permittedTaskActionPath } from "@/lib/task-action-access";
 import { applyOptimisticTaskPatch } from "@/lib/task-optimistic";
+import { resolveTaskTitle } from "@/lib/task-title";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -49,9 +51,13 @@ function DutyCard({
   onSkip: (task: TaskOut) => void;
 }) {
   const t = useT();
+  const { language } = useLanguage();
   const perms = usePermissions();
   const actionPath = permittedTaskActionPath(task.action_url, perms.can);
-  const overdue = task.due_date < new Date().toISOString().slice(0, 10);
+  // The farm's calendar day, not UTC: in the IST 00:00–05:30 window the UTC
+  // date is still yesterday and every duty due then lost its overdue badge
+  // (2026-09-28 audit — the tasks board compares the same way).
+  const overdue = task.due_date < farmToday();
 
   return (
     <li
@@ -59,7 +65,10 @@ function DutyCard({
       data-testid={`worker-duty-${task.id}`}
     >
       <div className="flex items-start justify-between gap-2">
-        <p className="text-lg font-medium leading-snug">{task.title}</p>
+        {/* Auto-generated duties carry title_key/title_args — render them in
+         * the worker's language, falling back to the payload's English title
+         * (2026-09-28 audit, H5). */}
+        <p className="text-lg font-medium leading-snug">{resolveTaskTitle(task, language)}</p>
         {overdue ? (
           <StatusBadge status="ERROR">
             <AlertTriangle aria-hidden className="size-4" />
@@ -114,7 +123,10 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
 
   const query = useListTasksApiTasksGet(
     {
-      active_limit: 25,
+      // The board must never silently drop duties (2026-09-28 audit, W4):
+      // fetch up to the server cap and surface the "and N more" note below
+      // when the totals say more exist.
+      active_limit: 200,
       today_offset: 0,
       overdue_offset: 0,
       upcoming_offset: 0,
@@ -128,11 +140,14 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
   const canComplete = perms.can("tasks.complete");
 
   if (!allowed) {
+    // The tablet HAS a farm — this account simply lacks tasks.view. The old
+    // "No farm on this tablet" copy sent workers re-pinning a healthy tablet
+    // instead of asking for access (2026-09-28 audit).
     return (
       <EmptyState
         icon={ClipboardList}
-        title={t("worker.needFarm.title")}
-        description={t("worker.genericError")}
+        title={t("worker.noPermission.title")}
+        description={t("worker.noPermission.description")}
       />
     );
   }
@@ -140,9 +155,13 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
   /** One keyed duty mutation with offline fallback. */
   async function runDutyMutation(task: TaskOut, kind: "complete" | "skip") {
     if (user === null || farmId === null) return;
+    const farmScope = captureFarmScope();
     const path = `/api/tasks/${task.id}/${kind}`;
     const idempotencyKey = crypto.randomUUID();
-    const body = kind === "skip" ? JSON.stringify({ reason: "Tablet skip" }) : undefined;
+    // The skip reason is user-authored content (like a typed reason): persist
+    // it in the device's language rather than a fixed English string
+    // (2026-09-28 audit — "Tablet skip" was hardcoded English).
+    const body = kind === "skip" ? JSON.stringify({ reason: t("worker.skipReason") }) : undefined;
     const rollback = applyOptimisticTaskPatch(
       queryClient,
       task.id,
@@ -159,6 +178,10 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
       else toast.success(t("worker.skippedToast"));
       await query.refetch();
     } catch (error) {
+      // Guard BEFORE any rollback: after a farm-scope change (farm switch,
+      // end-shift) the board cache was cleared, and restoring the pre-patch
+      // snapshots would resurrect the old scope's rows (2026-09-28 audit, W6).
+      if (!farmScope()) return;
       if (isOfflineQueueableFailure(error)) {
         const queued = enqueueOfflineMutation(
           path,
@@ -191,6 +214,11 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
 
   const overdue = payload?.overdue ?? [];
   const today = payload?.today ?? [];
+  // Duties past the fetched page must surface as a count, never vanish
+  // silently (2026-09-28 audit, W4).
+  const hiddenDuties =
+    Math.max(0, (payload?.overdue_total ?? 0) - overdue.length) +
+    Math.max(0, (payload?.today_total ?? 0) - today.length);
 
   return (
     <div className="space-y-6">
@@ -254,6 +282,11 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
                 ))}
               </ul>
             </section>
+          )}
+          {hiddenDuties > 0 && (
+            <p className="text-sm text-muted-foreground">
+              {t("worker.moreDuties", { count: hiddenDuties })}
+            </p>
           )}
         </>
       )}

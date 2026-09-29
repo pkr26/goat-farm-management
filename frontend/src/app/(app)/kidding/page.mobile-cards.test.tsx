@@ -60,6 +60,7 @@ function makeBreeding(overrides: Partial<BreedingRecordOut>): BreedingRecordOut 
     loss_notes: null,
     loss_recorded_by_id: null,
     loss_recorded_at: null,
+    created_at: "2026-01-01T00:00:00Z",
     has_kidding: false,
     doe_tag: "G-010",
     buck_tag: "G-020",
@@ -78,6 +79,7 @@ function makeKidding(overrides: Partial<KiddingRecordOut>): KiddingRecordOut {
     placenta_passed: true,
     mastitis_suspected: false,
     notes: "big twins",
+    created_at: "2026-01-01T00:00:00Z",
     kids: [
       {
         id: 1,
@@ -90,6 +92,7 @@ function makeKidding(overrides: Partial<KiddingRecordOut>): KiddingRecordOut {
         navel_dipped: null,
         dam_rejected: false,
         animal_id: 55,
+        created_at: "2026-01-01T00:00:00Z",
       },
     ],
     doe_tag: "G-010",

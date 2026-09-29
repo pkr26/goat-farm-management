@@ -8,7 +8,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { ShieldCheck, Plus } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useForm, useWatch, type DefaultValues } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -26,7 +26,7 @@ import type {
   InsurancePremiumOut,
 } from "@/api/generated/models";
 import { AnimalPicker } from "@/components/animal-picker";
-import { FinanceNav } from "@/components/finance-nav";
+import { FINANCE_TABS, SectionNav } from "@/components/section-nav";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
@@ -66,12 +66,9 @@ import {
   formatFarmDateTime,
   formatMoney,
 } from "@/lib/format";
-import { useT } from "@/lib/i18n";
+import { useT, type TFn } from "@/lib/i18n";
 import { invalidateFarmData } from "@/lib/query-invalidation";
-import {
-  isPersistableNonnegativeMoney,
-  MIN_PERSISTED_MONEY_MESSAGE,
-} from "@/lib/persisted-numbers";
+import { isPersistableNonnegativeMoney } from "@/lib/persisted-numbers";
 import { MAX_FREE_TEXT_LENGTH } from "@/lib/backend-caps";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
@@ -85,53 +82,59 @@ const INSURANCE_PAGE_LIMIT = 50;
 const INSURANCE_HISTORY_PAGE_LIMIT = 20;
 
 /** Mirrors InsurancePolicyIn: identifiers 1–60/1–120, sum insured positive,
- *  premium non-negative, start ≤ today, renewal never before start. */
-const policySchema = z
-  .object({
-    policy_number: z
-      .string()
-      .trim()
-      .min(1, "Policy number is required")
-      .max(60, "Policy number cannot exceed 60 characters"),
-    insurer: z
-      .string()
-      .trim()
-      .min(1, "Insurer is required")
-      .max(120, "Insurer cannot exceed 120 characters"),
-    sum_insured: z.coerce
-      .number()
-      .positive("Sum insured must be greater than 0")
-      .max(MAX_AMOUNT, `Sum insured cannot exceed ${formatMoney(MAX_AMOUNT)}`)
-      .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
-    // Blank must stay distinguishable from a real ₹0: z.coerce.number() maps
-    // a cleared number input ("") to 0, which would silently register the
-    // required premium as ₹0 in the append-only register (2026-09-17 audit
-    // M-13; same hazard the ledger-correction schema documents). The renewal
-    // dialog's deliberate blank-means-keep-current is a different control.
-    premium: z.preprocess(
-      (raw) =>
-        // Stryker disable next-line ConditionalExpression: registered number inputs only ever yield "" or a numeric string — null/undefined never arrive, and the blank arm is the behavior this pin exists for
-        raw === "" || raw === null || raw === undefined ? undefined : Number(raw),
-      z
-        .number({ error: "Premium is required" })
-        .nonnegative("Premium cannot be negative")
-        .max(MAX_AMOUNT, `Premium cannot exceed ${formatMoney(MAX_AMOUNT)}`)
-        .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
-    ),
-    start_date: z
-      .string()
-      .min(1, "Start date is required")
-      .refine((s) => s <= farmToday(), "Start date can't be in the future"),
-    renewal_date: z.string().min(1, "Renewal date is required"),
-    animal_id: z.string().optional(),
-    notes: z.string().max(MAX_FREE_TEXT_LENGTH, "Notes cannot exceed 4000 characters").optional(),
-  })
-  .refine((v) => v.renewal_date >= v.start_date, {
-    message: "Renewal date cannot be before the start date",
-    path: ["renewal_date"],
-  });
-type PolicyInput = z.input<typeof policySchema>;
-type PolicyValues = z.output<typeof policySchema>;
+ *  premium non-negative, start ≤ today, renewal never before start. Messages
+ *  resolve through the i18n catalog, so the factory takes the caller's `t`. */
+function buildPolicySchema(t: TFn) {
+  return z
+    .object({
+      policy_number: z
+        .string()
+        .trim()
+        .min(1, t("insurance.validation.policyNumberRequired"))
+        .max(60, t("insurance.validation.policyNumberMax")),
+      insurer: z
+        .string()
+        .trim()
+        .min(1, t("insurance.validation.insurerRequired"))
+        .max(120, t("insurance.validation.insurerMax")),
+      sum_insured: z.coerce
+        .number()
+        .positive(t("insurance.validation.sumInsuredPositive"))
+        .max(MAX_AMOUNT, t("insurance.validation.sumInsuredMax", { max: formatMoney(MAX_AMOUNT) }))
+        .refine(isPersistableNonnegativeMoney, t("insurance.validation.moneyMin")),
+      // Blank must stay distinguishable from a real ₹0: z.coerce.number() maps
+      // a cleared number input ("") to 0, which would silently register the
+      // required premium as ₹0 in the append-only register (2026-09-17 audit
+      // M-13; same hazard the ledger-correction schema documents). The renewal
+      // dialog's deliberate blank-means-keep-current is a different control.
+      premium: z.preprocess(
+        (raw) =>
+          // Stryker disable next-line ConditionalExpression: registered number inputs only ever yield "" or a numeric string — null/undefined never arrive, and the blank arm is the behavior this pin exists for
+          raw === "" || raw === null || raw === undefined ? undefined : Number(raw),
+        z
+          .number({ error: t("insurance.validation.premiumRequired") })
+          .nonnegative(t("insurance.validation.premiumNegative"))
+          .max(MAX_AMOUNT, t("insurance.validation.premiumMax", { max: formatMoney(MAX_AMOUNT) }))
+          .refine(isPersistableNonnegativeMoney, t("insurance.validation.moneyMin")),
+      ),
+      start_date: z
+        .string()
+        .min(1, t("insurance.validation.startDateRequired"))
+        .refine((s) => s <= farmToday(), t("insurance.validation.startDateFuture")),
+      renewal_date: z.string().min(1, t("insurance.validation.renewalDateRequired")),
+      animal_id: z.string().optional(),
+      notes: z
+        .string()
+        .max(MAX_FREE_TEXT_LENGTH, t("insurance.validation.notesMax", { max: MAX_FREE_TEXT_LENGTH }))
+        .optional(),
+    })
+    .refine((v) => v.renewal_date >= v.start_date, {
+      message: t("insurance.validation.renewalBeforeStart"),
+      path: ["renewal_date"],
+    });
+}
+type PolicyInput = z.input<ReturnType<typeof buildPolicySchema>>;
+type PolicyValues = z.output<ReturnType<typeof buildPolicySchema>>;
 
 /** Rebuilt on every open so a stale mount-time snapshot never dates a new
  *  policy to the day the tab was opened (the ledger's txnDefaults rule). */
@@ -159,6 +162,7 @@ function AddPolicyDialog({
   const mutation = useAddInsurancePolicyApiFinanceInsurancePost();
   const saveFlight = useSingleFlight();
   const t = useT();
+  const localizedPolicySchema = useMemo(() => buildPolicySchema(t), [t]);
   const [formError, setFormError] = useState<string | null>(null);
   const {
     register,
@@ -168,7 +172,7 @@ function AddPolicyDialog({
     setValue,
     formState: { errors, isSubmitting },
   } = useForm<PolicyInput, unknown, PolicyValues>({
-    resolver: zodResolver(policySchema),
+    resolver: zodResolver(localizedPolicySchema),
     defaultValues: policyDefaults(),
   });
   const animalId = useWatch({ control, name: "animal_id" });
@@ -399,23 +403,25 @@ function AddPolicyDialog({
 }
 
 /** Renewal moves the horizon forward only; the corrected premium is optional. */
-const renewalSchema = z.object({
-  renewal_date: z.string().min(1, "New renewal date is required"),
-  premium: z.preprocess(
-    (value) =>
-      // Registered number inputs only ever yield "" or a numeric string —
-      // null/undefined never arrive (ledger correction precedent).
-      value === "" || value === null || value === undefined ? undefined : Number(value),
-    z
-      .number()
-      .nonnegative("Premium cannot be negative")
-      .max(MAX_AMOUNT, `Premium cannot exceed ${formatMoney(MAX_AMOUNT)}`)
-      .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE)
-      .optional(),
-  ),
-});
-type RenewalInput = z.input<typeof renewalSchema>;
-type RenewalValues = z.output<typeof renewalSchema>;
+function buildRenewalSchema(t: TFn) {
+  return z.object({
+    renewal_date: z.string().min(1, t("insurance.validation.newRenewalDateRequired")),
+    premium: z.preprocess(
+      (value) =>
+        // Registered number inputs only ever yield "" or a numeric string —
+        // null/undefined never arrive (ledger correction precedent).
+        value === "" || value === null || value === undefined ? undefined : Number(value),
+      z
+        .number()
+        .nonnegative(t("insurance.validation.premiumNegative"))
+        .max(MAX_AMOUNT, t("insurance.validation.premiumMax", { max: formatMoney(MAX_AMOUNT) }))
+        .refine(isPersistableNonnegativeMoney, t("insurance.validation.moneyMin"))
+        .optional(),
+    ),
+  });
+}
+type RenewalInput = z.input<ReturnType<typeof buildRenewalSchema>>;
+type RenewalValues = z.output<ReturnType<typeof buildRenewalSchema>>;
 
 function RenewPolicyDialog({
   policy,
@@ -431,23 +437,32 @@ function RenewPolicyDialog({
   const renewFlight = useSingleFlight();
   const t = useT();
   const [formError, setFormError] = useState<string | null>(null);
+  const localizedRenewalResolver = useMemo(
+    () =>
+      zodResolver(
+        buildRenewalSchema(t).superRefine((values, ctx) => {
+          // A same-day "renewal" has no coverage interval to book and used to
+          // mutate the current premium without a corresponding premium event.
+          // Require a real forward extension, mirroring the server invariant.
+          if (values.renewal_date <= policy.renewal_date) {
+            ctx.addIssue({
+              code: "custom",
+              path: ["renewal_date"],
+              message: t("insurance.validation.renewalAfterCurrent", {
+                date: formatDate(policy.renewal_date),
+              }),
+            });
+          }
+        }),
+      ),
+    [t, policy.renewal_date],
+  );
   const {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<RenewalInput, unknown, RenewalValues>({
-    resolver: zodResolver(renewalSchema.superRefine((values, ctx) => {
-      // A same-day "renewal" has no coverage interval to book and used to
-      // mutate the current premium without a corresponding premium event.
-      // Require a real forward extension, mirroring the server invariant.
-      if (values.renewal_date <= policy.renewal_date) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["renewal_date"],
-          message: `Must be after the current renewal date ${formatDate(policy.renewal_date)}`,
-        });
-      }
-    })),
+    resolver: localizedRenewalResolver,
     defaultValues: { renewal_date: "", premium: "" },
   });
   const renewBusy = isSubmitting || renewFlight.pending;
@@ -838,7 +853,7 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
         }
       />
 
-      <FinanceNav active="insurance" />
+      <SectionNav tabs={FINANCE_TABS} active="insurance" ariaLabelKey="finance.nav.aria" />
 
       {payload.policies.length === 0 ? (
         <EmptyState

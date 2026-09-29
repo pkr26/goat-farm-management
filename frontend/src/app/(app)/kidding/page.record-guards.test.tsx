@@ -79,6 +79,7 @@ function makeBreeding(overrides: Partial<BreedingRecordOut>): BreedingRecordOut 
     loss_notes: null,
     loss_recorded_by_id: null,
     loss_recorded_at: null,
+    created_at: "2026-01-01T00:00:00Z",
     has_kidding: false,
     doe_tag: "G-010",
     buck_tag: "G-020",
@@ -97,6 +98,7 @@ function makeKidding(overrides: Partial<KiddingRecordOut>): KiddingRecordOut {
     placenta_passed: null,
     mastitis_suspected: false,
     notes: null,
+    created_at: "2026-01-01T00:00:00Z",
     kids: [],
     doe_tag: "G-010",
     ...overrides,
@@ -122,6 +124,7 @@ const HISTORY = makeKidding({
       navel_dipped: null,
       dam_rejected: false,
       animal_id: 55,
+      created_at: "2026-01-01T00:00:00Z",
     },
     {
       id: 2,
@@ -134,6 +137,7 @@ const HISTORY = makeKidding({
       navel_dipped: null,
       dam_rejected: false,
       animal_id: null,
+      created_at: "2026-01-01T00:00:00Z",
     },
   ],
 });
@@ -360,7 +364,7 @@ describe("KiddingPage branches", () => {
     const row = desktopScope(card("Recent kiddings")).getByText("big twins").closest("tr")!;
 
     expect(within(row).getAllByRole("cell")[3].textContent).toBe(
-      "G-101 (Female, alive), kid (Male, stillborn)",
+      "G-101 (Female, Alive), kid (Male, Stillborn)",
     );
   });
 

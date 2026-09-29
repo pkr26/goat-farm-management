@@ -1,9 +1,13 @@
 /** The (app) route-state fallbacks: loading placeholder, error boundary
- *  (message + reset), and the permission-aware 404 recovery link. */
+ *  (message + reset), and the permission-aware 404 recovery link. Copy
+ *  resolves from the stored language without the provider (2026-09-28
+ *  audit, I3): Telugu when herdly.language=te, English otherwise. */
 
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { LANGUAGE_STORAGE_KEY } from "@/lib/i18n";
 
 import AppError from "./error";
 import Loading from "./loading";
@@ -26,10 +30,22 @@ vi.mock("@/lib/use-permissions", () => ({
   }),
 }));
 
+beforeEach(() => {
+  window.localStorage.clear();
+});
+
 describe("(app) route states", () => {
   it("loading renders the shared Loading… placeholder", () => {
     render(<Loading />);
     expect(screen.getByText("Loading…")).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Loading page" })).toBeInTheDocument();
+  });
+
+  it("loading renders in Telugu when the stored language is te", () => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "te");
+    render(<Loading />);
+    expect(screen.getByText("లోడ్ అవుతోంది…")).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "పేజీ లోడ్ అవుతోంది" })).toBeInTheDocument();
   });
 
   it("error renders a message and retries via reset", async () => {
@@ -55,6 +71,17 @@ describe("(app) route states", () => {
     consoleError.mockRestore();
   });
 
+  it("error renders in Telugu when the stored language is te", () => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "te");
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    render(<AppError error={new Error("boom")} reset={() => {}} />);
+
+    expect(screen.getByText("పేజీ లోడ్ చేయడంలో ఏదో తప్పు జరిగింది.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "మళ్ళీ ప్రయత్నించు" })).toBeInTheDocument();
+    consoleError.mockRestore();
+  });
+
   it("not-found links to the first module allowed by the current role", () => {
     permissionState.loading = false;
     permissionState.isError = false;
@@ -63,6 +90,19 @@ describe("(app) route states", () => {
     expect(screen.getByText("Page not found")).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "Back to an available page" }),
+    ).toHaveAttribute("href", "/health");
+  });
+
+  it("not-found renders in Telugu when the stored language is te", () => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "te");
+    permissionState.loading = false;
+    permissionState.isError = false;
+    permissionState.allowedPath = "health";
+    render(<NotFound />);
+    expect(screen.getByText("పేజీ కనబడలేదు")).toBeInTheDocument();
+    expect(screen.getByText("మీరు వెతుకుతున్న పేజీ లేదు.")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "అందుబాటులో ఉన్న పేజీకి తిరిగి వెళ్ళండి" }),
     ).toHaveAttribute("href", "/health");
   });
 

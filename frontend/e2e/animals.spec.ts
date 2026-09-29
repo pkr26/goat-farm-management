@@ -3,7 +3,6 @@ import { expect, test } from "@playwright/test";
 import {
   createAnimal,
   monthsAgo,
-  openAnimalProfile,
   pickSelectOption,
   profileDetail,
   signIn,
@@ -69,7 +68,11 @@ test.describe("animals", () => {
     ).toBeVisible();
 
     // And the list shows the new bucket too.
-    await openAnimalProfile(page, tag);
-    await expect(profileDetail(page, "Bucket")).toHaveText("Breeding");
+    await page.goto("/animals");
+    await page.getByPlaceholder("Search by tag…").fill(tag);
+    const row = page.getByRole("row", { name: new RegExp(tag) });
+    await expect(
+      row.getByRole("cell", { name: "Breeding", exact: true }),
+    ).toBeVisible();
   });
 });

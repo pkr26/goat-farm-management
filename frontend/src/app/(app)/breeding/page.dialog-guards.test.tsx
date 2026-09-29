@@ -76,6 +76,7 @@ function makeRecord(overrides: Partial<BreedingRecordOut>): BreedingRecordOut {
     loss_notes: null,
     loss_recorded_by_id: null,
     loss_recorded_at: null,
+    created_at: "2026-01-01T00:00:00Z",
     has_kidding: false,
     doe_tag: "G-010",
     buck_tag: "G-020",
@@ -200,7 +201,8 @@ describe("BreedingPage branches", () => {
 
   async function chooseAnimals(user: User, dialog: HTMLElement) {
     await within(dialog).findByText("Select doe");
-    const [doeTrigger, buckTrigger] = within(dialog).getAllByRole("combobox");
+    const doeTrigger = within(dialog).getByRole("button", { name: "Doe *" });
+    const buckTrigger = within(dialog).getByRole("button", { name: "Buck *" });
     await pickOption(user, doeTrigger, /G-010 · Lakshmi/);
     await pickOption(user, buckTrigger, /G-020 — 24 mo/);
   }
@@ -279,7 +281,8 @@ describe("BreedingPage branches", () => {
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(
       "Candidate availability is unavailable. Refresh the breeding records before adding a breeding.",
     );
-    expect(within(dialog).queryByRole("combobox")).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Doe *" })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Buck *" })).not.toBeInTheDocument();
     expect(
       within(dialog).queryByRole("button", { name: "Save breeding" }),
     ).not.toBeInTheDocument();
@@ -289,8 +292,8 @@ describe("BreedingPage branches", () => {
   it("marks the add-breeding fields invalid only once they are rejected", async () => {
     const { user, dialog } = await openNewDialog();
     await within(dialog).findByText("Select doe");
-    const doe = within(dialog).getByRole("combobox", { name: "Doe *" });
-    const buck = within(dialog).getByRole("combobox", { name: "Buck *" });
+    const doe = within(dialog).getByRole("button", { name: "Doe *" });
+    const buck = within(dialog).getByRole("button", { name: "Buck *" });
     const date = within(dialog).getByLabelText(/breeding date/i);
 
     expect(doe).not.toHaveAttribute("aria-invalid");
@@ -318,7 +321,8 @@ describe("BreedingPage branches", () => {
     await user.click(screen.getByRole("button", { name: "Add breeding" }));
 
     const reopened = await screen.findByRole("dialog", { name: "Add breeding" });
-    const [doeTrigger, buckTrigger] = within(reopened).getAllByRole("combobox");
+    const doeTrigger = within(reopened).getByRole("button", { name: "Doe *" });
+    const buckTrigger = within(reopened).getByRole("button", { name: "Buck *" });
     // The picker's own memory died with the closed dialog; the ids RHF kept
     // must still read as animals, not as "Selected item 10".
     expect(doeTrigger).toHaveTextContent("G-010 · Lakshmi — 18 mo, 30.0 kg");

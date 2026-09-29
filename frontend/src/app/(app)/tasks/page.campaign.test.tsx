@@ -1317,7 +1317,7 @@ describe("TasksPage create dialog — campaign kills", () => {
     expect(within(dialog).getByText(t("tasks.form.assignment"))).toBeInTheDocument();
 
     // The animal picker's browse dialog inherits the page-provided title.
-    await user.click(within(dialog).getByRole("combobox", { name: t("tasks.form.animalLabel") }));
+    await user.click(within(dialog).getByRole("button", { name: t("tasks.form.animalLabel") }));
     const pickerDialog = await screen.findByRole("dialog", {
       name: t("tasks.form.animalDialogTitle"),
     });

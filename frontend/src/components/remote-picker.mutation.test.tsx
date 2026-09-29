@@ -88,7 +88,7 @@ describe("RemotePicker cache scoping", () => {
       </QueryClientProvider>,
     );
 
-    await user.click(screen.getByRole("combobox", { name: "Alpha source" }));
+    await user.click(screen.getByRole("button", { name: "Alpha source" }));
     const alphaDialog = screen.getByRole("dialog", { name: "Choose alpha" });
     expect(
       await within(alphaDialog).findByRole("option", { name: /Alpha one/ }),
@@ -98,7 +98,7 @@ describe("RemotePicker cache scoping", () => {
       expect(screen.queryByRole("dialog", { name: "Choose alpha" })).not.toBeInTheDocument(),
     );
 
-    await user.click(screen.getByRole("combobox", { name: "Beta source" }));
+    await user.click(screen.getByRole("button", { name: "Beta source" }));
     const betaDialog = screen.getByRole("dialog", { name: "Choose beta" });
     expect(await within(betaDialog).findByText("Loading options…")).toBeInTheDocument();
     expect(within(betaDialog).queryByRole("option")).not.toBeInTheDocument();
@@ -132,7 +132,7 @@ describe("RemotePicker option roving focus", () => {
       </QueryClientProvider>,
     );
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     return {
       user,
       first: await screen.findByRole("option", { name: /G-0001 · Nila/ }),
@@ -190,7 +190,7 @@ describe("RemotePicker load-more guard", () => {
       </QueryClientProvider>,
     );
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     const dialog = screen.getByRole("dialog", { name: "Choose animal" });
     expect(await within(dialog).findByRole("button", { name: "Load more" })).toBeEnabled();
 

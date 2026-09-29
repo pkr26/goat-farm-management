@@ -971,10 +971,10 @@ describe("SimulationPage lookup failures", () => {
 
     // With no breed catalogue the editor still offers what it is set to.
     const breed = screen.getByLabelText("Breed");
-    expect(breed).toHaveTextContent("osmanabadi");
+    expect(breed).toHaveTextContent("Osmanabadi");
     await user.click(breed);
     expect((await screen.findAllByRole("option")).map((o) => o.textContent)).toEqual([
-      "osmanabadi",
+      "Osmanabadi",
     ]);
     await user.keyboard("{Escape}");
 
@@ -1016,7 +1016,7 @@ describe("SimulationPage assumptions editor", () => {
     });
 
     await user.click(screen.getByLabelText("Breed"));
-    await user.click(await screen.findByRole("option", { name: "sirohi" }));
+    await user.click(await screen.findByRole("option", { name: "Sirohi" }));
     await user.click(screen.getByRole("button", { name: "Load defaults" }));
 
     expect(await screen.findByLabelText("Does")).toHaveValue(80);

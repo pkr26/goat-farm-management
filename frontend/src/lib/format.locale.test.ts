@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { setActiveLanguage } from "@/lib/active-language";
 
-import { formatDate, formatFarmDateTime, setActiveFarmTimezone } from "./format";
+import { formatDate, formatFarmDateTime, formatNumber, setActiveFarmTimezone } from "./format";
 
 afterEach(() => {
   setActiveLanguage("en");
@@ -54,5 +54,25 @@ describe("formatFarmDateTime — Telugu locale", () => {
     setActiveLanguage("en");
     setActiveFarmTimezone("Asia/Kolkata");
     expect(formatFarmDateTime("2026-08-05T14:07:00")).toBe("5 Aug 2026, 7:37 pm");
+  });
+});
+
+describe("formatNumber — language-aware digit grouping", () => {
+  it("delegates to te-IN when the active language is te", () => {
+    setActiveLanguage("te");
+    // Pin the delegation itself (the ICU may render te-IN and en-IN grouping
+    // identically): the helper must follow the active language, not a
+    // hardcoded en-IN (2026-09-28 audit).
+    expect(formatNumber(1234567.5, { maximumFractionDigits: 3 })).toBe(
+      (1234567.5).toLocaleString("te-IN", { maximumFractionDigits: 3 }),
+    );
+  });
+
+  it("keeps the Indian English grouping in en sessions (byte-identical to the old en-IN copies)", () => {
+    setActiveLanguage("en");
+    expect(formatNumber(1234567.5, { maximumFractionDigits: 3 })).toBe("12,34,567.5");
+    // Trailing zeros trim exactly like the per-page NumberFormat copies did.
+    expect(formatNumber(1.25, { maximumFractionDigits: 3 })).toBe("1.25");
+    expect(formatNumber(1, { maximumFractionDigits: 3 })).toBe("1");
   });
 });

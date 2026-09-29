@@ -9,4 +9,6 @@ import type { InsurancePolicyOut } from './insurancePolicyOut';
 export interface InsuranceListOut {
   policies: InsurancePolicyOut[];
   total: number;
+  limit: number;
+  offset: number;
 }

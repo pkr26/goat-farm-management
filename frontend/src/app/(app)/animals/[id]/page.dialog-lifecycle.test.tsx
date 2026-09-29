@@ -267,7 +267,7 @@ describe("AnimalProfilePage behaviour", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "Dead");
       await user.type(within(dialog).getByLabelText("Mortality cause"), "Sudden fever");
       await user.click(
         within(dialog).getByRole("checkbox", {
@@ -281,7 +281,7 @@ describe("AnimalProfilePage behaviour", () => {
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
       const reopened = await openDialog(user, "Change status");
-      expect(within(reopened).getByLabelText(/new status/i)).toHaveTextContent("SOLD");
+      expect(within(reopened).getByLabelText(/new status/i)).toHaveTextContent("Sold");
       expect(within(reopened).queryByLabelText("Mortality cause")).not.toBeInTheDocument();
       expect(
         within(reopened).queryByRole("checkbox", {
@@ -296,7 +296,7 @@ describe("AnimalProfilePage behaviour", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "Dead");
       await user.click(
         within(dialog).getByRole("checkbox", {
           name: "Suspected scheduled/notifiable disease",
@@ -576,7 +576,7 @@ it("accepts and rejects the sale facts at their exact caps", async () => {
   const dialog = await openDialog(user, "Change status");
 
   // SOLD exposes the sale facts; every value at its cap is legal.
-  await pickOption(user, within(dialog).getByLabelText(/new status/i), "SOLD");
+  await pickOption(user, within(dialog).getByLabelText(/new status/i), "Sold");
   setInput(within(dialog).getByLabelText(/sale price/i), "1000000000");
   setInput(within(dialog).getByLabelText(/weight.*kg/i), "1000");
   setInput(within(dialog).getByLabelText(/price per kg/i), "1000000000");
@@ -595,7 +595,7 @@ it("rejects each sale fact one unit past its cap, by name", async () => {
   const user = userEvent.setup();
   await renderProfile();
   const dialog = await openDialog(user, "Change status");
-  await pickOption(user, within(dialog).getByLabelText(/new status/i), "SOLD");
+  await pickOption(user, within(dialog).getByLabelText(/new status/i), "Sold");
 
   setInput(within(dialog).getByLabelText(/sale price/i), "1000000001");
   setInput(within(dialog).getByLabelText(/weight.*kg/i), "1001");
@@ -619,7 +619,7 @@ it("caps mortality and necropsy text at their schema limits", async () => {
   const user = userEvent.setup();
   await renderProfile();
   const dialog = await openDialog(user, "Change status");
-  await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
+  await pickOption(user, within(dialog).getByLabelText(/new status/i), "Dead");
 
   setInput(within(dialog).getByLabelText("Mortality cause"), "c".repeat(120));
   await user.click(within(dialog).getByRole("checkbox", { name: /necropsy/i }));
@@ -629,7 +629,7 @@ it("caps mortality and necropsy text at their schema limits", async () => {
 
   // One past each cap stays in the dialog with the named errors.
   const reopened = await openDialog(user, "Change status");
-  await pickOption(user, within(reopened).getByLabelText(/new status/i), "DEAD");
+  await pickOption(user, within(reopened).getByLabelText(/new status/i), "Dead");
   setInput(within(reopened).getByLabelText("Mortality cause"), "c".repeat(121));
   await user.click(within(reopened).getByRole("checkbox", { name: /necropsy/i }));
   setInput(within(reopened).getByLabelText(/necropsy findings/i), "f".repeat(4001));

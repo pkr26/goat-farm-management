@@ -127,6 +127,7 @@ function makeEvent(overrides: Partial<HealthEventOut>): HealthEventOut {
     authority_notified_at: null,
     isolation_started_at: null,
     notes: null,
+    created_at: "2026-01-01T00:00:00Z",
     animal_tag: "G-003",
     ...overrides,
   };
@@ -345,7 +346,7 @@ describe("HealthPage wire contracts and closed-control labels", () => {
     await user.click(screen.getByRole("option", { name: "ORAL" }));
     expect(routeTrigger).toHaveTextContent("ORAL");
 
-    await pickOption(user, within(dialog).getByRole("combobox", { name: "Animal *" }), /G-003/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003/);
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
     await waitFor(() => expect(postBody).not.toBeNull());
     expect(postBody).toMatchObject({ route: "ORAL", animal_id: 3 });
@@ -353,13 +354,13 @@ describe("HealthPage wire contracts and closed-control labels", () => {
 
   it("opens with no target preselected on either target scope", async () => {
     const { user, dialog } = await openDialog();
-    expect(within(dialog).getByRole("combobox", { name: "Animal *" })).toHaveTextContent(
+    expect(within(dialog).getByRole("button", { name: "Animal *" })).toHaveTextContent(
       "Pick an animal",
     );
 
     await user.click(within(dialog).getByRole("radio", { name: "Purchase batch" }));
     expect(
-      within(dialog).getByRole("combobox", { name: "Purchase batch *" }),
+      within(dialog).getByRole("button", { name: "Purchase batch *" }),
     ).toHaveTextContent("Pick a batch");
   });
 
@@ -388,7 +389,7 @@ describe("HealthPage wire contracts and closed-control labels", () => {
     ["Vitamin / supplement", "VITAMIN"],
   ])("records a %s event under its own API type", async (label, apiType) => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getByRole("combobox", { name: "Animal *" }), /G-003/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003/);
     await pickOption(user, within(dialog).getByLabelText("Type"), label);
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
 

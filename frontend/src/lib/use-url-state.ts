@@ -33,9 +33,9 @@ export function useUrlState() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const paramsKey = searchParams.toString();
-  /** Query string of the newest not-yet-committed write, plus the params
-   * snapshot it was based on. Cleared whenever `searchParams` moves. */
-  const pendingRef = useRef<{ qs: string; baseKey: string } | null>(null);
+  /** Query string of the newest not-yet-committed write. Cleared whenever
+   * `searchParams` moves. */
+  const pendingRef = useRef<{ qs: string } | null>(null);
   useEffect(() => {
     // Any params change — our own write committing, or an external
     // navigation — invalidates the pending base; composition restarts from
@@ -94,11 +94,11 @@ export function useUrlState() {
       }
       if (!changed) return null;
       const qs = base.toString();
-      pendingRef.current = { qs, baseKey: paramsKey };
+      pendingRef.current = { qs };
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
       return qs;
     },
-    [router, pathname, searchParams, paramsKey],
+    [router, pathname, searchParams],
   );
 
   return { searchParams, get, getNumber, set };

@@ -34,7 +34,6 @@ const PHRASES: Record<string, Parameters<TFn>[0]> = {
   "Use the linked form to complete this duty": "serverErrors.useLinkedForm",
   "This duty is not due yet": "serverErrors.notDueYet",
   "Current password is incorrect.": "serverErrors.currentPasswordIncorrect",
-  "Already reviewed — refresh to see the current status.": "serverErrors.alreadyReviewed",
   "Idempotency-Key was already used with a different request":
     "serverErrors.idempotencyConflict",
 };

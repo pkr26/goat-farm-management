@@ -372,6 +372,20 @@ describe("apiFetch", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("does not attempt a refresh for a 401 on /api/auth/worker-login", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(401, { detail: "Invalid PIN." }));
+
+    const err = await catchApiError(apiFetch("/api/auth/worker-login", { method: "POST" }));
+
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(401);
+    expect(err.detail).toBe("Invalid PIN.");
+    // Exactly one request: a wrong PIN must not enter the refresh machinery —
+    // on a signed-out tablet its rejection wipes the offline queue and ejects
+    // to /login (2026-09-28 audit, C1).
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it.each(["/api/auth/farms", "/api/auth/me"])(
     "refreshes once and retries a 401 on %s",
     async (path) => {

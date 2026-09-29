@@ -108,8 +108,11 @@ describe("Select", () => {
       "rounded-lg",
       "border",
     );
-    // The closed trigger keeps its chevron affordance.
-    expect(trigger.querySelector("svg")).toBeInTheDocument();
+    // The closed trigger keeps its chevron affordance — decorative only, so
+    // it stays out of the accessibility tree (2026-09-28 audit).
+    const chevron = trigger.querySelector("svg");
+    expect(chevron).toBeInTheDocument();
+    expect(chevron).toHaveAttribute("aria-hidden", "true");
   });
 
   it("renders the placeholder, flagged for the muted-text rule, until a value exists", () => {

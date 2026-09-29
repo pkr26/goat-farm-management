@@ -87,10 +87,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError, apiFetchText } from "@/lib/api-client";
+import { getActiveLanguage } from "@/lib/active-language";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { farmVocabulary, type FarmVocabulary } from "@/lib/farm-vocabulary";
 import { farmToday, formatFarmDateTime, formatMoney } from "@/lib/format";
-import { useT } from "@/lib/i18n";
+import { useLanguage, useT, type TFn } from "@/lib/i18n";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 
@@ -105,7 +106,7 @@ type TargetRow = {
   count: number;
 };
 
-/** "2027-01" → "Jan 2027" (the label farmers plan in). */
+/** English month abbreviations for formatYearMonth (te-IN goes through Intl). */
 const MONTH_NAMES = [
   "Jan",
   "Feb",
@@ -125,10 +126,20 @@ function isValidYearMonth(value: string): boolean {
   return /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
 }
 
+/** "2027-01" → "Jan 2027" (the label farmers plan in). Telugu renders through
+ * Intl te-IN like formatDate; English keeps the hand-built table so existing
+ * output stays byte-identical. Invalid values pass through verbatim. */
 function formatYearMonth(value: string): string {
   if (!isValidYearMonth(value)) return value;
-  const [year, month] = value.split("-");
-  return `${MONTH_NAMES[Number(month) - 1]} ${year}`;
+  const [year, month] = value.split("-").map(Number);
+  if (getActiveLanguage() === "te") {
+    return new Intl.DateTimeFormat("te-IN", {
+      month: "short",
+      year: "numeric",
+      timeZone: "UTC",
+    }).format(new Date(Date.UTC(year, month - 1, 1)));
+  }
+  return `${MONTH_NAMES[month - 1]} ${year}`;
 }
 
 function currentYearMonth(): string {
@@ -168,22 +179,40 @@ function formatHead(value: number | null | undefined): string {
   // Stryker restore LogicalOperator, ConditionalExpression
 }
 
-function eventClassItems(vocabulary: FarmVocabulary): Record<string, string> {
-  const young = vocabulary.young;
+/** value → label maps for the class select and report cells. English resolves
+ * through the farm vocabulary (Doe, Buck, Female kid…); Telugu resolves
+ * through the shared simulation.* class keys (simulation page precedent). */
+function eventClassItems(
+  vocabulary: FarmVocabulary,
+  t: TFn,
+  language: "en" | "te",
+): Record<string, string> {
+  const young = language === "en" ? vocabulary.young : t("simulation.token.kid");
   return {
-    doe: vocabulary.femaleAdult.charAt(0).toUpperCase() + vocabulary.femaleAdult.slice(1),
-    buck: vocabulary.maleAdult.charAt(0).toUpperCase() + vocabulary.maleAdult.slice(1),
-    female_kid: `Female ${young}`,
-    male_kid: `Male ${young}`,
-    female_weaner: "Female weaner",
-    male_weaner: "Male weaner",
-    female_grower: "Female grower",
-    male_grower: "Male grower",
+    doe:
+      language === "en"
+        ? vocabulary.femaleAdult.charAt(0).toUpperCase() + vocabulary.femaleAdult.slice(1)
+        : t("simulation.token.doe"),
+    buck:
+      language === "en"
+        ? vocabulary.maleAdult.charAt(0).toUpperCase() + vocabulary.maleAdult.slice(1)
+        : t("simulation.token.buck"),
+    female_kid: t("simulation.event.class.femaleYoung", { young }),
+    male_kid: t("simulation.event.class.maleYoung", { young }),
+    female_weaner: t("simulation.event.class.femaleWeaner"),
+    male_weaner: t("simulation.event.class.maleWeaner"),
+    female_grower: t("simulation.event.class.femaleGrower"),
+    male_grower: t("simulation.event.class.maleGrower"),
   };
 }
 
-function formatPlanClass(animalClass: string, vocabulary: FarmVocabulary): string {
-  return eventClassItems(vocabulary)[animalClass] ?? animalClass;
+function formatPlanClass(
+  animalClass: string,
+  vocabulary: FarmVocabulary,
+  t: TFn,
+  language: "en" | "te",
+): string {
+  return eventClassItems(vocabulary, t, language)[animalClass] ?? animalClass;
 }
 
 function errorMessage(err: unknown, fallback: string): string {
@@ -198,12 +227,14 @@ const ACTION_ICONS: Record<PlannerActionKind, LucideIcon> = {
   sell: Banknote,
 };
 
-const ACTION_KIND_LABELS: Record<PlannerActionKind, string> = {
-  purchase: "Buy",
-  breed: "Breed",
-  expect_births: "Expect births",
-  retain: "Retain",
-  sell: "Sell",
+// t() is keyed by MessageKey literals, so the wire action kinds resolve
+// through this table (screening page precedent).
+const ACTION_KIND_KEYS: Record<PlannerActionKind, Parameters<TFn>[0]> = {
+  purchase: "planner.action.purchase",
+  breed: "planner.action.breed",
+  expect_births: "planner.action.expectBirths",
+  retain: "planner.action.retain",
+  sell: "planner.action.sell",
 };
 
 /** Minimal numeric input for this page's small number fields: commits only
@@ -235,6 +266,7 @@ export function NumberField(
 function PlannerPageContent({ perms }: { perms: PermissionsState }) {
   const { can } = perms;
   const t = useT();
+  const { language } = useLanguage();
   const allowed = can("simulation.view");
   const canManage = can("simulation.manage");
   const canUseHerd = can("animals.view");
@@ -305,7 +337,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
 
   async function onUseCurrentHerd() {
     if (!assumptions) {
-      toast.error("The breed preset is still loading — try again in a moment.");
+      toast.error(t("planner.toast.presetLoading"));
       return;
     }
     // L-28 (2026-09-17 audit): disarm the auto-defaults latch like onOpenPlan.
@@ -322,7 +354,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       // Stryker disable next-line OptionalChaining: the isError arm short-circuits whenever data is undefined, so the optional chain is only evaluated with data present
       if (res.isError || res.data?.status !== 200) {
         if (!farmScope()) return;
-        toast.error(errorMessage(res.error, "Could not load the herd snapshot."));
+        toast.error(errorMessage(res.error, t("planner.toast.herdSnapshotFailed")));
         return;
       }
       const snap = res.data.data;
@@ -346,11 +378,11 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       );
       setBasisSource("herd");
       if (!farmScope()) return;
-      toast.success(`Starting stock set to your current herd (${snap.total_head} head).`);
+      toast.success(t("planner.toast.herdApplied", { count: snap.total_head }));
       // Stryker disable BlockStatement, BooleanLiteral, ConditionalExpression, StringLiteral: react-query v5 refetch() resolves with an error result instead of rejecting (throwOnError stays false), so this catch is unreachable defense-in-depth
     } catch (err) {
       if (!farmScope()) return;
-      toast.error(errorMessage(err, "Could not load the herd snapshot."));
+      toast.error(errorMessage(err, t("planner.toast.herdSnapshotFailed")));
     }
     // Stryker restore BlockStatement, BooleanLiteral, ConditionalExpression, StringLiteral, CallExpression
   }
@@ -367,7 +399,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       // Stryker disable next-line OptionalChaining: the isError arm short-circuits whenever data is undefined, so the optional chain is only evaluated with data present
       if (res.isError || res.data?.status !== 200) {
         if (!farmScope()) return;
-        toast.error(errorMessage(res.error, "Could not calibrate from farm records."));
+        toast.error(errorMessage(res.error, t("planner.toast.calibrateFailed")));
         return;
       }
       const calibrated = res.data.data;
@@ -375,12 +407,12 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       setBasisSource("calibration");
       if (!farmScope()) return;
       toast.success(
-        `Calibrated ${calibrated.evidence.length} assumptions from your farm records.`,
+        t("planner.toast.calibrated", { count: calibrated.evidence.length }),
       );
       // Stryker disable BlockStatement, BooleanLiteral, ConditionalExpression, StringLiteral: react-query v5 refetch() resolves with an error result instead of rejecting (throwOnError stays false), so this catch is unreachable defense-in-depth
     } catch (err) {
       if (!farmScope()) return;
-      toast.error(errorMessage(err, "Could not calibrate from farm records."));
+      toast.error(errorMessage(err, t("planner.toast.calibrateFailed")));
     }
     // Stryker restore BlockStatement, BooleanLiteral, ConditionalExpression, StringLiteral, CallExpression
   }
@@ -418,15 +450,18 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
   const targetCeiling = addMonths(startMonth, MAX_HORIZON_MONTHS - 1);
   const targetErrors = targets
     .map((target, index) => {
-      const label = `Target ${index + 1}`;
+      const label = t("planner.validation.targetLabel", { index: index + 1 });
       if (!isValidYearMonth(target.year_month))
-        return `${label}: pick a real month (YYYY-MM).`;
+        return t("planner.validation.monthInvalid", { label });
       if (!isBefore(startMonth, target.year_month))
-        return `${label}: the month must come after the plan start (${formatYearMonth(startMonth)}).`;
+        return t("planner.validation.monthAfterStart", {
+          label,
+          start: formatYearMonth(startMonth),
+        });
       if (isBefore(targetCeiling, target.year_month))
-        return `${label}: beyond the 20-year planning ceiling.`;
+        return t("planner.validation.beyondCeiling", { label });
       if (!Number.isFinite(target.count) || target.count <= 0 || target.count > 100_000)
-        return `${label}: count must be greater than 0 and at most 100,000.`;
+        return t("planner.validation.countRange", { label });
       return null;
     })
     .filter((error): error is string => error !== null);
@@ -478,7 +513,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
         }
       } catch (err) {
         if (!farmScope()) return;
-        const message = errorMessage(err, "Plan failed");
+        const message = errorMessage(err, t("planner.toast.planFailed"));
         setPlanError(message);
         toast.error(message);
       }
@@ -518,11 +553,11 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       const name = planName.trim();
       // Stryker disable ConditionalExpression, LogicalOperator, BlockStatement, CallExpression, StringLiteral: the Save button is disabled for exactly these states (including the trimmed-empty name), so both branches are unreachable defense-in-depth
       if (!payload || targets.length === 0 || targetErrors.length > 0) {
-        toast.error("Fix the targets before saving the plan.");
+        toast.error(t("planner.toast.fixTargetsSave"));
         return;
       }
       if (!name) {
-        toast.error("Give the plan a name before saving.");
+        toast.error(t("planner.toast.nameRequiredSave"));
         return;
       }
       // Stryker restore ConditionalExpression, LogicalOperator, BlockStatement, CallExpression, StringLiteral
@@ -542,11 +577,11 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
         if (res.status === 201 && farmScope()) {
           setOpenPlan(res.data);
           invalidatePlans();
-          toast.success(`Saved plan “${name}”.`);
+          toast.success(t("planner.toast.saved", { name }));
         }
       } catch (err) {
         if (!farmScope()) return;
-        toast.error(errorMessage(err, "Could not save the plan."));
+        toast.error(errorMessage(err, t("planner.toast.saveFailed")));
       }
     });
   }
@@ -559,13 +594,13 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       const payload = anchoredAssumptions();
       // Stryker disable ConditionalExpression, LogicalOperator, BlockStatement, CallExpression, StringLiteral: the Update button is disabled for exactly these states on the same render, so the branch is unreachable defense-in-depth
       if (!payload || targets.length === 0 || targetErrors.length > 0) {
-        toast.error("Fix the targets before updating the saved plan.");
+        toast.error(t("planner.toast.fixTargetsUpdate"));
         return;
       }
       // Stryker restore ConditionalExpression, LogicalOperator, BlockStatement, CallExpression, StringLiteral
       const name = planName.trim();
       if (!name) {
-        toast.error("Give the plan a name before updating it.");
+        toast.error(t("planner.toast.nameRequiredUpdate"));
         return;
       }
       try {
@@ -586,21 +621,19 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
         if (res.status === 200 && farmScope()) {
           setOpenPlan(res.data);
           invalidatePlans();
-          toast.success(`Updated “${res.data.name}”.`);
+          toast.success(t("planner.toast.updated", { name: res.data.name }));
         }
       } catch (err) {
         if (!farmScope()) return;
         if (err instanceof ApiError && err.status === 409) {
-          toast.error(
-            "This plan changed in another tab. The latest revision was loaded — press Update again.",
-          );
+          toast.error(t("planner.toast.revisionConflict"));
           // Adopt the current row so a retry uses the fresh revision instead
           // of failing forever against the stale one.
           const refreshed = await client_get_plan(openPlan.id);
           if (refreshed) setOpenPlan(refreshed);
           return;
         }
-        toast.error(errorMessage(err, "Could not update the saved plan."));
+        toast.error(errorMessage(err, t("planner.toast.updateFailed")));
       }
     });
   }
@@ -630,7 +663,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
           setPlanName("");
         }
         invalidatePlans();
-        toast.success(`Deleted “${plan.name}”.`);
+        toast.success(t("planner.toast.deleted", { name: plan.name }));
       }
     } catch (err) {
       if (!farmScope()) return;
@@ -639,13 +672,11 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
         // the list so the operator sees (and can retry against) the current
         // revision instead of an unretryable stale one until reload (P3,
         // 2026-09-20 audit).
-        toast.error(
-          "This plan changed in another tab — the list was refreshed; delete again against the latest revision.",
-        );
+        toast.error(t("planner.toast.deleteConflict"));
         await invalidatePlans();
         return;
       }
-      toast.error(errorMessage(err, "Could not delete the plan."));
+      toast.error(errorMessage(err, t("planner.toast.deleteFailed")));
     }
   }
 
@@ -701,7 +732,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
     setOpenPlan(plan);
     setPlanName(plan.name);
     setReport(null);
-    toast.success(`Opened “${plan.name}” — press Plan to re-run it against today's biology.`);
+    toast.success(t("planner.toast.opened", { name: plan.name }));
   }
 
 
@@ -717,14 +748,14 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Planner"
-        description={`State what must be sold and when — the planner works backward through breeding, gestation, mortality and culling to tell you what to do starting ${formatYearMonth(startMonth)}.`}
+        title={t("planner.page.title")}
+        description={t("planner.page.description", { month: formatYearMonth(startMonth) })}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Input
               id="planner-plan-name"
-              aria-label="Plan name"
-              placeholder="Plan name (e.g. Festival 2028)"
+              aria-label={t("planner.form.planName")}
+              placeholder={t("planner.form.planNamePlaceholder")}
               className="w-56"
               value={planName}
               onChange={(event) => setPlanName(event.target.value)}
@@ -743,7 +774,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
               }
             >
               <Save />
-              Save plan
+              {t("planner.form.savePlan")}
             </Button>
             {openPlan && (
               <Button
@@ -761,7 +792,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                   !planName.trim()
                 }
               >
-                Update “{openPlan.name}”
+                {t("planner.form.updateNamed", { name: openPlan.name })}
               </Button>
             )}
           </div>
@@ -769,8 +800,8 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       />
 
       <DataTableCard
-        title="Sale targets"
-        description="What you must sell, and when. Any month up to 20 years out; any class of animal."
+        title={t("planner.targets.title")}
+        description={t("planner.targets.description")}
         actions={
           <div className="flex items-center gap-2">
             <Button
@@ -780,7 +811,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
               disabled={!assumptions || targets.length >= MAX_TARGETS}
             >
               <Plus />
-              Add target
+              {t("planner.targets.add")}
             </Button>
             <Button
               size="sm"
@@ -792,7 +823,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                 planMutation.isPending
               }
             >
-              {planMutation.isPending ? "Planning…" : "Plan"}
+              {planMutation.isPending ? t("planner.run.busy") : t("planner.run.button")}
               <Play />
             </Button>
           </div>
@@ -802,8 +833,12 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
         {targets.length === 0 ? (
           <EmptyState
             icon={Target}
-            title="No sale targets yet"
-            description={`Add your first target — e.g. “200 ${vocabulary.speciesPlural} in ${formatYearMonth(addMonths(startMonth, 16))}”. The planner checks it against breeding, gestation, mortality and culling, and tells you what to do.`}
+            title={t("planner.targets.emptyTitle")}
+            description={t("planner.targets.emptyDescription", {
+              count: 200,
+              species: t("planner.speciesPlural"),
+              month: formatYearMonth(addMonths(startMonth, 16)),
+            })}
           />
         ) : (
           <>
@@ -814,10 +849,10 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
             {targets.map((target) => (
               <div key={target.key} className="space-y-3 rounded-xl border bg-card p-3 shadow-xs">
                 <div className="space-y-1.5">
-                  <Label>Sale month</Label>
+                  <Label>{t("planner.targets.saleMonth")}</Label>
                   <Input
                     type="month"
-                    aria-label="Sale month"
+                    aria-label={t("planner.targets.saleMonth")}
                     className="w-full"
                     min={addMonths(startMonth, 1)}
                     value={target.year_month}
@@ -825,7 +860,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Class</Label>
+                  <Label>{t("planner.targets.class")}</Label>
                   <Select
                     value={target.animal_class}
                     onValueChange={(v) =>
@@ -833,13 +868,13 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                         animal_class: v as PlannerTarget["animal_class"],
                       })
                     }
-                    items={eventClassItems(vocabulary)}
+                    items={eventClassItems(vocabulary, t, language)}
                   >
-                    <SelectTrigger aria-label="Class" className="w-full">
+                    <SelectTrigger aria-label={t("planner.targets.class")} className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {Object.entries(eventClassItems(vocabulary)).map(([value, label]) => (
+                      {Object.entries(eventClassItems(vocabulary, t, language)).map(([value, label]) => (
                         <SelectItem key={value} value={value}>
                           {label}
                         </SelectItem>
@@ -848,9 +883,9 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                   </Select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Count</Label>
+                  <Label>{t("planner.targets.count")}</Label>
                   <NumberField
-                    aria-label="Count"
+                    aria-label={t("planner.targets.count")}
                     className="w-full"
                     min={1}
                     max={100_000}
@@ -864,10 +899,12 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                   size="sm"
                   className="h-11 px-4"
                   onClick={() => removeTarget(target.key)}
-                  aria-label={`Remove target ${formatYearMonth(target.year_month)}`}
+                  aria-label={t("planner.targets.removeAria", {
+                    month: formatYearMonth(target.year_month),
+                  })}
                 >
                   <Trash2 />
-                  Remove
+                  {t("planner.targets.remove")}
                 </Button>
               </div>
             ))}
@@ -876,9 +913,9 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
           <Table className="min-w-[720px]">
             <TableHeader>
               <TableRow>
-                <TableHead>Month</TableHead>
-                <TableHead>Class</TableHead>
-                <TableHead>Count</TableHead>
+                <TableHead>{t("planner.targets.month")}</TableHead>
+                <TableHead>{t("planner.targets.class")}</TableHead>
+                <TableHead>{t("planner.targets.count")}</TableHead>
                 <TableHead />
               </TableRow>
             </TableHeader>
@@ -888,7 +925,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                   <TableCell>
                     <Input
                       type="month"
-                      aria-label="Sale month"
+                      aria-label={t("planner.targets.saleMonth")}
                       className="w-40"
                       min={addMonths(startMonth, 1)}
                       value={target.year_month}
@@ -903,13 +940,13 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                           animal_class: v as PlannerTarget["animal_class"],
                         })
                       }
-                      items={eventClassItems(vocabulary)}
+                      items={eventClassItems(vocabulary, t, language)}
                     >
-                      <SelectTrigger aria-label="Class" size="sm">
+                      <SelectTrigger aria-label={t("planner.targets.class")} size="sm">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {Object.entries(eventClassItems(vocabulary)).map(([value, label]) => (
+                        {Object.entries(eventClassItems(vocabulary, t, language)).map(([value, label]) => (
                           <SelectItem key={value} value={value}>
                             {label}
                           </SelectItem>
@@ -919,7 +956,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                   </TableCell>
                   <TableCell>
                     <NumberField
-                      aria-label="Count"
+                      aria-label={t("planner.targets.count")}
                       className="w-24"
                       min={1}
                       max={100_000}
@@ -933,10 +970,12 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                       variant="outline"
                       size="sm"
                       onClick={() => removeTarget(target.key)}
-                      aria-label={`Remove target ${formatYearMonth(target.year_month)}`}
+                      aria-label={t("planner.targets.removeAria", {
+                        month: formatYearMonth(target.year_month),
+                      })}
                     >
                       <Trash2 />
-                      Remove
+                      {t("planner.targets.remove")}
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -955,15 +994,14 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Plan basis</CardTitle>
+          <CardTitle>{t("planner.basis.title")}</CardTitle>
           <CardDescription>
-            The herd and biology the plan starts from. Month 1 of the plan is the start month;
-            every date in the plan is counted from it.
+            {t("planner.basis.description")}
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-1">
-            <Label htmlFor="planner-start">Plan start</Label>
+            <Label htmlFor="planner-start">{t("planner.basis.start")}</Label>
             <Input
               id="planner-start"
               type="month"
@@ -976,7 +1014,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
             />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="planner-breed">Breed preset</Label>
+            <Label htmlFor="planner-breed">{t("planner.basis.breedPreset")}</Label>
             <Select
               value={submittedParams.breed}
               onValueChange={(v) => loadBreedDefaults({ breed: v, system })}
@@ -995,7 +1033,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
             </Select>
           </div>
           <div className="space-y-1">
-            <Label htmlFor="planner-system">Production system</Label>
+            <Label htmlFor="planner-system">{t("planner.basis.system")}</Label>
             <Select
               value={system}
               onValueChange={(v) => {
@@ -1003,14 +1041,17 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                 setSystem(next);
                 loadBreedDefaults({ breed: submittedParams.breed, system: next });
               }}
-              items={{ stall_fed: "Stall-fed", semi_intensive: "Semi-intensive" }}
+              items={{
+                stall_fed: t("planner.system.stallFed"),
+                semi_intensive: t("planner.system.semiIntensive"),
+              }}
             >
               <SelectTrigger id="planner-system" size="sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="stall_fed">Stall-fed</SelectItem>
-                <SelectItem value="semi_intensive">Semi-intensive</SelectItem>
+                <SelectItem value="stall_fed">{t("planner.system.stallFed")}</SelectItem>
+                <SelectItem value="semi_intensive">{t("planner.system.semiIntensive")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -1032,10 +1073,12 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
               title={
                 canCalibrate
                   ? undefined
-                  : "Needs animals, breeding, births, feeding and finance read access."
+                  : t("planner.basis.calibrateDenied")
               }
             >
-              {calibrationQuery.isFetching ? "Calibrating…" : "Use farm records"}
+              {calibrationQuery.isFetching
+                ? t("planner.basis.calibrating")
+                : t("planner.basis.useFarmRecords")}
             </Button>
           </div>
           <div className="flex items-start gap-2 sm:col-span-2 lg:col-span-4">
@@ -1052,17 +1095,16 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
             </div>
           </div>
           <p className="text-sm text-muted-foreground sm:col-span-2 lg:col-span-4" role="note">
-            {basisSource === "preset" && "Starting from breed-preset defaults."}
+            {basisSource === "preset" && t("planner.basis.note.preset")}
             {basisSource === "herd" &&
-              `Starting from your live herd's head counts on top of the ${submittedParams.breed.replace(/_/g, " ")} preset.`}
-            {basisSource === "calibration" &&
-              "Starting from assumptions calibrated against this farm's own records."}
-            {basisSource === "saved" && "Starting from a saved plan's assumptions."}{" "}
-            For full control of every assumption (feed, prices, finance), build them in{" "}
+              t("planner.basis.note.herd", { breed: submittedParams.breed.replace(/_/g, " ") })}
+            {basisSource === "calibration" && t("planner.basis.note.calibration")}
+            {basisSource === "saved" && t("planner.basis.note.saved")}{" "}
+            {t("planner.basis.note.moreControlPrefix")}{" "}
             <Link className="underline" href="/simulation">
-              Simulation
+              {t("planner.basis.note.simulationLink")}
             </Link>{" "}
-            and calibrate there first.
+            {t("planner.basis.note.moreControlSuffix")}
           </p>
         </CardContent>
       </Card>
@@ -1078,14 +1120,20 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
           <Card>
             <CardHeader>
               <CardTitle>
-                {report.plan.gaps_closed ? "The plan is feasible" : "The plan cannot fully close"}
-                {reportIsStale ? " · stale — re-run after edits" : ""}
+                {report.plan.gaps_closed
+                  ? t("planner.eval.feasible")
+                  : t("planner.eval.cannotClose")}
+                {reportIsStale ? t("planner.eval.staleSuffix") : ""}
               </CardTitle>
               <CardDescription>
-                Shortfall {formatPlanCount(evaluation.total_shortfall)} head after
-                recommendations · {report.plan.recommended_purchases.length} recommended purchase
-                event(s) · NPV {formatMoney(report.plan.before.npv)} before purchases
-                {report.plan.after ? `, ${formatMoney(report.plan.after.npv)} after` : ""}.
+                {t("planner.eval.description", {
+                  shortfall: formatPlanCount(evaluation.total_shortfall),
+                  purchases: report.plan.recommended_purchases.length,
+                  npvBefore: formatMoney(report.plan.before.npv),
+                  npvAfterSuffix: report.plan.after
+                    ? t("planner.eval.npvAfterSuffix", { npv: formatMoney(report.plan.after.npv) })
+                    : "",
+                })}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -1100,21 +1148,21 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                       <p className="font-medium">
                         {echo ? formatYearMonth(echo.year_month) : fill.month}
                         {" · "}
-                        {formatPlanClass(fill.animal_class, vocabulary)}
+                        {formatPlanClass(fill.animal_class, vocabulary, t, language)}
                       </p>
                       <dl className="space-y-1 text-sm">
                         <div className="flex items-baseline justify-between gap-3">
-                          <dt className="text-muted-foreground">Target</dt>
+                          <dt className="text-muted-foreground">{t("planner.eval.target")}</dt>
                           <dd className="tabular-nums">{formatPlanCount(fill.requested)}</dd>
                         </div>
                         <div className="flex items-baseline justify-between gap-3">
-                          <dt className="text-muted-foreground">Filled now</dt>
+                          <dt className="text-muted-foreground">{t("planner.eval.filledNow")}</dt>
                           <dd className="tabular-nums">
                             {fill.met ? "✓" : "⚠"} {formatPlanCount(fill.filled)}
                           </dd>
                         </div>
                         <div className="flex items-baseline justify-between gap-3">
-                          <dt className="text-muted-foreground">With purchases</dt>
+                          <dt className="text-muted-foreground">{t("planner.eval.withPurchases")}</dt>
                           <dd className="tabular-nums">
                             {after ? `${after.met ? "✓" : "⚠"} ${formatPlanCount(after.filled)}` : "—"}
                           </dd>
@@ -1124,7 +1172,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                           <dd className="tabular-nums">{formatMoney(fill.price_per_head)}</dd>
                         </div>
                         <div className="flex items-baseline justify-between gap-3">
-                          <dt className="text-muted-foreground">P(full)</dt>
+                          <dt className="text-muted-foreground">{t("planner.eval.pFull")}</dt>
                           <dd className="tabular-nums">
                             {risk ? `${Math.round(risk.p_full * 100)}%` : "—"}
                           </dd>
@@ -1138,13 +1186,13 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
               <Table className="min-w-[820px]">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Month</TableHead>
-                    <TableHead>Class</TableHead>
-                    <TableHead>Target</TableHead>
-                    <TableHead>Filled now</TableHead>
-                    <TableHead>With purchases</TableHead>
+                    <TableHead>{t("planner.eval.month")}</TableHead>
+                    <TableHead>{t("planner.eval.class")}</TableHead>
+                    <TableHead>{t("planner.eval.target")}</TableHead>
+                    <TableHead>{t("planner.eval.filledNow")}</TableHead>
+                    <TableHead>{t("planner.eval.withPurchases")}</TableHead>
                     <TableHead>₹/head</TableHead>
-                    <TableHead>P(full)</TableHead>
+                    <TableHead>{t("planner.eval.pFull")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1155,7 +1203,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                     return (
                       <TableRow key={index}>
                         <TableCell>{echo ? formatYearMonth(echo.year_month) : fill.month}</TableCell>
-                        <TableCell>{formatPlanClass(fill.animal_class, vocabulary)}</TableCell>
+                        <TableCell>{formatPlanClass(fill.animal_class, vocabulary, t, language)}</TableCell>
                         <TableCell>{formatPlanCount(fill.requested)}</TableCell>
                         <TableCell>
                           {fill.met ? "✓" : "⚠"} {formatPlanCount(fill.filled)}
@@ -1176,10 +1224,9 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
 
           <Card>
             <CardHeader>
-              <CardTitle>What to do and when</CardTitle>
+              <CardTitle>{t("planner.actions.title")}</CardTitle>
               <CardDescription>
-                The dated to-do list that delivers the targets. Actions dated before the plan
-                start are missed deadlines — the reason a target cannot fill.
+                {t("planner.actions.description")}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
@@ -1198,7 +1245,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                     <div className="min-w-0">
                       <p className="text-sm font-medium">
                         <span className="text-muted-foreground">
-                          {formatYearMonth(action.year_month)} · {ACTION_KIND_LABELS[action.kind]}:
+                          {formatYearMonth(action.year_month)} · {t(ACTION_KIND_KEYS[action.kind])}:
                         </span>{" "}
                         {action.headline}
                       </p>
@@ -1212,10 +1259,9 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
 
           <Card>
             <CardHeader>
-              <CardTitle>Why these numbers — each target worked backward</CardTitle>
+              <CardTitle>{t("planner.chain.title")}</CardTitle>
               <CardDescription>
-                The chain from the sale date back through survival, litter size, sex share and
-                conception to the does that must be bred.
+                {t("planner.chain.description")}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -1225,24 +1271,26 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                   className="space-y-2 rounded-lg border border-border p-3"
                 >
                   <p className="text-sm font-medium">
-                    {formatPlanCount(chain.count)}{" "}
-                    {formatPlanClass(chain.animal_class, vocabulary)} in{" "}
-                    {formatYearMonth(chain.year_month)}{" "}
+                    {t("planner.chain.summary", {
+                      count: formatPlanCount(chain.count),
+                      cls: formatPlanClass(chain.animal_class, vocabulary, t, language),
+                      month: formatYearMonth(chain.year_month),
+                    })}{" "}
                     {chain.achievable ? (
-                      <span className="text-muted-foreground">· achievable</span>
+                      <span className="text-muted-foreground">{t("planner.chain.achievable")}</span>
                     ) : (
                       <span className="inline-flex items-center gap-1 text-warning-tint-foreground">
                         <TriangleAlert className="size-3.5" aria-hidden />
-                        not achievable as planned
+                        {t("planner.chain.notAchievable")}
                       </span>
                     )}
                   </p>
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>When</TableHead>
-                        <TableHead>How many</TableHead>
-                        <TableHead>What</TableHead>
+                        <TableHead>{t("planner.chain.when")}</TableHead>
+                        <TableHead>{t("planner.chain.howMany")}</TableHead>
+                        <TableHead>{t("planner.chain.what")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1264,8 +1312,8 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
           </Card>
 
           <DataTableCard
-            title="Stage plan — the herd shape the targets require"
-            description="How many animals must stand in each stage every month (end-of-month head), plus that month's flows. This is the herd you are managing toward."
+            title={t("planner.stage.title")}
+            description={t("planner.stage.description")}
             contentClassName="space-y-3"
           >
             {/* Below md the 16-column stage plan becomes a card per month —
@@ -1277,21 +1325,21 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                   <div className="flex items-baseline justify-between gap-2">
                     <span className="font-medium">{formatYearMonth(row.year_month)}</span>
                     <span className="tabular-nums font-medium">
-                      {formatHead(row.total_head)} head
+                      {t("planner.stage.headCount", { count: formatHead(row.total_head) })}
                     </span>
                   </div>
                   <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
                     {[
-                      [`F ${vocabulary.young}s`, row.female_kids],
-                      [`M ${vocabulary.young}s`, row.male_kids],
-                      ["F weaners", row.female_weaners],
-                      ["M weaners", row.male_weaners],
-                      ["F growers", row.female_growers],
-                      ["M growers", row.male_growers],
-                      [`Open ${vocabulary.femaleAdultPlural}`, row.open_does],
-                      ["Pregnant", row.pregnant_does],
-                      ["Lactating", row.lactating_does],
-                      [vocabulary.maleAdult + "s", row.bucks],
+                      [t("planner.stage.femaleKids"), row.female_kids],
+                      [t("planner.stage.maleKids"), row.male_kids],
+                      [t("planner.stage.femaleWeaners"), row.female_weaners],
+                      [t("planner.stage.maleWeaners"), row.male_weaners],
+                      [t("planner.stage.femaleGrowers"), row.female_growers],
+                      [t("planner.stage.maleGrowers"), row.male_growers],
+                      [t("planner.stage.openDoes"), row.open_does],
+                      [t("planner.stage.pregnant"), row.pregnant_does],
+                      [t("planner.stage.lactating"), row.lactating_does],
+                      [t("planner.stage.bucks"), row.bucks],
                     ].map(([label, value]) => (
                       <div key={label as string} className="flex items-baseline justify-between gap-2">
                         <dt className="text-muted-foreground">{label}</dt>
@@ -1300,9 +1348,13 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                     ))}
                   </dl>
                   <p className="text-xs text-muted-foreground tabular-nums">
-                    Born {formatHead(row.births)} · Died {formatHead(row.deaths)} · Culled{" "}
-                    {formatHead(row.culls_head)} · Sold {formatHead(row.sales_head)} · Bought{" "}
-                    {formatHead(row.purchases_head)}
+                    {t("planner.stage.flows", {
+                      births: formatHead(row.births),
+                      deaths: formatHead(row.deaths),
+                      culls: formatHead(row.culls_head),
+                      sales: formatHead(row.sales_head),
+                      purchases: formatHead(row.purchases_head),
+                    })}
                   </p>
                 </div>
               ))}
@@ -1314,28 +1366,27 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                  * matrix. sr-only: the card description already says it
                  * visually. */}
                 <TableCaption className="sr-only">
-                  End-of-month herd head by stage for every plan month, followed by that
-                  month&apos;s births, deaths, culls, sales and purchases.
+                  {t("planner.stage.caption")}
                 </TableCaption>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Month</TableHead>
-                    <TableHead>F {vocabulary.young}s</TableHead>
-                    <TableHead>M {vocabulary.young}s</TableHead>
-                    <TableHead>F weaners</TableHead>
-                    <TableHead>M weaners</TableHead>
-                    <TableHead>F growers</TableHead>
-                    <TableHead>M growers</TableHead>
-                    <TableHead>Open {vocabulary.femaleAdultPlural}</TableHead>
-                    <TableHead>Pregnant</TableHead>
-                    <TableHead>Lactating</TableHead>
-                    <TableHead>{vocabulary.maleAdult}s</TableHead>
-                    <TableHead>Total</TableHead>
-                    <TableHead>Born</TableHead>
-                    <TableHead>Died</TableHead>
-                    <TableHead>Culled</TableHead>
-                    <TableHead>Sold</TableHead>
-                    <TableHead>Bought</TableHead>
+                    <TableHead>{t("planner.stage.month")}</TableHead>
+                    <TableHead>{t("planner.stage.femaleKids")}</TableHead>
+                    <TableHead>{t("planner.stage.maleKids")}</TableHead>
+                    <TableHead>{t("planner.stage.femaleWeaners")}</TableHead>
+                    <TableHead>{t("planner.stage.maleWeaners")}</TableHead>
+                    <TableHead>{t("planner.stage.femaleGrowers")}</TableHead>
+                    <TableHead>{t("planner.stage.maleGrowers")}</TableHead>
+                    <TableHead>{t("planner.stage.openDoes")}</TableHead>
+                    <TableHead>{t("planner.stage.pregnant")}</TableHead>
+                    <TableHead>{t("planner.stage.lactating")}</TableHead>
+                    <TableHead>{t("planner.stage.bucks")}</TableHead>
+                    <TableHead>{t("planner.stage.total")}</TableHead>
+                    <TableHead>{t("planner.stage.born")}</TableHead>
+                    <TableHead>{t("planner.stage.died")}</TableHead>
+                    <TableHead>{t("planner.stage.culled")}</TableHead>
+                    <TableHead>{t("planner.stage.sold")}</TableHead>
+                    <TableHead>{t("planner.stage.bought")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1371,7 +1422,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
             return (
               <Card>
                 <CardHeader>
-                  <CardTitle>Notes</CardTitle>
+                  <CardTitle>{t("planner.notes.title")}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2">
                   {notes.map((note, index) => (
@@ -1388,19 +1439,19 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
 
 
       <DataTableCard
-        title="Saved plans"
-        description="Named target lists with the assumptions they run against. Opening a plan never runs it — biology and prices change, so press Plan to re-check it against today."
+        title={t("planner.saved.title")}
+        description={t("planner.saved.description")}
         contentClassName="space-y-3"
       >
         {plansQuery.isError ? (
           <p role="alert" className="text-sm text-destructive">
-            Saved plans could not be loaded. Refresh the page to retry.
+            {t("planner.saved.loadFailed")}
           </p>
         ) : savedPlans.length === 0 ? (
           <EmptyState
             icon={CalendarCheck}
-            title="No saved plans"
-            description="Enter targets above, name the plan, and save it to revisit the plan each season."
+            title={t("planner.saved.emptyTitle")}
+            description={t("planner.saved.emptyDescription")}
           />
         ) : (
           <>
@@ -1415,17 +1466,17 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                     {/* L-29 (2026-09-17 audit): updated_at is a UTC datetime;
                      * render it in the farm timezone and active locale, not the
                      * browser's. */}
-                    Updated {formatFarmDateTime(plan.updated_at)}
+                    {t("planner.saved.updatedAt", { datetime: formatFarmDateTime(plan.updated_at) })}
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Starts {formatYearMonth(plan.start_year_month)}
+                  {t("planner.saved.startsAt", { month: formatYearMonth(plan.start_year_month) })}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {(plan.targets ?? [])
                     .map(
                       (target) =>
-                        `${formatPlanCount(target.count)} ${formatPlanClass(target.animal_class, vocabulary)} ${formatYearMonth(target.year_month)}`,
+                        `${formatPlanCount(target.count)} ${formatPlanClass(target.animal_class, vocabulary, t, language)} ${formatYearMonth(target.year_month)}`,
                     )
                     .join("; ") || "—"}
                 </p>
@@ -1440,7 +1491,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                     onClick={() => onOpenPlan(plan)}
                   >
                     <FolderOpen />
-                    Open
+                    {t("planner.saved.open")}
                   </Button>
                   <Button
                     variant="outline"
@@ -1461,10 +1512,10 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                     className="h-11 px-4"
                     onClick={() => setPendingDelete(plan)}
                     disabled={!canManage || deletePlanMutation.isPending}
-                    aria-label={`Delete plan ${plan.name}`}
+                    aria-label={t("planner.saved.deleteAria", { name: plan.name })}
                   >
                     <Trash2 />
-                    Delete
+                    {t("planner.saved.delete")}
                   </Button>
                 </div>
               </div>
@@ -1474,11 +1525,11 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
           <Table className="min-w-[720px]">
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Start</TableHead>
-                <TableHead>Targets</TableHead>
-                <TableHead>Notes</TableHead>
-                <TableHead>Updated</TableHead>
+                <TableHead>{t("planner.saved.colName")}</TableHead>
+                <TableHead>{t("planner.saved.colStart")}</TableHead>
+                <TableHead>{t("planner.saved.colTargets")}</TableHead>
+                <TableHead>{t("planner.saved.colNotes")}</TableHead>
+                <TableHead>{t("planner.saved.colUpdated")}</TableHead>
                 <TableHead />
               </TableRow>
             </TableHeader>
@@ -1491,7 +1542,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                     {(plan.targets ?? [])
                       .map(
                         (target) =>
-                          `${formatPlanCount(target.count)} ${formatPlanClass(target.animal_class, vocabulary)} ${formatYearMonth(target.year_month)}`,
+                          `${formatPlanCount(target.count)} ${formatPlanClass(target.animal_class, vocabulary, t, language)} ${formatYearMonth(target.year_month)}`,
                       )
                       .join("; ") || "—"}
                   </TableCell>
@@ -1503,7 +1554,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                     <div className="flex items-center gap-2">
                       <Button variant="outline" size="sm" onClick={() => onOpenPlan(plan)}>
                         <FolderOpen />
-                        Open
+                        {t("planner.saved.open")}
                       </Button>
                       <Button
                         variant="outline"
@@ -1522,10 +1573,10 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                         size="sm"
                         onClick={() => setPendingDelete(plan)}
                         disabled={!canManage || deletePlanMutation.isPending}
-                        aria-label={`Delete plan ${plan.name}`}
+                        aria-label={t("planner.saved.deleteAria", { name: plan.name })}
                       >
                         <Trash2 />
-                        Delete
+                        {t("planner.saved.delete")}
                       </Button>
                     </div>
                   </TableCell>
@@ -1538,7 +1589,10 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
         )}
         {plansPage && plansPage.total > plansPage.items.length && (
           <p className="text-sm text-muted-foreground" role="note">
-            Showing the first {plansPage.items.length} of {plansPage.total} saved plans.
+            {t("planner.saved.showingFirst", {
+              shown: plansPage.items.length,
+              total: plansPage.total,
+            })}
           </p>
         )}
       </DataTableCard>
@@ -1552,13 +1606,13 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete plan?</DialogTitle>
+            <DialogTitle>{t("planner.delete.title")}</DialogTitle>
             <DialogDescription>
               {pendingDelete !== null && (
                 <span>
-                  {`This permanently deletes `}
+                  {t("planner.delete.intro")}
                   <span className="font-medium text-foreground">{pendingDelete.name}</span>
-                  {` and its saved assumptions. Runs already exported are not affected.`}
+                  {t("planner.delete.outro")}
                 </span>
               )}
             </DialogDescription>
@@ -1570,7 +1624,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
               disabled={deletePlanMutation.isPending}
               onClick={() => setPendingDelete(null)}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               type="button"
@@ -1581,7 +1635,7 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
                 if (pendingDelete) void onDeletePlan(pendingDelete);
               }}
             >
-              {deletePlanMutation.isPending ? "Deleting…" : "Delete plan"}
+              {deletePlanMutation.isPending ? t("planner.delete.busy") : t("planner.delete.confirm")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1592,12 +1646,13 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
 
 export default function PlannerPage() {
   const perms = usePermissions();
+  const t = useT();
   return (
     <PermissionGate
       perms={perms}
       perm="simulation.view"
-      label="Planner"
-      description="Set sale targets by month; the planner works backward to today's to-do list."
+      label={t("planner.page.title")}
+      description={t("planner.gate.description")}
       cards={2}
     >
       <PlannerPageContent perms={perms} />

@@ -159,7 +159,7 @@ describe("AnimalsPage mutation hardening", () => {
       nav.state.search = "page=1e2";
       renderWithProviders(<AnimalsPage />);
 
-      expect(await screen.findByText("3 animal(s)")).toBeInTheDocument();
+      expect(await screen.findByText("3 animals")).toBeInTheDocument();
       expect(seenParams[0].get("offset")).toBe("0");
     });
 
@@ -167,7 +167,7 @@ describe("AnimalsPage mutation hardening", () => {
       nav.state.search = "page=0";
       renderWithProviders(<AnimalsPage />);
 
-      expect(await screen.findByText("3 animal(s)")).toBeInTheDocument();
+      expect(await screen.findByText("3 animals")).toBeInTheDocument();
       expect(seenParams[0].get("offset")).toBe("0");
     });
 
@@ -201,7 +201,7 @@ describe("AnimalsPage mutation hardening", () => {
       nav.state.search = "bucket=GIBBERISH&sex=X&status=NOPE";
       renderWithProviders(<AnimalsPage />);
 
-      expect(await screen.findByText("3 animal(s)")).toBeInTheDocument();
+      expect(await screen.findByText("3 animals")).toBeInTheDocument();
       expect(seenParams[0].get("bucket")).toBeNull();
       expect(seenParams[0].get("sex")).toBeNull();
       expect(seenParams[0].get("status")).toBeNull();
@@ -213,7 +213,7 @@ describe("AnimalsPage mutation hardening", () => {
       nav.state.search = "q=%20%20G-1%20%20";
       renderWithProviders(<AnimalsPage />);
 
-      expect(await screen.findByText("3 animal(s)")).toBeInTheDocument();
+      expect(await screen.findByText("3 animals")).toBeInTheDocument();
       expect(seenParams[0].get("q")).toBe("G-1");
     });
   });
@@ -222,7 +222,7 @@ describe("AnimalsPage mutation hardening", () => {
     it("trims every padded free-text field before it reaches the API", async () => {
       const user = userEvent.setup();
       renderWithProviders(<AnimalsPage />);
-      await screen.findByText("3 animal(s)");
+      await screen.findByText("3 animals");
       const dialog = await openCreateDialog(user);
 
       await user.type(within(dialog).getByLabelText("Tag number"), "  G-9  ");
@@ -245,7 +245,7 @@ describe("AnimalsPage mutation hardening", () => {
     it("treats a birth weight that was typed and then cleared as absent", async () => {
       const user = userEvent.setup();
       renderWithProviders(<AnimalsPage />);
-      await screen.findByText("3 animal(s)");
+      await screen.findByText("3 animals");
       const dialog = await openImportDialog(user);
 
       const birthWeight = within(dialog).getByLabelText("Birth weight (kg)");
@@ -262,7 +262,7 @@ describe("AnimalsPage mutation hardening", () => {
     it("keeps every optional field free of invalid state before a submit", async () => {
       const user = userEvent.setup();
       renderWithProviders(<AnimalsPage />);
-      await screen.findByText("3 animal(s)");
+      await screen.findByText("3 animals");
       const dialog = await openCreateDialog(user);
 
       for (const label of ["Tag number", "Name", "Breed", "Entry weight (kg)", "Seller name"]) {
@@ -276,7 +276,7 @@ describe("AnimalsPage mutation hardening", () => {
     it("flags an overlong tag invalid and links its message", async () => {
       const user = userEvent.setup();
       renderWithProviders(<AnimalsPage />);
-      await screen.findByText("3 animal(s)");
+      await screen.findByText("3 animals");
       const dialog = await openCreateDialog(user);
       const tag = within(dialog).getByLabelText("Tag number");
       fireEvent.change(tag, { target: { value: "X".repeat(51) } });
@@ -292,7 +292,7 @@ describe("AnimalsPage mutation hardening", () => {
     it("flags an overlong name invalid and links its message", async () => {
       const user = userEvent.setup();
       renderWithProviders(<AnimalsPage />);
-      await screen.findByText("3 animal(s)");
+      await screen.findByText("3 animals");
       const dialog = await openCreateDialog(user);
       const name = within(dialog).getByLabelText("Name");
       fireEvent.change(name, { target: { value: "N".repeat(81) } });
@@ -307,7 +307,7 @@ describe("AnimalsPage mutation hardening", () => {
     it("flags an overlong breed invalid and links its message", async () => {
       const user = userEvent.setup();
       renderWithProviders(<AnimalsPage />);
-      await screen.findByText("3 animal(s)");
+      await screen.findByText("3 animals");
       const dialog = await openCreateDialog(user);
       const breed = within(dialog).getByLabelText("Breed");
       fireEvent.change(breed, { target: { value: "B".repeat(61) } });
@@ -323,7 +323,7 @@ describe("AnimalsPage mutation hardening", () => {
     it("flags a zero entry weight invalid and links its message", async () => {
       const user = userEvent.setup();
       renderWithProviders(<AnimalsPage />);
-      await screen.findByText("3 animal(s)");
+      await screen.findByText("3 animals");
       const dialog = await openCreateDialog(user);
       const weight = within(dialog).getByLabelText("Entry weight (kg)");
       fireEvent.change(weight, { target: { value: "0" } });
@@ -338,7 +338,7 @@ describe("AnimalsPage mutation hardening", () => {
     it("flags an overlong seller name invalid and links its message", async () => {
       const user = userEvent.setup();
       renderWithProviders(<AnimalsPage />);
-      await screen.findByText("3 animal(s)");
+      await screen.findByText("3 animals");
       const dialog = await openCreateDialog(user);
       const seller = within(dialog).getByLabelText("Seller name");
       fireEvent.change(seller, { target: { value: "S".repeat(121) } });
@@ -366,7 +366,7 @@ describe("AnimalsPage mutation hardening", () => {
       );
       const user = userEvent.setup();
       renderWithProviders(<AnimalsPage />);
-      await screen.findByText("3 animal(s)");
+      await screen.findByText("3 animals");
       const dialog = await openCreateDialog(user);
       const cancel = within(dialog).getByRole("button", { name: "Cancel" });
       expect(cancel).toBeEnabled();
@@ -384,7 +384,7 @@ describe("AnimalsPage mutation hardening", () => {
     it("renders the complete historical-import sentence", async () => {
       const user = userEvent.setup();
       renderWithProviders(<AnimalsPage />);
-      await screen.findByText("3 animal(s)");
+      await screen.findByText("3 animals");
       const dialog = await openImportDialog(user);
 
       expect(within(dialog).getByText(/Historical import only\./).textContent).toBe(
@@ -417,7 +417,7 @@ describe("AnimalsPage mutation hardening", () => {
     it("sorts by tag ascending, then descending, then back to the server order", async () => {
       const user = userEvent.setup();
       renderWithProviders(<AnimalsPage />);
-      await screen.findByText("3 animal(s)");
+      await screen.findByText("3 animals");
       expect(tagColumnOrder()).toEqual(["G-003", "G-001", "G-002"]);
       expect(tableHead(0)).toHaveAttribute("aria-sort", "none");
 
@@ -437,7 +437,7 @@ describe("AnimalsPage mutation hardening", () => {
     it("sorts by age and weight and marks only the active column", async () => {
       const user = userEvent.setup();
       renderWithProviders(<AnimalsPage />);
-      await screen.findByText("3 animal(s)");
+      await screen.findByText("3 animals");
 
       await user.click(within(tableHead(6)).getByRole("button"));
       expect(
@@ -462,14 +462,14 @@ describe("AnimalsPage mutation hardening", () => {
     it("announces the within-page sort in the card description", async () => {
       const user = userEvent.setup();
       renderWithProviders(<AnimalsPage />);
-      await screen.findByText("3 animal(s)");
+      await screen.findByText("3 animals");
       expect(
-        screen.queryByText("3 animal(s) · sorted within the current page"),
+        screen.queryByText("3 animals · sorted within the current page"),
       ).not.toBeInTheDocument();
 
       await user.click(within(tableHead(0)).getByRole("button"));
       expect(
-        await screen.findByText("3 animal(s) · sorted within the current page"),
+        await screen.findByText("3 animals · sorted within the current page"),
       ).toBeInTheDocument();
     });
 
@@ -493,7 +493,7 @@ describe("AnimalsPage mutation hardening", () => {
       );
       const user = userEvent.setup();
       renderWithProviders(<AnimalsPage />);
-      await screen.findByText("5 animal(s)");
+      await screen.findByText("5 animals");
 
       await user.click(within(tableHead(6)).getByRole("button"));
       expect(tagColumnOrder()).toEqual(["G-00E", "G-00C", "G-00D", "G-00A", "G-00B"]);
@@ -511,7 +511,7 @@ describe("AnimalsPage mutation hardening", () => {
         ),
       );
       const view = renderWithProviders(<AnimalsPage />);
-      await screen.findByText("1 animal(s)");
+      await screen.findByText("1 animal");
       const mobile = view.container.querySelector("div.md\\:hidden") as HTMLElement;
       const card = mobile.querySelector("a") as HTMLElement;
       expect(card.getAttribute("href")).toBe("/animals/1");
@@ -531,7 +531,7 @@ describe("AnimalsPage mutation hardening", () => {
         ),
       );
       const view = renderWithProviders(<AnimalsPage />);
-      await screen.findByText("1 animal(s)");
+      await screen.findByText("1 animal");
       const mobile = view.container.querySelector("div.md\\:hidden") as HTMLElement;
       const card = mobile.querySelector("a") as HTMLElement;
       // The two-word bucket label must stay lowercase ("Female kids", not the
@@ -552,7 +552,7 @@ describe("AnimalsPage mutation hardening", () => {
         ),
       );
       renderWithProviders(<AnimalsPage />);
-      await screen.findByText("1 animal(s)");
+      await screen.findByText("1 animal");
       const row = within(screen.getByRole("table")).getByText("G-004").closest("tr") as HTMLElement;
       const cells = within(row).getAllByRole("cell");
       expect(cells[1]).toHaveTextContent("—");
@@ -602,7 +602,7 @@ describe("AnimalsPage mutation hardening", () => {
         mutations: { retry: false },
       });
       const view = renderWithProviders(<AnimalsPage />, queryClient);
-      await screen.findByText("3 animal(s)");
+      await screen.findByText("3 animals");
       const search = screen.getByRole("searchbox", { name: "Search animals by tag" });
 
       // Warm the q=G-9 destination and return to the unfiltered URL.
@@ -610,7 +610,7 @@ describe("AnimalsPage mutation hardening", () => {
       await waitFor(() => expect(nav.state.search).toBe("q=G-9"));
       fireEvent.change(search, { target: { value: "" } });
       await waitFor(() => expect(nav.state.search).toBe(""));
-      await screen.findByText("3 animal(s)");
+      await screen.findByText("3 animals");
 
       // Re-dispatch the cached destination, but hold its URL commit back.
       nav.state.deferReplace = true;
@@ -653,7 +653,7 @@ describe("AnimalsPage mutation hardening", () => {
       expect(screen.queryByRole("button", { name: "Clear filters" })).not.toBeInTheDocument();
       await userEvent.setup().click(screen.getByRole("button", { name: "Retry animals" }));
 
-      expect(await screen.findByText("3 animal(s)")).toBeInTheDocument();
+      expect(await screen.findByText("3 animals")).toBeInTheDocument();
       expect(attempts).toBe(2);
     });
 
@@ -674,7 +674,7 @@ describe("AnimalsPage mutation hardening", () => {
       await userEvent.setup().click(screen.getByRole("button", { name: "Retry permissions" }));
 
       await waitFor(() => expect(permCalls).toBe(2));
-      expect(await screen.findByText("3 animal(s)")).toBeInTheDocument();
+      expect(await screen.findByText("3 animals")).toBeInTheDocument();
     });
   });
 });

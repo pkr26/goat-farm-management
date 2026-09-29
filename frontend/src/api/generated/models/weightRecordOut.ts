@@ -11,4 +11,5 @@ export interface WeightRecordOut {
   weight_kg: number;
   bcs: number | null;
   notes: string | null;
+  created_at: string;
 }

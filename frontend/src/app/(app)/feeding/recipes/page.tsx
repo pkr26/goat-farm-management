@@ -25,9 +25,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
-import { FeedingNav } from "@/components/feeding-nav";
+import { FEEDING_TABS, SectionNav } from "@/components/section-nav";
 import { useEnumLabel } from "@/lib/enum-labels";
 import { useT } from "@/lib/i18n";
+import { mapServerError } from "@/lib/server-error-phrases";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 
 export default function RecipesPage() {
@@ -61,7 +62,7 @@ function RecipesPageContent({ perms }: { perms: PermissionsState }) {
         <div role="alert" className="space-y-3">
           <p className="text-sm text-destructive">
             {query.error instanceof ApiError
-              ? query.error.detail
+              ? mapServerError(t, query.error.detail, query.error.status, query.error.code)
               : t("feedingRecipes.loadFailed")}
           </p>
           <Button type="button" variant="outline" onClick={() => void query.refetch()}>
@@ -92,7 +93,7 @@ function RecipesPageContent({ perms }: { perms: PermissionsState }) {
         description={t("feedingRecipes.description")}
       />
 
-      <FeedingNav active="recipes" />
+      <SectionNav tabs={FEEDING_TABS} active="recipes" ariaLabelKey="feeding.nav.aria" />
 
       {payload.recipes.length === 0 && (
         <EmptyState

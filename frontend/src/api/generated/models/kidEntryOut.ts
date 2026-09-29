@@ -18,4 +18,5 @@ export interface KidEntryOut {
   navel_dipped: boolean | null;
   dam_rejected: boolean;
   animal_id: number | null;
+  created_at: string;
 }

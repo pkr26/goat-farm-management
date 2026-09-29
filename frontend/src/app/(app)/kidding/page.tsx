@@ -58,7 +58,9 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError} from "@/lib/api-client";
 import { enumLabel } from "@/lib/enum-labels";
-import { useLanguage, type Language } from "@/lib/i18n";
+import { useLanguage, useT, type Language, type TFn } from "@/lib/i18n";
+import { mapServerError } from "@/lib/server-error-phrases";
+import { useMutationError } from "@/lib/mutations";
 import { addDays, daysBetween, farmToday, formatDate } from "@/lib/format";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { invalidateFarmData } from "@/lib/query-invalidation";
@@ -76,26 +78,18 @@ function parsePositiveId(raw: string | null): number | null {
 
 
 
-function errorText(err: unknown): string {
-  return err instanceof ApiError ? err.detail : "Something went wrong";
-}
-
-/** Display-case a vocabulary noun for label positions ("kid" → "Kid"). */
-function cap(noun: string): string {
-  return noun.charAt(0).toUpperCase() + noun.slice(1);
-}
-
 const EASES = ["NORMAL", "ASSISTED", "DIFFICULT", "CAESAREAN"] as const;
 const KID_STATUSES = ["ALIVE", "STILLBORN", "DIED"] as const;
 /** Tri-state yes/no facts (colostrum, navel dip, placenta): "unrecorded"
  * maps to null on the wire — the backend reads null as "not captured",
  * never as a false care metric. */
 const TRI_STATES = ["yes", "no", "unrecorded"] as const;
-const TRI_STATE_ITEMS: Record<string, string> = {
-  yes: "Yes",
-  no: "No",
-  unrecorded: "Not recorded",
-};
+/** Tri-state select value → label map, resolved per language. */
+const triStateItems = (t: TFn): Record<string, string> => ({
+  yes: t("common.yes"),
+  no: t("common.no"),
+  unrecorded: t("kidding.form.notRecorded"),
+});
 /** value → label maps for the root `items` prop: without them, Base UI's
  * Select.Value renders the raw value in the closed trigger. */
 const easeItems = (language: Language): Record<string, string> =>
@@ -112,20 +106,28 @@ const DUE_LIST_LIMIT = 25;
 /** Per-kid schema, built per farm: the backend rejects a recorded birth
  * weight outside the species' credible newborn band (birth_weight_kg_range —
  * goat 0.5–8 kg), so mirror the bounds inline instead of
- * bouncing the whole kidding with an opaque server 422. */
-const kidSchema = (vocabulary: FarmVocabulary) =>
+ * bouncing the whole kidding with an opaque server 422. The messages resolve
+ * through the i18n catalog, so the factory takes the caller's `t` (health
+ * page precedent). */
+const buildKidSchema = (t: TFn, vocabulary: FarmVocabulary) =>
   z.object({
-    tag: z.string().max(50, "Max 50 characters").optional(),
+    tag: z.string().max(50, t("kidding.validation.tagMax", { max: 50 })).optional(),
     sex: z.enum(["M", "F"]),
     birth_weight: z
       .number()
       .min(
         vocabulary.facts.birthWeightKg.min,
-        `A newborn ${vocabulary.young} weighs at least ${vocabulary.facts.birthWeightKg.min} kg`,
+        t("kidding.validation.birthWeightMin", {
+          young: t("kidding.noun.young"),
+          min: vocabulary.facts.birthWeightKg.min,
+        }),
       )
       .max(
         vocabulary.facts.birthWeightKg.max,
-        `A newborn ${vocabulary.young} weighs at most ${vocabulary.facts.birthWeightKg.max} kg`,
+        t("kidding.validation.birthWeightMax", {
+          young: t("kidding.noun.young"),
+          max: vocabulary.facts.birthWeightKg.max,
+        }),
       )
       .nullish(),
     status: z.enum(KID_STATUSES),
@@ -137,10 +139,11 @@ const kidSchema = (vocabulary: FarmVocabulary) =>
     navel: z.enum(TRI_STATES),
     dam_rejected: z.boolean(),
   });
-/** The farm vocabulary threads through every validation message ("Kidding
- * date cannot be…", "At least one kid"), so the schema is built per farm. */
-/** Exported for direct schema-level testing of the inline gates. */
-export function kiddingSchema(vocabulary: FarmVocabulary) {
+/** The farm vocabulary threads the species numbers through every validation
+ * message, and the i18n catalog threads the nouns, so the schema is built per
+ * farm per language. Exported for direct schema-level testing of the inline
+ * gates. */
+export function buildKiddingSchema(t: TFn, vocabulary: FarmVocabulary) {
   return z
     .object({
       date: z
@@ -148,9 +151,9 @@ export function kiddingSchema(vocabulary: FarmVocabulary) {
         .regex(
           // Stryker disable next-line Regex: hand-proven killed by the trailing-garbage schema tests in BOTH page.campaign.test.tsx and page.mutation.test.tsx — Stryker's related-test selection never includes them across runs; documented attribution artifact
           /^\d{4}-\d{2}-\d{2}$/,
-          "Pick a valid date",
+          t("kidding.validation.dateInvalid"),
         )
-        .refine((s) => s <= farmToday(), "Date can't be in the future"),
+        .refine((s) => s <= farmToday(), t("kidding.validation.dateFuture")),
       ease: z.enum(EASES),
       // Postpartum care facts, mirroring KiddingCreateIn: placenta_passed is
       // tri-state ("unrecorded" → null); mastitis_suspected defaults false.
@@ -159,13 +162,16 @@ export function kiddingSchema(vocabulary: FarmVocabulary) {
       // Backend KiddingCreateIn caps free text at MAX_FREE_TEXT_LENGTH (4000);
       // an over-long pasted note should fail inline like the pregnancy-loss
       // dialog's notes rather than only as a server 422 on submit.
-      notes: z.string().max(4_000, "Notes cannot exceed 4000 characters").optional(),
+      notes: z
+        .string()
+        .max(4_000, t("kidding.validation.notesTooLong", { max: 4_000 }))
+        .optional(),
       kids: z
-        .array(kidSchema(vocabulary))
+        .array(buildKidSchema(t, vocabulary))
         .min(
           1,
-          // Stryker disable next-line StringLiteral: hand-proven killed by the litter-bounds schema tests in BOTH test files ("At least one kid" asserted verbatim) — the same documented attribution artifact as the date regex below
-          `At least one ${vocabulary.young}`,
+          // Stryker disable next-line StringLiteral: hand-proven killed by the litter-bounds schema tests in BOTH test files (the en catalog renders At least one kid, asserted verbatim) — the same documented attribution artifact as the date regex below
+          t("kidding.validation.youngMin", { young: t("kidding.noun.young") }),
         )
         // Species litter cap (goat ≤4) mirrors
         // SpeciesProfile.max_litter_size — LitterSizeError on the server.
@@ -173,7 +179,11 @@ export function kiddingSchema(vocabulary: FarmVocabulary) {
         .max(
           vocabulary.facts.maxLitterSize,
           // Stryker disable next-line StringLiteral: same litter-bounds hand-proof and artifact as the min message above
-          `A ${vocabulary.parturition} delivers at most ${vocabulary.facts.maxLitterSize} ${vocabulary.youngPlural} on this farm`,
+          t("kidding.validation.litterMax", {
+            parturition: t("kidding.noun.parturition"),
+            max: vocabulary.facts.maxLitterSize,
+            youngPlural: t("kidding.noun.youngPlural"),
+          }),
         ),
     })
     .superRefine((values, ctx) => {
@@ -188,27 +198,29 @@ export function kiddingSchema(vocabulary: FarmVocabulary) {
             // Stryker disable next-line StringLiteral: nothing reads the zod issue code — only path and message render
             code: "custom",
             path,
-            message: "Mortality date is required",
+            message: t("kidding.validation.mortalityRequired"),
           });
         } else if (reported < values.date) {
           ctx.addIssue({
             // Stryker disable next-line StringLiteral: nothing reads the zod issue code — only path and message render
             code: "custom",
             path,
-            message: `Can't be before the ${vocabulary.parturition} date`,
+            message: t("kidding.validation.mortalityBeforeParturition", {
+              parturition: t("kidding.noun.parturition"),
+            }),
           });
         } else if (reported > farmToday()) {
           ctx.addIssue({
             // Stryker disable next-line StringLiteral: nothing reads the zod issue code — only path and message render
             code: "custom",
             path,
-            message: "Date can't be in the future",
+            message: t("kidding.validation.dateFuture"),
           });
         }
       });
     });
 }
-type KiddingValues = z.infer<ReturnType<typeof kiddingSchema>>;
+type KiddingValues = z.infer<ReturnType<typeof buildKiddingSchema>>;
 
 /** The kidding date's floor depends on the pregnancy being closed, so it is
  * layered on per record: record_kidding() rejects both a gestation below the
@@ -217,15 +229,22 @@ type KiddingValues = z.infer<ReturnType<typeof kiddingSchema>>;
  * from the farm vocabulary, mirroring backend/app/models/species.py.
  * Catching violations here saves the operator from entering every kid row
  * first. */
-function kiddingSchemaFor(earliestDate: string, latestDate: string, vocabulary: FarmVocabulary) {
-  const dateLabel = cap(vocabulary.parturition);
-  return kiddingSchema(vocabulary).superRefine((values, ctx) => {
+function buildKiddingSchemaFor(
+  t: TFn,
+  vocabulary: FarmVocabulary,
+  earliestDate: string,
+  latestDate: string,
+) {
+  return buildKiddingSchema(t, vocabulary).superRefine((values, ctx) => {
     if (values.date && values.date < earliestDate) {
       ctx.addIssue({
         // Stryker disable next-line StringLiteral: nothing reads the zod issue code — only path and message render
         code: "custom",
         path: ["date"],
-        message: `${dateLabel} date cannot be before ${formatDate(earliestDate)}`,
+        message: t("kidding.validation.dateBeforeWindow", {
+          parturition: t("kidding.noun.parturitionCap"),
+          date: formatDate(earliestDate),
+        }),
       });
     }
     if (values.date && values.date > latestDate) {
@@ -233,7 +252,11 @@ function kiddingSchemaFor(earliestDate: string, latestDate: string, vocabulary: 
         // Stryker disable next-line StringLiteral: nothing reads the zod issue code — only path and message render
         code: "custom",
         path: ["date"],
-        message: `${dateLabel} date cannot be after ${formatDate(latestDate)} (gestation over ${vocabulary.facts.gestationWindowDays.max} days)`,
+        message: t("kidding.validation.dateAfterWindow", {
+          parturition: t("kidding.noun.parturitionCap"),
+          date: formatDate(latestDate),
+          days: vocabulary.facts.gestationWindowDays.max,
+        }),
       });
     }
   });
@@ -253,16 +276,19 @@ function kidErrorMessage(
   return errors.kids?.[index]?.[field]?.message;
 }
 
-// Stryker disable next-line StringLiteral: fixed copy — the string is asserted verbatim by the species-copy test
-const REARED_WITH_DAM = "raised alongside the dam in the RECOVERY bucket";
-// Stryker disable next-line StringLiteral: the goat profile is the only shipped vocabulary and keeps young with the dam, so this arm is unreachable — kept for future species profiles
-const REARED_IN_PENS = "raised in their sexed young-stock pens";
-
 /** The post-save explainer under the kid rows. Hoisted so the species
  *  conditional lives in statement context. */
-function kiddingOutcomeNote(vocabulary: FarmVocabulary): string {
-  const rearing = vocabulary.facts.youngStayWithDam ? REARED_WITH_DAM : REARED_IN_PENS;
-  return `Alive ${vocabulary.youngPlural} are auto-created as animals (source BORN, dam/sire linked, ${rearing}). A weaning task is auto-created for ${vocabulary.parturition} date + ${vocabulary.facts.weaningDays} days.`;
+function kiddingOutcomeNote(t: TFn, vocabulary: FarmVocabulary): string {
+  return t(
+    vocabulary.facts.youngStayWithDam
+      ? "kidding.dialog.outcomeNoteWithDam"
+      : "kidding.dialog.outcomeNotePens",
+    {
+      youngPlural: t("kidding.noun.youngPlural"),
+      parturition: t("kidding.noun.parturition"),
+      days: vocabulary.facts.weaningDays,
+    },
+  );
 }
 
 function isDiedKid(
@@ -303,9 +329,12 @@ function RecordKiddingDialog({
   const mutation = useCreateKiddingApiKiddingPost();
   const createFlight = useSingleFlight();
   const { language } = useLanguage();
+  const t = useT();
+  const mutationErrorMessage = useMutationError();
   const vocabulary = farmVocabulary;
-  const femaleLabel = cap(vocabulary.femaleAdult);
-  const youngLabel = cap(vocabulary.young);
+  const femaleNounCap = t("kidding.noun.femaleCap");
+  const youngNounCap = t("kidding.noun.youngCap");
+  const triItems = triStateItems(t);
   const [formError, setFormError] = useState<string | null>(null);
   const [earliestKiddingDate, latestKiddingDate] = useMemo(() => {
     const minGestationDate = addDays(
@@ -322,8 +351,8 @@ function RecordKiddingDialog({
     return [earliest, maxGestationDate < farmToday() ? maxGestationDate : farmToday()];
   }, [breeding.breeding_date, breeding.ultrasound_result_date, vocabulary]);
   const resolver = useMemo(
-    () => zodResolver(kiddingSchemaFor(earliestKiddingDate, latestKiddingDate, vocabulary)),
-    [earliestKiddingDate, latestKiddingDate, vocabulary],
+    () => zodResolver(buildKiddingSchemaFor(t, vocabulary, earliestKiddingDate, latestKiddingDate)),
+    [t, vocabulary, earliestKiddingDate, latestKiddingDate],
   );
   const {
     control,
@@ -398,14 +427,14 @@ function RecordKiddingDialog({
           },
         });
         if (!stillOwnsFarm()) return;
-        toast.success("Delivery recorded.");
+        toast.success(t("kidding.toast.recorded"));
         onClose();
         onSaved();
       } catch (err) {
         // L-26 (2026-09-17 audit): after a farm switch this stale failure must
         // not paint another farm's dialog or toast its error.
         if (!stillOwnsFarm()) return;
-        const message = errorText(err);
+        const message = mutationErrorMessage(err);
         setFormError(message);
         toast.error(message);
       }
@@ -420,12 +449,17 @@ function RecordKiddingDialog({
     >
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Record {vocabulary.parturition}</DialogTitle>
+          <DialogTitle>
+            {t("kidding.record", { parturition: t("kidding.noun.parturition") })}
+          </DialogTitle>
           <DialogDescription>
-            {femaleLabel} {breeding.doe_tag ?? `#${breeding.doe_id}`} · due{" "}
-            {formatDate(breeding.expected_kidding_date)}
+            {t("kidding.dialog.description", {
+              female: femaleNounCap,
+              doeTag: breeding.doe_tag ?? `#${breeding.doe_id}`,
+              date: formatDate(breeding.expected_kidding_date),
+            })}
             {breeding.kid_count_detected
-              ? ` (${breeding.kid_count_detected} detected)`
+              ? t("kidding.dialog.detectedSuffix", { count: breeding.kid_count_detected })
               : ""}
           </DialogDescription>
         </DialogHeader>
@@ -437,7 +471,9 @@ function RecordKiddingDialog({
           )}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="kidding_date">{cap(vocabulary.parturition)} date *</Label>
+              <Label htmlFor="kidding_date">
+                {t("kidding.dialog.dateLabel", { parturition: t("kidding.noun.parturitionCap") })}
+              </Label>
               <Input
                 id="kidding_date"
                 type="date"
@@ -455,7 +491,7 @@ function RecordKiddingDialog({
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="kidding-ease">Ease</Label>
+              <Label htmlFor="kidding-ease">{t("kidding.form.ease")}</Label>
               <Controller
                 control={control}
                 name="ease"
@@ -481,7 +517,7 @@ function RecordKiddingDialog({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="kidding-placenta">Placenta passed</Label>
+              <Label htmlFor="kidding-placenta">{t("kidding.form.placenta")}</Label>
               <Controller
                 control={control}
                 name="placenta"
@@ -490,7 +526,7 @@ function RecordKiddingDialog({
                     value={field.value}
                     disabled={isSubmitting || createFlight.pending}
                     onValueChange={field.onChange}
-                    items={TRI_STATE_ITEMS}
+                    items={triItems}
                   >
                     <SelectTrigger id="kidding-placenta" className="w-full">
                       <SelectValue />
@@ -498,7 +534,7 @@ function RecordKiddingDialog({
                     <SelectContent>
                       {TRI_STATES.map((v) => (
                         <SelectItem key={v} value={v}>
-                          {TRI_STATE_ITEMS[v]}
+                          {triItems[v]}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -521,11 +557,11 @@ function RecordKiddingDialog({
               )}
             />
             <Label htmlFor="kidding-mastitis" className="font-normal">
-              Mastitis suspected
+              {t("kidding.form.mastitis")}
             </Label>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="kidding_notes">Notes</Label>
+            <Label htmlFor="kidding_notes">{t("kidding.form.notes")}</Label>
             <Textarea
               id="kidding_notes"
               disabled={isSubmitting || createFlight.pending}
@@ -555,7 +591,7 @@ function RecordKiddingDialog({
           >
             <div className="flex items-center justify-between">
               <span id="kidding-kids-label" className="text-sm font-medium">
-                {cap(vocabulary.youngPlural)}
+                {t("kidding.noun.youngPluralCap")}
               </span>
               <Button
                 type="button"
@@ -565,7 +601,7 @@ function RecordKiddingDialog({
                 onClick={() => append(emptyKid())}
               >
                 <Plus />
-                Add {vocabulary.young}
+                {t("kidding.dialog.addYoung", { young: t("kidding.noun.young") })}
               </Button>
             </div>
             {fields.map((field, index) => (
@@ -575,7 +611,7 @@ function RecordKiddingDialog({
               >
                 <div className="col-span-2 space-y-1 sm:col-span-1">
                   <Label htmlFor={`kid-${field.id}-tag`} className="text-xs">
-                    {youngLabel} {index + 1} tag (auto if blank)
+                    {t("kidding.dialog.youngTagLabel", { young: youngNounCap, index: index + 1 })}
                   </Label>
                   <Input
                     id={`kid-${field.id}-tag`}
@@ -584,7 +620,7 @@ function RecordKiddingDialog({
                       errors.kids?.[index]?.tag ? `kid-${field.id}-tag-error` : undefined
                     }
                     {...register(`kids.${index}.tag`)}
-                    placeholder="auto"
+                    placeholder={t("kidding.dialog.tagPlaceholder")}
                   />
                   {errors.kids?.[index]?.tag && (
                     <p
@@ -598,7 +634,7 @@ function RecordKiddingDialog({
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor={`kid-${field.id}-sex`} className="text-xs">
-                    {youngLabel} {index + 1} sex
+                    {t("kidding.dialog.youngSexLabel", { young: youngNounCap, index: index + 1 })}
                   </Label>
                   <Controller
                     control={control}
@@ -609,8 +645,8 @@ function RecordKiddingDialog({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="F">Female</SelectItem>
-                          <SelectItem value="M">Male</SelectItem>
+                          <SelectItem value="F">{kidSexItems(language).F}</SelectItem>
+                          <SelectItem value="M">{kidSexItems(language).M}</SelectItem>
                         </SelectContent>
                       </Select>
                     )}
@@ -618,7 +654,10 @@ function RecordKiddingDialog({
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor={`kid-${field.id}-weight`} className="text-xs">
-                    {youngLabel} {index + 1} weight (kg)
+                    {t("kidding.dialog.youngWeightLabel", {
+                      young: youngNounCap,
+                      index: index + 1,
+                    })}
                   </Label>
                   <Input
                     id={`kid-${field.id}-weight`}
@@ -648,7 +687,10 @@ function RecordKiddingDialog({
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor={`kid-${field.id}-status`} className="text-xs">
-                    {youngLabel} {index + 1} status
+                    {t("kidding.dialog.youngStatusLabel", {
+                      young: youngNounCap,
+                      index: index + 1,
+                    })}
                   </Label>
                   <Controller
                     control={control}
@@ -692,7 +734,10 @@ function RecordKiddingDialog({
                   type="button"
                   variant="destructive"
                   size="sm"
-                  aria-label={`Remove ${vocabulary.young} ${index + 1}`}
+                  aria-label={t("kidding.dialog.removeYoung", {
+                    young: t("kidding.noun.young"),
+                    index: index + 1,
+                  })}
                   disabled={fields.length <= 1}
                   onClick={() => remove(index)}
                   className="justify-self-end"
@@ -707,7 +752,10 @@ function RecordKiddingDialog({
                   <div className="col-span-2 grid gap-2 sm:col-span-5 sm:grid-cols-[1fr_1fr_auto] sm:items-center">
                     <div className="space-y-1">
                       <Label htmlFor={`kid-${field.id}-colostrum`} className="text-xs">
-                        {youngLabel} {index + 1} colostrum within 2 h
+                        {t("kidding.dialog.colostrumLabel", {
+                          young: youngNounCap,
+                          index: index + 1,
+                        })}
                       </Label>
                       <Controller
                         control={control}
@@ -716,7 +764,7 @@ function RecordKiddingDialog({
                           <Select
                             value={f.value}
                             onValueChange={f.onChange}
-                            items={TRI_STATE_ITEMS}
+                            items={triItems}
                           >
                             <SelectTrigger id={`kid-${field.id}-colostrum`} size="sm">
                               <SelectValue />
@@ -724,7 +772,7 @@ function RecordKiddingDialog({
                             <SelectContent>
                               {TRI_STATES.map((v) => (
                                 <SelectItem key={v} value={v}>
-                                  {TRI_STATE_ITEMS[v]}
+                                  {triItems[v]}
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -734,7 +782,7 @@ function RecordKiddingDialog({
                     </div>
                     <div className="space-y-1">
                       <Label htmlFor={`kid-${field.id}-navel`} className="text-xs">
-                        {youngLabel} {index + 1} navel dipped (7% iodine)
+                        {t("kidding.dialog.navelLabel", { young: youngNounCap, index: index + 1 })}
                       </Label>
                       <Controller
                         control={control}
@@ -743,7 +791,7 @@ function RecordKiddingDialog({
                           <Select
                             value={f.value}
                             onValueChange={f.onChange}
-                            items={TRI_STATE_ITEMS}
+                            items={triItems}
                           >
                             <SelectTrigger id={`kid-${field.id}-navel`} size="sm">
                               <SelectValue />
@@ -751,7 +799,7 @@ function RecordKiddingDialog({
                             <SelectContent>
                               {TRI_STATES.map((v) => (
                                 <SelectItem key={v} value={v}>
-                                  {TRI_STATE_ITEMS[v]}
+                                  {triItems[v]}
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -772,7 +820,10 @@ function RecordKiddingDialog({
                         )}
                       />
                       <Label htmlFor={`kid-${field.id}-dam-rejected`} className="text-xs font-normal">
-                        {youngLabel} {index + 1} dam rejected
+                        {t("kidding.dialog.damRejectedLabel", {
+                          young: youngNounCap,
+                          index: index + 1,
+                        })}
                       </Label>
                     </div>
                   </div>
@@ -780,7 +831,10 @@ function RecordKiddingDialog({
                 {isDiedKid(kidValues, index) && (
                   <div className="col-span-2 space-y-1 sm:col-span-5">
                     <Label htmlFor={`kid-${field.id}-mortality`} className="text-xs">
-                      {youngLabel} {index + 1} mortality date *
+                      {t("kidding.dialog.mortalityLabel", {
+                        young: youngNounCap,
+                        index: index + 1,
+                      })}
                     </Label>
                     <Input
                       id={`kid-${field.id}-mortality`}
@@ -811,17 +865,20 @@ function RecordKiddingDialog({
               </div>
             ))}
             <p className="text-xs text-muted-foreground" aria-live="polite">
-              {fields.length} {fields.length === 1 ? vocabulary.young : vocabulary.youngPlural}{" "}
-              listed
+              {t("kidding.dialog.listedCount", {
+                count: fields.length,
+                noun:
+                  fields.length === 1 ? t("kidding.noun.young") : t("kidding.noun.youngPlural"),
+              })}
               {breeding.kid_count_detected !== null &&
                 // Stryker disable next-line ConditionalExpression: the wire field is number|null, so undefined only arrives from malformed payloads the !== null guard already treats the same way for every rendered value
                 breeding.kid_count_detected !== undefined &&
                 breeding.kid_count_detected !== fields.length &&
-                ` — ultrasound detected ${breeding.kid_count_detected}. Reconcile the difference or note the reason.`}
+                t("kidding.dialog.detectedMismatch", { count: breeding.kid_count_detected })}
             </p>
           </fieldset>
 
-          <p className="text-sm text-muted-foreground">{kiddingOutcomeNote(vocabulary)}</p>
+          <p className="text-sm text-muted-foreground">{kiddingOutcomeNote(t, vocabulary)}</p>
           <DialogFooter>
             <Button
               variant="outline"
@@ -829,14 +886,16 @@ function RecordKiddingDialog({
               onClick={onClose}
               disabled={isSubmitting || createFlight.pending}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="submit" disabled={isSubmitting || createFlight.pending}>
               {isSubmitting || createFlight.pending
-                ? "Saving…"
+                ? t("kidding.form.saving")
                 : formError
-                  ? `Retry save ${vocabulary.parturition}`
-                  : `Save ${vocabulary.parturition}`}
+                  ? t("kidding.dialog.retrySubmit", {
+                      parturition: t("kidding.noun.parturition"),
+                    })
+                  : t("kidding.dialog.submit", { parturition: t("kidding.noun.parturition") })}
             </Button>
           </DialogFooter>
         </form>
@@ -856,7 +915,7 @@ function KidsCell({
   canViewAnimals: boolean;
 }) {
   const { language } = useLanguage();
-  const vocabulary = farmVocabulary;
+  const t = useT();
   const kids = kidding.kids ?? [];
   if (kids.length === 0) return <span>—</span>;
   return (
@@ -866,22 +925,26 @@ function KidsCell({
           {i > 0 && ", "}
           {kid.animal_id && canViewAnimals ? (
             <Link href={`/animals/${kid.animal_id}`} className="text-primary underline">
-              {kid.tag ?? vocabulary.young}
+              {kid.tag ?? t("kidding.noun.young")}
             </Link>
           ) : (
-            (kid.tag ?? vocabulary.young)
+            (kid.tag ?? t("kidding.noun.young"))
           )}{" "}
           (
           {[
             enumLabel("sex", kid.sex, language),
-            kid.status.toLowerCase(),
+            kidStatusItems(language)[kid.status] ?? kid.status,
             kid.colostrum_within_2h === null
               ? null
-              : `colostrum ${kid.colostrum_within_2h ? "yes" : "no"}`,
+              : t(
+                  kid.colostrum_within_2h
+                    ? "kidding.history.colostrumYes"
+                    : "kidding.history.colostrumNo",
+                ),
             kid.navel_dipped === null
               ? null
-              : `navel dipped ${kid.navel_dipped ? "yes" : "no"}`,
-            kid.dam_rejected ? "dam rejected" : null,
+              : t(kid.navel_dipped ? "kidding.history.navelYes" : "kidding.history.navelNo"),
+            kid.dam_rejected ? t("kidding.history.damRejected") : null,
           ]
             .filter(Boolean)
             .join(", ")}
@@ -894,15 +957,13 @@ function KidsCell({
 
 /** Postpartum facts under the ease badge: parity (server-derived), placenta
  *  and the mastitis flag — only what was recorded, kept on one muted line. */
-function kiddingCareFacts(kidding: KiddingRecordOut): string | null {
+function kiddingCareFacts(kidding: KiddingRecordOut, t: TFn): string | null {
   const facts = [
-    kidding.parity !== null ? `parity ${kidding.parity}` : null,
+    kidding.parity !== null ? t("kidding.history.parityFact", { value: kidding.parity }) : null,
     kidding.placenta_passed === null
       ? null
-      : kidding.placenta_passed
-        ? "placenta passed"
-        : "placenta not passed",
-    kidding.mastitis_suspected ? "mastitis suspected" : null,
+      : t(kidding.placenta_passed ? "kidding.history.placentaYes" : "kidding.history.placentaNo"),
+    kidding.mastitis_suspected ? t("kidding.history.mastitisFact") : null,
   ].filter(Boolean);
   return facts.length > 0 ? facts.join(" · ") : null;
 }
@@ -910,8 +971,8 @@ function kiddingCareFacts(kidding: KiddingRecordOut): string | null {
 function KiddingPageContent({ perms }: { perms: PermissionsState }) {
   const queryClient = useQueryClient();
   const { language } = useLanguage();
-  const vocabulary = farmVocabulary;
-  const femaleLabel = cap(vocabulary.femaleAdult);
+  const t = useT();
+  const femaleNounCap = t("kidding.noun.femaleCap");
   const { can } = perms;
   const allowed = can("kidding.view");
   const canManage = can("kidding.manage");
@@ -1034,11 +1095,11 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
         <div className="space-y-3" role="alert">
           <p className="text-sm text-destructive">
             {query.error instanceof ApiError
-              ? query.error.detail
-              : `Could not load ${vocabulary.parturition} data.`}
+              ? mapServerError(t, query.error.detail, query.error.status, query.error.code)
+              : t("kidding.error.loadFailed", { parturition: t("kidding.noun.parturition") })}
           </p>
           <Button type="button" variant="outline" onClick={() => void query.refetch()}>
-            Retry {vocabulary.parturition} data
+            {t("kidding.error.retry", { parturition: t("kidding.noun.parturition") })}
           </Button>
         </div>
       );
@@ -1046,11 +1107,13 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
     return (
       <div className="space-y-6">
         <PageHeader
-          title={vocabulary.parturitionCap}
-          description={`Confirmed pregnancies due soon and recent ${vocabulary.parturition} history.`}
+          title={t("kidding.title")}
+          description={t("kidding.description", { parturition: t("kidding.noun.parturition") })}
         />
         <div role="status" aria-live="polite">
-          <span className="sr-only">Loading {vocabulary.parturition} data…</span>
+          <span className="sr-only">
+            {t("kidding.loading", { parturition: t("kidding.noun.parturition") })}
+          </span>
           <PageSkeleton cards={2} />
         </div>
       </div>
@@ -1072,7 +1135,7 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
         disabled={queuesSettling}
         onClick={() => setRecordFor(r)}
       >
-        Record {vocabulary.parturition}
+        {t("kidding.record", { parturition: t("kidding.noun.parturition") })}
       </Button>
     );
   }
@@ -1082,10 +1145,10 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
   function doeCell(doeId: number, doeTag: string | null | undefined) {
     return canViewAnimals ? (
       <Link href={`/animals/${doeId}`} className="text-primary underline">
-        {doeTag ?? `${femaleLabel} #${doeId}`}
+        {doeTag ?? `${femaleNounCap} #${doeId}`}
       </Link>
     ) : (
-      (doeTag ?? `${femaleLabel} #${doeId}`)
+      (doeTag ?? `${femaleNounCap} #${doeId}`)
     );
   }
 
@@ -1093,13 +1156,13 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
     <div className="space-y-6">
       {query.isError && <StaleDataNotice onRetry={() => void query.refetch()} />}
       <PageHeader
-        title={vocabulary.parturitionCap}
-        description={`Confirmed pregnancies due soon and recent ${vocabulary.parturition} history.`}
+        title={t("kidding.title")}
+        description={t("kidding.description", { parturition: t("kidding.noun.parturition") })}
       />
 
       {queuesSettling && (
         <p role="status" className="text-sm text-muted-foreground">
-          Updating {vocabulary.parturition} queues…
+          {t("kidding.updating", { parturition: t("kidding.noun.parturition") })}
         </p>
       )}
 
@@ -1107,10 +1170,19 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
         <div role="status" className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-muted-foreground">
             {deepLinkNotFound
-              ? `Pregnancy #${requestedBreedingId} is no longer available — it was resolved, recorded, or removed. There is nothing to record here.`
+              ? t("kidding.deepLink.notFound", {
+                  // Stryker disable next-line LogicalOperator: staleDeepLink requires a non-null id, so the 0 fallback never renders
+                  id: requestedBreedingId ?? 0,
+                })
               : requestedRecord?.has_kidding
-                ? `Pregnancy #${requestedBreedingId} already has a ${vocabulary.parturition} recorded.`
-                : `Pregnancy #${requestedBreedingId} is no longer confirmed pregnant — no ${vocabulary.parturition} to record.`}
+                ? t("kidding.deepLink.alreadyRecorded", {
+                    id: requestedBreedingId ?? 0,
+                    parturition: t("kidding.noun.parturition"),
+                  })
+                : t("kidding.deepLink.notConfirmed", {
+                    id: requestedBreedingId ?? 0,
+                    parturition: t("kidding.noun.parturition"),
+                  })}
           </span>
           <Button
             type="button"
@@ -1118,7 +1190,7 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
             variant="outline"
             onClick={() => setDismissedPrefillId(requestedBreedingId)}
           >
-            Clear link
+            {t("kidding.deepLink.clear")}
           </Button>
         </div>
       )}
@@ -1127,8 +1199,8 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
         <div className="flex flex-wrap items-center gap-2" role="alert">
           <span className="text-sm text-destructive">
             {prefillRecordQuery.error instanceof ApiError
-              ? prefillRecordQuery.error.detail
-              : "Could not load the linked pregnancy."}
+              ? mapServerError(t, prefillRecordQuery.error.detail, prefillRecordQuery.error.status, prefillRecordQuery.error.code)
+              : t("kidding.error.loadLinkedFailed")}
           </span>
           <Button
             type="button"
@@ -1136,7 +1208,7 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
             variant="outline"
             onClick={() => void prefillRecordQuery.refetch()}
           >
-            Retry linked pregnancy
+            {t("kidding.error.retryLinked")}
           </Button>
         </div>
       )}
@@ -1146,10 +1218,10 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
           title={
             <span className="flex items-center gap-2 text-destructive">
               <AlertTriangle className="size-4" />
-              Overdue (past expected date, no {vocabulary.parturition} recorded)
+              {t("kidding.overdue.title", { parturition: t("kidding.noun.parturition") })}
             </span>
           }
-          description={`${payload.overdue_total} overdue pregnancies in the full queue.`}
+          description={t("kidding.overdue.description", { count: payload.overdue_total })}
         >
           {/* Below md the overdue queue becomes a card per pregnancy — the
            * Record action is the whole point of this list, so it must be a
@@ -1159,10 +1231,12 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
               <div key={r.id} className="space-y-2 rounded-xl border bg-card p-3 shadow-xs">
                 <p className="font-medium">{doeCell(r.doe_id, r.doe_tag)}</p>
                 <p className="text-xs text-muted-foreground">
-                  was due {formatDate(r.expected_kidding_date)}{" "}
+                  {t("kidding.overdue.wasDue", { date: formatDate(r.expected_kidding_date) })}{" "}
                   {r.expected_kidding_date && (
                     <span className="text-destructive">
-                      ({daysBetween(r.expected_kidding_date, today)}d late)
+                      {t("kidding.overdue.daysLate", {
+                        days: daysBetween(r.expected_kidding_date, today),
+                      })}
                     </span>
                   )}
                 </p>
@@ -1174,9 +1248,11 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
           <Table className="min-w-[560px]">
             <TableHeader className="sr-only">
               <TableRow>
-                <th scope="col">{femaleLabel}</th>
-                <th scope="col">Was due</th>
-                <th scope="col">Record {vocabulary.parturition}</th>
+                <th scope="col">{femaleNounCap}</th>
+                <th scope="col">{t("kidding.overdue.wasDueHead")}</th>
+                <th scope="col">
+                  {t("kidding.record", { parturition: t("kidding.noun.parturition") })}
+                </th>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1188,17 +1264,19 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
                         href={`/animals/${r.doe_id}`}
                         className="text-primary underline"
                       >
-                        {r.doe_tag ?? `${femaleLabel} #${r.doe_id}`}
+                        {r.doe_tag ?? `${femaleNounCap} #${r.doe_id}`}
                       </Link>
                     ) : (
-                      r.doe_tag ?? `${femaleLabel} #${r.doe_id}`
+                      r.doe_tag ?? `${femaleNounCap} #${r.doe_id}`
                     )}
                   </TableCell>
                   <TableCell>
-                    was due {formatDate(r.expected_kidding_date)}{" "}
+                    {t("kidding.overdue.wasDue", { date: formatDate(r.expected_kidding_date) })}{" "}
                     {r.expected_kidding_date && (
                       <span className="text-destructive">
-                        ({daysBetween(r.expected_kidding_date, today)}d late)
+                        {t("kidding.overdue.daysLate", {
+                          days: daysBetween(r.expected_kidding_date, today),
+                        })}
                       </span>
                     )}
                   </TableCell>
@@ -1213,26 +1291,21 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
             limit={payload.overdue_limit}
             offset={payload.overdue_offset}
             onOffsetChange={setOverdueOffset}
-            label="overdue pregnancies"
+            label={t("kidding.overdue.paginationLabel")}
             disabled={queuesSettling}
           />
         </DataTableCard>
       )}
 
       <DataTableCard
-        title="Upcoming (next 30 days)"
-        description={`${payload.upcoming_total} confirmed pregnancies in the full 30-day queue.`}
+        title={t("kidding.upcoming.title")}
+        description={t("kidding.upcoming.description", { count: payload.upcoming_total })}
       >
         {payload.upcoming.length === 0 ? (
           <EmptyState
             icon={CalendarClock}
-            title="No confirmed pregnancies due in the next 30 days."
-            description={
-              <>
-                Confirmed pregnancies appear here as their due dates approach — record
-                ultrasound results in Breeding.
-              </>
-            }
+            title={t("kidding.upcoming.emptyTitle")}
+            description={t("kidding.upcoming.emptyDescription")}
           >
             {canViewBreeding && (
               <Link
@@ -1240,7 +1313,7 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
                 // Stryker disable next-line ObjectLiteral, StringLiteral: cva resolves variant "default" to the same classes as the fallback, and the sm size only changes padding classes no test observes (duties record-row precedent)
                 className={buttonVariants({ variant: "default", size: "sm" })}
               >
-                Go to Breeding
+                {t("kidding.upcoming.goToBreeding")}
               </Link>
             )}
           </EmptyState>
@@ -1254,14 +1327,19 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
                   <span className="font-medium">{doeCell(r.doe_id, r.doe_tag)}</span>
                   {r.expected_kidding_date && (
                     <Badge variant="secondary">
-                      {daysBetween(today, r.expected_kidding_date)}d left
+                      {t("kidding.upcoming.daysLeft", {
+                        days: daysBetween(today, r.expected_kidding_date),
+                      })}
                     </Badge>
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground tabular-nums">
-                  Bred {formatDate(r.breeding_date)} · Expected{" "}
-                  {formatDate(r.expected_kidding_date)} ·{" "}
-                  {cap(vocabulary.youngPlural)} detected: {r.kid_count_detected ?? "—"}
+                  {t("kidding.upcoming.cardLine", {
+                    bred: formatDate(r.breeding_date),
+                    expected: formatDate(r.expected_kidding_date),
+                    young: t("kidding.noun.youngPluralCap"),
+                    count: r.kid_count_detected ?? "—",
+                  })}
                 </p>
                 {recordButton(r, true)}
               </div>
@@ -1271,11 +1349,15 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
           <Table className="min-w-[720px]">
             <TableHeader>
               <TableRow>
-                <TableHead>{femaleLabel}</TableHead>
-                <TableHead>Bred</TableHead>
-                <TableHead>Expected</TableHead>
-                <TableHead>Days left</TableHead>
-                <TableHead>{cap(vocabulary.youngPlural)} detected</TableHead>
+                <TableHead>{femaleNounCap}</TableHead>
+                <TableHead>{t("kidding.table.bred")}</TableHead>
+                <TableHead>{t("kidding.table.expected")}</TableHead>
+                <TableHead>{t("kidding.table.daysLeft")}</TableHead>
+                <TableHead>
+                  {t("kidding.table.youngDetected", {
+                    young: t("kidding.noun.youngPluralCap"),
+                  })}
+                </TableHead>
                 {canManage && <TableHead className="text-right" />}
               </TableRow>
             </TableHeader>
@@ -1288,10 +1370,10 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
                         href={`/animals/${r.doe_id}`}
                         className="text-primary underline"
                       >
-                        {r.doe_tag ?? `${femaleLabel} #${r.doe_id}`}
+                        {r.doe_tag ?? `${femaleNounCap} #${r.doe_id}`}
                       </Link>
                     ) : (
-                      r.doe_tag ?? `${femaleLabel} #${r.doe_id}`
+                      r.doe_tag ?? `${femaleNounCap} #${r.doe_id}`
                     )}
                   </TableCell>
                   <TableCell>{formatDate(r.breeding_date)}</TableCell>
@@ -1317,20 +1399,28 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
           limit={payload.upcoming_limit}
           offset={payload.upcoming_offset}
           onOffsetChange={setUpcomingOffset}
-          label="upcoming pregnancies"
+          label={t("kidding.upcoming.paginationLabel")}
           disabled={queuesSettling}
         />
       </DataTableCard>
 
       <DataTableCard
-        title={`Recent ${vocabulary.parturition}s`}
-        description={`Latest recorded ${vocabulary.parturition}s with ease and ${vocabulary.youngPlural} outcomes.`}
+        title={t("kidding.history.title", { parturitions: t("kidding.noun.parturitionPlural") })}
+        description={t("kidding.history.description", {
+          parturitions: t("kidding.noun.parturitionPlural"),
+          youngPlural: t("kidding.noun.youngPlural"),
+        })}
       >
         {payload.records.length === 0 ? (
           <EmptyState
             icon={Baby}
-            title={`No ${vocabulary.parturition}s recorded yet.`}
-            description={`Record a ${vocabulary.parturition} from the upcoming list once a ${vocabulary.femaleAdult} delivers.`}
+            title={t("kidding.history.emptyTitle", {
+              parturitions: t("kidding.noun.parturitionPlural"),
+            })}
+            description={t("kidding.history.emptyDescription", {
+              parturition: t("kidding.noun.parturition"),
+              female: t("kidding.noun.female"),
+            })}
           />
         ) : (
           <>
@@ -1344,11 +1434,11 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
                   <StatusBadge status={k.ease}>{easeItems(language)[k.ease] ?? k.ease}</StatusBadge>
                 </div>
                 <p className="text-sm">{doeCell(k.doe_id, k.doe_tag)}</p>
-                {kiddingCareFacts(k) && (
-                  <p className="text-xs text-muted-foreground">{kiddingCareFacts(k)}</p>
+                {kiddingCareFacts(k, t) && (
+                  <p className="text-xs text-muted-foreground">{kiddingCareFacts(k, t)}</p>
                 )}
                 <p className="text-xs text-muted-foreground">
-                  {cap(vocabulary.youngPlural)}:{" "}
+                  {t("kidding.noun.youngPluralCap")}:{" "}
                   <KidsCell kidding={k} canViewAnimals={canViewAnimals} />
                 </p>
                 {k.notes && <p className="text-xs text-muted-foreground">{k.notes}</p>}
@@ -1359,11 +1449,11 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
           <Table className="min-w-[720px]">
             <TableHeader>
               <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>{femaleLabel}</TableHead>
-                <TableHead>Ease</TableHead>
-                <TableHead>{cap(vocabulary.youngPlural)}</TableHead>
-                <TableHead>Notes</TableHead>
+                <TableHead>{t("kidding.history.tableDate")}</TableHead>
+                <TableHead>{femaleNounCap}</TableHead>
+                <TableHead>{t("kidding.form.ease")}</TableHead>
+                <TableHead>{t("kidding.noun.youngPluralCap")}</TableHead>
+                <TableHead>{t("kidding.form.notes")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1376,17 +1466,17 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
                         href={`/animals/${k.doe_id}`}
                         className="text-primary underline"
                       >
-                        {k.doe_tag ?? `${femaleLabel} #${k.doe_id}`}
+                        {k.doe_tag ?? `${femaleNounCap} #${k.doe_id}`}
                       </Link>
                     ) : (
-                      k.doe_tag ?? `${femaleLabel} #${k.doe_id}`
+                      k.doe_tag ?? `${femaleNounCap} #${k.doe_id}`
                     )}
                   </TableCell>
                   <TableCell>
                     <StatusBadge status={k.ease}>{easeItems(language)[k.ease] ?? k.ease}</StatusBadge>
-                    {kiddingCareFacts(k) && (
+                    {kiddingCareFacts(k, t) && (
                       <span className="block text-xs text-muted-foreground">
-                        {kiddingCareFacts(k)}
+                        {kiddingCareFacts(k, t)}
                       </span>
                     )}
                   </TableCell>
@@ -1406,7 +1496,9 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
           limit={payload.limit}
           offset={payload.offset}
           onOffsetChange={setHistoryOffset}
-          label={`${vocabulary.parturition} records`}
+          label={t("kidding.history.paginationLabel", {
+            parturition: t("kidding.noun.parturition"),
+          })}
           disabled={queuesSettling}
         />
       </DataTableCard>
@@ -1434,12 +1526,12 @@ function KiddingPageContent({ perms }: { perms: PermissionsState }) {
 
 export default function KiddingPage() {
   const perms = usePermissions();
-  const vocabulary = farmVocabulary;
+  const t = useT();
   return (
     <Suspense
       fallback={
         <div role="status" aria-live="polite">
-          <span className="sr-only">Loading…</span>
+          <span className="sr-only">{t("common.loading")}</span>
           <PageSkeleton cards={2} />
         </div>
       }
@@ -1447,8 +1539,8 @@ export default function KiddingPage() {
       <PermissionGate
         perms={perms}
         perm="kidding.view"
-        label={vocabulary.parturitionCap}
-        description={`Confirmed pregnancies due soon and recent ${vocabulary.parturition} history.`}
+        label={t("kidding.title")}
+        description={t("kidding.description", { parturition: t("kidding.noun.parturition") })}
         cards={2}
       >
         <KiddingPageContent perms={perms} />

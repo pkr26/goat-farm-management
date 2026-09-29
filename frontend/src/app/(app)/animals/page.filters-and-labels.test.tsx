@@ -181,7 +181,7 @@ describe("AnimalsPage filter sentinel and labels", () => {
     // use for "no filter"; it means "unfiltered", never a bucket named ALL.
     nav.state.search = "bucket=ALL&sex=ALL&status=ALL";
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
 
     expect(seenParams.at(-1)?.get("bucket")).toBeNull();
     expect(seenParams.at(-1)?.get("sex")).toBeNull();
@@ -199,7 +199,7 @@ describe("AnimalsPage filter sentinel and labels", () => {
   it("labels the neutral bucket and sex filters and the chosen sex/status", async () => {
     const user = userEvent.setup();
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
 
     expect(screen.getByLabelText("Filter animals by bucket")).toHaveTextContent(
       "All buckets",
@@ -216,7 +216,7 @@ describe("AnimalsPage filter sentinel and labels", () => {
   it("labels the dialog's source and bucket triggers with their display text", async () => {
     const user = userEvent.setup();
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
     const dialog = await openCreateDialog(user);
 
     await pickOption(
@@ -236,7 +236,7 @@ describe("AnimalsPage filter sentinel and labels", () => {
   it("shows the em-dash placeholder until a birth type is chosen", async () => {
     const user = userEvent.setup();
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
     const dialog = await openCreateDialog(user);
     await startHistoricalImport(user, dialog, "Birth type placeholder fixture");
 
@@ -250,7 +250,7 @@ describe("AnimalsPage create dialog guards", () => {
   it("spells out the BREEDING thresholds for the selected sex", async () => {
     const user = userEvent.setup();
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
     const dialog = await openCreateDialog(user);
     await startHistoricalImport(user, dialog, "Breeding threshold hint fixture");
 
@@ -270,7 +270,7 @@ describe("AnimalsPage create dialog guards", () => {
   it("rejects a future entry-weight date inline instead of hitting the API", async () => {
     const user = userEvent.setup();
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
     const dialog = await openCreateDialog(user);
     await startHistoricalImport(user, dialog, "Entry weight date fixture");
     // A weight can only have been taken on or before the farm's today.
@@ -287,7 +287,7 @@ describe("AnimalsPage create dialog guards", () => {
   it("rejects a birth weight above the species' newborn band", async () => {
     const user = userEvent.setup();
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
     const dialog = await openCreateDialog(user);
     await startHistoricalImport(user, dialog, "Birth weight ceiling fixture");
     await user.type(within(dialog).getByLabelText("Birth weight (kg)"), "1200");
@@ -314,7 +314,7 @@ describe("AnimalsPage create dialog guards", () => {
     );
     const user = userEvent.setup();
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
     const dialog = await openCreateDialog(user);
     await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
 
@@ -331,7 +331,7 @@ describe("AnimalsPage create dialog guards", () => {
   it("reverts a historical import to Purchased when the owner grant is lost", async () => {
     const user = userEvent.setup();
     const view = renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
     const dialog = await openCreateDialog(user);
     await startHistoricalImport(user, dialog, "Owner grant withdrawn fixture");
     expect(within(dialog).getByLabelText("Historical import reason *")).toBeInTheDocument();
@@ -376,7 +376,7 @@ describe("AnimalsPage list URL contract", () => {
   it("records the chosen sex filter in the URL and clears it on reset", async () => {
     const user = userEvent.setup();
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
 
     await pickOption(user, screen.getByLabelText("Filter animals by sex"), "Male");
     await waitFor(() => expect(nav.replace).toHaveBeenCalled());
@@ -391,7 +391,7 @@ describe("AnimalsPage list URL contract", () => {
   it("records the chosen status filter in the URL and keeps it after the commit", async () => {
     const user = userEvent.setup();
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
 
     await pickOption(user, screen.getByLabelText("Filter animals by status"), "Sold");
     await waitFor(() => expect(nav.replace).toHaveBeenCalled());
@@ -407,7 +407,7 @@ describe("AnimalsPage list URL contract", () => {
     const user = userEvent.setup();
     nav.state.search = "offset=100";
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
     // `page` is the canonical browser state; the request offset comes from it.
     expect(seenParams[0].get("offset")).toBe("0");
 
@@ -419,7 +419,7 @@ describe("AnimalsPage list URL contract", () => {
 
   it("strips a ?new=1 flag that arrives by a later client navigation", async () => {
     const view = renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
     expect(nav.replace).not.toHaveBeenCalled();
 
     nav.state.search = "new=1";
@@ -435,7 +435,7 @@ describe("AnimalsPage navigation fence", () => {
     const user = userEvent.setup();
     nav.state.deferReplace = true;
     const view = renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
 
     await user.type(
       screen.getByRole("searchbox", { name: "Search animals by tag" }),
@@ -460,7 +460,7 @@ describe("AnimalsPage navigation fence", () => {
     const user = userEvent.setup();
     nav.state.deferReplace = true;
     const view = renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
 
     await pickOption(user, screen.getByLabelText("Filter animals by bucket"), "Female kids");
     await waitFor(() => expect(nav.state.deferredReplacements).toHaveLength(1));
@@ -506,7 +506,7 @@ describe("AnimalsPage first request after a client-side navigation", () => {
         <AnimalsPage />
       </WhenSessionReady>,
     );
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
 
     // Permissions are already cached on an in-session navigation, so the very
     // first request must be the filtered one — no unfiltered herd fetch first.
@@ -524,7 +524,7 @@ describe("AnimalsPage first request after a client-side navigation", () => {
         <AnimalsPage />
       </WhenSessionReady>,
     );
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
 
     expect(seenParams).toHaveLength(1);
     expect(seenParams[0].get("q")).toBeNull();

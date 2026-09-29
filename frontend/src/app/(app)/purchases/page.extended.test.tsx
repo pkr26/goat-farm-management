@@ -763,7 +763,8 @@ describe("PurchasesPage batch detail dialog", () => {
     expect(link).toHaveAttribute("href", "/animals/11");
     const row = link.closest("tr") as HTMLElement;
     expect(within(row).getByText("Quarantine")).toBeInTheDocument();
-    expect(within(row).getByText("ACTIVE")).toBeInTheDocument();
+    // The status cell resolves through the shared enum labels, not the raw code.
+    expect(within(row).getByText("Active")).toBeInTheDocument();
   });
 
   it("shows only PENDING tasks as open quarantine tasks", async () => {

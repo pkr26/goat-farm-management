@@ -70,7 +70,8 @@ import { ApiError } from "@/lib/api-client";
 import { useMutationError } from "@/lib/mutations";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { useAuth } from "@/lib/auth-context";
-import { useT } from "@/lib/i18n";
+import { translate, useT, type TFn } from "@/lib/i18n";
+import { mapServerError } from "@/lib/server-error-phrases";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 
@@ -97,24 +98,34 @@ function useInvalidateTeam() {
   };
 }
 
-const workerSchema = z.object({
-  name: z.string().trim().max(120).optional(),
-  email: z
-    .string()
-    .trim()
-    .email("Enter a valid email address")
-    .max(254, "Email must be at most 254 characters"),
-  role_id: z.string().min(1, "Pick a role"),
-  password: z
-    .string()
-    .min(12, "Password must be at least 12 characters")
-    .max(128, "Password must be at most 128 characters"),
-});
+/** Validation messages resolve through the i18n catalog, so each schema is
+ * built by a factory taking the caller's `t`; the mounted dialogs rebuild
+ * their resolver whenever the active language changes (health page pattern).
+ * The exported English instances serve direct schema-level tests. */
+export function buildWorkerSchema(t: TFn) {
+  return z.object({
+    name: z.string().trim().max(120).optional(),
+    email: z
+      .string()
+      .trim()
+      .email(t("team.validation.emailInvalid"))
+      .max(254, t("team.validation.emailMax")),
+    role_id: z.string().min(1, t("team.validation.pickRole")),
+    password: z
+      .string()
+      .min(12, t("team.validation.passwordMin"))
+      .max(128, t("team.validation.passwordMax")),
+  });
+}
+export const workerSchema = buildWorkerSchema((key, vars) => translate("en", key, vars));
 type WorkerValues = z.infer<typeof workerSchema>;
 
-const resetSchema = z.object({
-  password: z.string().min(12, "Password must be at least 12 characters").max(128),
-});
+export function buildResetSchema(t: TFn) {
+  return z.object({
+    password: z.string().min(12, t("team.validation.passwordMin")).max(128),
+  });
+}
+export const resetSchema = buildResetSchema((key, vars) => translate("en", key, vars));
 type ResetValues = z.infer<typeof resetSchema>;
 
 /** Mirrors the backend's phone pattern (^\+?[0-9]{10,19}$ — ITEM 4.6). */
@@ -143,10 +154,13 @@ const ALERT_CLASSES = [
   { field: "movement_restriction", labelKey: "team.notifications.class.movement_restriction" },
 ] as const;
 
-const roleSchema = z.object({
-  name: z.string().trim().min(1, "Name is required").max(80),
-  description: z.string().trim().max(255).optional(),
-});
+export function buildRoleSchema(t: TFn) {
+  return z.object({
+    name: z.string().trim().min(1, t("team.validation.nameRequired")).max(80),
+    description: z.string().trim().max(255).optional(),
+  });
+}
+export const roleSchema = buildRoleSchema((key, vars) => translate("en", key, vars));
 type RoleValues = z.infer<typeof roleSchema>;
 
 /** Every action is unusable in the UI unless its module's view permission is
@@ -203,6 +217,7 @@ interface WorkerControlsProps {
 
 function useWorkerControls({ m, roles, can, isOwner, onReset, authority }: WorkerControlsProps) {
   const mutationErrorMessage = useMutationError();
+  const t = useT();
   const invalidate = useInvalidateTeam();
   const roleMutation = useChangeRoleApiTeamWorkersMembershipIdRolePost();
   const statusMutation = useSetWorkerStatusApiTeamWorkersMembershipIdStatusPut();
@@ -231,7 +246,7 @@ function useWorkerControls({ m, roles, can, isOwner, onReset, authority }: Worke
     resetOwned;
   const assignableRoles = roles.filter((role) => roleWithinCeiling(role, can, isOwner));
   const roleItems: Record<string, string> = {
-    [NONE]: "No role",
+    [NONE]: t("team.workers.noRole"),
     ...Object.fromEntries(roles.map((r) => [String(r.id), r.name])),
   };
   const [confirmDeactivateOpen, setConfirmDeactivateOpen] = useState(false);
@@ -245,7 +260,7 @@ function useWorkerControls({ m, roles, can, isOwner, onReset, authority }: Worke
     try {
       await roleMutation.mutateAsync({ membershipId: m.id, data: { role_id: roleId } });
       if (!farmScope()) return;
-      toast.success("Role updated.");
+      toast.success(t("team.toast.roleUpdated"));
       // Keep the row claimed until the server-owned role/status snapshot has
       // landed. Unlocking after only the POST response exposes stale controls
       // (including controls the newly assigned role may make protected).
@@ -277,7 +292,9 @@ function useWorkerControls({ m, roles, can, isOwner, onReset, authority }: Worke
         data: { is_active: desiredActive },
       });
       if (!farmScope()) return;
-      toast.success(desiredActive ? "Worker activated." : "Worker deactivated.");
+      toast.success(
+        desiredActive ? t("team.toast.workerActivated") : t("team.toast.workerDeactivated"),
+      );
       await invalidate();
     } catch (err) {
       if (!farmScope()) return;
@@ -340,6 +357,7 @@ function WorkerRoleField({
   isSelf: boolean;
   protectedTarget: boolean;
 }) {
+  const t = useT();
   const { rowBusy, assignableRoles, roleItems, actionError, changeRole } = controls;
   return (
     <>
@@ -355,14 +373,14 @@ function WorkerRoleField({
         <SelectTrigger
           size="sm"
           className="w-full"
-          aria-label={`Role for ${m.name ?? m.email}`}
+          aria-label={t("team.workers.roleFieldAria", { name: m.name ?? m.email })}
         >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
           {m.role_id === null && (
             <SelectItem value={NONE} disabled>
-              No role
+              {t("team.workers.noRole")}
             </SelectItem>
           )}
           {assignableRoles.map((r) => (
@@ -386,7 +404,7 @@ function WorkerRoleField({
               if (actionError.roleId !== undefined) void changeRole(actionError.roleId);
             }}
           >
-            Retry role change
+            {t("team.actions.retryRoleChange")}
           </Button>
         </div>
       )}
@@ -431,11 +449,11 @@ function WorkerActions({
       <div className="flex flex-wrap items-center gap-2">
         {isSelf ? (
           <span className="text-xs text-muted-foreground">
-            Manage your password from Account.
+            {t("team.workers.selfPasswordHint")}
           </span>
         ) : protectedTarget ? (
           <span className="text-xs text-muted-foreground">
-            You can only manage workers whose current role stays within your own permissions.
+            {t("team.workers.protectedHint")}
           </span>
         ) : (
           <Button
@@ -445,7 +463,7 @@ function WorkerActions({
             disabled={rowBusy}
             onClick={() => void setWorkerActive(!m.is_active)}
           >
-            {m.is_active ? "Deactivate" : "Activate"}
+            {m.is_active ? t("team.actions.deactivate") : t("team.actions.activate")}
           </Button>
         )}
         {isOwner && !isSelf && !protectedTarget && (
@@ -460,7 +478,7 @@ function WorkerActions({
               }
               onClick={startReset}
             >
-              Reset password
+              {t("team.actions.resetPassword")}
             </Button>
             {!m.can_reset_password && m.reset_password_block_reason && (
               <p
@@ -496,11 +514,10 @@ function WorkerActions({
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Deactivate {m.name ?? m.email}?</DialogTitle>
+            <DialogTitle>{t("team.deactivate.title", { name: m.name ?? m.email })}</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            They will immediately lose access to this farm. The membership and its audit
-            history are retained and can be reactivated later.
+            {t("team.deactivate.body")}
           </p>
           <DialogFooter>
             <Button
@@ -508,7 +525,7 @@ function WorkerActions({
               variant="outline"
               onClick={() => setConfirmDeactivateOpen(false)}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               type="button"
@@ -518,7 +535,7 @@ function WorkerActions({
                 void setWorkerActive(false, false);
               }}
             >
-              Deactivate worker
+              {t("team.deactivate.confirm")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -538,7 +555,7 @@ function WorkerActions({
               void setWorkerActive(actionError.desiredActive ?? !m.is_active, false)
             }
           >
-            Retry {m.is_active ? "deactivate" : "activate"}
+            {m.is_active ? t("team.actions.retryDeactivate") : t("team.actions.retryActivate")}
           </Button>
         </div>
       )}
@@ -616,10 +633,15 @@ function AddWorkerDialog({
   authority: TeamAuthority;
 }) {
   const mutationErrorMessage = useMutationError();
+  const t = useT();
   const invalidate = useInvalidateTeam();
   const createMutation = useCreateWorkerApiTeamWorkersPost();
   const createFlight = useSingleFlight();
   const [formError, setFormError] = useState<string | null>(null);
+  // Rebuilt when the language changes so client-side validation messages
+  // render in the active language; react-hook-form re-reads the resolver
+  // option every render (health page pattern).
+  const localizedSchema = useMemo(() => buildWorkerSchema(t), [t]);
   const {
     register,
     handleSubmit,
@@ -628,7 +650,7 @@ function AddWorkerDialog({
     setValue,
     formState: { errors, isSubmitting },
   } = useForm<WorkerValues>({
-    resolver: zodResolver(workerSchema),
+    resolver: zodResolver(localizedSchema),
     defaultValues: { name: "", email: "", role_id: "", password: "" },
   });
   const wRoleId = useWatch({ control, name: "role_id" });
@@ -653,7 +675,7 @@ function AddWorkerDialog({
           },
         });
         if (!farmScope()) return;
-        toast.success("Worker added.");
+        toast.success(t("team.toast.workerAdded"));
         await invalidate();
         onOpenChange(false);
         reset();
@@ -690,12 +712,10 @@ function AddWorkerDialog({
     >
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Add worker</DialogTitle>
+          <DialogTitle>{t("team.workerForm.title")}</DialogTitle>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
-          The worker logs in with this email and password and sees only what the selected role
-          allows. This form creates a new worker account; an email that is already registered
-          cannot be enrolled here.
+          {t("team.workerForm.description")}
         </p>
         <form onSubmit={handleSubmit(onSubmit)} noValidate>
           <fieldset
@@ -709,16 +729,15 @@ function AddWorkerDialog({
           )}
           {roles.length === 0 && (
             <p role="alert" className="text-sm text-destructive">
-              You have no roles you are allowed to assign. Ask the farm owner to create or grant
-              an assignable role first.
+              {t("team.workerForm.noAssignableRoles")}
             </p>
           )}
           <div className="space-y-1.5">
-            <Label htmlFor="worker-name">Name</Label>
+            <Label htmlFor="worker-name">{t("team.workerForm.nameLabel")}</Label>
             <Input
               id="worker-name"
               maxLength={120}
-              placeholder="e.g. Ravi Kumar"
+              placeholder={t("team.workerForm.namePlaceholder")}
               aria-invalid={Boolean(errors.name) || undefined}
               aria-describedby={errors.name ? "worker-name-error" : undefined}
               {...register("name")}
@@ -730,7 +749,7 @@ function AddWorkerDialog({
             )}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="worker-email">Email *</Label>
+            <Label htmlFor="worker-email">{t("team.workerForm.emailLabel")}</Label>
             <Input
               id="worker-email"
               type="email"
@@ -748,7 +767,7 @@ function AddWorkerDialog({
             )}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="worker-password">Password (min 12 chars) *</Label>
+            <Label htmlFor="worker-password">{t("team.workerForm.passwordLabel")}</Label>
             <Input
               id="worker-password"
               type="password"
@@ -765,7 +784,7 @@ function AddWorkerDialog({
             )}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="worker-role">Role *</Label>
+            <Label htmlFor="worker-role">{t("team.workerForm.roleLabel")}</Label>
             <Select value={wRoleId} onValueChange={(v) => setValue("role_id", v, { shouldValidate: true })} items={roleItems}>
               <SelectTrigger
                 id="worker-role"
@@ -799,7 +818,7 @@ function AddWorkerDialog({
                 dismiss();
               }}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               type="submit"
@@ -811,10 +830,10 @@ function AddWorkerDialog({
               }
             >
               {isSubmitting || createFlight.pending
-                ? "Adding…"
+                ? t("team.workerForm.adding")
                 : formError
-                  ? "Retry add worker"
-                  : "Add worker"}
+                  ? t("team.workerForm.retry")
+                  : t("team.workerForm.title")}
             </Button>
           </DialogFooter>
           </fieldset>
@@ -834,15 +853,18 @@ function ResetPasswordDialog({
   authority: TeamAuthority;
 }) {
   const mutationErrorMessage = useMutationError();
+  const t = useT();
   const resetMutation = useResetPasswordApiTeamWorkersMembershipIdResetPasswordPost();
   const resetFlight = useSingleFlight();
   const [formError, setFormError] = useState<string | null>(null);
+  // Rebuilt when the language changes so the validation message localises.
+  const localizedSchema = useMemo(() => buildResetSchema(t), [t]);
   const {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<ResetValues>({
-    resolver: zodResolver(resetSchema),
+    resolver: zodResolver(localizedSchema),
     defaultValues: { password: "" },
   });
 
@@ -857,7 +879,7 @@ function ResetPasswordDialog({
           data: { password: values.password },
         });
         if (!farmScope()) return;
-        toast.success("Password reset.");
+        toast.success(t("team.toast.passwordReset"));
         onClose();
       } catch (err) {
         if (!farmScope()) return;
@@ -875,7 +897,7 @@ function ResetPasswordDialog({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Reset password — {membership.name ?? membership.email}</DialogTitle>
+          <DialogTitle>{t("team.resetForm.title", { name: membership.name ?? membership.email })}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} noValidate>
           <fieldset
@@ -888,7 +910,7 @@ function ResetPasswordDialog({
             </p>
           )}
           <div className="space-y-1.5">
-            <Label htmlFor="reset-password">New password (min 12 chars) *</Label>
+            <Label htmlFor="reset-password">{t("team.resetForm.passwordLabel")}</Label>
             <Input
               id="reset-password"
               type="password"
@@ -912,17 +934,17 @@ function ResetPasswordDialog({
               disabled={isSubmitting || resetFlight.pending}
               onClick={onClose}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               type="submit"
               disabled={authority.blocked || isSubmitting || resetFlight.pending}
             >
               {isSubmitting || resetFlight.pending
-                ? "Resetting…"
+                ? t("team.resetForm.resetting")
                 : formError
-                  ? "Retry password reset"
-                  : "Reset password"}
+                  ? t("team.resetForm.retry")
+                  : t("team.actions.resetPassword")}
             </Button>
           </DialogFooter>
           </fieldset>
@@ -1237,6 +1259,7 @@ function RoleDialog({
   authority: TeamAuthority;
 }) {
   const mutationErrorMessage = useMutationError();
+  const t = useT();
   const invalidate = useInvalidateTeam();
   const createMutation = useCreateRoleApiTeamRolesPost();
   const updateMutation = useUpdateRoleApiTeamRolesRoleIdPut();
@@ -1256,12 +1279,14 @@ function RoleDialog({
       return initial;
     },
   );
+  // Rebuilt when the language changes so the validation message localises.
+  const localizedSchema = useMemo(() => buildRoleSchema(t), [t]);
   const {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<RoleValues>({
-    resolver: zodResolver(roleSchema),
+    resolver: zodResolver(localizedSchema),
     defaultValues: { name: role?.name ?? "", description: role?.description ?? "" },
   });
 
@@ -1296,11 +1321,11 @@ function RoleDialog({
             data: { ...data, expected_revision: role.revision },
           });
           if (!farmScope()) return;
-          toast.success("Role saved.");
+          toast.success(t("team.toast.roleSaved"));
         } else {
           await createMutation.mutateAsync({ data });
           if (!farmScope()) return;
-          toast.success("Role created.");
+          toast.success(t("team.toast.roleCreated"));
         }
         await invalidate();
         onClose();
@@ -1327,7 +1352,7 @@ function RoleDialog({
     >
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{role ? `Edit role: ${role.name}` : "New role"}</DialogTitle>
+          <DialogTitle>{role ? t("team.roles.editTitle", { name: role.name }) : t("team.roles.new")}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} noValidate>
           <fieldset
@@ -1340,11 +1365,11 @@ function RoleDialog({
             </p>
           )}
           <div className="space-y-1.5">
-            <Label htmlFor="role-name">Role name *</Label>
+            <Label htmlFor="role-name">{t("team.roles.nameLabel")}</Label>
             <Input
               id="role-name"
               maxLength={80}
-              placeholder="e.g. Night Watchman"
+              placeholder={t("team.roles.namePlaceholder")}
               autoFocus
               aria-invalid={Boolean(errors.name) || undefined}
               aria-describedby={errors.name ? "role-name-error" : undefined}
@@ -1357,11 +1382,11 @@ function RoleDialog({
             )}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="role-description">Description</Label>
+            <Label htmlFor="role-description">{t("team.roles.descriptionLabel")}</Label>
             <Input
               id="role-description"
               maxLength={255}
-              placeholder="what this role is responsible for"
+              placeholder={t("team.roles.descriptionPlaceholder")}
               aria-invalid={Boolean(errors.description) || undefined}
               aria-describedby={errors.description ? "role-description-error" : undefined}
               {...register("description")}
@@ -1377,10 +1402,9 @@ function RoleDialog({
             )}
           </div>
           <div className="space-y-2">
-            <h3 className="text-sm font-medium">Permissions</h3>
+            <h3 className="text-sm font-medium">{t("team.roles.permissionsTitle")}</h3>
             <p className="text-sm text-muted-foreground">
-              Selecting an action also selects the view permission needed to reach it. Permissions
-              you do not hold are shown disabled; existing checked ones are retained when you save.
+              {t("team.roles.permissionsHint")}
             </p>
             <div className="grid gap-3 sm:grid-cols-2">
               {team.permission_groups.map((g) => (
@@ -1419,23 +1443,29 @@ function RoleDialog({
                             {team.permission_labels[code] ?? code}
                           </Label>
                           {!grantable && checked && (
-                            <span className="ml-1 text-xs">(retained; you cannot change this)</span>
+                            <span className="ml-1 text-xs">{t("team.roles.retainedHint")}</span>
                           )}
                           {!grantable && !checked && (
                             <span className="ml-1 text-xs">
                               {held && code === "team.manage"
-                                ? "(only the farm owner can grant this)"
-                                : "(you cannot grant this)"}
+                                ? t("team.roles.ownerGrantOnlyHint")
+                                : t("team.roles.cannotGrantHint")}
                             </span>
                           )}
                           {missingDependency && (
                             <span className="block text-xs text-warning-tint-foreground">
-                              Requires {team.permission_labels[dependency] ?? dependency}.
+                              {t("team.roles.requiresHint", {
+                                label: team.permission_labels[dependency] ?? dependency,
+                              })}
                             </span>
                           )}
                           {requiredBy.length > 0 && (
                             <span className="block text-xs text-muted-foreground">
-                              Required by {requiredBy.map((action) => team.permission_labels[action] ?? action).join(", ")}.
+                              {t("team.roles.requiredByHint", {
+                                labels: requiredBy
+                                  .map((action) => team.permission_labels[action] ?? action)
+                                  .join(", "),
+                              })}
                             </span>
                           )}
                         </span>
@@ -1453,21 +1483,21 @@ function RoleDialog({
               disabled={isSubmitting || saveFlight.pending}
               onClick={onClose}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               type="submit"
               disabled={authority.blocked || isSubmitting || saveFlight.pending}
             >
               {isSubmitting || saveFlight.pending
-                ? "Saving…"
+                ? t("team.roles.saving")
                 : formError
                   ? role
-                    ? "Retry save role"
-                    : "Retry create role"
+                    ? t("team.roles.retrySave")
+                    : t("team.roles.retryCreate")
                   : role
-                    ? "Save role"
-                    : "Create role"}
+                    ? t("team.roles.save")
+                    : t("team.roles.create")}
             </Button>
           </DialogFooter>
           </fieldset>
@@ -1491,6 +1521,7 @@ function RoleCard({
   authority: TeamAuthority;
 }) {
   const mutationErrorMessage = useMutationError();
+  const t = useT();
   const invalidate = useInvalidateTeam();
   const deleteMutation = useDeleteRoleApiTeamRolesRoleIdDelete();
   const deleteLock = useRef(false);
@@ -1501,13 +1532,13 @@ function RoleCard({
   const managerRole = role.permissions.includes("team.manage");
   const scopeHint = !canManageRole
     ? managerRole
-      ? "Only the farm owner can edit or delete a team-manager role."
-      : "You can only edit or delete roles whose permissions you also hold."
+      ? t("team.roles.ownerOnlyHint")
+      : t("team.roles.ceilingHint")
     : undefined;
   const deleteHint = scopeHint ?? (role.code
-    ? "Preset roles can't be deleted."
+    ? t("team.roles.presetDeleteHint")
     : memberCount > 0
-      ? "Role still has workers assigned — reassign them first."
+      ? t("team.roles.assignedDeleteHint")
       : undefined);
 
   async function deleteRole() {
@@ -1519,7 +1550,7 @@ function RoleCard({
     try {
       await deleteMutation.mutateAsync({ roleId: role.id });
       if (!farmScope()) return;
-      toast.success("Role deleted.");
+      toast.success(t("team.toast.roleDeleted"));
       // The cached card survives while /api/team refetches. Hold both actions
       // through that refresh so the deleted role cannot be edited or deleted
       // again from the stale card.
@@ -1554,13 +1585,15 @@ function RoleCard({
           {role.code && (
             <Badge variant="secondary">
               <Lock aria-hidden="true" className="size-3" />
-              Preset
+              {t("team.roles.preset")}
             </Badge>
           )}
           <div className="text-sm text-muted-foreground">{role.description ?? "—"}</div>
           <div className="text-xs text-muted-foreground">
-            {memberCount} member{memberCount === 1 ? "" : "s"}
-            {role.code && " · built in — edits allowed, deletion not"}
+            {t(memberCount === 1 ? "team.roles.memberCount_one" : "team.roles.memberCount_many", {
+              count: memberCount,
+            })}
+            {role.code && t("team.roles.presetSuffix")}
           </div>
         </div>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:shrink-0">
@@ -1576,7 +1609,7 @@ function RoleCard({
             title={scopeHint}
             onClick={editRole}
           >
-            Edit
+            {t("team.actions.edit")}
           </Button>
           <Button
             size="sm"
@@ -1590,7 +1623,7 @@ function RoleCard({
             title={deleteHint}
             onClick={() => setConfirmDeleteOpen(true)}
           >
-            Delete
+            {t("team.actions.delete")}
           </Button>
         </div>
       </div>
@@ -1603,14 +1636,14 @@ function RoleCard({
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete role &quot;{role.name}&quot;?</DialogTitle>
+            <DialogTitle>{t("team.roles.deleteTitle", { name: role.name })}</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Workers holding only this role lose their assignment. The action cannot be undone.
+            {t("team.roles.deleteBody")}
           </p>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setConfirmDeleteOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               type="button"
@@ -1620,7 +1653,7 @@ function RoleCard({
                 void deleteRole();
               }}
             >
-              Delete role
+              {t("team.roles.deleteConfirm")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1637,13 +1670,13 @@ function RoleCard({
             disabled={authority.blocked || deleteSettling || deleteMutation.isPending}
             onClick={() => void deleteRole()}
           >
-            Retry delete role
+            {t("team.roles.retryDelete")}
           </Button>
         </div>
       )}
       <div className="flex flex-wrap gap-1">
         {role.permissions.length === 0 ? (
-          <span className="text-xs text-muted-foreground">No permissions.</span>
+          <span className="text-xs text-muted-foreground">{t("team.roles.noPermissions")}</span>
         ) : (
           role.permissions.map((code) => (
             <Badge key={code} variant="secondary">
@@ -1659,6 +1692,7 @@ function RoleCard({
 function TeamPageContent({ perms }: { perms: PermissionsState }) {
   const { user } = useAuth();
   const { can, isOwner } = perms;
+  const t = useT();
   const allowed = can("team.manage");
   const queryClient = useQueryClient();
 
@@ -1692,10 +1726,12 @@ function TeamPageContent({ perms }: { perms: PermissionsState }) {
       return (
         <div className="space-y-3" role="alert">
           <p className="text-sm text-destructive">
-            {query.error instanceof ApiError ? query.error.detail : "Could not load the team."}
+            {query.error instanceof ApiError
+              ? mapServerError(t, query.error.detail, query.error.status, query.error.code)
+              : t("team.loadFailed")}
           </p>
           <Button type="button" variant="outline" onClick={() => void query.refetch()}>
-            Retry team
+            {t("team.retryTeam")}
           </Button>
         </div>
       );
@@ -1703,11 +1739,11 @@ function TeamPageContent({ perms }: { perms: PermissionsState }) {
     return (
       <div className="space-y-6">
         <PageHeader
-        title="Team"
-        description="Manage the workers on this farm, their roles and what each role can do."
+        title={t("team.title")}
+        description={t("team.headerDescription")}
       />
         <div role="status" aria-live="polite">
-          <span className="sr-only">Loading the team…</span>
+          <span className="sr-only">{t("team.loading")}</span>
           <PageSkeleton cards={2} />
         </div>
       </div>
@@ -1734,8 +1770,8 @@ function TeamPageContent({ perms }: { perms: PermissionsState }) {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Team"
-        description="Manage the workers on this farm, their roles and what each role can do."
+        title={t("team.title")}
+        description={t("team.headerDescription")}
       />
 
       {/* Deliberately NOT the shared StaleDataNotice: stale team data is not
@@ -1746,8 +1782,7 @@ function TeamPageContent({ perms }: { perms: PermissionsState }) {
       {query.isError && (
         <div className="space-y-3" role="alert">
           <p className="text-sm text-destructive">
-            Team data could not be refreshed. Actions are disabled until the latest team snapshot
-            loads.
+            {t("team.staleBanner")}
           </p>
           <Button
             type="button"
@@ -1755,23 +1790,23 @@ function TeamPageContent({ perms }: { perms: PermissionsState }) {
             disabled={query.isFetching}
             onClick={() => void query.refetch()}
           >
-            Retry team refresh
+            {t("team.retryRefresh")}
           </Button>
         </div>
       )}
 
       {authority.blocked && !query.isError && (
         <p className="text-sm text-muted-foreground" role="status">
-          Waiting for the latest team data… actions will be available when it finishes.
+          {t("team.waitingForData")}
         </p>
       )}
 
       <DataTableCard
-        title="Workers"
+        title={t("team.workers.title")}
         description={
           isOwner
-            ? "People who can sign in to this farm."
-            : "People who can sign in to this farm. Only the farm owner can create worker accounts."
+            ? t("team.workers.descriptionOwner")
+            : t("team.workers.descriptionManager")
         }
         actions={
           // POST /api/team/workers is owner-only, so offering the dialog to a
@@ -1784,7 +1819,7 @@ function TeamPageContent({ perms }: { perms: PermissionsState }) {
                 setWorkerOpen(true);
               }}
             >
-              Add worker
+              {t("team.workerForm.title")}
             </Button>
           ) : undefined
         }
@@ -1792,8 +1827,8 @@ function TeamPageContent({ perms }: { perms: PermissionsState }) {
         {payload.memberships.length === 0 ? (
           <EmptyState
             icon={Users}
-            title="No workers yet"
-            description="Add your first worker — they'll see only what their role allows."
+            title={t("team.workers.emptyTitle")}
+            description={t("team.workers.emptyDescription")}
           >
             {isOwner && (
               <Button
@@ -1805,7 +1840,7 @@ function TeamPageContent({ perms }: { perms: PermissionsState }) {
                   setWorkerOpen(true);
                 }}
               >
-                Add worker
+                {t("team.workerForm.title")}
               </Button>
             )}
           </EmptyState>
@@ -1839,11 +1874,11 @@ function TeamPageContent({ perms }: { perms: PermissionsState }) {
           <Table className="min-w-[760px]">
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead><span className="sr-only">Actions</span></TableHead>
+                <TableHead>{t("team.table.name")}</TableHead>
+                <TableHead>{t("team.table.email")}</TableHead>
+                <TableHead>{t("team.table.role")}</TableHead>
+                <TableHead>{t("team.table.status")}</TableHead>
+                <TableHead><span className="sr-only">{t("team.table.actions")}</span></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1875,13 +1910,8 @@ function TeamPageContent({ perms }: { perms: PermissionsState }) {
       </DataTableCard>
 
       <DataTableCard
-        title="Roles"
-        description={
-          <>
-            A role bundles the pages and actions a worker can use. Preset roles are built in —
-            edit them, but they can&apos;t be deleted.
-          </>
-        }
+        title={t("team.roles.title")}
+        description={t("team.roles.description")}
         actions={
           <Button
             variant="outline"
@@ -1890,15 +1920,15 @@ function TeamPageContent({ perms }: { perms: PermissionsState }) {
               if (authority.canStart()) setRoleDialog({ role: null });
             }}
           >
-            New role
+            {t("team.roles.new")}
           </Button>
         }
       >
         {payload.roles.length === 0 ? (
           <EmptyState
             icon={ShieldCheck}
-            title="No roles yet."
-            description="Create a role to control what workers can see and do."
+            title={t("team.roles.emptyTitle")}
+            description={t("team.roles.emptyDescription")}
           >
             <Button
               variant="outline"
@@ -1908,7 +1938,7 @@ function TeamPageContent({ perms }: { perms: PermissionsState }) {
                 if (authority.canStart()) setRoleDialog({ role: null });
               }}
             >
-              Create a role
+              {t("team.roles.emptyCta")}
             </Button>
           </EmptyState>
         ) : (
@@ -1982,12 +2012,13 @@ function TeamPageContent({ perms }: { perms: PermissionsState }) {
 
 export default function TeamPage() {
   const perms = usePermissions();
+  const t = useT();
   return (
     <PermissionGate
       perms={perms}
       perm="team.manage"
-      label="Team"
-      description="Manage the workers on this farm, their roles and what each role can do."
+      label={t("team.title")}
+      description={t("team.headerDescription")}
       cards={2}
       announce
     >

@@ -76,7 +76,7 @@ describe("RemotePicker trigger and status states", () => {
     // Nothing is awaited between mounting and the click: an unconditionally
     // scheduled close timer would still be pending here and would shut the
     // dialog the user just opened.
-    fireEvent.click(screen.getByRole("combobox", { name: "Animal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Animal" }));
     expect(screen.getByRole("dialog", { name: "Choose an animal" })).toBeInTheDocument();
 
     await flushTimers();
@@ -96,14 +96,14 @@ describe("RemotePicker trigger and status states", () => {
     }
 
     const view = render(<Tree disabled />);
-    const disabledTrigger = screen.getByRole("combobox", { name: "Animal" });
+    const disabledTrigger = screen.getByRole("button", { name: "Animal" });
     expect(disabledTrigger).toBeDisabled();
     expect(disabledTrigger).toHaveAttribute("aria-expanded", "false");
 
     // Re-enabled and opened inside the window the disabled render's close
     // timer is still armed: the effect cleanup has to cancel it.
     view.rerender(<Tree disabled={false} />);
-    fireEvent.click(screen.getByRole("combobox", { name: "Animal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Animal" }));
     expect(screen.getByRole("dialog", { name: "Choose an animal" })).toBeInTheDocument();
 
     await flushTimers();
@@ -120,7 +120,7 @@ describe("RemotePicker trigger and status states", () => {
       ],
     });
 
-    const trigger = screen.getByRole("combobox", { name: "Animal" });
+    const trigger = screen.getByRole("button", { name: "Animal" });
     expect(trigger).toHaveTextContent("— none —");
     expect(trigger).not.toHaveTextContent("All animals");
     expect(trigger).not.toHaveTextContent("Selected item NONE");
@@ -155,14 +155,14 @@ describe("RemotePicker trigger and status states", () => {
     }
 
     render(<Tree />);
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     await user.click(await screen.findByRole("option", { name: /G-0001 · Nila/ }));
-    expect(screen.getByRole("combobox", { name: "Animal" })).toHaveTextContent("G-0001 · Nila");
+    expect(screen.getByRole("button", { name: "Animal" })).toHaveTextContent("G-0001 · Nila");
 
     // The chosen option is remembered only while it still matches the form's
     // value; a reset elsewhere in the form must not leave its label behind.
     await user.click(screen.getByRole("button", { name: "Clear the animal" }));
-    const trigger = screen.getByRole("combobox", { name: "Animal" });
+    const trigger = screen.getByRole("button", { name: "Animal" });
     expect(trigger).toHaveTextContent("— none —");
     expect(trigger).not.toHaveTextContent("G-0001 · Nila");
   });
@@ -170,7 +170,7 @@ describe("RemotePicker trigger and status states", () => {
   it("wires the trigger's expanded, invalid and description state", async () => {
     const user = userEvent.setup();
     renderPicker();
-    const trigger = screen.getByRole("combobox", { name: "Animal" });
+    const trigger = screen.getByRole("button", { name: "Animal" });
 
     expect(trigger).toHaveClass("w-full", "justify-between", "font-normal");
     expect(trigger).toHaveAttribute("aria-haspopup", "dialog");
@@ -197,15 +197,15 @@ describe("RemotePicker trigger and status states", () => {
     });
 
     const placeholder = within(
-      screen.getByRole("combobox", { name: "Animal" }),
+      screen.getByRole("button", { name: "Animal" }),
     ).getByText("Pick an animal");
     expect(placeholder).toHaveClass("truncate", "text-muted-foreground");
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     await user.click(await screen.findByRole("option", { name: /G-0001 · Nila/ }));
 
     const chosen = within(
-      screen.getByRole("combobox", { name: "Animal" }),
+      screen.getByRole("button", { name: "Animal" }),
     ).getByText("G-0001 · Nila");
     expect(chosen).toHaveClass("truncate");
     expect(chosen).not.toHaveClass("text-muted-foreground");
@@ -218,7 +218,7 @@ describe("RemotePicker trigger and status states", () => {
       loadPage: async () => ({ options: [], total: 100, nextOffset: 50 }),
     });
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     const dialog = screen.getByRole("dialog", { name: "Choose an animal" });
     expect(
       await within(dialog).findByText("No eligible options in the records checked yet."),
@@ -238,24 +238,30 @@ describe("RemotePicker trigger and status states", () => {
     });
     renderPicker({ id: "busy-picker", loadPage });
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     const dialog = screen.getByRole("dialog", { name: "Choose an animal" });
     const listbox = within(dialog).getByRole("listbox");
+    // The scroll/dim styling lives on the results container; the listbox
+    // itself carries only the options (state messaging is a sibling, APG-clean).
+    const resultsBox = listbox.parentElement as HTMLElement;
     const search = within(dialog).getByLabelText("Search animals");
     expect(await within(dialog).findByText("No matching options.")).toBeInTheDocument();
-    expect(listbox).toHaveClass("max-h-72", "overflow-y-auto");
-    expect(listbox).not.toHaveClass("opacity-60");
+    expect(resultsBox).toHaveClass("max-h-72", "overflow-y-auto");
+    expect(resultsBox).not.toHaveClass("opacity-60");
 
     await user.type(search, "Nila");
 
-    await waitFor(() => expect(listbox).toHaveClass("opacity-60"));
-    expect(within(listbox).getByText("Searching…")).toBeInTheDocument();
-    expect(within(listbox).queryByText("No matching options.")).not.toBeInTheDocument();
+    await waitFor(() => expect(resultsBox).toHaveClass("opacity-60"));
+    expect(within(resultsBox).getByText("Searching…")).toBeInTheDocument();
+    // The state message must NOT be a child of the listbox (option-only children).
+    expect(within(listbox).queryByText("Searching…")).not.toBeInTheDocument();
+    expect(within(resultsBox).queryByText("No matching options.")).not.toBeInTheDocument();
     expect(search).toHaveAccessibleDescription("Searching…");
 
     releaseSearch?.();
-    await waitFor(() => expect(listbox).not.toHaveClass("opacity-60"));
-    expect(within(listbox).getByText("No matching options.")).toBeInTheDocument();
+    await waitFor(() => expect(resultsBox).not.toHaveClass("opacity-60"));
+    expect(within(resultsBox).getByText("No matching options.")).toBeInTheDocument();
+    expect(within(listbox).queryByText("No matching options.")).not.toBeInTheDocument();
     expect(search).toHaveAccessibleDescription(
       "0 options available. Checked 0 of 0 matching records. All matching records checked.",
     );
@@ -272,7 +278,7 @@ describe("RemotePicker trigger and status states", () => {
       }),
     });
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     const dialog = screen.getByRole("dialog", { name: "Choose an animal" });
     expect(
       await within(dialog).findByText(
@@ -300,7 +306,7 @@ describe("RemotePicker trigger and status states", () => {
       },
     });
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     const dialog = screen.getByRole("dialog", { name: "Choose an animal" });
     expect(within(dialog).getByText("Loading options…")).toBeInTheDocument();
     expect(within(dialog).getByLabelText("Search animals")).toHaveAccessibleDescription(
@@ -315,7 +321,7 @@ describe("RemotePicker trigger and status states", () => {
     const user = userEvent.setup();
     renderPicker({ id: "empty-picker" });
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     const dialog = screen.getByRole("dialog", { name: "Choose an animal" });
     expect(await within(dialog).findByText("No matching options.")).toBeInTheDocument();
 

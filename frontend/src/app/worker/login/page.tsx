@@ -18,11 +18,19 @@ import type { LoginOut, TokenOut } from "@/api/generated/models";
 import { useWorkerRosterApiAuthWorkerRosterGet } from "@/api/generated/endpoints";
 import { EmptyState } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import { useAuth, type FarmEntry } from "@/lib/auth-context";
 import { useT } from "@/lib/i18n";
+import { safeStorage } from "@/lib/safe-storage";
 import { mapServerError } from "@/lib/server-error-phrases";
 import { TABLET_FARM_STORAGE_KEY, readTabletFarmId, writeTabletFarmId } from "@/app/worker/layout";
 
@@ -51,6 +59,20 @@ export default function WorkerLoginPage() {
   // True while the signed-in user is the setup manager, not a worker: keeps
   // the returning-session redirect below out of the middle of setup.
   const setupRef = useRef(false);
+  const [unpinOpen, setUnpinOpen] = useState(false);
+
+  // W3 (2026-09-28 audit): an interrupted manager setup must not leave a
+  // live manager session on the shared tablet. pinFarm/cancelSetup clear
+  // setupRef on their own paths; any OTHER exit from this page (navigation
+  // away mid-flow) signs the manager out here.
+  useEffect(() => {
+    return () => {
+      if (setupRef.current) {
+        setupRef.current = false;
+        void signOut();
+      }
+    };
+  }, [signOut]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage exists only client-side; reading it during render would break SSR hydration
@@ -104,7 +126,9 @@ export default function WorkerLoginPage() {
       // discovery fallback rather than being forced into a farm they lack.
       const pinned = getFarms().find((farm) => farm.id === tabletFarmId);
       if (pinned) selectFarm(pinned.id, pinned.timezone);
-      toast.success(`${selected.display_name} ✓`);
+      // No glyph decorations in UI copy — the name alone is the confirmation
+      // (no-emoji/symbol convention, 2026-09-28 audit).
+      toast.success(selected.display_name);
       router.replace("/worker");
     } catch (error) {
       setPin("");
@@ -146,8 +170,16 @@ export default function WorkerLoginPage() {
       setupRef.current = true;
       await signIn(body.access_token, body.user);
       setSetupStep("choose-farm");
-    } catch {
-      setError(t("worker.setup.failed"));
+    } catch (error) {
+      // Mirror the PIN flow's split: an ApiError is the server judging the
+      // credentials; a non-ApiError never reached the server, and "check your
+      // details" sends the manager re-typing a perfectly good password
+      // (2026-09-28 audit).
+      setError(
+        error instanceof ApiError
+          ? t("worker.setup.failed")
+          : t("worker.login.networkError"),
+      );
     } finally {
       setBusy(false);
     }
@@ -166,9 +198,15 @@ export default function WorkerLoginPage() {
       await signIn(body.access_token, body.user);
       setMfaToken(null);
       setSetupStep("choose-farm");
-    } catch {
+    } catch (error) {
       setCode("");
-      setError(t("worker.setup.failed"));
+      // Same split as the credentials step above: the server answered (bad
+      // code) versus the request never left the tablet (network).
+      setError(
+        error instanceof ApiError
+          ? t("worker.setup.failed")
+          : t("worker.login.networkError"),
+      );
     } finally {
       setBusy(false);
     }
@@ -182,8 +220,39 @@ export default function WorkerLoginPage() {
     toast.success(t("worker.setup.pinnedToast"));
     // The manager's session must not linger on a shared tablet: ending it
     // (which also wipes any offline queue) leaves only the worker PIN door.
-    await signOut();
+    // Clear the setup flag BEFORE signOut so the unmount teardown (W3)
+    // cannot fire a second sign-out; signOut navigates to the manager's
+    // /login, so hand the tablet back to the workers' PIN pad explicitly.
     setupRef.current = false;
+    await signOut();
+    router.replace("/worker/login");
+  }
+
+  async function cancelSetup() {
+    // Abandoning midway must not leave the manager's session behind (W3).
+    const hadManagerSession = setupRef.current;
+    setupRef.current = false;
+    setSetupStep(null);
+    setMfaToken(null);
+    setCode("");
+    setError(null);
+    if (hadManagerSession) {
+      // The manager signed in but never pinned: end that session, then hand
+      // the tablet back to the PIN pad — signOut itself navigates to the
+      // manager's /login form.
+      await signOut();
+      router.replace("/worker/login");
+    }
+  }
+
+  function confirmUnpin() {
+    try {
+      safeStorage("local")?.removeItem(TABLET_FARM_STORAGE_KEY);
+    } catch {
+      /* nothing persisted */
+    }
+    setUnpinOpen(false);
+    setTabletFarmId(null);
   }
 
   function pressDigit(digit: string) {
@@ -220,6 +289,13 @@ export default function WorkerLoginPage() {
               ))}
             </ul>
           )}
+          <Button
+            variant="ghost"
+            className="w-full"
+            onClick={() => void cancelSetup()}
+          >
+            {t("common.cancel")}
+          </Button>
         </div>
       );
     }
@@ -253,6 +329,14 @@ export default function WorkerLoginPage() {
             )}
             <Button type="submit" className="h-14 w-full text-lg" disabled={busy || code.length < 6}>
               {t("worker.setup.continue")}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-full"
+              onClick={() => void cancelSetup()}
+            >
+              {t("common.cancel")}
             </Button>
           </form>
         </div>
@@ -302,6 +386,14 @@ export default function WorkerLoginPage() {
             )}
             <Button type="submit" className="h-14 w-full text-lg" disabled={busy}>
               {t("worker.setup.continue")}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-full"
+              onClick={() => void cancelSetup()}
+            >
+              {t("common.cancel")}
             </Button>
           </form>
         </div>
@@ -374,19 +466,33 @@ export default function WorkerLoginPage() {
             ))}
           </ul>
         )}
-        <Button
-          variant="ghost"
-          onClick={() => {
-            try {
-              window.localStorage.removeItem(TABLET_FARM_STORAGE_KEY);
-            } catch {
-              /* nothing persisted */
-            }
-            setTabletFarmId(null);
-          }}
-        >
+        {/* Unpinning is a destructive action on a shared tablet: it needs a
+            deliberate confirm, not one stray tap (2026-09-28 audit, W2). */}
+        <Button variant="ghost" onClick={() => setUnpinOpen(true)}>
           {t("worker.login.backToFarms")}
         </Button>
+        <Dialog open={unpinOpen} onOpenChange={setUnpinOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{t("worker.login.unpinTitle")}</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground">
+              {t("worker.login.unpinBody")}
+            </p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setUnpinOpen(false)}>
+                {t("common.cancel")}
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={confirmUnpin}
+                data-testid="worker-unpin-confirm"
+              >
+                {t("worker.login.unpinConfirm")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
@@ -426,7 +532,7 @@ export default function WorkerLoginPage() {
           variant="ghost"
           className="h-16"
           onClick={() => setPin(pin.slice(0, -1))}
-          aria-label="Delete digit"
+          aria-label={t("worker.login.deleteDigit")}
         >
           <Delete aria-hidden className="size-6" />
         </Button>

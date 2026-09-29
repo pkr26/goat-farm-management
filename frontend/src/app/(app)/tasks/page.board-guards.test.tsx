@@ -735,9 +735,9 @@ describe("TasksPage branch guards", () => {
 
     it("blocks a submit whose chosen role can no longer be validated", async () => {
       const { user, utils, dialog } = await openDialog();
-      const combos = () => within(dialog).getAllByRole("combobox");
+      const roleSelect = () => within(dialog).getByRole("combobox", { name: /assign to role/i });
       await user.type(within(dialog).getByLabelText("Title *"), "Herd check");
-      await pickOption(user, combos()[2], "Vet");
+      await pickOption(user, roleSelect(), "Vet");
 
       teamFails = true;
       await act(async () => {
@@ -753,9 +753,9 @@ describe("TasksPage branch guards", () => {
 
     it("blocks a submit whose chosen worker can no longer be validated", async () => {
       const { user, utils, dialog } = await openDialog();
-      const combos = () => within(dialog).getAllByRole("combobox");
+      const workerSelect = () => within(dialog).getByRole("combobox", { name: /assign to worker/i });
       await user.type(within(dialog).getByLabelText("Title *"), "Pen check");
-      await pickOption(user, combos()[3], /Raju \(Vet\)/);
+      await pickOption(user, workerSelect(), /Raju \(Vet\)/);
 
       teamFails = true;
       await act(async () => {
@@ -770,12 +770,13 @@ describe("TasksPage branch guards", () => {
 
     it("swaps a previously chosen role for the worker that replaces it", async () => {
       const { user, dialog } = await openDialog();
-      const combos = () => within(dialog).getAllByRole("combobox");
+      const roleSelect = () => within(dialog).getByRole("combobox", { name: /assign to role/i });
+      const workerSelect = () => within(dialog).getByRole("combobox", { name: /assign to worker/i });
       await user.type(within(dialog).getByLabelText("Title *"), "Herd check");
-      await pickOption(user, combos()[2], "Vet");
-      await pickOption(user, combos()[3], /Raju \(Vet\)/);
+      await pickOption(user, roleSelect(), "Vet");
+      await pickOption(user, workerSelect(), /Raju \(Vet\)/);
 
-      expect(combos()[2]).toHaveTextContent("— none —");
+      expect(roleSelect()).toHaveTextContent("— none —");
       await user.click(within(dialog).getByRole("button", { name: "Create duty" }));
 
       await waitFor(() => expect(createBody).not.toBeNull());
@@ -784,17 +785,18 @@ describe("TasksPage branch guards", () => {
 
     it("leaves the other assignment alone when one select is cleared", async () => {
       const { user, dialog } = await openDialog();
-      const combos = () => within(dialog).getAllByRole("combobox");
+      const roleSelect = () => within(dialog).getByRole("combobox", { name: /assign to role/i });
+      const workerSelect = () => within(dialog).getByRole("combobox", { name: /assign to worker/i });
       await user.type(within(dialog).getByLabelText("Title *"), "Shed check");
 
-      await pickOption(user, combos()[3], /Raju \(Vet\)/);
-      await pickOption(user, combos()[2], "— none —");
-      expect(combos()[3]).toHaveTextContent("Raju (Vet)");
+      await pickOption(user, workerSelect(), /Raju \(Vet\)/);
+      await pickOption(user, roleSelect(), "— none —");
+      expect(workerSelect()).toHaveTextContent("Raju (Vet)");
 
-      await pickOption(user, combos()[2], "Vet");
-      expect(combos()[3]).toHaveTextContent("— none —");
-      await pickOption(user, combos()[3], "— none —");
-      expect(combos()[2]).toHaveTextContent("Vet");
+      await pickOption(user, roleSelect(), "Vet");
+      expect(workerSelect()).toHaveTextContent("— none —");
+      await pickOption(user, workerSelect(), "— none —");
+      expect(roleSelect()).toHaveTextContent("Vet");
 
       await user.click(within(dialog).getByRole("button", { name: "Create duty" }));
       await waitFor(() => expect(createBody).not.toBeNull());
@@ -803,7 +805,7 @@ describe("TasksPage branch guards", () => {
 
     it("shows the chosen animal in the picker trigger", async () => {
       const { user, dialog } = await openDialog();
-      const trigger = within(dialog).getByRole("combobox", { name: "Animal (optional)" });
+      const trigger = within(dialog).getByRole("button", { name: "Animal (optional)" });
       expect(trigger).toHaveTextContent("— none —");
 
       await pickOption(user, trigger, "G-007 — Radha");

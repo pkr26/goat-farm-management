@@ -66,7 +66,7 @@ describe("RemotePicker — campaign kills", () => {
     const Harness = pickerHarness({ loadPage: firstPage });
     render(<Harness />);
 
-    const trigger = screen.getByRole("combobox", { name: "Animal" });
+    const trigger = screen.getByRole("button", { name: "Animal" });
     // Closed state: no dialog content in the DOM, and the trigger controls
     // the dialog id derived from the picker id.
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -86,7 +86,7 @@ describe("RemotePicker — campaign kills", () => {
     const user = userEvent.setup();
     render(<Harness />);
 
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     const search = await screen.findByLabelText("Search animals");
     await user.type(search, "G-0");
     // Only the settled query string may hit the loader (plus the initial
@@ -135,7 +135,7 @@ describe("HealthAnimalPicker — campaign kills", () => {
     );
     const user = userEvent.setup();
     render(<Harness />);
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     expect(
       await screen.findByText(/G-003 · Kaveri — BREEDING — movement restricted/),
     ).toBeInTheDocument();

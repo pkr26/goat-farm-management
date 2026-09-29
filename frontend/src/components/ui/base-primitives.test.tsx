@@ -620,6 +620,20 @@ describe("Checkbox", () => {
     );
     expect(onCheckedChange).not.toHaveBeenCalled();
   });
+
+  it("forwards indeterminate to the primitive so aria-checked reads mixed", () => {
+    // The wrapper used to swallow the prop for the icon swap alone, so the
+    // mixed state never reached assistive tech (2026-09-28 audit).
+    render(<Checkbox indeterminate aria-label="Select all" />);
+
+    const box = screen.getByRole("checkbox", { name: "Select all" });
+    expect(box).toHaveAttribute("aria-checked", "mixed");
+    // The dash replaces the tick while mixed, and the decorative glyph stays
+    // out of the accessibility tree.
+    const dash = box.querySelector(".lucide-minus");
+    expect(dash).toBeInTheDocument();
+    expect(dash).toHaveAttribute("aria-hidden", "true");
+  });
 });
 
 describe("Input, Textarea and Label", () => {
@@ -713,6 +727,50 @@ describe("Toaster", () => {
     // would never follow the theme at all.
     expect(region).toHaveAttribute("data-sonner-theme", "light");
     expect(region).toHaveStyle({ "--normal-bg": "var(--popover)" });
+  });
+
+  it("hues typed toasts with the app's status tokens, never the richColors palette", async () => {
+    // richColors injects sonner's own palette, which matches neither theme;
+    // the token utilities resolve per theme by construction (2026-09-28
+    // audit). Pin both the absence of the library palette and the mapping.
+    render(<Toaster />);
+
+    toast.success("token success");
+    const successItem = (await screen.findByText("token success")).closest("li");
+    expect(successItem).toHaveClass(
+      "border-success/40",
+      "bg-success-tint",
+      "text-success-tint-foreground",
+    );
+
+    toast.error("token error");
+    const errorItem = (await screen.findByText("token error")).closest("li");
+    expect(errorItem).toHaveClass(
+      "border-destructive/40",
+      "bg-destructive/10",
+      "text-destructive",
+    );
+
+    toast.warning("token warning");
+    const warningItem = (await screen.findByText("token warning")).closest("li");
+    expect(warningItem).toHaveClass(
+      "border-warning/40",
+      "bg-warning-tint",
+      "text-warning-tint-foreground",
+    );
+
+    toast.info("token info");
+    const infoItem = (await screen.findByText("token info")).closest("li");
+    expect(infoItem).toHaveClass(
+      "border-info/40",
+      "bg-info-tint",
+      "text-info-tint-foreground",
+    );
+
+    expect(document.querySelector("[data-sonner-toaster]")).not.toHaveAttribute(
+      "data-rich-colors",
+      "true",
+    );
   });
 
   it.each([

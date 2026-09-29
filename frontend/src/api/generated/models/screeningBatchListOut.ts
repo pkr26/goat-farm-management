@@ -8,4 +8,7 @@ import type { ScreeningBatchOut } from './screeningBatchOut';
 
 export interface ScreeningBatchListOut {
   batches: ScreeningBatchOut[];
+  total: number;
+  limit: number;
+  offset: number;
 }

@@ -638,6 +638,9 @@ const REFRESH_COOKIE_POST_ROUTES = new Set([
   // success, so it belongs under the cross-tab auth-cookie lock like every
   // other cookie-bearing auth response (2026-09-17 re-audit).
   "/api/auth/totp/challenge",
+  // Worker PIN sign-in also mints a refresh family via _issue_tokens; omitting
+  // it here re-opened the response-order cookie race (2026-09-28 audit, C1).
+  "/api/auth/worker-login",
 ]);
 // Stryker restore StringLiteral, ArrayDeclaration
 
@@ -775,6 +778,12 @@ const NO_REFRESH_PATHS = new Set([
   // would rotate a live session token just to re-fail the code entry
   // (2026-09-17 re-audit).
   "/api/auth/totp/challenge",
+  // A 401 from worker-login IS the answer ("Invalid PIN."). On a signed-out
+  // tablet the refresh attempt can only fail, and its rejection ran the
+  // auth-failure path — wiping the offline queue and ejecting the worker to
+  // /login; with a live cookie the retry double-charged the server's PIN
+  // lockout budget (2026-09-28 audit, C1).
+  "/api/auth/worker-login",
 ]);
 
 /** Shared core: fetch with at most one 401→refresh retry, then map any

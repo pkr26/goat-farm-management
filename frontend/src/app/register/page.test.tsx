@@ -3,8 +3,9 @@
  * password minimum with the exact boundary, optional name capped at 120
  * chars), the submit contract (blank name → null in the POST body, token
  * stored via signIn, navigation to /farm-select), and server-error
- * surfacing (any ApiError's detail is shown; only a network failure gets
- * the generic fallback —), plus the accessibility contract (aria-invalid /
+ * surfacing (ApiError details render through the language catalog — coded
+ * and status-shaped errors localize, unmapped ones pass through unchanged;
+ * only a network failure gets the generic fallback —), plus the accessibility contract (aria-invalid /
  * aria-describedby wiring, role="alert" live regions) and the
  * navigated-away-mid-request guards.
  *
@@ -19,6 +20,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
+import { LanguageProvider, LANGUAGE_STORAGE_KEY } from "@/lib/i18n";
 
 import RegisterPage from "./page";
 import { settle } from "@/test/settle";
@@ -694,7 +696,7 @@ describe("RegisterPage", () => {
       ).not.toBeInTheDocument();
     });
 
-    it("surfaces the rate-limit detail on a 429", async () => {
+    it("maps a 429 to the localized throttle message instead of the raw detail", async () => {
       server.use(
         http.post("/api/auth/register", () =>
           HttpResponse.json(
@@ -708,9 +710,69 @@ describe("RegisterPage", () => {
       renderWithProviders(<RegisterPage />);
       await submitValid(user);
 
+      // The 429 status rule (and the backend's RATE_LIMITED code when present)
+      // renders through the catalog, so a Telugu worker's throttle guidance is
+      // Telugu — never the raw English server sentence (2026-09-28 audit, H6).
       expect(
-        await screen.findByText("Too many attempts — please try again later."),
+        await screen.findByText("Too many attempts — wait a few minutes and try again."),
       ).toBeInTheDocument();
+      expect(
+        screen.queryByText("Too many attempts — please try again later."),
+      ).not.toBeInTheDocument();
+      expect(pushMock).not.toHaveBeenCalled();
+    });
+
+    it("renders a coded server error in Telugu when the worker switched languages", async () => {
+      window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "te");
+      server.use(
+        http.post("/api/auth/register", () =>
+          HttpResponse.json(
+            { detail: "Rate limit hit", code: "RATE_LIMITED" },
+            { status: 429 },
+          ),
+        ),
+      );
+
+      const user = userEvent.setup();
+      renderWithProviders(
+        <LanguageProvider>
+          <RegisterPage />
+        </LanguageProvider>,
+      );
+      await user.type(await screen.findByLabelText("ఇమెయిల్"), "new@goatfarm.in");
+      await user.type(screen.getByLabelText("పాస్‌వర్డ్"), "secret123456");
+      await user.click(screen.getByRole("button", { name: "ఖాతా సృష్టించండి" }));
+
+      expect(
+        await screen.findByText("చాలా ప్రయత్నాలు — కొన్ని నిమిషాలు ఆగి మళ్లీ ప్రయత్నించండి."),
+      ).toBeInTheDocument();
+      expect(screen.queryByText("Rate limit hit")).not.toBeInTheDocument();
+      expect(pushMock).not.toHaveBeenCalled();
+    });
+
+    it("passes an unmapped detail through unchanged, even in a Telugu session", async () => {
+      // The catalog covers the four coded statuses, three status shapes and
+      // the pinned phrases; everything else is mapServerError's designed
+      // fallback — the server text itself. Pinned so a future widening of the
+      // catalog updates this expectation deliberately.
+      window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "te");
+      server.use(
+        http.post("/api/auth/register", () =>
+          HttpResponse.json({ detail: "unique constraint failed" }, { status: 500 }),
+        ),
+      );
+
+      const user = userEvent.setup();
+      renderWithProviders(
+        <LanguageProvider>
+          <RegisterPage />
+        </LanguageProvider>,
+      );
+      await user.type(await screen.findByLabelText("ఇమెయిల్"), "new@goatfarm.in");
+      await user.type(screen.getByLabelText("పాస్‌వర్డ్"), "secret123456");
+      await user.click(screen.getByRole("button", { name: "ఖాతా సృష్టించండి" }));
+
+      expect(await screen.findByText("unique constraint failed")).toBeInTheDocument();
       expect(pushMock).not.toHaveBeenCalled();
     });
 

@@ -18,6 +18,7 @@ export interface ScreeningFindingOut {
   note: string | null;
   status: ScreeningFindingOutStatus;
   review_note: string | null;
+  reviewed_by_id: number | null;
   reviewed_at: string | null;
   created_at: string;
 }

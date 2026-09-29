@@ -13,6 +13,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setCurrentFarmId } from "@/lib/api-client";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
+import { translate, type TFn } from "@/lib/i18n";
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
@@ -81,9 +82,13 @@ const animal = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+/** English resolver for the direct schema-level tests (the dialog itself
+ * rebuilds the schema from the active language's `t`). */
+const enT: TFn = (key, vars) => translate("en", key, vars);
+
 /** Collect superRefine issues as "path: message" pairs. */
 function issuesOf(input: unknown): Array<[string, unknown]> {
-  const result = createAnimalSchema(farmVocabulary).safeParse(input);
+  const result = createAnimalSchema(enT, farmVocabulary).safeParse(input);
   if (result.success) return [];
   return result.error.issues
     .filter((i) => i.code === "custom")
@@ -201,7 +206,7 @@ describe("createAnimalSchema — campaign kills", () => {
   });
 
   it("accepts an explicitly empty tag and defaults the breed", () => {
-    const result = createAnimalSchema(farmVocabulary).safeParse({
+    const result = createAnimalSchema(enT, farmVocabulary).safeParse({
       ...bornBase,
       tag_number: "",
     });
@@ -508,7 +513,7 @@ describe("AnimalsPage — campaign kills", () => {
     await user.click(screen.getByRole("button", { name: "Age (mo)" }));
     await waitFor(() => expect(rowTags()).toEqual(["TAG-3", "TAG-4", "TAG-5", "TAG-2", "TAG-1"]));
     expect(
-      screen.getByText("5 animal(s) · sorted within the current page"),
+      screen.getByText("5 animals · sorted within the current page"),
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Age (mo)" }));

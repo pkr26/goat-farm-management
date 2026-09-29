@@ -24,7 +24,9 @@ export function ThemeToggle() {
 
   if (!mounted) {
     // Placeholder keeps layout stable until the theme is known client-side.
-    return <Button variant="ghost" size="icon" aria-label="Toggle theme" />;
+    // It does nothing yet, so it must not present as an ENABLED inert button
+    // (2026-09-28 audit): disabled keeps it out of the tab order and honest.
+    return <Button variant="ghost" size="icon" aria-label="Toggle theme" disabled />;
   }
 
   const isDark = resolvedTheme === "dark";

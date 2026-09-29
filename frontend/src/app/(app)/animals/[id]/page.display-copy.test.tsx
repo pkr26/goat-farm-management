@@ -730,7 +730,7 @@ describe("AnimalProfilePage rendering and dialog contracts", () => {
       const tomorrow = addDays(farmToday(), 1);
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "Dead");
       const reported = within(dialog).getByLabelText("Mortality reported date");
       setInput(reported, tomorrow);
       await user.click(
@@ -757,7 +757,7 @@ describe("AnimalProfilePage rendering and dialog contracts", () => {
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
       const combo = () => within(dialog).getByLabelText(/new status/i);
-      await pickOption(user, combo(), "DEAD");
+      await pickOption(user, combo(), "Dead");
       setInput(within(dialog).getByLabelText("Mortality cause"), "c".repeat(121));
       setInput(within(dialog).getByLabelText("Mortality reported date"), tomorrow);
       await user.click(
@@ -770,7 +770,7 @@ describe("AnimalProfilePage rendering and dialog contracts", () => {
 
       // Every mortality answer above is invalid on its own terms. Switching
       // away from DEAD drops them, so none may block — or reach — a sale.
-      await pickOption(user, combo(), "SOLD");
+      await pickOption(user, combo(), "Sold");
       await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
 
       await waitFor(() => expect(statusBodies).toHaveLength(1));

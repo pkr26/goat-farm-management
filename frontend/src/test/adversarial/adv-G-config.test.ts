@@ -115,9 +115,14 @@ describe("ADV G2: Content-Security-Policy hardening directives", () => {
     const templates = DEV_EDGE_TEMPLATE_SOURCE + PRODUCTION_EDGE_TEMPLATE_SOURCE;
     expect(templates).not.toContain("Content-Security-Policy");
     expect(templates).not.toContain("unsafe-inline");
-    // The edge still covers its OWN generated responses (429s, error pages).
+    // The edge still covers its OWN generated responses — the limit_req 429
+    // (error_page-routed through a named location) and /edge-healthz — but
+    // never stamps proxied responses: the app owns that full header set, and
+    // a server-level add_header used to duplicate/conflict with it
+    // (2026-09-28 audit, F1).
     expect(templates).toContain("add_header X-Content-Type-Options nosniff always;");
     expect(templates).toContain("add_header Referrer-Policy no-referrer always;");
+    expect(templates).toContain("error_page 429 = @auth_flood_rejected;");
     expect(PRODUCTION_EDGE_TEMPLATE_SOURCE).toContain("add_header Strict-Transport-Security");
     expect(NEXT_CONFIG_SOURCE).toContain("max-age=63072000; includeSubDomains");
   });
@@ -181,12 +186,13 @@ describe("ADV G3: secret & persistence surface scan", () => {
   it("sessionStorage writes exactly the idempotency store key", () => {
     const idem = readFileSync(join(SRC_ROOT, "lib", "idempotent-request.ts"), "utf8");
     expect(idem).toContain('IDEMPOTENCY_SESSION_STORAGE_KEY = "goatfarm:idempotency:v1"');
-    // The only sessionStorage API users are that module and its test-safe
-    // availableSessionStorage() helper — nothing else may touch it.
+    // The only sessionStorage API users are that module and the single
+    // guarded accessor every storage read shares (lib/safe-storage.ts,
+    // 2026-09-28 audit dedup) — nothing else may touch it.
     for (const file of files) {
       const text = readFileSync(file, "utf8");
       if (text.includes("sessionStorage")) {
-        expect(file).toContain("idempotent-request");
+        expect(file).toMatch(/idempotent-request|safe-storage/);
       }
     }
   });

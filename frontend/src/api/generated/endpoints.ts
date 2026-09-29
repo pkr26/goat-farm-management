@@ -1014,6 +1014,11 @@ export const getWorkerLoginApiAuthWorkerLoginPostUrl = () => {
  * authenticator) and never admits an owner (owners hold no membership row).
  * Every failure answers the same generic 401 after identical Argon work, so
  * the exchange cannot enumerate farms, memberships or PINs by timing.
+ * Two deliberate exceptions AFTER a proven-correct PIN: an ACTIVE-TOTP
+ * account and a must-change-password account answer distinguishable 403s
+ * naming the flow to use instead — an oracle that opens only for a caller
+ * who already knows the PIN, kept deliberately and pinned by tests
+ * (2026-09-28 audit, S5; test_worker_pin_auth.py).
  * @summary Worker Login
  */
 export const workerLoginApiAuthWorkerLoginPost = async (workerLoginIn: WorkerLoginIn, options?: Parameters<typeof customInstance>[1]): Promise<workerLoginApiAuthWorkerLoginPostResponse> => {
@@ -3351,6 +3356,12 @@ export const getListAnimalsApiAnimalsGetUrl = (params?: ListAnimalsApiAnimalsGet
 }
 
 /**
+ * Paginated herd register, bucket/tag ordered.
+ *
+ * ``q`` semantics (2026-09-28 audit — they deliberately differ per
+ * router): matches tag_number/name substring only; a numeric query does
+ * NOT resolve an id here (purchases exact-matches bare digits, health
+ * exact-matches only ``#``-prefixed digits).
  * @summary List Animals
  */
 export const listAnimalsApiAnimalsGet = async (params?: ListAnimalsApiAnimalsGetParams, options?: Parameters<typeof customInstance>[1]): Promise<listAnimalsApiAnimalsGetResponse> => {
@@ -3526,6 +3537,15 @@ export const getCreateAnimalApiAnimalsPostUrl = () => {
 }
 
 /**
+ * Register one animal.
+ *
+ * Idempotency-Key is CONDITIONALLY required (2026-09-28 audit): any
+ * purchased-animal create that books money — a managed purchase (batch +
+ * quarantine schedule + ANIMAL_PURCHASE expense) or a historical import
+ * with a purchase_price — answers 422 without the header, because a
+ * keyless retry would double-book the expense. Creates that book no money
+ * (BORN, or price-less imports) accept a keyless request, so the header
+ * cannot be published as unconditionally required on this route.
  * @summary Create Animal
  */
 export const createAnimalApiAnimalsPost = async (animalCreateIn: AnimalCreateIn, options?: Parameters<typeof customInstance>[1]): Promise<createAnimalApiAnimalsPostResponse> => {
@@ -6308,6 +6328,10 @@ export const getHealthAnimalOptionsApiHealthAnimalsGetUrl = (params?: HealthAnim
  *
  * A numeric query, optionally prefixed by ``#``, resolves an exact selected
  * id without requiring access to the full animal profile endpoint.
+ * ``q`` semantics (2026-09-28 audit — they deliberately differ per
+ * router): ``#123`` resolves id 123 only; bare ``123`` matches the id OR
+ * a tag/name substring (purchases exact-matches bare digits too, animals
+ * never resolves an id).
  * @summary Health Animal Options
  */
 export const healthAnimalOptionsApiHealthAnimalsGet = async (params?: HealthAnimalOptionsApiHealthAnimalsGetParams, options?: Parameters<typeof customInstance>[1]): Promise<healthAnimalOptionsApiHealthAnimalsGetResponse> => {
@@ -11738,6 +11762,9 @@ export const getListBatchesApiPurchasesGetUrl = (params?: ListBatchesApiPurchase
  * Text searches supplier names literally (LIKE wildcards are escaped); a
  * numeric query, with an optional leading ``#``, also matches an exact batch
  * id. This keeps selectors bounded without hiding old purchase batches.
+ * (``q`` semantics deliberately differ per router — 2026-09-28 audit:
+ * animals matches tag/name only, health exact-matches an id only when
+ * ``#``-prefixed.)
  * @summary List Batches
  */
 export const listBatchesApiPurchasesGet = async (params?: ListBatchesApiPurchasesGetParams, options?: Parameters<typeof customInstance>[1]): Promise<listBatchesApiPurchasesGetResponse> => {
@@ -18679,7 +18706,9 @@ export const getListBatchesApiScreeningBatchesGetUrl = (params?: ListBatchesApiS
 }
 
 /**
- * Recent disease-check walkthroughs with per-pen progress.
+ * A page of disease-check walkthroughs, newest first, with per-pen
+ * progress. ``total`` is the farm's full batch count so clients can page
+ * past the newest screen (2026-09-28 audit, A2).
  * @summary List Batches
  */
 export const listBatchesApiScreeningBatchesGet = async (params?: ListBatchesApiScreeningBatchesGetParams, options?: Parameters<typeof customInstance>[1]): Promise<listBatchesApiScreeningBatchesGetResponse> => {

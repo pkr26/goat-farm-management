@@ -419,7 +419,7 @@ describe("HealthPage dialog — campaign kills", () => {
 
   it("toasts the singular message for an animal-scoped record", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getByRole("combobox", { name: "Animal *" }), /G-003/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003/);
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
     await waitFor(() => expect(toastMocks.success).toHaveBeenCalledTimes(1));
     expect(toastMocks.success).toHaveBeenCalledWith("Health event recorded.");
@@ -443,7 +443,7 @@ describe("HealthPage dialog — campaign kills", () => {
         ),
       ),
     );
-    await pickOption(user, within(dialog).getByRole("combobox", { name: "Animal *" }), /G-003/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003/);
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
     expect(
       await within(dialog).findByText("First problem.; Second problem.", { exact: false }),
@@ -468,7 +468,7 @@ describe("HealthPage dialog — campaign kills", () => {
         ),
       ),
     );
-    await pickOption(user, within(dialog).getByRole("combobox", { name: "Animal *" }), /G-003/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003/);
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
 
     expect(await within(dialog).findByText("Dose is required.")).toBeInTheDocument();
@@ -493,7 +493,7 @@ describe("HealthPage dialog — campaign kills", () => {
     const { user, dialog } = await openDialog();
     // A successful record invalidates the log; that background refetch fails
     // while the old data stays on screen — the stale-data notice path.
-    await pickOption(user, within(dialog).getByRole("combobox", { name: "Animal *" }), /G-003/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003/);
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
     await waitFor(() => expect(eventsCalls).toBe(2));
 
@@ -509,7 +509,7 @@ describe("HealthPage dialog — campaign kills", () => {
     await user.click(within(dialog).getByRole("radio", { name: /batch/i }));
     await pickOption(
       user,
-      within(dialog).getByRole("combobox", { name: "Purchase batch *" }),
+      within(dialog).getByRole("button", { name: "Purchase batch *" }),
       /2/,
     );
     await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
@@ -549,7 +549,7 @@ describe("HealthPage dialog — campaign kills", () => {
     await user.click(within(dialog).getByRole("radio", { name: /batch/i }));
     await pickOption(
       user,
-      within(dialog).getByRole("combobox", { name: "Purchase batch *" }),
+      within(dialog).getByRole("button", { name: "Purchase batch *" }),
       /2/,
     );
     await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
@@ -558,7 +558,7 @@ describe("HealthPage dialog — campaign kills", () => {
     ).toBeInTheDocument();
     await pickOption(
       user,
-      within(dialog).getByRole("combobox", { name: "Purchase batch *" }),
+      within(dialog).getByRole("button", { name: "Purchase batch *" }),
       /Batch #3/,
     );
     expect(

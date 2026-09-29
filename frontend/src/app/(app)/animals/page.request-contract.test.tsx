@@ -150,7 +150,7 @@ describe("AnimalsPage create dialog submit state", () => {
   it("locks its own submit button while the form is still validating", async () => {
     const user = userEvent.setup();
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
     const dialog = await openCreateDialog(user);
 
     fireEvent.submit(dialog.querySelector("form") as HTMLFormElement);
@@ -170,7 +170,7 @@ describe("AnimalsPage create dialog submit state", () => {
   it("flags the notes box invalid only once it exceeds the 4000-character cap", async () => {
     const user = userEvent.setup();
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
     const dialog = await openCreateDialog(user);
     const notes = within(dialog).getByLabelText("Notes");
     // An untouched field is not "valid" or "invalid" — assistive tech should
@@ -195,7 +195,7 @@ describe("AnimalsPage first list request", () => {
       </AfterSessionBootstrap>,
     );
 
-    expect(await screen.findByText("1 animal(s)")).toBeInTheDocument();
+    expect(await screen.findByText("1 animal")).toBeInTheDocument();
     // Arriving with permissions already cached (any in-app link into
     // /animals) enables the list query on the first render, so the initial
     // request has to be the filtered one — an unfiltered round trip would
@@ -234,7 +234,7 @@ describe("AnimalsPage interaction fence", () => {
 
   it("normalises the search box to the term its own URL commit carries", async () => {
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
 
     fireEvent.change(searchBox(), { target: { value: "G-001 " } });
 
@@ -247,7 +247,7 @@ describe("AnimalsPage interaction fence", () => {
 
   it("rehydrates the filters and the search box from a browser navigation", async () => {
     const view = renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
 
     nav.state.search = "bucket=RESTING&sex=F&status=ACTIVE&q=G-002";
     view.rerender(<AnimalsPage />);
@@ -261,7 +261,7 @@ describe("AnimalsPage interaction fence", () => {
 
   it("drops navigations the browser overtook instead of fencing the list forever", async () => {
     const view = renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
 
     nav.state.deferReplace = true;
     fireEvent.change(searchBox(), { target: { value: "G-9" } });
@@ -287,7 +287,7 @@ describe("AnimalsPage interaction fence", () => {
       mutations: { retry: false },
     });
     renderWithProviders(<AnimalsPage />, queryClient);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
     const bucketFilter = () => screen.getByLabelText("Filter animals by bucket");
 
     await pickOption(user, bucketFilter(), "Female kids");
@@ -328,7 +328,7 @@ describe("AnimalsPage ?new=1 stripping", () => {
 
   it("does not dispatch a second strip while the first is still in flight", async () => {
     const view = renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
 
     nav.state.deferReplace = true;
     nav.state.search = "new=1";
@@ -373,7 +373,7 @@ describe("AnimalsPage refresh after a create", () => {
     const user = userEvent.setup();
     nav.state.search = "page=1";
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
     expect(nav.replace).not.toHaveBeenCalled();
     const requestsBefore = seenParams.length;
 

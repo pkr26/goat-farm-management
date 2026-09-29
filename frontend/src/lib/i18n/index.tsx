@@ -23,6 +23,7 @@ import {
 } from "react";
 
 import { setActiveLanguage } from "@/lib/active-language";
+import { safeStorage } from "@/lib/safe-storage";
 
 import en, { type MessageKey } from "./en";
 import te from "./te";
@@ -71,9 +72,12 @@ const defaultContextValue: LanguageContextValue = {
 
 const LanguageContext = createContext<LanguageContextValue>(defaultContextValue);
 
-function readStoredLanguage(): Language {
+/** Reads the persisted language without React — for the route-state
+ * boundaries (error/404/loading) that must render even when the provider
+ * tree has crashed (2026-09-28 audit, I3). */
+export function readStoredLanguage(): Language {
   try {
-    const stored = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
+    const stored = safeStorage("local")?.getItem(LANGUAGE_STORAGE_KEY);
     return stored === "te" ? "te" : "en";
   } catch {
     // Private-mode webviews can throw on storage access; English is the
@@ -112,7 +116,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   const setLanguage = useCallback((next: Language) => {
     setLanguageState(next);
     try {
-      window.localStorage.setItem(LANGUAGE_STORAGE_KEY, next);
+      safeStorage("local")?.setItem(LANGUAGE_STORAGE_KEY, next);
     } catch {
       // Storage unavailable (private mode): keep the in-memory switch.
     }

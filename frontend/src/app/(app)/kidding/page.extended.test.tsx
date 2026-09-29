@@ -43,8 +43,8 @@ beforeAll(() => {
   } as unknown as typeof ResizeObserver;
 });
 
-/** UTC-relative fixture dates: the page compares against utcToday()
- *, so browser-local fixtures drift a day near midnight. */
+/** Farm-calendar fixture dates: the page compares against farmToday(),
+ * so browser-local fixtures drift a day near the farm's midnight. */
 const TODAY = farmToday();
 
 /** Browser-local today — matches the forms' write-side date defaults (the
@@ -88,6 +88,7 @@ function makeBreeding(overrides: Partial<BreedingRecordOut>): BreedingRecordOut 
     loss_notes: null,
     loss_recorded_by_id: null,
     loss_recorded_at: null,
+    created_at: "2026-01-01T00:00:00Z",
     has_kidding: false,
     doe_tag: "G-010",
     buck_tag: "G-020",
@@ -106,6 +107,7 @@ function makeKidding(overrides: Partial<KiddingRecordOut>): KiddingRecordOut {
     placenta_passed: null,
     mastitis_suspected: false,
     notes: null,
+    created_at: "2026-01-01T00:00:00Z",
     kids: [],
     doe_tag: "G-010",
     ...overrides,
@@ -131,6 +133,7 @@ const HISTORY = makeKidding({
       navel_dipped: null,
       dam_rejected: false,
       animal_id: 55,
+      created_at: "2026-01-01T00:00:00Z",
     },
     {
       id: 2,
@@ -143,6 +146,7 @@ const HISTORY = makeKidding({
       navel_dipped: null,
       dam_rejected: false,
       animal_id: null,
+      created_at: "2026-01-01T00:00:00Z",
     },
   ],
 });
@@ -437,9 +441,9 @@ describe("KiddingPage", () => {
     expect(within(row).getByText("Assisted")).toBeInTheDocument();
     const kidLink = within(row).getByRole("link", { name: "G-101" });
     expect(kidLink).toHaveAttribute("href", "/animals/55");
-    expect(within(row).getByText(/\(Female, alive\)/)).toBeInTheDocument();
+    expect(within(row).getByText(/\(Female, Alive\)/)).toBeInTheDocument();
     // Kid without an animal record: plain text fallback tag.
-    expect(within(row).getByText(/kid\s*\(Male, stillborn\)/)).toBeInTheDocument();
+    expect(within(row).getByText(/kid\s*\(Male, Stillborn\)/)).toBeInTheDocument();
   });
 
   it("surfaces the recorded care facts read-only in the history", async () => {
@@ -461,6 +465,7 @@ describe("KiddingPage", () => {
             navel_dipped: false,
             dam_rejected: true,
             animal_id: null,
+            created_at: "2026-01-01T00:00:00Z",
           },
         ],
       }),
@@ -478,7 +483,7 @@ describe("KiddingPage", () => {
     // Recorded neonatal care joins the kid's parenthetical.
     expect(
       within(row).getByText(
-        /\(Female, alive, colostrum yes, navel dipped no, dam rejected\)/,
+        /\(Female, Alive, colostrum yes, navel dipped no, dam rejected\)/,
       ),
     ).toBeInTheDocument();
   });

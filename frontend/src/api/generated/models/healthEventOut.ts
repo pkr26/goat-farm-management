@@ -34,5 +34,6 @@ export interface HealthEventOut {
   authority_notified_at: string | null;
   isolation_started_at: string | null;
   notes: string | null;
+  created_at: string;
   animal_tag?: string | null;
 }

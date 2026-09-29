@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { useT } from "@/lib/i18n";
 
 /** Offset pagination shared by operational histories. The API owns the total;
  * this control never guesses from a short/empty page. */
@@ -27,6 +28,10 @@ export function PaginationControls({
    * the page they describe is no longer the one being requested. */
   disabled?: boolean;
 }) {
+  // Buttons and the landmark label resolve through the active language
+  // catalog; the caller-supplied record noun stays as-is (2026-09-28
+  // audit, I5).
+  const t = useT();
   if (!Number.isFinite(total) || total <= 0) return null;
   // The component is also a trust boundary: URL-derived state has reached it
   // as NaN/negative/fractional values in the wild. Sanitize instead of
@@ -43,7 +48,7 @@ export function PaginationControls({
   const first = Math.min(safeOffset + 1, last);
   return (
     <nav
-      aria-label={`${label} pagination`}
+      aria-label={t("pagination.ariaLabel", { label })}
       aria-busy={disabled || undefined}
       className="flex flex-wrap items-center justify-between gap-3 pt-3"
     >
@@ -58,7 +63,7 @@ export function PaginationControls({
           disabled={disabled || safeOffset === 0}
           onClick={() => onOffsetChange(Math.max(0, safeOffset - safeLimit))}
         >
-          Previous
+          {t("pagination.previous")}
         </Button>
         <Button
           type="button"
@@ -67,7 +72,7 @@ export function PaginationControls({
           disabled={disabled || safeOffset + safeLimit >= total}
           onClick={() => onOffsetChange(safeOffset + safeLimit)}
         >
-          Next
+          {t("pagination.next")}
         </Button>
       </div>
     </nav>

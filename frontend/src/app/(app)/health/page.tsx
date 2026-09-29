@@ -100,6 +100,7 @@ import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import { isPersistableNonnegativeMoney } from "@/lib/persisted-numbers";
 import { permittedAppPath, withReturnTo } from "@/lib/permission-navigation";
+import { mapServerError } from "@/lib/server-error-phrases";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 import { MAX_PAGE_OFFSET, useUrlState } from "@/lib/use-url-state";
@@ -1144,7 +1145,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
         <div role="alert" className="space-y-3 rounded-lg border border-destructive/40 p-4">
           <p className="text-sm text-destructive">
             {eventsQuery.error instanceof ApiError
-              ? eventsQuery.error.detail
+              ? mapServerError(t, eventsQuery.error.detail, eventsQuery.error.status, eventsQuery.error.code)
               : "Could not load health events."}
           </p>
           <Button type="button" variant="outline" onClick={() => void eventsQuery.refetch()}>
@@ -1781,7 +1782,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                 >
                   <p className="text-destructive">
                     {tasksQuery.error instanceof ApiError
-                      ? tasksQuery.error.detail
+                      ? mapServerError(t, tasksQuery.error.detail, tasksQuery.error.status, tasksQuery.error.code)
                       : t("health.form.dutiesLoadFailed")}
                   </p>
                   <Button

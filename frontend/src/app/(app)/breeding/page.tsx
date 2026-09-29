@@ -67,11 +67,13 @@ import {
   applyApiValidationToForm,
   } from "@/lib/api-client";
 import { enumLabel } from "@/lib/enum-labels";
-import { useLanguage, type Language } from "@/lib/i18n";
+import { useLanguage, useT, type Language, type TFn } from "@/lib/i18n";
+import { mapServerError } from "@/lib/server-error-phrases";
+import { useMutationError } from "@/lib/mutations";
 import { daysBetween, farmToday, formatDate } from "@/lib/format";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { invalidateFarmData } from "@/lib/query-invalidation";
-import { farmVocabulary, type FarmVocabulary } from "@/lib/farm-vocabulary";
+import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 import { PageSkeleton } from "@/components/skeletons";
@@ -92,15 +94,6 @@ function parsePositiveId(raw: string | null): number | null {
  * result dated strictly between them reports an unobservable event. */
 const STANDING_HEAT_DAYS = 1;
 const EARLIEST_RETURN_TO_HEAT_DAYS = 18;
-
-function errorText(err: unknown): string {
-  return err instanceof ApiError ? err.detail : "Something went wrong";
-}
-
-/** Display-case a vocabulary noun for label positions ("doe" → "Doe"). */
-function cap(noun: string): string {
-  return noun.charAt(0).toUpperCase() + noun.slice(1);
-}
 
 /** value → label map for the root `items` prop: without it, Base UI's
  * Select.Value renders the raw enum value in the closed trigger. Labels come
@@ -124,11 +117,16 @@ function OutcomeBadge({ outcome }: { outcome: string }) {
   return <StatusBadge status={outcome} />;
 }
 
-/** Exported for direct schema-level testing of the inline gates. */
-export const breedingSchema = (vocabulary: FarmVocabulary) =>
+/** Exported for direct schema-level testing of the inline gates. The
+ * messages resolve through the i18n catalog, so the factory takes the
+ * caller's `t` and the mounted dialog rebuilds it whenever the active
+ * language changes (health.buildEventSchema precedent). */
+export const buildBreedingSchema = (t: TFn) =>
   z
   .object({
-    doe_id: z.string().min(1, `Select a ${vocabulary.femaleAdult}`),
+    doe_id: z
+      .string()
+      .min(1, t("breeding.validation.selectFemale", { noun: t("breeding.noun.female") })),
     // Buck is required for natural service; AI methods name a semen bull.
     buck_id: z.string(),
     method: z.enum(["NATURAL", "AI", "AI_SEXED"]),
@@ -138,20 +136,20 @@ export const breedingSchema = (vocabulary: FarmVocabulary) =>
       .regex(
         // Stryker disable next-line Regex: hand-proven killed by the trailing-garbage schema tests in BOTH page.campaign.test.tsx and page.mutation.test.tsx ("2026-01-01x" must fail) — Stryker's related-test selection never includes those tests across runs; documented attribution artifact
         /^\d{4}-\d{2}-\d{2}$/,
-        "Pick a valid date",
+        t("breeding.validation.dateInvalid"),
       )
-      .refine((s) => s <= farmToday(), "Date can't be in the future"),
+      .refine((s) => s <= farmToday(), t("breeding.validation.dateFuture")),
   })
   .superRefine((values, ctx) => {
     if (values.method === "NATURAL" && !values.buck_id) {
       ctx.addIssue({
         code: "custom",
         path: ["buck_id"],
-        message: `Select a ${vocabulary.maleAdult} for a natural service`,
+        message: t("breeding.validation.selectMaleNatural", { noun: t("breeding.noun.male") }),
       });
     }
   });
-type BreedingValues = z.infer<ReturnType<typeof breedingSchema>>;
+type BreedingValues = z.infer<ReturnType<typeof buildBreedingSchema>>;
 
 function breedingDefaults(): BreedingValues {
   return {
@@ -181,9 +179,13 @@ function NewBreedingDialog({
   const createMutation = useCreateBreedingApiBreedingPost();
   const createFlight = useSingleFlight();
   const { language } = useLanguage();
+  const t = useT();
+  const mutationErrorMessage = useMutationError();
   const vocabulary = farmVocabulary;
-  const femaleLabel = cap(vocabulary.femaleAdult);
-  const maleLabel = cap(vocabulary.maleAdult);
+  const femaleNoun = t("breeding.noun.female");
+  const femaleNounCap = t("breeding.noun.femaleCap");
+  const maleNoun = t("breeding.noun.male");
+  const maleNounCap = t("breeding.noun.maleCap");
   const [formError, setFormError] = useState<string | null>(null);
   // RemotePicker resolves a selected label from its loaded page, then this
   // prop, then its own state — and that state dies with the picker when the
@@ -197,6 +199,7 @@ function NewBreedingDialog({
   const eligibleBuckCount = candidateAvailability?.eligible_buck_count ?? null;
   // Stryker disable next-line ConditionalExpression: the null arm is redundant — (null > 0) is false exactly like the !== null guard, so both spellings yield the same boolean for every count
   const hasEligibleBuck = eligibleBuckCount !== null && eligibleBuckCount > 0;
+  const localizedSchema = useMemo(() => buildBreedingSchema(t), [t]);
   const {
     control,
     register,
@@ -206,8 +209,7 @@ function NewBreedingDialog({
     setError,
     formState: { errors, isSubmitting, dirtyFields },
   } = useForm<BreedingValues>({
-    // Stryker disable next-line ArrayDeclaration: farmVocabulary is a module constant, so the dep list can never go stale
-    resolver: zodResolver(useMemo(() => breedingSchema(vocabulary), [vocabulary])),
+    resolver: zodResolver(localizedSchema),
     defaultValues: breedingDefaults(),
   });
   const method = useWatch({ control, name: "method" });
@@ -244,7 +246,7 @@ function NewBreedingDialog({
         // The write belongs to the farm it was addressed to; the completion
         // must not toast/close/invalidate on a different farm's UI (M-2).
         if (!stillOwnsFarm()) return;
-        toast.success("Breeding saved.");
+        toast.success(t("breeding.toast.saved"));
         reset(breedingDefaults());
         // Clear the lifted labels alongside the form values, or the next
         // breeding would open showing the animals this one used.
@@ -269,7 +271,7 @@ function NewBreedingDialog({
           BREEDING_FORM_FIELDS,
         );
         if (unmapped.length === apiValidationErrors(err).length) {
-          const message = errorText(err);
+          const message = mutationErrorMessage(err);
           setFormError(message);
           toast.error(message);
         } else if (unmapped.length > 0) {
@@ -294,20 +296,26 @@ function NewBreedingDialog({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add breeding</DialogTitle>
+          <DialogTitle>{t("breeding.add")}</DialogTitle>
           <DialogDescription>
-            A pregnancy-check task is auto-created (
-            {vocabulary.facts.pregnancyCheckDays} days after the service).
+            {t("breeding.dialog.description", { days: vocabulary.facts.pregnancyCheckDays })}
           </DialogDescription>
         </DialogHeader>
         {candidateAvailability === null ? (
           <p role="alert" className="text-destructive">
-            Candidate availability is unavailable. Refresh the breeding records before adding a
-            breeding.
+            {t("breeding.dialog.availabilityUnavailable")}
           </p>
         ) : eligibleDoeCount === 0 ? (
           <p className="text-muted-foreground">
-            No breeding-ready females right now. {vocabulary.breedingGateCopy}
+            {t("breeding.dialog.noEligibleFemales")}{" "}
+            {t("breeding.dialog.gateCopy", {
+              female: femaleNoun,
+              femaleMonths: vocabulary.breedingEntry.female.minMonths,
+              femaleWeight: vocabulary.breedingEntry.female.minWeightKg,
+              males: t("breeding.noun.malePlural"),
+              maleMonths: vocabulary.breedingEntry.male.minMonths,
+              maleWeight: vocabulary.breedingEntry.male.minWeightKg,
+            })}
           </p>
         ) : (
           <form onSubmit={handleSubmit(onSubmit)} noValidate>
@@ -322,7 +330,9 @@ function NewBreedingDialog({
               </p>
             )}
             <div className="space-y-1.5">
-              <Label htmlFor="breeding-doe">{femaleLabel} *</Label>
+              <Label htmlFor="breeding-doe">
+                {t("breeding.form.femaleLabel", { noun: femaleNounCap })}
+              </Label>
               <Controller
                 control={control}
                 name="doe_id"
@@ -335,8 +345,8 @@ function NewBreedingDialog({
                     onOptionChange={setDoeOption}
                     // Stryker disable next-line ConditionalExpression: the picker only displays a selectedOption whose value matches the field's current value, so passing a stale option after a reset is unobservable
                 selectedOption={doeOption?.value === field.value ? doeOption : null}
-                    placeholder={`Select ${vocabulary.femaleAdult}`}
-                    dialogTitle={`Choose a breeding-ready ${vocabulary.femaleAdult}`}
+                    placeholder={t("breeding.form.selectFemalePlaceholder", { noun: femaleNoun })}
+                    dialogTitle={t("breeding.form.chooseFemaleTitle", { noun: femaleNoun })}
                     aria-invalid={Boolean(errors.doe_id) || undefined}
                     aria-describedby={errors.doe_id ? "breeding-doe-error" : undefined}
                   />
@@ -347,21 +357,21 @@ function NewBreedingDialog({
               )}
             </div>
             <div className="space-y-1.5">
-              <Label>Method *</Label>
+              <Label>{t("breeding.form.methodLabel")}</Label>
               <div
                 role="radiogroup"
-                aria-label="Breeding method"
+                aria-label={t("breeding.form.methodAria")}
                 className="grid gap-2 sm:grid-cols-3"
               >
                 {/* AI / AI_SEXED are part of the wire contract (legacy
                     records render them) but the goat protocol rejects the
-                    write unconditionally (services/breeding: "AI and
+                    write unconditionally (services/breeding — "AI and
                     sexed-semen services are not part of the goat protocol",
                     409). Offering the radios only produced guaranteed
                     failures after the operator filled the form. */}
                 {(
                   [
-                    ["NATURAL", enumLabel("method", "NATURAL", language), `Herd ${vocabulary.maleAdult}`],
+                    ["NATURAL", enumLabel("method", "NATURAL", language), t("breeding.form.methodNaturalHint", { noun: maleNoun })],
                   ] as const
                 ).map(([value, title, hint]) => (
                   <label
@@ -382,13 +392,14 @@ function NewBreedingDialog({
                 ))}
               </div>
               <p className="text-xs text-muted-foreground">
-                Natural cover with a herd {vocabulary.maleAdult} is the only supported method — AI
-                is not part of the protocol.
+                {t("breeding.form.methodNote", { noun: maleNoun })}
               </p>
             </div>
             {method === "NATURAL" ? (
               <div className="space-y-1.5">
-                <Label htmlFor="breeding-buck">{maleLabel} *</Label>
+                <Label htmlFor="breeding-buck">
+                  {t("breeding.form.maleLabel", { noun: maleNounCap })}
+                </Label>
                 <Controller
                   control={control}
                   name="buck_id"
@@ -401,8 +412,8 @@ function NewBreedingDialog({
                       onOptionChange={setBuckOption}
                       // Stryker disable next-line ConditionalExpression: the picker only displays a selectedOption whose value matches the field's current value, so passing a stale option after a reset is unobservable
                     selectedOption={buckOption?.value === field.value ? buckOption : null}
-                      placeholder={`Select ${vocabulary.maleAdult}`}
-                      dialogTitle={`Choose an active ${vocabulary.maleAdult}`}
+                      placeholder={t("breeding.form.selectMalePlaceholder", { noun: maleNoun })}
+                      dialogTitle={t("breeding.form.chooseMaleTitle", { noun: maleNoun })}
                       disabled={!hasEligibleBuck}
                       aria-invalid={Boolean(errors.buck_id) || undefined}
                       aria-describedby={errors.buck_id ? "breeding-buck-error" : undefined}
@@ -414,28 +425,32 @@ function NewBreedingDialog({
                 )}
                 {!hasEligibleBuck && (
                   <p className="text-sm text-destructive">
-                    No eligible {vocabulary.maleAdult}s are available. {maleLabel}s on hold, in
-                    quarantine, or otherwise restricted cannot be selected.
+                    {t("breeding.form.noEligibleMales", {
+                      nouns: t("breeding.noun.malePlural"),
+                      nounsCap: t("breeding.noun.malePluralCap"),
+                    })}
                   </p>
                 )}
               </div>
             ) : (
               <div className="space-y-1.5">
-                <Label htmlFor="breeding-semen-sire">Semen {vocabulary.maleAdult} (optional)</Label>
+                <Label htmlFor="breeding-semen-sire">
+                  {t("breeding.form.semenSireLabel", { noun: maleNoun })}
+                </Label>
                 <Input
                   id="breeding-semen-sire"
                   maxLength={120}
-                  placeholder={`${cap(vocabulary.maleAdult)} name / straw code`}
+                  placeholder={t("breeding.form.semenSirePlaceholder", { noun: maleNounCap })}
                   aria-describedby="breeding-semen-sire-hint"
                   {...register("semen_sire_name")}
                 />
                 <p id="breeding-semen-sire-hint" className="text-xs text-muted-foreground">
-                  {`The sire named on the straw used for this ${vocabulary.femaleAdult}.`}
+                  {t("breeding.form.semenSireHint", { noun: femaleNoun })}
                 </p>
               </div>
             )}
             <div className="space-y-1.5">
-              <Label htmlFor="breeding_date">Breeding date *</Label>
+              <Label htmlFor="breeding_date">{t("breeding.form.dateLabel")}</Label>
               <Input
                 id="breeding_date"
                 type="date"
@@ -463,10 +478,10 @@ function NewBreedingDialog({
                 {/* react-hook-form's isSubmitting spans the entire submit
                     window (the flight starts inside the handler). */}
                 {isSubmitting
-                  ? "Saving…"
+                  ? t("breeding.form.saving")
                   : formError
-                    ? "Retry save breeding"
-                    : "Save breeding"}
+                    ? t("breeding.form.retrySave")
+                    : t("breeding.form.submit")}
               </Button>
             </DialogFooter>
             </fieldset>
@@ -488,6 +503,8 @@ function UltrasoundDialog({
   onSaved: () => void;
 }) {
   const vocabulary = farmVocabulary;
+  const t = useT();
+  const mutationErrorMessage = useMutationError();
   // A diagnostic outcome is never pre-filled: pre-checking "pregnant" lets an
   // operator who trusts the form save a negative scan as a confirmed pregnancy,
   // which moves the doe to PREGNANCY_EARLY and spawns pre-kidding follow-up
@@ -519,14 +536,18 @@ function UltrasoundDialog({
   // Stryker disable next-line ConditionalExpression: the null arm is redundant — (null > STANDING_HEAT_DAYS) is false exactly like the !== null guard, and every real gap value behaves identically
   const inUnobservableNegativeWindow = negativeResultGapDays !== null && negativeResultGapDays > STANDING_HEAT_DAYS && negativeResultGapDays < EARLIEST_RETURN_TO_HEAT_DAYS;
   const resultDateError = !resultDate
-    ? "Result date is required"
+    ? t("breeding.ultrasound.validation.required")
     : resultDate < earliestResultDate
-      ? `Result date cannot be before ${formatDate(earliestResultDate)}`
+      ? t("breeding.ultrasound.validation.tooEarly", { date: formatDate(earliestResultDate) })
       : resultDate > farmToday()
-        ? "Result date can't be in the future"
+        ? t("breeding.ultrasound.validation.future")
         // Stryker disable next-line ConditionalExpression: the null arm is redundant — (null > STANDING_HEAT_DAYS) is false exactly like the !== null guard, so both spellings yield null here
         : inUnobservableNegativeWindow
-          ? `A not-pregnant result ${negativeResultGapDays} days after service is not observable — record it on the service day or the day after, or from day ${EARLIEST_RETURN_TO_HEAT_DAYS} (return to heat).`
+          ? t("breeding.ultrasound.validation.unobservable", {
+              // Stryker disable next-line LogicalOperator: the guard above establishes the gap is non-null, so the 0 fallback is unreachable
+              days: negativeResultGapDays ?? 0,
+              earliest: EARLIEST_RETURN_TO_HEAT_DAYS,
+            })
           : null;
   // Species litter cap (goat scans reach 4) mirrors
   // backend SpeciesProfile.max_litter_size — the server 422s past the cap.
@@ -536,7 +557,7 @@ function UltrasoundDialog({
   );
   // Stryker disable ConditionalExpression, StringLiteral: checking Pregnant seeds a valid count ("2") and the select only offers detectedOptions, so the error VALUE is unreachable through the dialog — defense against programmatic/legacy states only
   const kidCountError = pregnant && !detectedOptions.includes(kidCount)
-    ? `Select the detected ${vocabulary.young} count`
+    ? t("breeding.ultrasound.validation.youngCount", { young: t("breeding.noun.young") })
     : null;
   // Stryker restore ConditionalExpression, StringLiteral
 
@@ -559,14 +580,14 @@ function UltrasoundDialog({
         },
       });
       if (!stillOwnsFarm()) return;
-      toast.success("Ultrasound result saved.");
+      toast.success(t("breeding.toast.ultrasoundSaved"));
       onClose();
       onSaved();
     } catch (err) {
       // L-26 (2026-09-17 audit): after a farm switch this stale failure must
       // not paint another farm's dialog or toast its error.
       if (!stillOwnsFarm()) return;
-      const message = errorText(err);
+      const message = mutationErrorMessage(err);
       setFormError(message);
       toast.error(message);
     } finally {
@@ -579,13 +600,18 @@ function UltrasoundDialog({
     <Dialog open onOpenChange={(open) => !open && !saving && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Ultrasound result</DialogTitle>
+          <DialogTitle>{t("breeding.ultrasound.title")}</DialogTitle>
           <DialogDescription>
-            {cap(vocabulary.femaleAdult)} {record.doe_tag ?? `#${record.doe_id}`} · bred{" "}
-            {formatDate(record.breeding_date)} by{" "}
-            {record.buck_tag ?? `#${record.buck_id}`}
+            {t("breeding.ultrasound.description", {
+              female: t("breeding.noun.femaleCap"),
+              doeTag: record.doe_tag ?? `#${record.doe_id}`,
+              date: formatDate(record.breeding_date),
+              buck: record.buck_tag ?? `#${record.buck_id}`,
+            })}
             {record.ultrasound_date
-              ? ` · planned scan ${formatDate(record.ultrasound_date)}`
+              ? t("breeding.ultrasound.plannedScanSuffix", {
+                  date: formatDate(record.ultrasound_date),
+                })
               : ""}
           </DialogDescription>
         </DialogHeader>
@@ -596,7 +622,9 @@ function UltrasoundDialog({
         )}
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor={`ultrasound-result-date-${record.id}`}>Result date *</Label>
+            <Label htmlFor={`ultrasound-result-date-${record.id}`}>
+              {t("breeding.ultrasound.resultDateLabel")}
+            </Label>
             <Input
               id={`ultrasound-result-date-${record.id}`}
               type="date"
@@ -619,11 +647,11 @@ function UltrasoundDialog({
               </p>
             )}
             <p className="text-xs text-muted-foreground">
-              Planned check: {formatDate(record.ultrasound_date)}. A pregnant result needs that
-              scan. A not-pregnant one is recordable on the service day or the day after (the
-              service was watched and failed), or from day {EARLIEST_RETURN_TO_HEAT_DAYS} onwards
-              ({vocabulary.femaleAdult} back in heat) — not in the gap between, where neither is
-              observable. Use the actual historical date for backdated entry.
+              {t("breeding.ultrasound.dateExplainer", {
+                date: formatDate(record.ultrasound_date),
+                days: EARLIEST_RETURN_TO_HEAT_DAYS,
+                female: t("breeding.noun.female"),
+              })}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -642,12 +670,12 @@ function UltrasoundDialog({
                 setKidCount(selected ? "2" : "");
               }}
             />
-            <Label htmlFor="pregnant">Pregnant — confirmed</Label>
+            <Label htmlFor="pregnant">{t("breeding.ultrasound.pregnantLabel")}</Label>
           </div>
           {pregnant && (
             <div className="space-y-1.5">
               <Label htmlFor={`ultrasound-kid-count-${record.id}`}>
-                {cap(vocabulary.young)} count detected
+                {t("breeding.ultrasound.youngCountLabel", { young: t("breeding.noun.youngCap") })}
               </Label>
               <Select
                 value={kidCount}
@@ -673,13 +701,17 @@ function UltrasoundDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={saving}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button
             onClick={onSubmit}
             disabled={saving || Boolean(resultDateError) || Boolean(kidCountError)}
           >
-            {saving ? "Saving…" : formError ? "Retry save result" : "Save result"}
+            {saving
+              ? t("breeding.form.saving")
+              : formError
+                ? t("breeding.ultrasound.retrySubmit")
+                : t("breeding.ultrasound.submit")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -699,7 +731,8 @@ function PregnancyLossDialog({
   const mutation = useAbortPregnancyApiBreedingRecordIdAbortPost();
   const saveFlight = useSingleFlight();
   const { language } = useLanguage();
-  const vocabulary = farmVocabulary;
+  const t = useT();
+  const mutationErrorMessage = useMutationError();
   // Stryker disable next-line ConditionalExpression, EqualityOperator: when the two dates are equal both arms return the same date, and when they differ > and >= agree — the boundary is not observable
   const earliestLossDate = record.ultrasound_result_date && record.ultrasound_result_date > record.breeding_date ? record.ultrasound_result_date : record.breeding_date;
   const [lossDate, setLossDate] = useState(farmToday());
@@ -707,13 +740,14 @@ function PregnancyLossDialog({
   const [notes, setNotes] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const lossDateError = !lossDate
-    ? "Loss date is required"
+    ? t("breeding.loss.validation.required")
     : lossDate < earliestLossDate
-      ? `Loss date cannot be before ${formatDate(earliestLossDate)}`
+      ? t("breeding.loss.validation.tooEarly", { date: formatDate(earliestLossDate) })
       : lossDate > farmToday()
-        ? "Loss date can't be in the future"
+        ? t("breeding.loss.validation.future")
         : null;
-  const notesError = notes.length > 4_000 ? "Notes cannot exceed 4000 characters" : null;
+  const notesError =
+    notes.length > 4_000 ? t("breeding.loss.validation.notesTooLong", { max: 4_000 }) : null;
   // Stryker disable next-line LogicalOperator: both flags are true together for the whole in-flight window (the flight starts inside the submit handler)
   const saving = mutation.isPending || saveFlight.pending;
 
@@ -735,14 +769,14 @@ function PregnancyLossDialog({
           },
         });
         if (!stillOwnsFarm()) return;
-        toast.success("Pregnancy loss recorded.");
+        toast.success(t("breeding.toast.lossRecorded"));
         onClose();
         onSaved();
       } catch (err) {
         // L-26 (2026-09-17 audit): after a farm switch this stale failure must
         // not paint another farm's dialog or toast its error.
         if (!stillOwnsFarm()) return;
-        const message = errorText(err);
+        const message = mutationErrorMessage(err);
         setFormError(message);
         toast.error(message);
       }
@@ -753,11 +787,13 @@ function PregnancyLossDialog({
     <Dialog open onOpenChange={(open) => !open && !saving && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Record pregnancy loss</DialogTitle>
+          <DialogTitle>{t("breeding.loss.title")}</DialogTitle>
           <DialogDescription>
-            {cap(vocabulary.femaleAdult)} {record.doe_tag ?? `#${record.doe_id}`} · bred{" "}
-            {formatDate(record.breeding_date)}. This closes the pregnancy and retains an auditable
-            reason.
+            {t("breeding.loss.description", {
+              female: t("breeding.noun.femaleCap"),
+              doeTag: record.doe_tag ?? `#${record.doe_id}`,
+              date: formatDate(record.breeding_date),
+            })}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit} noValidate>
@@ -768,7 +804,9 @@ function PregnancyLossDialog({
             </p>
           )}
           <div className="space-y-1.5">
-            <Label htmlFor={`pregnancy-loss-date-${record.id}`}>Loss date *</Label>
+            <Label htmlFor={`pregnancy-loss-date-${record.id}`}>
+              {t("breeding.loss.dateLabel")}
+            </Label>
             <Input
               id={`pregnancy-loss-date-${record.id}`}
               type="date"
@@ -790,7 +828,9 @@ function PregnancyLossDialog({
             )}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor={`pregnancy-loss-cause-${record.id}`}>Cause *</Label>
+            <Label htmlFor={`pregnancy-loss-cause-${record.id}`}>
+              {t("breeding.loss.causeLabel")}
+            </Label>
             <Select
               value={cause}
               onValueChange={(value) => setCause(value as PregnancyLossInCause)}
@@ -809,7 +849,9 @@ function PregnancyLossDialog({
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor={`pregnancy-loss-notes-${record.id}`}>Notes</Label>
+            <Label htmlFor={`pregnancy-loss-notes-${record.id}`}>
+              {t("breeding.loss.notesLabel")}
+            </Label>
             <Textarea
               id={`pregnancy-loss-notes-${record.id}`}
               value={notes}
@@ -830,14 +872,18 @@ function PregnancyLossDialog({
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" disabled={saving} onClick={onClose}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               type="submit"
               variant="destructive"
               disabled={saving || Boolean(lossDateError) || Boolean(notesError)}
             >
-              {saving ? "Recording…" : formError ? "Retry record loss" : "Record pregnancy loss"}
+              {saving
+                ? t("breeding.loss.recording")
+                : formError
+                  ? t("breeding.loss.retrySubmit")
+                  : t("breeding.loss.title")}
             </Button>
           </DialogFooter>
           </fieldset>
@@ -850,9 +896,10 @@ function PregnancyLossDialog({
 function BreedingPageContent({ perms }: { perms: PermissionsState }) {
   const queryClient = useQueryClient();
   const { language } = useLanguage();
+  const t = useT();
   const vocabulary = farmVocabulary;
-  const femaleLabel = cap(vocabulary.femaleAdult);
-  const maleLabel = cap(vocabulary.maleAdult);
+  const femaleNounCap = t("breeding.noun.femaleCap");
+  const maleNounCap = t("breeding.noun.maleCap");
   const { can } = perms;
   const allowed = can("breeding.view");
   const canManage = can("breeding.manage");
@@ -967,7 +1014,7 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
             every PENDING record; the plan is only a hint. */}
         {r.outcome === "PENDING" && r.ultrasound_date && r.ultrasound_date > farmToday() && (
           <span className="text-xs text-muted-foreground">
-            Scan planned {formatDate(r.ultrasound_date)}
+            {t("breeding.actions.scanPlanned", { date: formatDate(r.ultrasound_date) })}
           </span>
         )}
         {r.outcome === "PENDING" && (
@@ -977,7 +1024,7 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
             className={actionClass}
             onClick={() => setUltrasoundFor(r)}
           >
-            Ultrasound result
+            {t("breeding.ultrasound.title")}
           </Button>
         )}
         {r.outcome === "CONFIRMED_PREGNANT" && !r.has_kidding && (
@@ -987,12 +1034,12 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
             className={actionClass}
             onClick={() => setLossFor(r)}
           >
-            Record loss
+            {t("breeding.actions.recordLoss")}
           </Button>
         )}
         {r.has_kidding && (
           <span className="text-muted-foreground">
-            {cap(vocabulary.parturitionPast)}
+            {t("breeding.noun.parturitionPastCap")}
           </span>
         )}
       </div>
@@ -1005,11 +1052,11 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
         <div className="space-y-3" role="alert">
           <p className="text-sm text-destructive">
             {query.error instanceof ApiError
-              ? query.error.detail
-              : "Could not load breeding records."}
+              ? mapServerError(t, query.error.detail, query.error.status, query.error.code)
+              : t("breeding.error.loadFailed")}
           </p>
           <Button type="button" variant="outline" onClick={() => void query.refetch()}>
-            Retry breeding records
+            {t("breeding.error.retry")}
           </Button>
         </div>
       );
@@ -1017,11 +1064,11 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
     return (
       <div className="space-y-6">
         <PageHeader
-          title="Breeding"
-          description="Breeding records, ultrasound checks and pregnancy outcomes."
+          title={t("breeding.title")}
+          description={t("breeding.description")}
         />
         <div role="status" aria-live="polite">
-          <span className="sr-only">Loading breeding records…</span>
+          <span className="sr-only">{t("breeding.loading")}</span>
           <PageSkeleton stats={3} cards={1} />
         </div>
       </div>
@@ -1032,13 +1079,13 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
     <div className="space-y-6">
       {query.isError && <StaleDataNotice onRetry={() => void query.refetch()} />}
       <PageHeader
-        title="Breeding"
-        description="Breeding records, ultrasound checks and pregnancy outcomes."
+        title={t("breeding.title")}
+        description={t("breeding.description")}
         actions={
           canManage ? (
             <Button onClick={() => setNewOpen(true)}>
               <Plus />
-              Add breeding
+              {t("breeding.add")}
             </Button>
           ) : undefined
         }
@@ -1047,9 +1094,11 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
       {staleDeepLink && requestedRecord && (
         <div role="status" className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-muted-foreground">
-            Ultrasound record #{requestedUltrasoundId} (
-            {requestedRecord.outcome.replace(/_/g, " ").toLowerCase()}) is not awaiting a
-            result — nothing to record.
+            {t("breeding.deepLink.notAwaiting", {
+              // Stryker disable next-line LogicalOperator: staleDeepLink requires a non-null id, so the 0 fallback never renders
+              id: requestedUltrasoundId ?? 0,
+              outcome: enumLabel("outcome", requestedRecord.outcome, language),
+            })}
           </span>
           <Button
             type="button"
@@ -1057,7 +1106,7 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
             variant="outline"
             onClick={() => setDismissedPrefillId(requestedUltrasoundId)}
           >
-            Clear link
+            {t("breeding.deepLink.clear")}
           </Button>
         </div>
       )}
@@ -1066,8 +1115,8 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
         <div className="flex flex-wrap items-center gap-2" role="alert">
           <span className="text-sm text-destructive">
             {prefillRecordQuery.error instanceof ApiError
-              ? prefillRecordQuery.error.detail
-              : "Could not load the linked ultrasound record."}
+              ? mapServerError(t, prefillRecordQuery.error.detail, prefillRecordQuery.error.status, prefillRecordQuery.error.code)
+              : t("breeding.error.loadLinkedFailed")}
           </span>
           <Button
             type="button"
@@ -1075,7 +1124,7 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
             variant="outline"
             onClick={() => void prefillRecordQuery.refetch()}
           >
-            Retry ultrasound record
+            {t("breeding.error.retryLinked")}
           </Button>
         </div>
       )}
@@ -1083,20 +1132,25 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
       {payload.records.length === 0 ? (
         <EmptyState
           icon={HeartHandshake}
-          title="No breeding records yet."
-          description={`Add a breeding to start tracking ultrasound checks and expected ${vocabulary.parturition} dates.`}
+          title={t("breeding.empty.title")}
+          description={t("breeding.empty.description", {
+            parturition: t("breeding.noun.parturition"),
+          })}
         >
           {canManage && (
             <Button size="sm" onClick={() => setNewOpen(true)}>
               <Plus />
-              Add breeding
+              {t("breeding.add")}
             </Button>
           )}
         </EmptyState>
       ) : (
         <DataTableCard
-          title="Breeding records"
-          description={`Ultrasound is due ${vocabulary.facts.pregnancyCheckDays} days after breeding; confirmed pregnancies get an expected ${vocabulary.parturition} date.`}
+          title={t("breeding.list.title")}
+          description={t("breeding.list.description", {
+            days: vocabulary.facts.pregnancyCheckDays,
+            parturition: t("breeding.noun.parturition"),
+          })}
         >
           {/* Below md the 9-column register becomes a card per breeding —
            * panning a 900px table inside a 390px phone is not a register,
@@ -1111,34 +1165,42 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
                 <p className="text-sm">
                   {canViewAnimals ? (
                     <Link href={`/animals/${r.doe_id}`} className="text-primary underline">
-                      {r.doe_tag ?? `${femaleLabel} #${r.doe_id}`}
+                      {r.doe_tag ?? `${femaleNounCap} #${r.doe_id}`}
                     </Link>
                   ) : (
-                    (r.doe_tag ?? `${femaleLabel} #${r.doe_id}`)
+                    (r.doe_tag ?? `${femaleNounCap} #${r.doe_id}`)
                   )}
                   {" × "}
                   {canViewAnimals ? (
                     <Link href={`/animals/${r.buck_id}`} className="text-primary underline">
-                      {r.buck_tag ?? `${maleLabel} #${r.buck_id}`}
+                      {r.buck_tag ?? `${maleNounCap} #${r.buck_id}`}
                     </Link>
                   ) : (
-                    (r.buck_tag ?? `${maleLabel} #${r.buck_id}`)
+                    (r.buck_tag ?? `${maleNounCap} #${r.buck_id}`)
                   )}
                 </p>
                 <p className="text-xs text-muted-foreground tabular-nums">
-                  Cycle {r.heat_cycle_number} ·{" "}
+                  {t("breeding.card.cycle", { number: r.heat_cycle_number })} ·{" "}
                   {r.ultrasound_done ? (
-                    <>Ultrasound done</>
+                    <>{t("breeding.card.ultrasoundDone")}</>
                   ) : r.ultrasound_date ? (
-                    <>Ultrasound due {formatDate(r.ultrasound_date)}</>
+                    <>
+                      {t("breeding.card.ultrasoundDue", { date: formatDate(r.ultrasound_date) })}
+                    </>
                   ) : (
-                    <>No ultrasound planned</>
+                    <>{t("breeding.card.noUltrasound")}</>
                   )}
                   {" · "}
-                  {cap(vocabulary.youngPlural)} detected: {r.kid_count_detected ?? "—"}
+                  {t("breeding.card.youngDetected", {
+                    young: t("breeding.noun.youngPluralCap"),
+                    count: r.kid_count_detected ?? "—",
+                  })}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Expected {vocabulary.parturition}: {formatDate(r.expected_kidding_date)}
+                  {t("breeding.card.expectedParturition", {
+                    parturition: t("breeding.noun.parturition"),
+                    date: formatDate(r.expected_kidding_date),
+                  })}
                 </p>
                 {r.outcome === "ABORTED" && r.loss_date && (
                   <div className="text-xs text-muted-foreground">
@@ -1148,7 +1210,9 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
                     </p>
                     {r.loss_notes && (
                       <details>
-                        <summary className="cursor-pointer">Loss notes</summary>
+                        <summary className="cursor-pointer">
+                          {t("breeding.card.lossNotes")}
+                        </summary>
                         <p className="whitespace-pre-wrap break-words">{r.loss_notes}</p>
                       </details>
                     )}
@@ -1162,15 +1226,21 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
           <Table className="min-w-[900px]">
             <TableHeader>
               <TableRow>
-                <TableHead>Bred</TableHead>
-                <TableHead>{femaleLabel}</TableHead>
-                <TableHead>{maleLabel}</TableHead>
-                <TableHead>Cycle</TableHead>
-                <TableHead>Ultrasound</TableHead>
-                <TableHead>{cap(vocabulary.youngPlural)}</TableHead>
-                <TableHead>Expected {vocabulary.parturition}</TableHead>
-                <TableHead>Outcome</TableHead>
-                {canManage && <TableHead className="text-right">Actions</TableHead>}
+                <TableHead>{t("breeding.table.bred")}</TableHead>
+                <TableHead>{femaleNounCap}</TableHead>
+                <TableHead>{maleNounCap}</TableHead>
+                <TableHead>{t("breeding.table.cycle")}</TableHead>
+                <TableHead>{t("breeding.table.ultrasound")}</TableHead>
+                <TableHead>{t("breeding.noun.youngPluralCap")}</TableHead>
+                <TableHead>
+                  {t("breeding.table.expectedParturition", {
+                    parturition: t("breeding.noun.parturition"),
+                  })}
+                </TableHead>
+                <TableHead>{t("breeding.table.outcome")}</TableHead>
+                {canManage && (
+                  <TableHead className="text-right">{t("breeding.table.actions")}</TableHead>
+                )}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1180,19 +1250,19 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
                   <TableCell>
                     {canViewAnimals ? (
                       <Link href={`/animals/${r.doe_id}`} className="text-primary underline">
-                        {r.doe_tag ?? `${femaleLabel} #${r.doe_id}`}
+                        {r.doe_tag ?? `${femaleNounCap} #${r.doe_id}`}
                       </Link>
                     ) : (
-                      r.doe_tag ?? `${femaleLabel} #${r.doe_id}`
+                      r.doe_tag ?? `${femaleNounCap} #${r.doe_id}`
                     )}
                   </TableCell>
                   <TableCell>
                     {canViewAnimals ? (
                       <Link href={`/animals/${r.buck_id}`} className="text-primary underline">
-                        {r.buck_tag ?? `${maleLabel} #${r.buck_id}`}
+                        {r.buck_tag ?? `${maleNounCap} #${r.buck_id}`}
                       </Link>
                     ) : (
-                      r.buck_tag ?? `${maleLabel} #${r.buck_id}`
+                      r.buck_tag ?? `${maleNounCap} #${r.buck_id}`
                     )}
                   </TableCell>
                   <TableCell>{r.heat_cycle_number}</TableCell>
@@ -1200,12 +1270,14 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
                     {r.ultrasound_done ? (
                       <span className="inline-flex items-center gap-1 text-success">
                         <CircleCheckBig aria-hidden="true" className="size-3.5" />
-                        done
+                        {t("breeding.table.ultrasoundDone")}
                       </span>
                     ) : r.ultrasound_date ? (
                       <span className="inline-flex items-center gap-1 text-warning-tint-foreground">
                         <Clock aria-hidden="true" className="size-3.5" />
-                        due {formatDate(r.ultrasound_date)}
+                        {t("breeding.table.ultrasoundDue", {
+                          date: formatDate(r.ultrasound_date),
+                        })}
                       </span>
                     ) : (
                       "—"
@@ -1223,7 +1295,9 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
                         </p>
                         {r.loss_notes && (
                           <details>
-                            <summary className="cursor-pointer">Loss notes</summary>
+                            <summary className="cursor-pointer">
+                              {t("breeding.card.lossNotes")}
+                            </summary>
                             <p className="max-w-80 whitespace-pre-wrap break-words">{r.loss_notes}</p>
                           </details>
                         )}
@@ -1242,7 +1316,7 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
           </div>
           {listSettling && (
             <p role="status" className="pt-3 text-sm text-muted-foreground">
-              Updating breeding records…
+              {t("breeding.updating")}
             </p>
           )}
           <PaginationControls
@@ -1250,7 +1324,7 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
             limit={payload.limit}
             offset={payload.offset}
             onOffsetChange={setOffset}
-            label="breeding records"
+            label={t("breeding.list.paginationLabel")}
             disabled={listSettling}
           />
         </DataTableCard>
@@ -1297,11 +1371,12 @@ function BreedingPageContent({ perms }: { perms: PermissionsState }) {
 
 export default function BreedingPage() {
   const perms = usePermissions();
+  const t = useT();
   return (
     <Suspense
       fallback={
         <div role="status" aria-live="polite">
-          <span className="sr-only">Loading…</span>
+          <span className="sr-only">{t("common.loading")}</span>
           <PageSkeleton stats={3} cards={1} />
         </div>
       }
@@ -1309,8 +1384,8 @@ export default function BreedingPage() {
       <PermissionGate
         perms={perms}
         perm="breeding.view"
-        label="Breeding"
-        description="Breeding records, ultrasound checks and pregnancy outcomes."
+        label={t("breeding.title")}
+        description={t("breeding.description")}
         stats={3}
         cards={1}
         announce

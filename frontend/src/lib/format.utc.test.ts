@@ -1,18 +1,12 @@
 /**
- * utcToday/addDays: comparisons against server due dates must
- * use the backend's UTC "today", not the browser's local date.
+ * Farm-calendar date helpers: comparisons against server due dates must use
+ * the farm's "today" (todayInTimeZone/farmToday), never the browser's local
+ * date or a bare UTC slice.
  */
 
 import { describe, expect, it } from "vitest";
 
-import { addDays, daysBetween, todayInTimeZone, utcToday } from "./format";
-
-describe("utcToday", () => {
-  it("returns today's UTC date as YYYY-MM-DD", () => {
-    expect(utcToday()).toBe(new Date().toISOString().slice(0, 10));
-    expect(utcToday()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-  });
-});
+import { addDays, daysBetween, todayInTimeZone } from "./format";
 
 describe("todayInTimeZone", () => {
   it("uses the farm's calendar date across UTC boundaries", () => {

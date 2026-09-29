@@ -130,6 +130,7 @@ function makeEvent(overrides: Partial<HealthEventOut>): HealthEventOut {
     authority_notified_at: null,
     isolation_started_at: null,
     notes: null,
+    created_at: "2026-01-01T00:00:00Z",
     animal_tag: "G-003",
     ...overrides,
   };
@@ -611,7 +612,7 @@ describe("HealthPage (mutation hardening)", () => {
     const { user, dialog } = await openDialog();
     await pickOption(user, within(dialog).getByLabelText(/Linked duty/), /Deworm — Levamisole/);
 
-    const animalPicker = within(dialog).getByRole("combobox", { name: "Animal *" });
+    const animalPicker = within(dialog).getByRole("button", { name: "Animal *" });
     await pickOption(user, animalPicker, /G-003 · Kaveri/);
 
     expect(within(dialog).getByLabelText(/Linked duty/)).toHaveTextContent(
@@ -625,14 +626,14 @@ describe("HealthPage (mutation hardening)", () => {
     const { user, dialog } = await openDialog();
     await pickOption(user, within(dialog).getByLabelText(/Linked duty/), /Deworm batch #2/);
     await waitFor(() =>
-      expect(within(dialog).getByRole("combobox", { name: "Purchase batch *" })).toHaveTextContent(
+      expect(within(dialog).getByRole("button", { name: "Purchase batch *" })).toHaveTextContent(
         "Batch #2",
       ),
     );
 
     await pickOption(
       user,
-      within(dialog).getByRole("combobox", { name: "Purchase batch *" }),
+      within(dialog).getByRole("button", { name: "Purchase batch *" }),
       /Batch #2/,
     );
 
@@ -660,7 +661,7 @@ describe("HealthPage (mutation hardening)", () => {
     );
     // The new duty's target prefill replaces the old one.
     await waitFor(() =>
-      expect(within(dialog).getByRole("combobox", { name: "Animal *" })).toHaveTextContent(
+      expect(within(dialog).getByRole("button", { name: "Animal *" })).toHaveTextContent(
         "G-004",
       ),
     );
@@ -671,7 +672,7 @@ describe("HealthPage (mutation hardening)", () => {
     const view = renderWithProviders(<HealthPage />);
     const dialog = await screen.findByRole("dialog");
     await waitFor(() =>
-      expect(within(dialog).getByRole("combobox", { name: "Animal *" })).toHaveTextContent(
+      expect(within(dialog).getByRole("button", { name: "Animal *" })).toHaveTextContent(
         "G-003",
       ),
     );
@@ -680,7 +681,7 @@ describe("HealthPage (mutation hardening)", () => {
     view.rerender(<HealthPage />);
 
     await waitFor(() =>
-      expect(within(dialog).getByRole("combobox", { name: "Animal *" })).toHaveTextContent(
+      expect(within(dialog).getByRole("button", { name: "Animal *" })).toHaveTextContent(
         "G-004",
       ),
     );
@@ -692,7 +693,7 @@ describe("HealthPage (mutation hardening)", () => {
     const dialog = await screen.findByRole("dialog");
     await waitFor(() =>
       expect(
-        within(dialog).getByRole("combobox", { name: "Purchase batch *" }),
+        within(dialog).getByRole("button", { name: "Purchase batch *" }),
       ).toHaveTextContent("Batch #2"),
     );
 
@@ -701,7 +702,7 @@ describe("HealthPage (mutation hardening)", () => {
 
     await waitFor(() =>
       expect(
-        within(dialog).getByRole("combobox", { name: "Purchase batch *" }),
+        within(dialog).getByRole("button", { name: "Purchase batch *" }),
       ).toHaveTextContent("Batch #3"),
     );
   });
@@ -805,7 +806,7 @@ describe("HealthPage (mutation hardening)", () => {
 
   it("nulls the bucket and batch ids on an animal-scoped write", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003 · Kaveri/);
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
 
     await waitFor(() => expect(postBody).not.toBeNull());

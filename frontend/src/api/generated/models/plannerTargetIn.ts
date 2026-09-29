@@ -10,7 +10,7 @@ import type { PlannerTargetInAnimalClass } from './plannerTargetInAnimalClass';
  * One sale target: ``count`` head of one class in one calendar month.
  */
 export interface PlannerTargetIn {
-  /** @pattern ^(19\d{2}|20\d{2}|21[0-1]\d|2200)-(0[1-9]|1[0-2])$ */
+  /** @pattern ^(19\d{2}|20\d{2}|21\d{2}|2200)-(0[1-9]|1[0-2])$ */
   year_month: string;
   animal_class: PlannerTargetInAnimalClass;
   /**

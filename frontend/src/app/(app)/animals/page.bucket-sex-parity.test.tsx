@@ -117,7 +117,7 @@ describe("AnimalsPage bucket/sex parity guard", () => {
   /** Dialog switched to the owner-only historical import, audit reason filled. */
   async function openImportDialog(user: User) {
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
     await user.click(screen.getByRole("button", { name: "Add animal" }));
     const dialog = await screen.findByRole("dialog");
     await pickOption(

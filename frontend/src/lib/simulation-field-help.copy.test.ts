@@ -1,32 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import { farmVocabulary } from "@/lib/farm-vocabulary";
-import {
-  SIMULATION_HELP_PATHS,
-  simulationFieldHelp,
-  speciesAwareLabel,
-} from "@/lib/simulation-field-help";
+import { SIMULATION_HELP_PATHS, simulationFieldHelp } from "@/lib/simulation-field-help";
 
 const goat = farmVocabulary;
-
-describe("speciesAwareLabel", () => {
-  it("returns humanized labels byte-identical", () => {
-    for (const base of [
-      "Buck Doe Ratio",
-      "Adult Weight Doe Kg",
-      "Adult Weight Buck Kg",
-      "Doe Scale Low",
-      "Doe Scale High",
-      "Doe Scale Steps",
-      "Does",
-      "Bucks",
-      "Female Kids",
-      "Kidding Interval",
-    ]) {
-      expect(speciesAwareLabel(base)).toBe(base);
-    }
-  });
-});
 
 describe("simulationFieldHelp — every documented field key resolves", () => {
   it("covers all 154 assumption fields across all 12 sections", () => {

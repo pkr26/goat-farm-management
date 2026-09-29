@@ -6,12 +6,13 @@
  */
 import type { ScreeningRunOutDetail } from './screeningRunOutDetail';
 import type { ScreeningRunOutRunStatus } from './screeningRunOutRunStatus';
+import type { ScreeningRunOutStage } from './screeningRunOutStage';
 
 export interface ScreeningRunOut {
   id: number;
   image_id: number;
   crop_id?: number | null;
-  stage: string;
+  stage: ScreeningRunOutStage;
   run_status: ScreeningRunOutRunStatus;
   verdict: string | null;
   confidence: string | null;

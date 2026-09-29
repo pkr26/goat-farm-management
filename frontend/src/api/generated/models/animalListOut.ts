@@ -9,4 +9,6 @@ import type { AnimalOut } from './animalOut';
 export interface AnimalListOut {
   animals: AnimalOut[];
   total: number;
+  limit: number;
+  offset: number;
 }

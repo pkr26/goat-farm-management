@@ -182,6 +182,22 @@ describe("SidebarProvider", () => {
     expect(drawer).toHaveAccessibleDescription("Displays the mobile sidebar.");
     expect(screen.getByText("drawer content")).toBeInTheDocument();
   });
+
+  it("advertises the Meta/Ctrl+B shortcut on the trigger (aria-keyshortcuts)", () => {
+    // The keydown listener lives on the provider; the trigger is where
+    // assistive tech looks for the hint (2026-09-28 audit).
+    render(
+      <SidebarProvider>
+        <SidebarTrigger />
+        <Sidebar>panel</Sidebar>
+      </SidebarProvider>,
+    );
+
+    expect(screen.getByRole("button", { name: "Toggle Sidebar" })).toHaveAttribute(
+      "aria-keyshortcuts",
+      "Meta+b Control+b",
+    );
+  });
 });
 
 describe("Sidebar", () => {

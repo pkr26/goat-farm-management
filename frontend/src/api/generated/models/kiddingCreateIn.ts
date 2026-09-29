@@ -20,7 +20,7 @@ export interface KiddingCreateIn {
   notes?: string | null;
   /**
      * @minItems 1
-     * @maxItems 10
+     * @maxItems 4
      */
   kids: KidIn[];
 }

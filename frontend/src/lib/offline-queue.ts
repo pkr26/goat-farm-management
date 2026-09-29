@@ -9,14 +9,23 @@
  * enqueued it so a shared tablet never replays someone else's writes.
  *
  * Hardening mirrors idempotent-request's persistence rules: bounded record
- * count, bounded storage bytes, a version field, and fail-closed reads (any
- * malformed store is discarded wholesale — a corrupted queue is a nuisance,
- * a misparsed one is a data-integrity bug).
+ * count, bounded storage bytes, a 72-hour record TTL, a version field, and
+ * fail-closed reads (any malformed store is discarded wholesale — a
+ * corrupted queue is a nuisance, a misparsed one is a data-integrity bug).
+ * Enqueue also fails closed on the queueable-mutation allowlist.
  */
+
+import { safeStorage } from "@/lib/safe-storage";
 
 const QUEUE_VERSION = 1;
 const MAX_QUEUED_MUTATIONS = 100;
 const MAX_STORAGE_BYTES = 256 * 1024;
+/** Records older than this are pruned on read and on enqueue: an undrained
+ * write older than a long weekend is almost certainly from an abandoned
+ * session, and replaying it days later would mutate a board the worker has
+ * long stopped watching (2026-09-28 audit, H2 leftover — the lead chose
+ * 72h). */
+const RECORD_TTL_MS = 72 * 60 * 60 * 1000;
 
 export const OFFLINE_QUEUE_STORAGE_KEY = "goatfarm:offlineQueue:v1";
 
@@ -28,8 +37,9 @@ export type QueuedMutation = {
   body: string | null;
   headers: Record<string, string>;
   queuedAt: number;
-  /** Stable actor identity (JWT subject) — a different signed-in worker must
-   * never replay these writes. */
+  /** Stable actor identity — the signed-in user's numeric id as a string
+   * (String(user.id) at the call sites). A different worker on the shared
+   * tablet must never replay these writes. */
   actorScope: string;
   /** X-Farm-Id the mutation was scoped to. */
   farmScope: string;
@@ -37,14 +47,6 @@ export type QueuedMutation = {
 };
 
 export type QueueScopes = { actorScope: string; farmScope: string };
-
-function availableLocalStorage(): Storage | null {
-  try {
-    return typeof window === "undefined" ? null : window.localStorage;
-  } catch {
-    return null;
-  }
-}
 
 function writeQueue(storage: Storage, records: QueuedMutation[]): void {
   try {
@@ -68,6 +70,10 @@ function wellFormed(value: unknown): value is QueuedMutation {
     (record.body === null || typeof record.body === "string") &&
     typeof record.headers === "object" &&
     record.headers !== null &&
+    !Array.isArray(record.headers) &&
+    // Header VALUES must be strings too: a smuggled number/object would only
+    // fail at replay time, deep inside the drain (2026-09-28 audit).
+    Object.values(record.headers).every((value) => typeof value === "string") &&
     typeof record.queuedAt === "number" &&
     Number.isFinite(record.queuedAt) &&
     typeof record.actorScope === "string" &&
@@ -85,7 +91,7 @@ const NULL_STORAGE: Storage = {
   setItem: () => {},
 };
 
-export function readOfflineQueue(storage: Storage = availableLocalStorage() ?? NULL_STORAGE): QueuedMutation[] {
+export function readOfflineQueue(storage: Storage = safeStorage("local") ?? NULL_STORAGE): QueuedMutation[] {
   let raw: string | null;
   try {
     raw = storage.getItem(OFFLINE_QUEUE_STORAGE_KEY);
@@ -108,13 +114,19 @@ export function readOfflineQueue(storage: Storage = availableLocalStorage() ?? N
     writeQueue(storage, []);
     return [];
   }
-  const records = parsed.filter(wellFormed);
+  const now = Date.now();
+  const records = parsed
+    .filter(wellFormed)
+    // TTL prune: a write older than RECORD_TTL_MS is almost certainly from an
+    // abandoned session (constant above). Future-dated stamps (clock skew)
+    // compare negative and are kept — a mis-set clock must not nuke the queue.
+    .filter((record) => now - record.queuedAt < RECORD_TTL_MS);
   if (records.length !== parsed.length) writeQueue(storage, records);
   return records;
 }
 
 export function wipeOfflineQueue(): void {
-  const storage = availableLocalStorage();
+  const storage = safeStorage("local");
   if (storage !== null) writeQueue(storage, []);
 }
 
@@ -129,8 +141,14 @@ export function enqueueOfflineMutation(
   init: { method: string; body?: string | null; headers?: Record<string, string> },
   scopes: QueueScopes,
 ): boolean {
-  const storage = availableLocalStorage();
+  // Fail closed on the queueable-mutation allowlist (below): it used to be
+  // documentation-only, so a future caller could queue a write the server
+  // cannot replay safely under an Idempotency-Key (2026-09-28 audit).
+  if (!isOfflineQueueableMutation(path, init.method)) return false;
+  const storage = safeStorage("local");
   if (storage === null) return false;
+  // readOfflineQueue prunes expired records first, so the count bound below
+  // is measured against writes that could still legitimately replay.
   const records = readOfflineQueue(storage);
   if (records.length >= MAX_QUEUED_MUTATIONS) return false;
   const record: QueuedMutation = {
@@ -167,7 +185,14 @@ export function isOfflineQueueableMutation(path: string, method?: string): boole
  * A definitive 4xx stays unqueueable even when the offline flag is set —
  * connectivity can drop right after the server's rejection arrived, and
  * queueing that write would tell the worker "Saved" for something the
- * server already refused. */
+ * server already refused.
+ *
+ * The name arm distinguishes two failures that both abort the fetch: the
+ * api-client's own wedged-connection timeout (TimeoutError — the field
+ * connectivity case this queue exists for) is queueable, while a
+ * caller-owned AbortError is a DELIBERATE cancellation (TanStack unmount /
+ * farm switch) and must never enqueue a write (2026-09-28 audit, W5 — these
+ * two were inverted). */
 export function isOfflineQueueableFailure(error: unknown): boolean {
   const status = (error as { status?: unknown } | null)?.status;
   if (typeof status === "number" && status >= 400 && status < 500) return false;
@@ -177,7 +202,7 @@ export function isOfflineQueueableFailure(error: unknown): boolean {
     error !== null &&
     "name" in error &&
     ((error as { name?: unknown }).name === "TypeError" ||
-      (error as { name?: unknown }).name === "AbortError")
+      (error as { name?: unknown }).name === "TimeoutError")
   );
 }
 
@@ -190,8 +215,12 @@ export type DrainOutcome = {
  * Replay the queue FIFO for the CURRENT session's scopes only. A record from
  * another actor or farm is skipped (left in place), never dropped and never
  * replayed. The first unrecoverable failure stops the drain so FIFO order is
- * preserved; 409s mean the server already applied the write under this key —
- * done, drop it.
+ * preserved; 409s mean the write is already reflected server-side — either a
+ * same-key replay or, since the 2026-09-28 audit (A3), a fresh "not pending"
+ * answer because the duty already transitioned some other way — done, drop
+ * it. 401/408/429 are transient answers (refresh unavailable, timeout, rate
+ * limit), not rejections: the record is KEPT and the drain stops, so a
+ * momentarily dead session never destroys field writes.
  *
  * Concurrency: drains are fired by the online/focus/interval triggers AND the
  * worker shell's immediate drain, so invocations can overlap. A module-level
@@ -209,7 +238,7 @@ export async function drainOfflineQueue(
   fetchImpl: (path: string, init: RequestInit) => Promise<unknown> = (path, init) =>
     import("@/lib/api-client").then((m) => m.apiFetch(path, init)),
 ): Promise<DrainOutcome> {
-  const storage = availableLocalStorage();
+  const storage = safeStorage("local");
   if (storage === null) return { replayed: 0, remaining: 0 };
   if (drainInFlight) {
     // The in-flight drain (or the next trigger after it) owns the replay;
@@ -239,9 +268,23 @@ export async function drainOfflineQueue(
       } catch (error) {
         const status = (error as { status?: unknown } | null)?.status;
         if (status === 409) {
-          // The server already committed this exact keyed write: done.
+          // The write is already reflected server-side: either the server
+          // committed this exact keyed write (same-key replay), or the duty
+          // already transitioned under another key/actor and the fresh
+          // wrong-state answer is 409 "Task is not pending" (2026-09-28
+          // audit, A3 — previously 400, which the 4xx drop branch below
+          // already settled the same way). Either way: done.
           resolvedIds.add(record.id);
           replayed += 1;
+          continue;
+        }
+        if (status === 401 || status === 408 || status === 429) {
+          // Not a definitive rejection: the token may be expired while refresh
+          // is momentarily unavailable (the api-client classifies exactly that
+          // as transient), the request timed out, or the server is
+          // rate-limiting. Keep the record and stop here — a later drain after
+          // re-login/backoff can still deliver it (2026-09-28 audit, H2).
+          stopped = true;
           continue;
         }
         if (typeof status === "number" && status >= 400 && status < 500) {

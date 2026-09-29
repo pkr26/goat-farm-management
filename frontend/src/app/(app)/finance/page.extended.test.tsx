@@ -697,7 +697,7 @@ describe("FinancePage correction dialog", () => {
     expect(
       within(dialog).getByText(/correction preserves the existing link/),
     ).toBeInTheDocument();
-    expect(within(dialog).queryByRole("combobox", { name: /Animal/ })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Animal (optional)" })).not.toBeInTheDocument();
 
     await user.type(within(dialog).getByLabelText("Correction reason *"), "Correct receipt");
     await user.click(within(dialog).getByRole("button", { name: "Record correction" }));
@@ -985,7 +985,7 @@ describe("FinancePage new-transaction dialog", () => {
     expect(
       within(dialog).getByText(/transaction will be saved without an animal link/),
     ).toBeInTheDocument();
-    expect(within(dialog).queryByRole("combobox", { name: /Animal/ })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Animal (optional)" })).not.toBeInTheDocument();
     await user.type(within(dialog).getByLabelText(/Amount/), "250");
     await user.click(within(dialog).getByRole("button", { name: "Add transaction" }));
 
@@ -997,8 +997,8 @@ describe("FinancePage new-transaction dialog", () => {
   it("POSTs trimmed notes and the selected animal id", async () => {
     const { user, dialog } = await openDialog();
 
-    // Animal select (third combobox in the dialog: Type, Category, Animal).
-    const animalSelect = within(dialog).getAllByRole("combobox")[2];
+    // Animal picker (after the Type and Category selects in the dialog).
+    const animalSelect = within(dialog).getByRole("button", { name: "Animal (optional)" });
     await user.click(animalSelect);
     await user.click(await screen.findByRole("option", { name: "G-011 · Raja" }));
     // The closed trigger shows the animal label, not the raw id.

@@ -14,7 +14,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - **Dark mode**: `next-themes` provider is mounted in `src/components/providers.tsx` (class-based, system default). Any tinted styling must include a `dark:` variant.
 - **Shared components** (`src/components/`): use `PageHeader` (page title/description/actions), `StatCard` (metrics), `DataTableCard` (tables inside cards), `EmptyState` (empty lists), `StatusBadge` (status strings), `Logo` (brand), `ThemeToggle`. Don't reintroduce ad-hoc local versions of these.
 - **App shell**: pages render inside the sidebar layout's centered `max-w-7xl` container on a `bg-muted/40` canvas — no page-level max-widths or page backgrounds.
-- **Navigation**: sidebar groups live in `NAV_GROUPS` in `src/app/(app)/layout.tsx`; new routes need an entry there with their permission key.
+- **Navigation**: sidebar groups live in `NAV_GROUPS` in `src/app/(app)/app-layout-client.tsx`; new routes need an entry there with their permission key.
 - **Icons**: `lucide-react` only — no emoji in UI.
 - **Numbers**: right-align numeric table columns and use `tabular-nums` for figures.
 - **Semantic test hooks over utility classes**: when a component's styling
@@ -35,6 +35,11 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   farm, which writes `herdly.tabletFarm` (via `writeTabletFarmId` in the
   worker layout) and immediately signs the manager out. Do not reintroduce
   any other writer for that key.
+- Session gates: the worker shell (`src/app/worker/layout.tsx`) redirects
+  signed-out sessions to the `/worker/login` PIN pad — never the manager's
+  `/login` form, since PIN-only workers hold no password (2026-09-28 audit,
+  W1). The signed-in-without-a-farm gate lives in `src/app/worker/page.tsx`,
+  not the layout.
 - Duty actions for the shared board render through
   `src/components/task-row-actions.tsx` (extracted 2026-09-22): extend that
   component instead of forking a per-page copy. The worker board's DutyCard

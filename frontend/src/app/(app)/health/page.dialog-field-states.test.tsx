@@ -81,6 +81,7 @@ function makeEvent(overrides: Partial<HealthEventOut> = {}): HealthEventOut {
     authority_notified_at: null,
     isolation_started_at: null,
     notes: null,
+    created_at: "2026-01-01T00:00:00Z",
     animal_tag: "G-003",
     ...overrides,
   };
@@ -346,7 +347,7 @@ describe("HealthPage dialog field and in-flight states", () => {
     await pickOption(user, route, "IM");
 
     await waitFor(() => expect(route).toHaveTextContent("IM"));
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003 · Kaveri/);
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
     await waitFor(() => expect(postBody).not.toBeNull());
     expect(postBody).toMatchObject({ route: "IM" });
@@ -368,7 +369,7 @@ describe("HealthPage dialog field and in-flight states", () => {
 
   it("keeps the picked programme's name in the closed trigger and posts it", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003 · Kaveri/);
     await openAdvanced(user, dialog);
     const schedule = within(dialog).getByLabelText("Schedule/template name");
     await pickOption(user, schedule, /^FMD/);
@@ -440,7 +441,7 @@ describe("HealthPage dialog field and in-flight states", () => {
 
   it("drops the statutory dates it hides when the disease box is cleared", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003 · Kaveri/);
     await openAdvanced(user, dialog);
     const checkbox = within(dialog).getByRole("checkbox", {
       name: /Suspected scheduled\/notifiable disease/,
@@ -524,7 +525,7 @@ describe("HealthPage dialog field and in-flight states", () => {
       }),
     );
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003 · Kaveri/);
     const form = within(dialog).getByRole("button", { name: "Save event" }).closest("form")!;
 
     // The second submit settles immediately (the single-flight guard drops it)

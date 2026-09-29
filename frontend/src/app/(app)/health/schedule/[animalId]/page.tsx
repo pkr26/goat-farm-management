@@ -27,6 +27,7 @@ import {
 import { ApiError } from "@/lib/api-client";
 import { formatDate } from "@/lib/format";
 import { useT } from "@/lib/i18n";
+import { mapServerError } from "@/lib/server-error-phrases";
 import { permittedAppPath, withReturnTo } from "@/lib/permission-navigation";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 
@@ -100,7 +101,7 @@ function VaccinationSchedulePageContent({ perms }: { perms: PermissionsState }) 
         <div role="alert" className="space-y-3 rounded-lg border border-destructive/40 p-4">
           <p className="text-sm text-destructive">
             {query.error instanceof ApiError
-              ? query.error.detail
+              ? mapServerError(t, query.error.detail, query.error.status, query.error.code)
               : t("health.schedule.loadFailed")}
           </p>
           <Button type="button" variant="outline" onClick={() => void query.refetch()}>

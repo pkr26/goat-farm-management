@@ -12,7 +12,6 @@ import { fileURLToPath } from "node:url";
 const FRONTEND = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const filter = process.argv[2] ?? "";
 
-const manifest = JSON.parse(readFileSync(path.join(FRONTEND, "mutation", "manifest.json"), "utf8"));
 const covMap = JSON.parse(readFileSync(path.join(FRONTEND, "mutation", "coverage-map.json"), "utf8"));
 const survivors = JSON.parse(readFileSync(path.join(FRONTEND, "mutation", "survivors.json"), "utf8"));
 

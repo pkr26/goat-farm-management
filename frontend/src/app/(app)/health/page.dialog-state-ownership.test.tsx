@@ -81,6 +81,7 @@ function makeEvent(overrides: Partial<HealthEventOut>): HealthEventOut {
     authority_notified_at: null,
     isolation_started_at: null,
     notes: null,
+    created_at: "2026-01-01T00:00:00Z",
     animal_tag: "G-003",
     ...overrides,
   };
@@ -320,7 +321,7 @@ describe("HealthPage dialog state ownership", () => {
     const { user, dialog } = await openDialog();
     await pickOption(
       user,
-      within(dialog).getByRole("combobox", { name: "Animal *" }),
+      within(dialog).getByRole("button", { name: "Animal *" }),
       /G-003 · Kaveri/,
     );
     await pickOption(user, within(dialog).getByRole("combobox", { name: "Type" }), "Treatment");
@@ -352,7 +353,7 @@ describe("HealthPage dialog state ownership", () => {
     const { user, dialog } = await openDialog();
     await pickOption(
       user,
-      within(dialog).getByRole("combobox", { name: "Animal *" }),
+      within(dialog).getByRole("button", { name: "Animal *" }),
       /G-003 · Kaveri/,
     );
     await pickOption(user, within(dialog).getByRole("combobox", { name: "Type" }), "Treatment");
@@ -503,7 +504,7 @@ describe("HealthPage dialog state ownership", () => {
     renderWithProviders(<HealthPage />);
     const dialog = await screen.findByRole("dialog", { name: "Add health event" });
     await waitFor(() =>
-      expect(within(dialog).getByRole("combobox", { name: "Animal *" })).toHaveTextContent(
+      expect(within(dialog).getByRole("button", { name: "Animal *" })).toHaveTextContent(
         /G-003/,
       ),
     );
@@ -639,7 +640,7 @@ describe("HealthPage dialog state ownership", () => {
     view.rerender(<HealthPage />);
 
     await waitFor(() =>
-      expect(within(dialog).getByRole("combobox", { name: "Animal *" })).toHaveTextContent(
+      expect(within(dialog).getByRole("button", { name: "Animal *" })).toHaveTextContent(
         /G-004/,
       ),
     );
@@ -696,7 +697,7 @@ describe("HealthPage dialog state ownership", () => {
 
     await pickOption(
       user,
-      within(dialog).getByRole("combobox", { name: "Purchase batch *" }),
+      within(dialog).getByRole("button", { name: "Purchase batch *" }),
       "Batch #2 — 12 active in quarantine",
     );
     await user.click(reviewButton(dialog));
@@ -739,7 +740,7 @@ describe("HealthPage dialog state ownership", () => {
     await user.click(within(dialog).getByRole("radio", { name: "Purchase batch" }));
     await pickOption(
       user,
-      within(dialog).getByRole("combobox", { name: "Purchase batch *" }),
+      within(dialog).getByRole("button", { name: "Purchase batch *" }),
       batch,
     );
     await user.click(reviewButton(dialog));
@@ -761,7 +762,7 @@ describe("HealthPage dialog state ownership", () => {
 
     await pickOption(
       user,
-      within(dialog).getByRole("combobox", { name: "Purchase batch *" }),
+      within(dialog).getByRole("button", { name: "Purchase batch *" }),
       "Batch #3 — 5 active in quarantine",
     );
     expect(failedSaveNotice(dialog)).toBeNull();
@@ -770,7 +771,7 @@ describe("HealthPage dialog state ownership", () => {
     await within(dialog).findByText(/Reviewed target snapshot/);
     await pickOption(
       user,
-      within(dialog).getByRole("combobox", { name: "Purchase batch *" }),
+      within(dialog).getByRole("button", { name: "Purchase batch *" }),
       "Batch #2 — 12 active in quarantine",
     );
 
@@ -793,7 +794,7 @@ describe("HealthPage dialog state ownership", () => {
     await user.click(within(dialog).getByRole("radio", { name: "Purchase batch" }));
     await pickOption(
       user,
-      within(dialog).getByRole("combobox", { name: "Purchase batch *" }),
+      within(dialog).getByRole("button", { name: "Purchase batch *" }),
       "Batch #2 — 12 active in quarantine",
     );
 
@@ -820,7 +821,7 @@ describe("HealthPage dialog state ownership", () => {
       ),
     );
     const { user, dialog } = await openDialog();
-    const animalPicker = within(dialog).getByRole("combobox", { name: "Animal *" });
+    const animalPicker = within(dialog).getByRole("button", { name: "Animal *" });
     await pickOption(user, animalPicker, /G-003 · Kaveri/);
     await user.click(saveButton(dialog));
 
@@ -854,7 +855,7 @@ describe("HealthPage dialog state ownership", () => {
     const { user, dialog } = await openDialog();
     await pickOption(
       user,
-      within(dialog).getByRole("combobox", { name: "Animal *" }),
+      within(dialog).getByRole("button", { name: "Animal *" }),
       /G-003 · Kaveri/,
     );
     await user.click(saveButton(dialog));
@@ -884,7 +885,7 @@ describe("HealthPage dialog state ownership", () => {
     const { user, view, dialog } = await openDialog();
     await pickOption(
       user,
-      within(dialog).getByRole("combobox", { name: "Animal *" }),
+      within(dialog).getByRole("button", { name: "Animal *" }),
       /G-003 · Kaveri/,
     );
     await user.click(saveButton(dialog));
@@ -923,7 +924,7 @@ describe("HealthPage dialog state ownership", () => {
     expect(
       within(dialog).queryByText("Pick an animal", { selector: "p" }),
     ).not.toBeInTheDocument();
-    expect(within(dialog).getByRole("combobox", { name: "Animal *" })).not.toHaveAttribute(
+    expect(within(dialog).getByRole("button", { name: "Animal *" })).not.toHaveAttribute(
       "aria-invalid",
     );
   });

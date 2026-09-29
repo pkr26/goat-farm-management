@@ -53,6 +53,29 @@ export default defineConfig({
         "src/app/**": { statements: 55, branches: 50, functions: 55, lines: 55 },
         "src/components/**": { statements: 75, branches: 70, functions: 80, lines: 75 },
         "src/lib/**": { statements: 85, branches: 85, functions: 85, lines: 85 },
+        // Layer two (2026-09-28 audit, T1): single-file globs for the files
+        // the aggregates let sit at 0% (proxy.ts, error.tsx, manifest.ts,
+        // (app)/layout.tsx, healthz/route.ts) or ~15% (worker/layout.tsx) —
+        // a one-file aggregate IS the file, so these are per-file floors.
+        // vitest 4.1.11's `perFile: true` cannot express this layer: the
+        // flag is global to the whole thresholds object (verified in
+        // node_modules/vitest/dist/chunks/coverage.*.js — checkThresholds
+        // applies it to every set, and resolveGlobThresholds strips perFile
+        // from globs), so it would demote every aggregate floor above to a
+        // per-file floor and instantly fail ~20 files the aggregates
+        // legitimately tolerate (offline-queue.ts at 50% inside lib's 85).
+        // Floors sit ~15–20 points under each file's measured level
+        // (proxy/error/manifest/healthz/(app)layout 100, worker/layout
+        // 98.5/87.8/90.5/100 with its tests, 2026-09-28), so a file dropping
+        // back to zero fails loudly while benign edits don't. Residual gap,
+        // accepted: a NEW file shipping untested is still only caught by the
+        // aggregate layer — this list pins the holes already repaired (T2).
+        "src/proxy.ts": { statements: 80, branches: 80, functions: 80, lines: 80 },
+        "src/app/error.tsx": { statements: 80, branches: 80, functions: 80, lines: 80 },
+        "src/app/manifest.ts": { statements: 80, branches: 80, functions: 80, lines: 80 },
+        "src/app/healthz/route.ts": { statements: 80, branches: 80, functions: 80, lines: 80 },
+        "src/app/[(]app[)]/layout.tsx": { statements: 80, branches: 80, functions: 80, lines: 80 },
+        "src/app/worker/layout.tsx": { statements: 80, branches: 70, functions: 70, lines: 80 },
       },
     },
   },

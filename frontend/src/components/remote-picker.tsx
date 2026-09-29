@@ -6,6 +6,8 @@ import { Check, ChevronsUpDown, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api-client";
+import { useT } from "@/lib/i18n";
+import { mapServerError } from "@/lib/server-error-phrases";
 import {
   Dialog,
   DialogContent,
@@ -57,7 +59,7 @@ interface RemotePickerProps {
   noEligibleYetMessage?: string;
   sourcePath: string;
   cacheKey: readonly unknown[];
-  loadPage: (args: RemotePickerLoadArgs) => Promise<RemotePickerPage>;
+  loadPage(args: RemotePickerLoadArgs): Promise<RemotePickerPage>;
   pageSize?: number;
   disabled?: boolean;
   className?: string;
@@ -76,30 +78,32 @@ const SEARCH_DEBOUNCE_MS = 300;
  * open, searched on the server, and advanced by source offset so filtered
  * pages with zero eligible options can still reach later records.
  */
-export function RemotePicker({
-  id,
-  value,
-  onValueChange,
-  onOptionChange,
-  selectedOption,
-  staticOptions = [],
-  placeholder,
-  dialogTitle,
-  dialogDescription,
-  searchLabel,
-  searchPlaceholder = "Search…",
-  searchMaxLength,
-  emptyMessage = "No matching options.",
-  noEligibleYetMessage = "No eligible options in the records checked yet.",
-  sourcePath,
-  cacheKey,
-  loadPage,
-  pageSize = 50,
-  disabled = false,
-  className,
-  "aria-invalid": ariaInvalid,
-  "aria-describedby": ariaDescribedBy,
-}: RemotePickerProps) {
+export function RemotePicker(props: RemotePickerProps) {
+  const t = useT();
+  const {
+    id,
+    value,
+    onValueChange,
+    onOptionChange,
+    selectedOption,
+    staticOptions = [],
+    placeholder,
+    dialogTitle,
+    dialogDescription,
+    searchLabel,
+    searchPlaceholder = t("picker.remote.searchPlaceholder"),
+    searchMaxLength,
+    emptyMessage = t("picker.remote.empty"),
+    noEligibleYetMessage = t("picker.remote.noEligibleYet"),
+    sourcePath,
+    cacheKey,
+    loadPage,
+    pageSize = 50,
+    disabled = false,
+    className,
+    "aria-invalid": ariaInvalid,
+    "aria-describedby": ariaDescribedBy,
+  } = props;
   const [open, setOpen] = useState(false);
   const [chosenOption, setChosenOption] = useState<RemotePickerOption | null>(null);
   const normalizedPageSize = Number.isFinite(pageSize) ? Math.trunc(pageSize) : 50;
@@ -144,11 +148,12 @@ export function RemotePicker({
         variant="outline"
         className={cn("w-full justify-between font-normal", className)}
         disabled={disabled}
-        role="combobox"
+        // APG dialog-picker pattern: a plain button that opens a dialog. Not
+        // role="combobox" — the trigger is not editable, so the combobox
+        // semantics (and aria-autocomplete) misreport it to AT.
         aria-haspopup="dialog"
         aria-expanded={open && !disabled}
         aria-controls={dialogId}
-        aria-autocomplete="list"
         aria-invalid={ariaInvalid || undefined}
         aria-describedby={[ariaDescribedBy, valueId].filter(Boolean).join(" ")}
         onClick={() => changeOpen(true)}
@@ -157,7 +162,7 @@ export function RemotePicker({
           id={valueId}
           className={cn("min-w-0 truncate", !currentOption && "text-muted-foreground")}
         >
-          {currentOption?.label ?? (value ? `Selected item ${value}` : placeholder)}
+          {currentOption?.label ?? (value ? t("picker.remote.selectedItem", { value }) : placeholder)}
         </span>
         <ChevronsUpDown className="text-muted-foreground" />
       </Button>
@@ -225,10 +230,11 @@ function RemotePickerDialog({
   noEligibleYetMessage: string;
   sourcePath: string;
   cacheKey: readonly unknown[];
-  loadPage: (args: RemotePickerLoadArgs) => Promise<RemotePickerPage>;
+  loadPage(args: RemotePickerLoadArgs): Promise<RemotePickerPage>;
   boundedPageSize: number;
   onOpenChange: (open: boolean) => void;
 }) {
+  const t = useT();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const debounceTimer = useRef<number | null>(null);
@@ -358,7 +364,7 @@ function RemotePickerDialog({
       <DialogHeader>
         <DialogTitle>{dialogTitle}</DialogTitle>
         <DialogDescription>
-          {dialogDescription ?? "Search the farm records, then choose one option."}
+          {dialogDescription ?? t("picker.remote.dialogDescription")}
         </DialogDescription>
       </DialogHeader>
 
@@ -387,40 +393,48 @@ function RemotePickerDialog({
       </div>
 
       <div
-        id={listboxId}
-        role="listbox"
-        aria-label={`${dialogTitle} results`}
-        aria-busy={results.isFetching || awaitingCurrentTerm || undefined}
         className={cn(
           "max-h-72 overflow-y-auto rounded-lg border p-1",
           awaitingCurrentTerm && "opacity-60",
         )}
-        onKeyDown={moveOptionFocus}
       >
-        {displayedOptions.map((option, index) => (
-          <OptionButton
-            key={option.value}
-            id={`${listboxId}-option-${index}`}
-            option={option}
-            selected={option.value === value}
-            tabIndex={index === tabbableOptionIndex ? 0 : -1}
-            onChoose={choose}
-          />
-        ))}
+        {/*
+         * role="listbox" wraps ONLY the options. The loading/error/empty
+         * messaging below is a sibling, not a listbox child — a listbox may
+         * contain option (or group) children only (APG).
+         */}
+        <div
+          id={listboxId}
+          role="listbox"
+          aria-label={t("picker.remote.resultsAria", { title: dialogTitle })}
+          aria-busy={results.isFetching || awaitingCurrentTerm || undefined}
+          onKeyDown={moveOptionFocus}
+        >
+          {displayedOptions.map((option, index) => (
+            <OptionButton
+              key={option.value}
+              id={`${listboxId}-option-${index}`}
+              option={option}
+              selected={option.value === value}
+              tabIndex={index === tabbableOptionIndex ? 0 : -1}
+              onChoose={choose}
+            />
+          ))}
+        </div>
 
         {results.isPending ? (
           <p role="status" className="p-3 text-sm text-muted-foreground">
-            Loading options…
+            {t("picker.remote.loading")}
           </p>
         ) : results.isError && !results.data && !awaitingCurrentTerm ? (
           <div className="space-y-2 p-3">
             <p role="alert" className="text-sm text-destructive">
               {results.error instanceof ApiError
-                ? results.error.detail
-                : "Could not load options."}
+                ? mapServerError(t, results.error.detail, results.error.status, results.error.code)
+                : t("picker.remote.loadFailed")}
             </p>
             <Button type="button" size="sm" variant="outline" onClick={() => void results.refetch()}>
-              Try again
+              {t("picker.remote.tryAgain")}
             </Button>
           </div>
         ) : displayedOptions.length === 0 ? (
@@ -430,7 +444,7 @@ function RemotePickerDialog({
           // what the user sees.
           <p className="p-3 text-sm text-muted-foreground">
             {awaitingCurrentTerm
-              ? "Searching…"
+              ? t("picker.remote.searching")
               : hasMore
                 ? noEligibleYetMessage
                 : emptyMessage}
@@ -441,12 +455,12 @@ function RemotePickerDialog({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p id={statusId} aria-live="polite" className="text-xs text-muted-foreground">
           {awaitingCurrentTerm
-            ? "Searching…"
+            ? t("picker.remote.searching")
             : results.data
               ? // Count what is actually selectable (static options included);
                 // "Checked X of Y" still describes the server records only.
-                `${displayedOptions.length} option${displayedOptions.length === 1 ? "" : "s"} available. Checked ${checkedCount} of ${total} matching record${total === 1 ? "" : "s"}.${hasMore ? " More records are available." : " All matching records checked."}`
-              : "Results load when this picker opens."}
+                `${t(displayedOptions.length === 1 ? "picker.remote.statusOptions_one" : "picker.remote.statusOptions_many", { count: displayedOptions.length })} ${t(total === 1 ? "picker.remote.statusChecked_one" : "picker.remote.statusChecked_many", { checked: checkedCount, total })} ${hasMore ? t("picker.remote.moreAvailable") : t("picker.remote.allChecked")}`
+              : t("picker.remote.resultsOnOpen")}
         </p>
         {hasMore && !awaitingCurrentTerm && (
           <Button
@@ -459,18 +473,18 @@ function RemotePickerDialog({
               if (!results.isFetchingNextPage) void results.fetchNextPage();
             }}
           >
-            {results.isFetchingNextPage ? "Loading more…" : "Load more"}
+            {results.isFetchingNextPage ? t("picker.remote.loadingMore") : t("picker.remote.loadMore")}
           </Button>
         )}
       </div>
       {results.isFetchNextPageError && !awaitingCurrentTerm && (
         <p role="alert" className="text-sm text-destructive">
-          The next page could not be loaded. Try Load more again.
+          {t("picker.remote.nextPageFailed")}
         </p>
       )}
       {results.isRefetchError && !results.isFetchNextPageError && !awaitingCurrentTerm && (
         <p role="alert" className="text-sm text-destructive">
-          Could not refresh options. Showing the previously loaded results.
+          {t("picker.remote.refreshFailed")}
         </p>
       )}
     </DialogContent>

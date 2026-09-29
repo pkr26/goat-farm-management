@@ -11,14 +11,19 @@ import { HttpResponse, http } from "msw";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { addDays, farmToday } from "@/lib/format";
+import { translate, type TFn } from "@/lib/i18n";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
-import { breedingSchema, default as BreedingPage } from "./page";
+import { buildBreedingSchema, default as BreedingPage } from "./page";
 import KiddingPage from "@/app/(app)/kidding/page";
-import { kiddingSchema } from "@/app/(app)/kidding/page";
+import { buildKiddingSchema } from "@/app/(app)/kidding/page";
 import { settle } from "@/test/settle";
+
+/** English resolver for direct schema-level assertions (the pages build
+ * their schemas from the active language). */
+const enT: TFn = (key, vars) => translate("en", key, vars);
 
 const toastMocks = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock("sonner", () => ({ toast: toastMocks }));
@@ -50,8 +55,8 @@ function messagesOf(result: { success: boolean; error?: { issues: Array<{ messag
   return result.success ? [] : (result.error?.issues ?? []).map((i) => i.message);
 }
 
-describe("breedingSchema — campaign kills", () => {
-  const schema = breedingSchema(farmVocabulary);
+describe("buildBreedingSchema — campaign kills", () => {
+  const schema = buildBreedingSchema(enT);
   const base = {
     doe_id: "7",
     buck_id: "9",
@@ -115,8 +120,8 @@ describe("breedingSchema — campaign kills", () => {
   });
 });
 
-describe("kiddingSchema — campaign kills", () => {
-  const schema = kiddingSchema(farmVocabulary);
+describe("buildKiddingSchema — campaign kills", () => {
+  const schema = buildKiddingSchema(enT, farmVocabulary);
   const kid = (overrides: Record<string, unknown> = {}) => ({
     tag: "",
     sex: "F" as const,
@@ -312,13 +317,13 @@ describe("BreedingPage — campaign kills", () => {
     const dialog = await screen.findByRole("dialog", { name: "Add breeding" });
 
     // Pick the doe through the remote picker.
-    await user.click(within(dialog).getAllByRole("combobox")[0]!);
+    await user.click(within(dialog).getByRole("button", { name: "Doe *" }));
     let pickerDialog = await screen.findByRole("dialog");
     await user.click((await within(pickerDialog).findAllByRole("option"))[0]!);
 
     // Pick the herd buck — natural cover is the only offered method (the
     // goat protocol rejects AI writes server-side, so the radios are gone).
-    const buckTrigger = within(dialog).getAllByRole("combobox")[1]!;
+    const buckTrigger = within(dialog).getByRole("button", { name: "Buck *" });
     await user.click(buckTrigger);
     pickerDialog = await screen.findByRole("dialog");
     await user.click(await within(pickerDialog).findByText(/B-1/));
@@ -360,12 +365,12 @@ describe("BreedingPage — campaign kills", () => {
 
     await user.click(screen.getAllByRole("button", { name: "Add breeding" })[0]!);
     const dialog = await screen.findByRole("dialog", { name: "Add breeding" });
-    await user.click(within(dialog).getAllByRole("combobox")[0]!);
+    await user.click(within(dialog).getByRole("button", { name: "Doe *" }));
     const pickerDialog = await screen.findByRole("dialog");
     await user.click((await within(pickerDialog).findAllByRole("option"))[0]!);
     // Natural cover is the only offered method (the goat protocol rejects
     // AI server-side — P1-9), so pick the herd buck before saving.
-    await user.click(within(dialog).getAllByRole("combobox")[1]!);
+    await user.click(within(dialog).getByRole("button", { name: "Buck *" }));
     const buckPicker = await screen.findByRole("dialog");
     await user.click(await within(buckPicker).findByText(/B-1/));
     await user.click(within(dialog).getByRole("button", { name: "Save breeding" }));
@@ -411,12 +416,12 @@ describe("BreedingPage — campaign kills", () => {
 
     await user.click(screen.getAllByRole("button", { name: "Add breeding" })[0]!);
     const dialog = await screen.findByRole("dialog", { name: "Add breeding" });
-    await user.click(within(dialog).getAllByRole("combobox")[0]!);
+    await user.click(within(dialog).getByRole("button", { name: "Doe *" }));
     const pickerDialog = await screen.findByRole("dialog");
     await user.click((await within(pickerDialog).findAllByRole("option"))[0]!);
     // Natural cover is the only offered method (the goat protocol rejects
     // AI server-side — P1-9), so pick the herd buck before saving.
-    await user.click(within(dialog).getAllByRole("combobox")[1]!);
+    await user.click(within(dialog).getByRole("button", { name: "Buck *" }));
     const buckPicker = await screen.findByRole("dialog");
     await user.click(await within(buckPicker).findByText(/B-1/));
     await user.click(within(dialog).getByRole("button", { name: "Save breeding" }));
@@ -661,7 +666,7 @@ describe("KiddingPage — campaign kills", () => {
     };
     expect(
       messagesOf(
-        kiddingSchema(farmVocabulary).safeParse({
+        buildKiddingSchema(enT, farmVocabulary).safeParse({
           date: TODAY,
           ease: "NORMAL",
           placenta: "unrecorded",
@@ -788,12 +793,12 @@ describe("BreedingPage — stale-data notice retry", () => {
     // old rows stay on screen — the stale-data notice path.
     await user.click(screen.getAllByRole("button", { name: "Add breeding" })[0]);
     const dialog = await screen.findByRole("dialog", { name: "Add breeding" });
-    await user.click(within(dialog).getAllByRole("combobox")[0]);
+    await user.click(within(dialog).getByRole("button", { name: "Doe *" }));
     const pickerDialog = await screen.findByRole("dialog");
     await user.click((await within(pickerDialog).findAllByRole("option"))[0]);
     // Natural cover is the only offered method (the goat protocol rejects
     // AI server-side — P1-9), so pick the herd buck before saving.
-    await user.click(within(dialog).getAllByRole("combobox")[1]!);
+    await user.click(within(dialog).getByRole("button", { name: "Buck *" }));
     const buckPicker = await screen.findByRole("dialog");
     await user.click(await within(buckPicker).findByText(/B-1/));
     await user.click(within(dialog).getByRole("button", { name: "Save breeding" }));

@@ -358,7 +358,7 @@ describe("DiseaseCheckDialog", () => {
     expect(uploadBodies[1]).toMatchObject({ batch_id: 202 });
   });
 
-  it("surfaces a quota-exceeded upload as the failed-upload toast, with no S3 POST", async () => {
+  it("surfaces a quota-exceeded upload as the no-walkthrough toast, with no S3 POST", async () => {
     const user = userEvent.setup();
     const batchPost = vi.fn();
     const s3Post = vi.fn();
@@ -371,9 +371,11 @@ describe("DiseaseCheckDialog", () => {
           { status: 201 },
         );
       }),
-      // Per-farm in-flight ceiling reached: the API refuses to presign.
+      // Per-farm in-flight ceiling reached: the API refuses to presign. A
+      // standing quota is 409, not 429 (2026-09-28 audit, A4), so it lands in
+      // the dialog's 409 branch like a closed/expired batch.
       http.post("/api/screening/uploads", () =>
-        HttpResponse.json({ detail: "Too many in-flight images for this farm" }, { status: 429 }),
+        HttpResponse.json({ detail: "Too many in-flight images for this farm" }, { status: 409 }),
       ),
       http.post("https://fake-s3.test/*", () => {
         s3Post();
@@ -390,12 +392,12 @@ describe("DiseaseCheckDialog", () => {
     });
     await user.click(await screen.findByRole("button", { name: /upload photo/i }));
 
-    // The generic failure toast (the quota reason rides the server detail;
-    // the operator remedy is the same: retry later), and nothing was sent
-    // to object storage.
+    // The walkthrough-conflict toast (the quota reason rides the server
+    // detail; the operator remedy is the same: retry later), and nothing was
+    // sent to object storage.
     await waitFor(() =>
       expect(toastMock.error).toHaveBeenCalledWith(
-        "Upload failed — check your connection and retry.",
+        "Could not start the walkthrough — try again.",
       ),
     );
     await waitFor(() => {

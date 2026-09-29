@@ -74,11 +74,6 @@ function walkSources(dir, out) {
   return out;
 }
 
-function opName(kind) {
-  const k = ts.SyntaxKind[kind];
-  return k.replace(/Token$/, "").toLowerCase();
-}
-
 function generate() {
   const files = walkSources(path.join(FRONTEND, "src"), []);
   const fileMeta = {};

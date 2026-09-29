@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, Wheat } from "lucide-react";
 import Link from "next/link";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -62,14 +62,14 @@ import { ApiError } from "@/lib/api-client";
 import { useMutationError } from "@/lib/mutations";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { farmToday, formatDate } from "@/lib/format";
-import { useLanguage, useT } from "@/lib/i18n";
+import { useLanguage, useT, type TFn } from "@/lib/i18n";
+import { mapServerError } from "@/lib/server-error-phrases";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import {
   formatPersistedKg,
   MIN_PERSISTED_KG,
-  MIN_PERSISTED_KG_MESSAGE,
 } from "@/lib/persisted-numbers";
-import { FeedingNav } from "@/components/feeding-nav";
+import { FEEDING_TABS, SectionNav } from "@/components/section-nav";
 import { enumLabel } from "@/lib/enum-labels";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
@@ -130,10 +130,10 @@ function toShiftCell(raw: unknown): ShiftCell {
  *  is weight-based, and the plan note when present. Only captured facts
  *  render — a flat line with no note stays as terse as before. The creep
  *  band joins the recipe label itself (see the label render sites). */
-function planLineNotes(line: PlanLineOut): string[] {
+function planLineNotes(line: PlanLineOut, t: TFn): string[] {
   return [
     line.basis === PlanLineOutBasis.weight && line.mean_weight_kg != null
-      ? `scaled from mean ${formatPersistedKg(line.mean_weight_kg)} kg`
+      ? t("feeding.plan.scaledFromMean", { kg: formatPersistedKg(line.mean_weight_kg) })
       : null,
     line.note ?? null,
   ].filter((note): note is string => note !== null);
@@ -141,17 +141,18 @@ function planLineNotes(line: PlanLineOut): string[] {
 
 
 
-const settingSchema = z.object({
-  daily_kg_per_head: z.coerce
-    .number()
-    .positive("kg/head must be greater than 0")
-    .min(MIN_PERSISTED_KG, MIN_PERSISTED_KG_MESSAGE)
-    // Mirrors QuantityKgFloat (le=1_000_000, schemas/common.py): a fat-fingered
-    // quantity should fail inline instead of as an opaque server 422.
-    .max(1_000_000, "Quantity cannot exceed 1,000,000 kg"),
-});
-type SettingInput = z.input<typeof settingSchema>;
-type SettingValues = z.output<typeof settingSchema>;
+const buildSettingSchema = (t: TFn) =>
+  z.object({
+    daily_kg_per_head: z.coerce
+      .number()
+      .positive(t("feeding.validation.kgPerHeadPositive"))
+      .min(MIN_PERSISTED_KG, t("feeding.validation.kgMin"))
+      // Mirrors QuantityKgFloat (le=1_000_000, schemas/common.py): a fat-fingered
+      // quantity should fail inline instead of as an opaque server 422.
+      .max(1_000_000, t("feeding.validation.qtyMax")),
+  });
+type SettingInput = z.input<ReturnType<typeof buildSettingSchema>>;
+type SettingValues = z.output<ReturnType<typeof buildSettingSchema>>;
 
 /** Per-bucket kg/head override (feeding.manage). */
 function KgPerHeadDialog({ line }: { line: PlanLineOut }) {
@@ -163,6 +164,7 @@ function KgPerHeadDialog({ line }: { line: PlanLineOut }) {
   const mut = useSaveSettingApiFeedingSettingsPost();
   const settingFlight = useSingleFlight();
   const bucketLabel = enumLabel("bucket", line.bucket, language);
+  const settingSchema = useMemo(() => buildSettingSchema(t), [t]);
   const {
     register,
     handleSubmit,
@@ -268,41 +270,42 @@ function KgPerHeadDialog({ line }: { line: PlanLineOut }) {
   );
 }
 
-const dispenseSchema = z.object({
-  // Derived from the generated enums so a new contract bucket/shift is
-  // accepted the moment the selects offer it (was hand-copied — L20).
-  bucket: z.enum([
-    DispenseInBucket.QUARANTINE,
-    DispenseInBucket.FOUNDATION,
-    DispenseInBucket.BREEDING,
-    DispenseInBucket.PREGNANCY_EARLY,
-    DispenseInBucket.PREGNANCY_LATE,
-    DispenseInBucket.DELIVERY,
-    DispenseInBucket.RECOVERY,
-    DispenseInBucket.RESTING,
-    DispenseInBucket.MALE_KIDS,
-    DispenseInBucket.FEMALE_KIDS,
-  ]),
-  shift: z.enum([
-    DispenseInShift.MORNING,
-    DispenseInShift.AFTERNOON,
-    DispenseInShift.NIGHT,
-  ]),
-  recipe_code: z.string().min(1, "Pick a recipe"),
-  qty_kg: z.coerce
-    .number()
-    .positive("Quantity must be greater than 0")
-    .min(MIN_PERSISTED_KG, MIN_PERSISTED_KG_MESSAGE)
-    // Mirrors QuantityKgFloat (le=1_000_000, schemas/common.py): a fat-fingered
-    // quantity should fail inline instead of as an opaque server 422.
-    .max(1_000_000, "Quantity cannot exceed 1,000,000 kg"),
-  date: z
-    .string()
-    .min(1, "Date is required")
-    .refine((s) => s <= farmToday(), "Date can't be in the future"),
-});
-type DispenseInput = z.input<typeof dispenseSchema>;
-type DispenseValues = z.output<typeof dispenseSchema>;
+const buildDispenseSchema = (t: TFn) =>
+  z.object({
+    // Derived from the generated enums so a new contract bucket/shift is
+    // accepted the moment the selects offer it (was hand-copied — L20).
+    bucket: z.enum([
+      DispenseInBucket.QUARANTINE,
+      DispenseInBucket.FOUNDATION,
+      DispenseInBucket.BREEDING,
+      DispenseInBucket.PREGNANCY_EARLY,
+      DispenseInBucket.PREGNANCY_LATE,
+      DispenseInBucket.DELIVERY,
+      DispenseInBucket.RECOVERY,
+      DispenseInBucket.RESTING,
+      DispenseInBucket.MALE_KIDS,
+      DispenseInBucket.FEMALE_KIDS,
+    ]),
+    shift: z.enum([
+      DispenseInShift.MORNING,
+      DispenseInShift.AFTERNOON,
+      DispenseInShift.NIGHT,
+    ]),
+    recipe_code: z.string().min(1, t("feeding.validation.pickRecipe")),
+    qty_kg: z.coerce
+      .number()
+      .positive(t("feeding.validation.qtyPositive"))
+      .min(MIN_PERSISTED_KG, t("feeding.validation.kgMin"))
+      // Mirrors QuantityKgFloat (le=1_000_000, schemas/common.py): a fat-fingered
+      // quantity should fail inline instead of as an opaque server 422.
+      .max(1_000_000, t("feeding.validation.qtyMax")),
+    date: z
+      .string()
+      .min(1, t("feeding.validation.dateRequired"))
+      .refine((s) => s <= farmToday(), t("feeding.validation.dateFuture")),
+  });
+type DispenseInput = z.input<ReturnType<typeof buildDispenseSchema>>;
+type DispenseValues = z.output<ReturnType<typeof buildDispenseSchema>>;
 
 function FeedingPageContent({ perms }: { perms: PermissionsState }) {
   const mutationErrorMessage = useMutationError();
@@ -439,7 +442,7 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
   // Virtual code (services/feeding.py): it has no feed_recipes row, so the
   // catalog never returns it, yet the API accepts it on any past date — offer
   // it unconditionally so a backdated dry-roughage ration can be recorded.
-  recipeOptions.set(DRY_ROUGHAGE, "Dry roughage only");
+  recipeOptions.set(DRY_ROUGHAGE, t("feeding.dispense.dryRoughage"));
   /** value → label map for the root `items` prop: without it, Base UI's
    * Select.Value renders the raw value in the closed trigger. */
   const recipeItems: Record<string, string> = Object.fromEntries(recipeOptions);
@@ -451,6 +454,7 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
   // Idempotency-Key. This ref-backed guard is outside react-hook-form, so a
   // reset cannot destroy it.
   const dispenseFlight = useSingleFlight();
+  const dispenseSchema = useMemo(() => buildDispenseSchema(t), [t]);
   const {
     register,
     handleSubmit,
@@ -498,10 +502,12 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
           className="space-y-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4"
         >
           <p className="text-sm text-destructive">
-            {query.error instanceof ApiError ? query.error.detail : "Could not load the feeding plan."}
+            {query.error instanceof ApiError
+              ? mapServerError(t, query.error.detail, query.error.status, query.error.code)
+              : t("feeding.plan.loadFailed")}
           </p>
           <Button type="button" variant="outline" onClick={() => void query.refetch()}>
-            Retry feeding plan
+            {t("feeding.plan.retry")}
           </Button>
         </div>
       );
@@ -509,11 +515,11 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
     return (
       <div className="space-y-6">
         <PageHeader
-          title="Feeding — today"
-          description="The 3-shift ration plan and what's been dispensed so far."
+          title={t("feeding.plan.title")}
+          description={t("feeding.plan.description")}
         />
         <div role="status" aria-live="polite">
-          <span className="sr-only">Loading feeding plan…</span>
+          <span className="sr-only">{t("feeding.plan.loading")}</span>
           <PageSkeleton cards={2} />
         </div>
       </div>
@@ -563,8 +569,8 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
     <div className="space-y-6">
       {query.isError && <StaleDataNotice onRetry={() => void query.refetch()} />}
       <PageHeader
-        title="Feeding — today"
-        description="The 3-shift ration plan and what's been dispensed so far."
+        title={t("feeding.plan.title")}
+        description={t("feeding.plan.description")}
         actions={
           canManage && (
             <Button
@@ -588,36 +594,33 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
         }
       />
 
-      <FeedingNav active="plan" />
+      <SectionNav tabs={FEEDING_TABS} active="plan" ariaLabelKey="feeding.nav.aria" />
 
       {canManage && recipesQuery.isError && (
         <div
           role="alert"
           className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm"
         >
-          <span>
-            Could not load the recipe catalog. Recipes already present in today&apos;s plan remain
-            available; reload the catalog before recording any other ration.
-          </span>
+          <span>{t("feeding.plan.recipesLoadFailed")}</span>
           <Button type="button" size="sm" variant="outline" onClick={() => void recipesQuery.refetch()}>
-            Retry recipes
+            {t("feeding.plan.retryRecipes")}
           </Button>
         </div>
       )}
 
       <DataTableCard
-        title="Plan (headcount × kg/head, split 40 / 20 / 40)"
-        description="Per-bucket rations split across the three daily shifts."
+        title={t("feeding.plan.cardTitle")}
+        description={t("feeding.plan.cardDescription")}
       >
         {payload.lines.length === 0 ? (
           <EmptyState
             icon={Wheat}
-            title="No active animals — nothing to feed."
-            description="Once animals are active, their ration plan will show up here."
+            title={t("feeding.plan.empty.title")}
+            description={t("feeding.plan.empty.description")}
           >
             {canCreateAnimals && (
               <Link href="/animals/new" className={buttonVariants({ variant: "outline", size: "sm" })}>
-                Add animals
+                {t("feeding.plan.empty.addAnimals")}
               </Link>
             )}
           </EmptyState>
@@ -628,16 +631,16 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
                 role="status"
                 className="rounded-lg border border-warning/40 bg-warning-tint/50 px-3 py-2 text-sm text-warning-tint-foreground"
               >
-                Today&apos;s dispensing log contains {payload.records_total} entries; the log below
-                shows only the latest {payload.records.length} (response limit {payload.records_limit}).
-                Plan progress and completion remain exact because they use full-day totals computed
-                by the server.
+                {t("feeding.plan.logTruncatedNotice", {
+                  total: payload.records_total,
+                  shown: payload.records.length,
+                  limit: payload.records_limit,
+                })}
               </p>
             )}
             <div>
               <p className="mb-2 text-xs text-muted-foreground">
-                Bucket totals show volume. A bucket is complete only when every planned recipe and
-                shift is complete.
+                {t("feeding.plan.bucketTotalsHint")}
               </p>
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {[...plannedByBucket].map(([bucketName, planned]) => {
@@ -659,12 +662,18 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
                         </span>
                         <Badge variant={complete ? "default" : "secondary"}>
                           {complete
-                            ? "complete"
-                            : `${allocation.complete}/${allocation.total} rations`}
+                            ? t("feeding.plan.complete")
+                            : t("feeding.plan.rationsProgress", {
+                                complete: allocation.complete,
+                                total: allocation.total,
+                              })}
                         </Badge>
                       </div>
                       <p className="mt-1 tabular-nums">
-                        {formatPersistedKg(recorded)} / {formatPersistedKg(planned)} kg recorded
+                        {t("feeding.plan.bucketRecorded", {
+                          recorded: formatPersistedKg(recorded),
+                          planned: formatPersistedKg(planned),
+                        })}
                       </p>
                     </div>
                   );
@@ -702,17 +711,23 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
                       )}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground tabular-nums">
-                      {line.heads} heads · {line.kg_per_head} kg/head ·{" "}
-                      {formatPersistedKg(line.daily_kg)} kg/day
+                      {t("feeding.plan.lineMeta", {
+                        heads: line.heads,
+                        kgPerHead: line.kg_per_head,
+                        dailyKg: formatPersistedKg(line.daily_kg),
+                      })}
                     </p>
-                    {planLineNotes(line).map((note) => (
+                    {planLineNotes(line, t).map((note) => (
                       <p key={note} className="mt-1 text-xs text-muted-foreground tabular-nums">
                         {note}
                       </p>
                     ))}
                     <p className="mt-1 text-xs text-muted-foreground tabular-nums">
-                      Recorded {formatPersistedKg(dispensed)} / {formatPersistedKg(line.daily_kg)} kg
-                      {lineComplete ? " · Done" : ""}
+                      {t("feeding.plan.recordedLine", {
+                        dispensed: formatPersistedKg(dispensed),
+                        daily: formatPersistedKg(line.daily_kg),
+                      })}
+                      {lineComplete ? t("feeding.plan.doneSuffix") : ""}
                     </p>
                     {/* kg/head is the phone-side management action too — a
                      * feeding.manage user must not need a desktop to adjust
@@ -730,15 +745,15 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
             <Table className="min-w-[860px]">
             <TableHeader>
               <TableRow>
-                <TableHead>Bucket</TableHead>
-                <TableHead>Recipe today</TableHead>
-                <TableHead className="text-right">Heads</TableHead>
-                <TableHead className="text-right">kg/head/day</TableHead>
-                <TableHead className="text-right">Daily kg</TableHead>
-                <TableHead className="text-right">Morning recorded / planned</TableHead>
-                <TableHead className="text-right">Afternoon recorded / planned</TableHead>
-                <TableHead className="text-right">Night recorded / planned</TableHead>
-                <TableHead className="text-right">Recipe total</TableHead>
+                <TableHead>{t("feeding.plan.col.bucket")}</TableHead>
+                <TableHead>{t("feeding.plan.col.recipeToday")}</TableHead>
+                <TableHead className="text-right">{t("feeding.plan.col.heads")}</TableHead>
+                <TableHead className="text-right">{t("feeding.plan.col.kgPerHeadDay")}</TableHead>
+                <TableHead className="text-right">{t("feeding.plan.col.dailyKg")}</TableHead>
+                <TableHead className="text-right">{t("feeding.plan.col.morning")}</TableHead>
+                <TableHead className="text-right">{t("feeding.plan.col.afternoon")}</TableHead>
+                <TableHead className="text-right">{t("feeding.plan.col.night")}</TableHead>
+                <TableHead className="text-right">{t("feeding.plan.col.recipeTotal")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -771,7 +786,7 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
                           ({line.creep_band})
                         </span>
                       )}
-                      {planLineNotes(line).map((note) => (
+                      {planLineNotes(line, t).map((note) => (
                         <span key={note} className="block text-xs text-muted-foreground">
                           {note}
                         </span>
@@ -797,7 +812,7 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
                       {lineComplete && (
                         <Badge variant="success" className="ml-2">
                           <Check aria-hidden="true" />
-                          Done
+                          {t("feeding.plan.done")}
                         </Badge>
                       )}
                     </TableCell>
@@ -828,21 +843,21 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
         </p>
       </DataTableCard>
 
-      <DataTableCard title={`Today's dispensing log (${payload.records_total})`}>
+      <DataTableCard title={t("feeding.log.title", { total: payload.records_total })}>
         {payload.records.length === 0 ? (
           <EmptyState
             icon={Wheat}
-            title="Nothing dispensed yet today."
-            description="Recorded dispensing will appear here as the shifts progress."
+            title={t("feeding.log.empty.title")}
+            description={t("feeding.log.empty.description")}
           />
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Shift</TableHead>
-                <TableHead>Bucket</TableHead>
-                <TableHead>Recipe</TableHead>
-                <TableHead className="text-right">Qty (kg)</TableHead>
+                <TableHead>{t("feeding.log.col.shift")}</TableHead>
+                <TableHead>{t("feeding.log.col.bucket")}</TableHead>
+                <TableHead>{t("feeding.log.col.recipe")}</TableHead>
+                <TableHead className="text-right">{t("feeding.log.col.qty")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -861,19 +876,21 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
         )}
         {payload.records.length < payload.records_total && (
           <p className="mt-3 text-sm text-muted-foreground">
-            Showing the latest {payload.records.length} of {payload.records_total} entries. Use
-            dispensing history below to browse the full ledger.
+            {t("feeding.log.truncatedNotice", {
+              shown: payload.records.length,
+              total: payload.records_total,
+            })}
           </p>
         )}
       </DataTableCard>
 
       <DataTableCard
-        title="Dispensing history"
-        description="Browse earlier and backdated dispensing entries; the total comes from the full ledger."
+        title={t("feeding.history.title")}
+        description={t("feeding.history.description")}
       >
         <div className="mb-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
           <div className="space-y-1.5">
-            <Label htmlFor="feeding-history-from">From date</Label>
+            <Label htmlFor="feeding-history-from">{t("feeding.history.fromDate")}</Label>
             <Input
               id="feeding-history-from"
               type="date"
@@ -885,7 +902,7 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="feeding-history-to">To date</Label>
+            <Label htmlFor="feeding-history-to">{t("feeding.history.toDate")}</Label>
             <Input
               id="feeding-history-to"
               type="date"
@@ -903,36 +920,36 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
             disabled={!dateFrom && !dateTo}
             onClick={clearHistoryDates}
           >
-            Clear dates
+            {t("feeding.history.clearDates")}
           </Button>
         </div>
         {invalidHistoryRange && (
           <p id="feeding-history-range-error" role="alert" className="mb-3 text-sm text-destructive">
-            From date must be on or before to date.
+            {t("feeding.history.rangeError")}
           </p>
         )}
         {!invalidHistoryRange && historyQuery.isLoading && (
-          <InlineLoading className="justify-center py-6">Loading history…</InlineLoading>
+          <InlineLoading className="justify-center py-6">{t("feeding.history.loading")}</InlineLoading>
         )}
         {!invalidHistoryRange && historyQuery.isPlaceholderData && (
-          <InlineLoading className="py-2">Updating dispensing history…</InlineLoading>
+          <InlineLoading className="py-2">{t("feeding.history.updating")}</InlineLoading>
         )}
         {!invalidHistoryRange && historyQuery.isError && (
           <p role="alert" className="py-3 text-sm text-destructive">
             {historyQuery.error instanceof ApiError
-              ? historyQuery.error.detail
-              : "Could not load dispensing history."}
+              ? mapServerError(t, historyQuery.error.detail, historyQuery.error.status, historyQuery.error.code)
+              : t("feeding.history.loadFailed")}
           </p>
         )}
         {!invalidHistoryRange && history && history.records.length === 0 && (
           <EmptyState
             icon={Wheat}
-            title="No dispensing records in this date range."
-            description="Clear or widen the dates, or record a dispensing entry."
+            title={t("feeding.history.empty.title")}
+            description={t("feeding.history.empty.description")}
           >
             {(dateFrom || dateTo) && (
               <Button type="button" variant="outline" size="sm" onClick={clearHistoryDates}>
-                Clear dates
+                {t("feeding.history.clearDates")}
               </Button>
             )}
           </EmptyState>
@@ -965,11 +982,11 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
             <Table className="min-w-[640px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Shift</TableHead>
-                  <TableHead>Bucket</TableHead>
-                  <TableHead>Recipe</TableHead>
-                  <TableHead className="text-right">Qty (kg)</TableHead>
+                  <TableHead>{t("feeding.history.col.date")}</TableHead>
+                  <TableHead>{t("feeding.log.col.shift")}</TableHead>
+                  <TableHead>{t("feeding.log.col.bucket")}</TableHead>
+                  <TableHead>{t("feeding.log.col.recipe")}</TableHead>
+                  <TableHead className="text-right">{t("feeding.log.col.qty")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -992,7 +1009,7 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
               limit={history.limit}
               offset={history.offset}
               onOffsetChange={changeHistoryOffset}
-              label="dispensing records"
+              label={t("feeding.history.paginationLabel")}
               disabled={historyQuery.isPlaceholderData}
             />
           </>
@@ -1008,7 +1025,7 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
             <fieldset disabled={isSubmitting || dispenseFlight.pending} className="contents">
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="dispense-bucket">Bucket</Label>
+                <Label htmlFor="dispense-bucket">{t("feeding.dispense.bucketLabel")}</Label>
                 <Select
                   value={wBucket}
                   items={bucketItems}
@@ -1041,7 +1058,7 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="dispense-shift">Shift</Label>
+                <Label htmlFor="dispense-shift">{t("feeding.dispense.shiftLabel")}</Label>
                 <Select
                   value={wShift}
                   items={shiftItems}
@@ -1062,14 +1079,14 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="dispense-recipe">Recipe *</Label>
+                <Label htmlFor="dispense-recipe">{t("feeding.dispense.recipeLabel")}</Label>
                 <Select
                   value={wRecipeCode}
                   onValueChange={(v) => setValue("recipe_code", v, { shouldValidate: true })}
                   items={recipeItems}
                 >
                   <SelectTrigger id="dispense-recipe" className="w-full">
-                    <SelectValue placeholder="recipe…" />
+                    <SelectValue placeholder={t("feeding.dispense.recipePlaceholder")} />
                   </SelectTrigger>
                   <SelectContent>
                     {[...recipeOptions].map(([code, name]) => (
@@ -1086,7 +1103,7 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="qty_kg">Quantity (kg) *</Label>
+                <Label htmlFor="qty_kg">{t("feeding.dispense.qtyLabel")}</Label>
                 <Input
                   id="qty_kg"
                   type="number"
@@ -1105,7 +1122,7 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="dispense_date">Date</Label>
+                <Label htmlFor="dispense_date">{t("feeding.dispense.dateLabel")}</Label>
                 <Input
                   id="dispense_date"
                   type="date"
@@ -1139,16 +1156,17 @@ function FeedingPageContent({ perms }: { perms: PermissionsState }) {
 /** Suspense boundary required because the content reads useSearchParams(). */
 export default function FeedingPage() {
   const perms = usePermissions();
+  const t = useT();
   return (
     <Suspense
       fallback={
         <div className="space-y-6">
           <PageHeader
-            title="Feeding"
-            description="Today's three-shift feed plan, dispensing log and ration settings."
+            title={t("feeding.plan.suspenseTitle")}
+            description={t("feeding.plan.suspenseDescription")}
           />
           <div role="status" aria-live="polite">
-            <span className="sr-only">Loading feeding plan…</span>
+            <span className="sr-only">{t("feeding.plan.loading")}</span>
             <PageSkeleton cards={2} />
           </div>
         </div>
@@ -1157,8 +1175,8 @@ export default function FeedingPage() {
       <PermissionGate
         perms={perms}
         perm="feeding.view"
-        label="Feeding — today"
-        description="The 3-shift ration plan and what's been dispensed so far."
+        label={t("feeding.plan.title")}
+        description={t("feeding.plan.description")}
         cards={2}
       >
         <FeedingPageContent perms={perms} />

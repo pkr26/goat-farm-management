@@ -13,6 +13,7 @@ import {
   type RemotePickerOption,
   type RemotePickerPage,
 } from "@/components/remote-picker";
+import { useT } from "@/lib/i18n";
 
 type AnimalLabelVariant =
   | "basic"
@@ -77,8 +78,8 @@ export function AnimalPicker({
   id,
   value,
   onValueChange,
-  placeholder = "Pick an animal",
-  dialogTitle = "Choose an animal",
+  placeholder,
+  dialogTitle,
   labelVariant = "basic",
   eligibleIds,
   eligibilityKey,
@@ -89,6 +90,7 @@ export function AnimalPicker({
   "aria-invalid": ariaInvalid,
   "aria-describedby": ariaDescribedBy,
 }: AnimalPickerProps) {
+  const t = useT();
   const [chosenOption, setChosenOption] = useState<RemotePickerOption | null>(null);
   const eligibleSet = useMemo(
     () => (eligibleIds ? new Set(eligibleIds) : null),
@@ -156,14 +158,16 @@ export function AnimalPicker({
       onOptionChange={setChosenOption}
       selectedOption={selectedAnimal}
       staticOptions={staticOptions}
-      placeholder={placeholder}
-      dialogTitle={dialogTitle}
-      dialogDescription="Search by tag or name. Results are loaded in pages."
-      searchLabel="Search animals"
-      searchPlaceholder="Search tag or name…"
+      placeholder={placeholder ?? t("picker.animal.placeholder")}
+      dialogTitle={dialogTitle ?? t("picker.animal.dialogTitle")}
+      dialogDescription={t("picker.animal.dialogDescription")}
+      searchLabel={t("picker.animal.searchLabel")}
+      searchPlaceholder={t("picker.animal.searchPlaceholder")}
       searchMaxLength={60}
-      emptyMessage={eligibleSet ? "No eligible animals match this search." : "No animals match this search."}
-      noEligibleYetMessage="No eligible animals in the records checked yet. Load more to continue."
+      emptyMessage={
+        eligibleSet ? t("picker.animal.noEligibleMatch") : t("picker.animal.noMatch")
+      }
+      noEligibleYetMessage={t("picker.animal.noEligibleYet")}
       sourcePath="/api/animals"
       cacheKey={["animal-picker", resolvedEligibilityKey, labelVariant]}
       loadPage={loadPage}

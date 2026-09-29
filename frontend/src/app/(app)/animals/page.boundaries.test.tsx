@@ -117,7 +117,7 @@ describe("AnimalsPage branches", () => {
 
   async function renderLoaded() {
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
   }
 
   async function openCreateDialog(user: User) {
@@ -152,7 +152,7 @@ describe("AnimalsPage branches", () => {
 
     // One page of results: the clamped page is out of range and self-heals.
     await waitFor(() => expect(nav.replace).toHaveBeenCalledWith("/animals"));
-    expect(await screen.findByText("1 animal(s)")).toBeInTheDocument();
+    expect(await screen.findByText("1 animal")).toBeInTheDocument();
   });
 
   it("rejects a future entry-weight date beside that field instead of POSTing", async () => {
@@ -295,7 +295,7 @@ describe("AnimalsPage branches", () => {
     const user = userEvent.setup();
     const queryClient = createTestQueryClient();
     renderWithProviders(<AnimalsPage />, queryClient);
-    await screen.findByText("1 animal(s)");
+    await screen.findByText("1 animal");
     const dialog = await openImportDialog(user, "Import started while still the owner");
 
     // Ownership is revoked and the permissions query refreshes underneath the

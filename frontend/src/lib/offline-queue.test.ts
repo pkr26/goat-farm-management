@@ -101,7 +101,7 @@ describe("enqueue + read", () => {
     storage().setItem(
       OFFLINE_QUEUE_STORAGE_KEY,
       JSON.stringify([
-        { v: 1, id: "a", path: "/api/tasks/1/complete", method: "POST", body: null, headers: {}, queuedAt: 1, actorScope: "7", farmScope: "3" },
+        { v: 1, id: "a", path: "/api/tasks/1/complete", method: "POST", body: null, headers: {}, queuedAt: Date.now(), actorScope: "7", farmScope: "3" },
         { v: 99, evil: true },
       ]),
     );
@@ -124,7 +124,12 @@ describe("isOfflineQueueableMutation", () => {
 describe("isOfflineQueueableFailure", () => {
   it("treats transport failures and the offline flag as queueable, HTTP errors not", () => {
     expect(isOfflineQueueableFailure(new TypeError("fetch failed"))).toBe(true);
-    expect(isOfflineQueueableFailure({ name: "AbortError" })).toBe(true);
+    // The api-client's wedged-connection timeout is a field-connectivity
+    // failure — queueable (2026-09-28 audit, W5).
+    expect(isOfflineQueueableFailure({ name: "TimeoutError" })).toBe(true);
+    // A caller-owned AbortError is a DELIBERATE cancellation (TanStack
+    // unmount / farm switch) and must not enqueue a write.
+    expect(isOfflineQueueableFailure({ name: "AbortError" })).toBe(false);
     expect(isOfflineQueueableFailure({ status: 403, detail: "no" })).toBe(false);
   });
 
@@ -282,6 +287,84 @@ describe("wipeOfflineQueue", () => {
   });
 });
 
+/** 72h record TTL (2026-09-28 audit, H2 leftover): an undrained write older
+ *  than a long weekend is almost certainly from an abandoned session, so
+ *  reads and enqueues prune it rather than replaying days-stale writes. */
+describe("record TTL", () => {
+  const HOURS = 60 * 60 * 1000;
+
+  function seedRaw(queuedAt: number, id = "id-ttl") {
+    storage().setItem(
+      OFFLINE_QUEUE_STORAGE_KEY,
+      JSON.stringify([
+        {
+          v: 1,
+          id,
+          path: "/api/tasks/1/complete",
+          method: "POST",
+          body: null,
+          headers: {},
+          queuedAt,
+          actorScope: "7",
+          farmScope: "3",
+        },
+      ]),
+    );
+  }
+
+  it("prunes a record older than 72h on read and rewrites the store", () => {
+    seedRaw(Date.now() - 73 * HOURS);
+    expect(readOfflineQueue(storage())).toEqual([]);
+    expect(storage().getItem(OFFLINE_QUEUE_STORAGE_KEY)).toBeNull();
+  });
+
+  it("keeps a record inside the TTL and a future-dated one (clock skew)", () => {
+    seedRaw(Date.now() - 71 * HOURS, "fresh");
+    expect(readOfflineQueue(storage())).toHaveLength(1);
+    seedRaw(Date.now() + HOURS, "future");
+    expect(readOfflineQueue(storage())).toHaveLength(1);
+  });
+
+  it("enqueue prunes expired records before measuring the count bound", () => {
+    // 100 expired records fill the store on paper; the TTL prune runs first,
+    // so a live write still lands instead of reporting a full queue.
+    const expired = Array.from({ length: 100 }, (_, i) => ({
+      v: 1,
+      id: `old-${i}`,
+      path: "/api/tasks/1/complete",
+      method: "POST",
+      body: null,
+      headers: {},
+      queuedAt: Date.now() - 96 * HOURS,
+      actorScope: "7",
+      farmScope: "3",
+    }));
+    storage().setItem(OFFLINE_QUEUE_STORAGE_KEY, JSON.stringify(expired));
+    expect(
+      enqueueOfflineMutation("/api/tasks/2/skip", { method: "POST", body: '{"reason":"r"}' }, SCOPES),
+    ).toBe(true);
+    expect(offlineQueueDepth()).toBe(1);
+  });
+});
+
+/** The allowlist was documentation-only; enqueue now fails closed on it
+ *  (2026-09-28 audit). */
+describe("enqueue allowlist enforcement", () => {
+  it("returns false for a non-allowlisted path, even one the server idempotency-protects", () => {
+    expect(
+      enqueueOfflineMutation("/api/finance/new", { method: "POST", body: "{}" }, SCOPES),
+    ).toBe(false);
+    expect(offlineQueueDepth()).toBe(0);
+  });
+
+  it("returns false for a non-POST method on an allowlisted path", () => {
+    expect(
+      enqueueOfflineMutation("/api/tasks/1/complete", { method: "GET" }, SCOPES),
+    ).toBe(false);
+    expect(offlineQueueDepth()).toBe(0);
+  });
+});
+
 /** Mutation-hardening (2026-09-23 campaign): per-field fail-closed reads (a
  *  record failing ANY single wellFormed arm is dropped — not just a wrong
  *  version), the exact 256 KiB byte ceiling, the rewrite that cleans a
@@ -294,7 +377,8 @@ describe("wellFormed per-field fail-closed reads", () => {
     method: "POST",
     body: null,
     headers: { "Idempotency-Key": "k" },
-    queuedAt: 1_000,
+    // Fresh: the 72h record TTL prunes stale queuedAt stamps on read.
+    queuedAt: Date.now(),
     actorScope: "7",
     farmScope: "3",
   };
@@ -317,6 +401,10 @@ describe("wellFormed per-field fail-closed reads", () => {
       ["non-string method", { method: 5 }],
       ["non-string body", { body: 42 }],
       ["null headers", { headers: null }],
+      // Header values are type-checked too: a smuggled number would only fail
+      // at replay time, deep inside the drain (2026-09-28 audit).
+      ["non-string header value", { headers: { "Idempotency-Key": 7 } }],
+      ["array headers", { headers: ["Idempotency-Key", "k"] }],
       ["non-numeric queuedAt", { queuedAt: "soon" }],
       ["non-finite queuedAt", { queuedAt: Number.NaN }],
       ["non-string actorScope", { actorScope: 7 }],
@@ -357,7 +445,7 @@ describe("wellFormed per-field fail-closed reads", () => {
     const pad = limit - one.length;
     const exact = [{ ...BASE, body: "x".repeat(Math.max(0, pad)) }];
     // Recompute: body replaced null (4 chars) with pad+2 quotes; adjust.
-    let json = JSON.stringify(exact);
+    const json = JSON.stringify(exact);
     const body = "x".repeat(Math.max(0, pad + (limit - json.length)));
     const fixed = [{ ...BASE, body }];
     expect(JSON.stringify(fixed).length).toBe(limit);
@@ -422,6 +510,24 @@ describe("failure classification and drain boundaries", () => {
     }
   });
 
+  it("keeps-and-stops on 401/408/429 — transient answers, not rejections", async () => {
+    // A 401 with a momentarily unavailable refresh, a 408 timeout, or a 429
+    // rate-limit answer must not destroy field-recorded writes: the record
+    // stays queued and the drain stops for a later retry (2026-09-28, H2).
+    for (const status of [401, 408, 429] as const) {
+      storage().removeItem(OFFLINE_QUEUE_STORAGE_KEY);
+      enqueueOfflineMutation("/api/tasks/1/complete", { method: "POST" }, SCOPES);
+      enqueueOfflineMutation("/api/tasks/2/skip", { method: "POST" }, SCOPES);
+      const fetchImpl = vi
+        .fn()
+        .mockRejectedValue(Object.assign(new Error("x"), { status }));
+      const outcome = await drainOfflineQueue(SCOPES, fetchImpl);
+      expect(fetchImpl, String(status)).toHaveBeenCalledTimes(1);
+      expect(outcome, String(status)).toEqual({ replayed: 0, remaining: 2 });
+      expect(offlineQueueDepth(), String(status)).toBe(2);
+    }
+  });
+
   it("a foreign record is skipped, never a wall: later own records still replay", async () => {
     enqueueOfflineMutation("/api/tasks/1/complete", { method: "POST" }, OTHER);
     enqueueOfflineMutation("/api/tasks/2/skip", { method: "POST" }, SCOPES);
@@ -435,7 +541,7 @@ describe("failure classification and drain boundaries", () => {
   it("a 409 or a definitive 4xx resolves that record and the queue keeps draining", async () => {
     enqueueOfflineMutation("/api/tasks/1/complete", { method: "POST" }, SCOPES);
     enqueueOfflineMutation("/api/tasks/2/skip", { method: "POST" }, SCOPES);
-    enqueueOfflineMutation("/api/tasks/3/verify", { method: "POST" }, SCOPES);
+    enqueueOfflineMutation("/api/tasks/3/complete", { method: "POST" }, SCOPES);
     const error409 = Object.assign(new Error("conflict"), { status: 409 });
     const error404 = Object.assign(new Error("gone"), { status: 404 });
     const fetchImpl = vi

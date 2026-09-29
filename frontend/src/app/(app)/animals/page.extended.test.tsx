@@ -144,7 +144,7 @@ describe("AnimalsPage extended", () => {
     if (rows.length === 0) {
       await screen.findByText("No animals yet");
     } else {
-      await screen.findByText(`${rows.length} animal(s)`);
+      await screen.findByText(rows.length === 1 ? "1 animal" : `${rows.length} animals`);
     }
   }
 
@@ -189,7 +189,7 @@ describe("AnimalsPage extended", () => {
 
     it("renders all rows and the total count", async () => {
       await renderLoaded([ANIMAL, SPARSE_ANIMAL, { ...ANIMAL, id: 3, tag_number: "G-003" }]);
-      expect(screen.getByText("3 animal(s)")).toBeInTheDocument();
+      expect(screen.getByText("3 animals")).toBeInTheDocument();
       expect(screen.getAllByText("G-003")[0]).toBeInTheDocument();
     });
   });
@@ -238,7 +238,7 @@ describe("AnimalsPage extended", () => {
     it("sends the initial URL search params as GET query params", async () => {
       nav.searchParams = new URLSearchParams("bucket=RESTING&sex=M&status=SOLD&q=G-77");
       renderWithProviders(<AnimalsPage />);
-      await screen.findByText("1 animal(s)");
+      await screen.findByText("1 animal");
       const params = seenParams[0];
       expect(params.get("bucket")).toBe("RESTING");
       expect(params.get("sex")).toBe("M");
@@ -334,14 +334,14 @@ describe("AnimalsPage extended", () => {
     it("hides the Add animal button without animals.create", async () => {
       server.use(permissionsHandler(["animals.view"]));
       renderWithProviders(<AnimalsPage />);
-      await screen.findByText("1 animal(s)");
+      await screen.findByText("1 animal");
       expect(screen.queryByRole("button", { name: "Add animal" })).not.toBeInTheDocument();
     });
 
     it("shows the Add animal button with animals.create", async () => {
       server.use(permissionsHandler(["animals.view", "animals.create"]));
       renderWithProviders(<AnimalsPage />);
-      await screen.findByText("1 animal(s)");
+      await screen.findByText("1 animal");
       expect(screen.getByRole("button", { name: "Add animal" })).toBeInTheDocument();
     });
 
@@ -351,7 +351,7 @@ describe("AnimalsPage extended", () => {
       );
       const user = userEvent.setup();
       renderWithProviders(<AnimalsPage />);
-      await screen.findByText("1 animal(s)");
+      await screen.findByText("1 animal");
       const dialog = await openCreateDialog(user);
       const source = within(dialog).getAllByRole("combobox")[1];
       expect(source).toHaveTextContent("Purchased");
@@ -372,7 +372,7 @@ describe("AnimalsPage extended", () => {
       server.use(permissionsHandler(["animals.view", "animals.create"]));
       const user = userEvent.setup();
       renderWithProviders(<AnimalsPage />);
-      await screen.findByText("1 animal(s)");
+      await screen.findByText("1 animal");
       const dialog = await openCreateDialog(user);
       await user.click(within(dialog).getAllByRole("combobox")[1]);
       expect(screen.queryByRole("option", { name: "Purchased" })).not.toBeInTheDocument();

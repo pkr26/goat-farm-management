@@ -127,10 +127,10 @@ import {
 } from "./components/results-visuals";
 import { formatFarmDateTime, formatMoney } from "@/lib/format";
 import { useLanguage, useT, type MessageKey, type TFn } from "@/lib/i18n";
+import { mapServerError } from "@/lib/server-error-phrases";
 import {
   SIMULATION_SECTION_HELP,
   simulationFieldHelp,
-  speciesAwareLabel,
 } from "@/lib/simulation-field-help";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
@@ -1982,7 +1982,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
 
   /** Species-aware display label for one assumption field. */
   function fieldLabelFor(key: string): string {
-    return speciesAwareLabel(localizedFieldLabel(key, t, language));
+    return localizedFieldLabel(key, t, language);
   }
 
   /** Opens the "?" dialog for one field: explanation plus unit/range/value. */
@@ -3181,6 +3181,9 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                   calibrationParamsGeneration.current += 1;
                   setBreed(value);
                 }}
+                items={Object.fromEntries(
+                  (breeds?.breeds ?? [breed]).map((b) => [b, humanize(b)]),
+                )}
               >
                 <SelectTrigger id="sim-breed">
                   <SelectValue />
@@ -3188,7 +3191,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                 <SelectContent>
                   {(breeds?.breeds ?? [breed]).map((b) => (
                     <SelectItem key={b} value={b}>
-                      {b}
+                      {humanize(b)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -3308,7 +3311,7 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
           {defaultsQuery.isError && (
             <p role="alert" className="text-sm text-destructive">
               {defaultsQuery.error instanceof ApiError
-                ? defaultsQuery.error.detail
+                ? mapServerError(t, defaultsQuery.error.detail, defaultsQuery.error.status, defaultsQuery.error.code)
                 : t("simulation.error.defaults")}
             </p>
           )}

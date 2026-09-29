@@ -97,7 +97,7 @@ describe("AnimalsPage", () => {
     renderWithProviders(<AnimalsPage />);
     // List row proves: permissions resolved as owner, farm selected, GET ran.
     expect((await screen.findAllByText("G-001"))[0]).toBeInTheDocument();
-    expect(screen.getByText("1 animal(s)")).toBeInTheDocument();
+    expect(screen.getByText("1 animal")).toBeInTheDocument();
   }
 
   it("loads the herd list with the selected farm header", async () => {

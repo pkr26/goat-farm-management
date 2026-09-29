@@ -133,7 +133,7 @@ describe("paginated domain pickers", () => {
 
     const user = userEvent.setup();
     render(<Harness />);
-    await user.click(screen.getByRole("combobox", { name: "Doe" }));
+    await user.click(screen.getByRole("button", { name: "Doe" }));
     const dialog = screen.getByRole("dialog", { name: "Choose a breeding-ready doe" });
     expect(await within(dialog).findByRole("option", { name: /G-0001/ })).toBeInTheDocument();
 
@@ -184,14 +184,14 @@ describe("paginated domain pickers", () => {
 
     const user = userEvent.setup();
     render(<Harness />);
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     const animalSearch = screen.getByLabelText("Search animals");
     expect(animalSearch).toHaveAttribute("maxlength", "60");
     await user.type(animalSearch, "Late doe");
     await waitFor(() => expect(animalQueries).toContain("Late doe"));
     await user.keyboard("{Escape}");
 
-    await user.click(screen.getByRole("combobox", { name: "Purchase batch" }));
+    await user.click(screen.getByRole("button", { name: "Purchase batch" }));
     const purchaseSearch = screen.getByLabelText("Search health purchase batches");
     expect(purchaseSearch).toHaveAttribute("maxlength", "20");
     await user.type(purchaseSearch, "#201");
@@ -229,14 +229,14 @@ describe("paginated domain pickers", () => {
 
     const user = userEvent.setup();
     const view = render(<Harness eligibleIds={[1]} />);
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     let dialog = screen.getByRole("dialog", { name: "Choose an animal" });
     expect(await within(dialog).findByRole("option", { name: /G-0001/ })).toBeInTheDocument();
     expect(within(dialog).queryByRole("option", { name: /G-0002/ })).not.toBeInTheDocument();
     await user.keyboard("{Escape}");
 
     view.rerender(<Harness eligibleIds={[2]} />);
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     dialog = screen.getByRole("dialog", { name: "Choose an animal" });
     expect(await within(dialog).findByRole("option", { name: /G-0002/ })).toBeInTheDocument();
     expect(within(dialog).queryByRole("option", { name: /G-0001/ })).not.toBeInTheDocument();
@@ -288,7 +288,7 @@ describe("breeding candidate picker copy and caps", () => {
 
     const user = userEvent.setup();
     const doeView = render(<Harness kind="doe" />);
-    await user.click(screen.getByRole("combobox", { name: "doe" }));
+    await user.click(screen.getByRole("button", { name: "doe" }));
     const doeDialog = screen.getByRole("dialog", { name: "Choose a doe" });
     expect(
       await within(doeDialog).findByRole("option", { name: /cull candidate \(owner only\)/ }),
@@ -297,7 +297,7 @@ describe("breeding candidate picker copy and caps", () => {
     doeView.unmount();
 
     const buckView = render(<Harness kind="buck" />);
-    await user.click(screen.getByRole("combobox", { name: "buck" }));
+    await user.click(screen.getByRole("button", { name: "buck" }));
     const buckDialog = screen.getByRole("dialog", { name: "Choose a buck" });
     expect(await within(buckDialog).findByRole("option", { name: /G-0001/ })).toBeInTheDocument();
     expect(within(buckDialog).queryByText(/cull candidate/i)).toBeNull();
@@ -320,7 +320,7 @@ describe("breeding candidate picker copy and caps", () => {
     }
     const user = userEvent.setup();
     render(<Harness />);
-    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await user.click(screen.getByRole("button", { name: "Animal" }));
     const dialog = screen.getByRole("dialog");
     const search = within(dialog).getByLabelText("Search health animals") as HTMLInputElement;
     expect(search).toHaveAttribute("maxlength", "60");
@@ -352,7 +352,7 @@ describe("breeding candidate picker copy and caps", () => {
     }
     const user = userEvent.setup();
     render(<Harness />);
-    await user.click(screen.getByRole("combobox", { name: "Doe" }));
+    await user.click(screen.getByRole("button", { name: "Doe" }));
     const dialog = screen.getByRole("dialog", { name: "Choose a doe" });
     const search = within(dialog).getByLabelText("Search breeding candidates") as HTMLInputElement;
     expect(search).toHaveAttribute("maxlength", "60");

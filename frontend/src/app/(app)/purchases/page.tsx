@@ -7,7 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, PawPrint, Plus, ShoppingCart } from "lucide-react";
 import Link from "next/link";
-import { Suspense, useEffect, useCallback, useRef, useState } from "react";
+import { Suspense, useEffect, useCallback, useMemo, useRef, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -60,14 +60,12 @@ import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { MAX_AGE_MONTHS, MAX_BATCH_COUNT, MAX_TRANSPORT_HOURS } from "@/lib/backend-caps";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { enumLabel } from "@/lib/enum-labels";
-import { useLanguage } from "@/lib/i18n";
+import { useLanguage, useT, type TFn } from "@/lib/i18n";
+import { mapServerError } from "@/lib/server-error-phrases";
 import { resolveTaskTitle } from "@/lib/task-title";
 import { farmToday, formatDate, formatMoney } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
-import {
-  isPersistableNonnegativeMoney,
-  MIN_PERSISTED_MONEY_MESSAGE,
-} from "@/lib/persisted-numbers";
+import { isPersistableNonnegativeMoney } from "@/lib/persisted-numbers";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 import { MAX_PAGE_OFFSET, useUrlState, type UrlStateUpdate } from "@/lib/use-url-state";
@@ -94,11 +92,12 @@ function parseBatchId(raw: string | null): number | null {
 }
 
 /** value → label map for the root `items` prop: without it, Base UI's
- * Select.Value renders the raw value ("F") in the closed trigger. */
-const SEX_ITEMS: Record<string, string> = {
-  [PurchaseBatchInSex.F]: "Female",
-  [PurchaseBatchInSex.M]: "Male",
-};
+ * Select.Value renders the raw value ("F") in the closed trigger. Labels
+ * resolve through the shared sex enum labels in the active language. */
+const sexItems = (language: "en" | "te"): Record<string, string> => ({
+  [PurchaseBatchInSex.F]: enumLabel("sex", PurchaseBatchInSex.F, language),
+  [PurchaseBatchInSex.M]: enumLabel("sex", PurchaseBatchInSex.M, language),
+});
 
 // Bounds mirror backend/app/schemas/purchases.py (count 1..1000, age 0..240,
 // prices ≥ 0, date year ≥ 2000 and not in the future). avg_weight_kg is
@@ -118,48 +117,51 @@ function weightLines(raw: string | undefined): string[] {
 const MIN_ARRIVAL_WEIGHT_KG = 0.1;
 
 /** Species-scaled average-weight cap (max_adult_weight_kg): the backend
- * rejects a batch average above the farm species' credible adult scale. */
-const batchSchema = (maxWeightKg: number) =>
+ * rejects a batch average above the farm species' credible adult scale.
+ * The messages resolve through the i18n catalog, so the factory takes the
+ * caller's `t` and the mounted page rebuilds it per language (health page
+ * precedent). */
+const buildBatchSchema = (t: TFn, maxWeightKg: number) =>
   z
   .object({
-    date: z.string().min(1, "Date is required"),
-    supplier: z.string().max(120, "At most 120 characters").optional(),
-    origin_market: z.string().max(120, "At most 120 characters").optional(),
+    date: z.string().min(1, t("purchases.validation.dateRequired")),
+    supplier: z.string().max(120, t("purchases.validation.textMax", { max: 120 })).optional(),
+    origin_market: z.string().max(120, t("purchases.validation.textMax", { max: 120 })).optional(),
     // StrictInt on the wire: whole hours only, 0–240 (MAX_TRANSPORT_HOURS).
     transport_hours: optNum(
       z
         .number()
-        .int("Whole hours only")
-        .min(0, "Cannot be negative")
-        .max(MAX_TRANSPORT_HOURS, `At most ${MAX_TRANSPORT_HOURS} hours`),
+        .int(t("purchases.validation.wholeHours"))
+        .min(0, t("purchases.validation.nonnegative"))
+        .max(MAX_TRANSPORT_HOURS, t("purchases.validation.transportMax", { max: MAX_TRANSPORT_HOURS })),
     ),
     // Prior vaccinations/deworming reported by the seller at source.
     seller_health_history: z
       .string()
-      .max(4_000, "Seller health history cannot exceed 4000 characters")
+      .max(4_000, t("purchases.validation.historyMax", { max: 4_000 }))
       .optional(),
     count: z.coerce
       .number()
-      .int("Count must be a whole number")
-      .min(1, "At least 1 animal")
-      .max(MAX_BATCH_COUNT, `At most ${MAX_BATCH_COUNT} animals`),
+      .int(t("purchases.validation.countWhole"))
+      .min(1, t("purchases.validation.countMin"))
+      .max(MAX_BATCH_COUNT, t("purchases.validation.countMax", { max: MAX_BATCH_COUNT })),
     sex: z.enum([PurchaseBatchInSex.F, PurchaseBatchInSex.M]),
     avg_age_months: optNum(
-      z.number().min(0, "Cannot be negative").max(MAX_AGE_MONTHS, `At most ${MAX_AGE_MONTHS} months`),
+      z.number().min(0, t("purchases.validation.nonnegative")).max(MAX_AGE_MONTHS, t("purchases.validation.ageMax", { max: MAX_AGE_MONTHS })),
     ),
     avg_weight_kg: optNum(
-      z.number().min(0, "Cannot be negative").max(maxWeightKg, `At most ${maxWeightKg} kg for this farm's species`),
+      z.number().min(0, t("purchases.validation.nonnegative")).max(maxWeightKg, t("purchases.validation.weightMax", { max: maxWeightKg })),
     ),
     // One weight per line; parsed against `count` in the superRefine below.
     individual_weights: z.string().optional(),
     total_price: optNum(
       z
         .number()
-        .min(0, "Cannot be negative")
-        .max(1_000_000_000, "Total price cannot exceed ₹1,000,000,000")
-        .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
+        .min(0, t("purchases.validation.nonnegative"))
+        .max(1_000_000_000, t("purchases.validation.priceMax"))
+        .refine(isPersistableNonnegativeMoney, t("purchases.validation.moneyMin")),
     ),
-    notes: z.string().max(4_000, "Notes cannot exceed 4000 characters").optional(),
+    notes: z.string().max(4_000, t("purchases.validation.notesMax", { max: 4_000 })).optional(),
     create_animals: z.boolean(),
   })
   .superRefine((values, ctx) => {
@@ -171,7 +173,7 @@ const batchSchema = (maxWeightKg: number) =>
       ctx.addIssue({
         code: "custom",
         path: ["individual_weights"],
-        message: "Arrival weights need animal stubs to be written to",
+        message: t("purchases.validation.weightsNeedStubs"),
       });
       return;
     }
@@ -179,7 +181,10 @@ const batchSchema = (maxWeightKg: number) =>
       ctx.addIssue({
         code: "custom",
         path: ["individual_weights"],
-        message: `Enter exactly ${values.count} weights (one per animal) — got ${lines.length}`,
+        message: t("purchases.validation.weightsCount", {
+          count: values.count,
+          got: lines.length,
+        }),
       });
       return;
     }
@@ -189,22 +194,26 @@ const batchSchema = (maxWeightKg: number) =>
         ctx.addIssue({
           code: "custom",
           path: ["individual_weights"],
-          message: `Line ${index + 1}: each weight must be between ${MIN_ARRIVAL_WEIGHT_KG} and ${maxWeightKg} kg`,
+          message: t("purchases.validation.weightLineRange", {
+            line: index + 1,
+            min: MIN_ARRIVAL_WEIGHT_KG,
+            max: maxWeightKg,
+          }),
         });
         return;
       }
     }
   })
   .refine((v) => !v.date || Number(v.date.slice(0, 4)) >= 2000, {
-    message: "Date must be year 2000 or later",
+    message: t("purchases.validation.dateYearMin"),
     path: ["date"],
   })
   .refine((v) => !v.date || v.date <= farmToday(), {
-    message: "Date cannot be in the future",
+    message: t("purchases.validation.dateFuture"),
     path: ["date"],
   });
-type BatchInput = z.input<ReturnType<typeof batchSchema>>;
-type BatchValues = z.output<ReturnType<typeof batchSchema>>;
+type BatchInput = z.input<ReturnType<typeof buildBatchSchema>>;
+type BatchValues = z.output<ReturnType<typeof buildBatchSchema>>;
 
 /** Created animals + open quarantine tasks for one batch. */
 function BatchDetailDialog({
@@ -222,6 +231,7 @@ function BatchDetailDialog({
   // bounded page. The parent keys this component by batch id, so opening a
   // different batch remounts it and the offset starts at zero again.
   const { language } = useLanguage();
+  const t = useT();
   const ANIMALS_LIMIT = 100;
   const [animalsOffset, setAnimalsOffset] = useState(0);
   const query = useBatchDetailApiPurchasesBatchIdGet(
@@ -248,15 +258,17 @@ function BatchDetailDialog({
     <Dialog open={batchId !== null} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Batch #{batchId}</DialogTitle>
+          <DialogTitle>{t("purchases.detail.title", { id: batchId ?? "—" })}</DialogTitle>
         </DialogHeader>
         {detailLoading ? (
           query.isError ? (
             <p className="text-sm text-destructive">
-              {query.error instanceof ApiError ? query.error.detail : "Could not load the batch."}
+              {query.error instanceof ApiError
+                ? mapServerError(t, query.error.detail, query.error.status, query.error.code)
+                : t("purchases.detail.loadFailed")}
             </p>
           ) : (
-            <InlineLoading className="justify-center py-6">Loading batch…</InlineLoading>
+            <InlineLoading className="justify-center py-6">{t("purchases.detail.loading")}</InlineLoading>
           )
         ) : (
           detail && (
@@ -267,29 +279,31 @@ function BatchDetailDialog({
               <p className="text-sm text-muted-foreground">
                 {formatDate(detail.batch.date)}
                 {detail.batch.supplier ? ` · ${detail.batch.supplier}` : ""} ·{" "}
-                {detail.batch.count} head
+                {t("purchases.list.headCount", { count: detail.batch.count })}
                 {detail.batch.total_price !== null
                   ? ` · ${formatMoney(detail.batch.total_price)}`
                   : ""}
               </p>
 
               <section className="space-y-2">
-                <h3 className="font-medium">Animals created ({detail.animals_total})</h3>
+                <h3 className="font-medium">
+                  {t("purchases.detail.animalsCreated", { count: detail.animals_total })}
+                </h3>
                 {detail.animals.length === 0 ? (
                   <EmptyState
                     icon={PawPrint}
-                    title="No animal stubs for this batch."
-                    description="This batch was recorded without creating animals."
+                    title={t("purchases.detail.noAnimals")}
+                    description={t("purchases.detail.noAnimalsDescription")}
                     className="py-8"
                   />
                 ) : (
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Tag</TableHead>
-                        <TableHead>Sex</TableHead>
-                        <TableHead>Bucket</TableHead>
-                        <TableHead>Status</TableHead>
+                        <TableHead>{t("purchases.detail.colTag")}</TableHead>
+                        <TableHead>{t("purchases.detail.colSex")}</TableHead>
+                        <TableHead>{t("purchases.detail.colBucket")}</TableHead>
+                        <TableHead>{t("purchases.detail.colStatus")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -307,7 +321,9 @@ function BatchDetailDialog({
                           <TableCell>{enumLabel("sex", a.sex, language)}</TableCell>
                           <TableCell>{enumLabel("bucket", a.current_bucket, language)}</TableCell>
                           <TableCell>
-                            <StatusBadge status={a.status}>{a.status}</StatusBadge>
+                            <StatusBadge status={a.status}>
+                              {enumLabel("status", a.status, language)}
+                            </StatusBadge>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -319,27 +335,29 @@ function BatchDetailDialog({
                   limit={detail.animals_limit}
                   offset={detail.animals_offset}
                   onOffsetChange={setAnimalsOffset}
-                  label="animals"
+                  label={t("purchases.detail.paginationLabel")}
                   disabled={detailSettling}
                 />
               </section>
 
               <section className="space-y-2">
-                <h3 className="font-medium">Open quarantine tasks ({openTasks.length})</h3>
+                <h3 className="font-medium">
+                  {t("purchases.detail.openTasks", { count: openTasks.length })}
+                </h3>
                 {openTasks.length === 0 ? (
                   <EmptyState
                     icon={CheckCircle2}
-                    title="No open quarantine tasks."
-                    description="Every quarantine task for this batch is completed."
+                    title={t("purchases.detail.noTasks")}
+                    description={t("purchases.detail.noTasksDescription")}
                     className="py-8"
                   />
                 ) : (
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Due</TableHead>
-                        <TableHead>Task</TableHead>
-                        <TableHead>Status</TableHead>
+                        <TableHead>{t("purchases.detail.colDue")}</TableHead>
+                        <TableHead>{t("purchases.detail.colTask")}</TableHead>
+                        <TableHead>{t("purchases.detail.colStatus")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -366,6 +384,8 @@ function BatchDetailDialog({
 
 function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
   const mutationErrorMessage = useMutationError();
+  const t = useT();
+  const { language } = useLanguage();
   const vocabulary = farmVocabulary;
   const { can } = perms;
   const allowed = can("purchases.view");
@@ -453,6 +473,13 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
 
   const createMutation = useCreateBatchApiPurchasesNewPost();
   const createFlight = useSingleFlight();
+  // Rebuilt when the language changes so client-side validation messages
+  // render in the active language; react-hook-form re-reads the resolver
+  // option every render (health page precedent).
+  const localizedSchema = useMemo(
+    () => buildBatchSchema(t, vocabulary.facts.maxWeightKg),
+    [t, vocabulary.facts.maxWeightKg],
+  );
   const {
     register,
     handleSubmit,
@@ -461,7 +488,7 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
     setValue,
     formState: { errors, isSubmitting },
   } = useForm<BatchInput, unknown, BatchValues>({
-    resolver: zodResolver(batchSchema(vocabulary.facts.maxWeightKg)),
+    resolver: zodResolver(localizedSchema),
     // Stryker disable ObjectLiteral, BooleanLiteral: every dialog open passes through openNewBatch, whose reset() re-applies these exact defaults before the form is ever visible
     defaultValues: {
       date: farmToday(),
@@ -513,7 +540,7 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
           },
         });
         if (!farmScope()) return;
-        toast.success("Purchase batch created.");
+        toast.success(t("purchases.toast.created"));
         invalidateFarmData(queryClient);
         // Stryker disable ConditionalExpression, CallExpression: openNewBatch refuses to open while the flight is pending and the dialog cannot otherwise reopen, so no fresh session exists for a stale continuation to close or clear — the attempt arms are unreachable defense-in-depth
         if (createAttempt.current !== attempt) return;
@@ -540,10 +567,12 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
       return (
         <div role="alert" className="space-y-3">
           <p className="text-sm text-destructive">
-            {query.error instanceof ApiError ? query.error.detail : "Could not load purchase batches."}
+            {query.error instanceof ApiError
+              ? mapServerError(t, query.error.detail, query.error.status, query.error.code)
+              : t("purchases.page.loadFailed")}
           </p>
           <Button type="button" variant="outline" onClick={() => void query.refetch()}>
-            Retry batches
+            {t("purchases.page.retry")}
           </Button>
         </div>
       );
@@ -551,11 +580,11 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
     return (
       <div className="space-y-6">
         <PageHeader
-          title="Purchase batches"
-          description={`Incoming groups of ${vocabulary.speciesPlural} — each batch auto-creates its 45-day quarantine protocol.`}
+          title={t("purchases.page.title")}
+          description={t("purchases.page.description", { species: t("purchases.speciesPlural") })}
         />
         <div role="status" aria-live="polite">
-          <span className="sr-only">Loading purchase batches…</span>
+          <span className="sr-only">{t("purchases.page.loading")}</span>
           <TableSkeleton />
         </div>
       </div>
@@ -582,12 +611,12 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
     <div className="space-y-6">
       {query.isError && <StaleDataNotice onRetry={() => void query.refetch()} />}
       <PageHeader
-        title="Purchase batches"
-        description={`Incoming groups of ${vocabulary.speciesPlural} — each batch auto-creates its 45-day quarantine protocol.`}
+        title={t("purchases.page.title")}
+        description={t("purchases.page.description", { species: t("purchases.speciesPlural") })}
         actions={
           canManage && (
             <Button disabled={createFlight.pending} onClick={openNewBatch}>
-              <Plus /> New batch
+              <Plus /> {t("purchases.page.newBatch")}
             </Button>
           )
         }
@@ -596,19 +625,23 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
       {batches.length === 0 ? (
         <EmptyState
           icon={ShoppingCart}
-          title="No purchase batches yet."
-          description="Record your first batch to create animal stubs and its quarantine task schedule."
+          title={t("purchases.empty.title")}
+          description={t("purchases.empty.description")}
         >
           {canManage && (
             <Button disabled={createFlight.pending} onClick={openNewBatch}>
-              <Plus /> Add your first batch
+              <Plus /> {t("purchases.empty.addFirst")}
             </Button>
           )}
         </EmptyState>
       ) : (
         <DataTableCard
-          title="All batches"
-          description={`${payload.total} batch${payload.total === 1 ? "" : "es"} recorded`}
+          title={t("purchases.list.title")}
+          description={
+            payload.total === 1
+              ? t("purchases.list.description_one", { count: payload.total })
+              : t("purchases.list.description_many", { count: payload.total })
+          }
         >
           {/* Below md the 10-column batch table becomes a card per batch —
            * panning a 980px table inside a 390px phone is not a list, it's a
@@ -626,24 +659,35 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
                     variant="outline"
                     onClick={() => openDetail(b.id)}
                   >
-                    View
+                    {t("purchases.table.view")}
                   </Button>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {b.supplier ?? "No supplier"} · {b.count} head
+                  {b.supplier ?? t("purchases.list.noSupplier")} ·{" "}
+                  {t("purchases.list.headCount", { count: b.count })}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground tabular-nums">
-                  {b.total_price !== null ? formatMoney(b.total_price) : "No price recorded"}
+                  {b.total_price !== null ? formatMoney(b.total_price) : t("purchases.list.noPrice")}
                   {b.open_tasks
-                    ? ` · ${b.open_tasks} open task${b.open_tasks === 1 ? "" : "s"}`
+                    ? b.open_tasks === 1
+                      ? t("purchases.list.openTasks_one", { count: b.open_tasks })
+                      : t("purchases.list.openTasks_many", { count: b.open_tasks })
                     : ""}
                 </p>
                 {/* Parity with the table's analytics columns — a phone
                  * shouldn't hide what was bought. */}
                 <p className="mt-1 text-xs text-muted-foreground tabular-nums">
-                  {b.avg_age_months !== null ? `${b.avg_age_months} mo` : "—"} avg age ·{" "}
-                  {b.avg_weight_kg !== null ? `${b.avg_weight_kg} kg` : "—"} avg weight ·{" "}
-                  {b.animals_created ?? 0} animal{b.animals_created === 1 ? "" : "s"} created
+                  {(b.animals_created ?? 0) === 1
+                    ? t("purchases.list.cardLine_one", {
+                        age: b.avg_age_months !== null ? t("purchases.list.ageMo", { months: b.avg_age_months }) : "—",
+                        weight: b.avg_weight_kg !== null ? t("purchases.list.weightKg", { kg: b.avg_weight_kg }) : "—",
+                        count: b.animals_created ?? 0,
+                      })
+                    : t("purchases.list.cardLine_many", {
+                        age: b.avg_age_months !== null ? t("purchases.list.ageMo", { months: b.avg_age_months }) : "—",
+                        weight: b.avg_weight_kg !== null ? t("purchases.list.weightKg", { kg: b.avg_weight_kg }) : "—",
+                        count: b.animals_created ?? 0,
+                      })}
                 </p>
               </div>
             ))}
@@ -652,15 +696,15 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
           <Table className="min-w-[980px]">
             <TableHeader>
               <TableRow>
-                <TableHead>Batch</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead>Supplier</TableHead>
-                <TableHead>Count</TableHead>
-                <TableHead>Avg age</TableHead>
-                <TableHead>Avg wt</TableHead>
-                <TableHead>Total price</TableHead>
-                <TableHead>Animals</TableHead>
-                <TableHead>Open tasks</TableHead>
+                <TableHead>{t("purchases.table.batch")}</TableHead>
+                <TableHead>{t("purchases.table.date")}</TableHead>
+                <TableHead>{t("purchases.table.supplier")}</TableHead>
+                <TableHead>{t("purchases.table.count")}</TableHead>
+                <TableHead>{t("purchases.table.avgAge")}</TableHead>
+                <TableHead>{t("purchases.table.avgWt")}</TableHead>
+                <TableHead>{t("purchases.table.totalPrice")}</TableHead>
+                <TableHead>{t("purchases.table.animals")}</TableHead>
+                <TableHead>{t("purchases.table.openTasks")}</TableHead>
                 <TableHead />
               </TableRow>
             </TableHeader>
@@ -671,8 +715,16 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
                   <TableCell>{formatDate(b.date)}</TableCell>
                   <TableCell>{b.supplier ?? "—"}</TableCell>
                   <TableCell>{b.count}</TableCell>
-                  <TableCell>{b.avg_age_months !== null ? `${b.avg_age_months} mo` : "—"}</TableCell>
-                  <TableCell>{b.avg_weight_kg !== null ? `${b.avg_weight_kg} kg` : "—"}</TableCell>
+                  <TableCell>
+                    {b.avg_age_months !== null
+                      ? t("purchases.list.ageMo", { months: b.avg_age_months })
+                      : "—"}
+                  </TableCell>
+                  <TableCell>
+                    {b.avg_weight_kg !== null
+                      ? t("purchases.list.weightKg", { kg: b.avg_weight_kg })
+                      : "—"}
+                  </TableCell>
                   <TableCell>{formatMoney(b.total_price)}</TableCell>
                   <TableCell>{b.animals_created ?? 0}</TableCell>
                   <TableCell>
@@ -684,7 +736,7 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
                   </TableCell>
                   <TableCell>
                     <Button size="sm" variant="outline" onClick={() => openDetail(b.id)}>
-                      View
+                      {t("purchases.table.view")}
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -694,7 +746,7 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
           </div>
           {listSettling && (
             <p role="status" className="pt-3 text-sm text-muted-foreground">
-              Updating purchase batches…
+              {t("purchases.list.updating")}
             </p>
           )}
           <PaginationControls
@@ -702,7 +754,7 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
             limit={payload.limit}
             offset={payload.offset}
             onOffsetChange={changeOffset}
-            label="purchase batches"
+            label={t("purchases.pagination.label")}
             disabled={listSettling}
           />
         </DataTableCard>
@@ -733,40 +785,51 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
           {pendingBatch ? (
             <>
               <DialogHeader>
-                <DialogTitle>Review purchase consequences</DialogTitle>
+                <DialogTitle>{t("purchases.review.title")}</DialogTitle>
               </DialogHeader>
               <p className="text-sm text-muted-foreground">
-                Confirm the batch before these linked farm records are created.
+                {t("purchases.review.description")}
               </p>
               <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-lg border p-4 text-sm">
-                <dt className="text-muted-foreground">Batch</dt>
+                <dt className="text-muted-foreground">{t("purchases.review.batch")}</dt>
                 <dd className="text-right font-medium">
-                  {pendingBatch.count} {pendingBatch.sex === PurchaseBatchInSex.F ? "female" : "male"}
-                  {pendingBatch.count === 1
-                    ? ` ${vocabulary.species}`
-                    : ` ${vocabulary.speciesPlural}`}
+                  {t("purchases.review.batchSummary", {
+                    count: pendingBatch.count,
+                    sex:
+                      pendingBatch.sex === PurchaseBatchInSex.F
+                        ? t("purchases.review.sexFemale")
+                        : t("purchases.review.sexMale"),
+                    species:
+                      pendingBatch.count === 1
+                        ? t("purchases.species")
+                        : t("purchases.speciesPlural"),
+                  })}
                 </dd>
-                <dt className="text-muted-foreground">Purchase date</dt>
+                <dt className="text-muted-foreground">{t("purchases.review.purchaseDate")}</dt>
                 <dd className="text-right">{formatDate(pendingBatch.date)}</dd>
-                <dt className="text-muted-foreground">Animal stubs</dt>
-                <dd className="text-right">
-                  {pendingBatch.create_animals ? `${pendingBatch.count} in QUARANTINE` : "None"}
-                </dd>
-                <dt className="text-muted-foreground">Protocol tasks</dt>
+                <dt className="text-muted-foreground">{t("purchases.review.animalStubs")}</dt>
                 <dd className="text-right">
                   {pendingBatch.create_animals
-                    ? "45-day quarantine schedule"
-                    : "None (no animal stubs)"}
+                    ? t("purchases.review.stubsInQuarantine", { count: pendingBatch.count })
+                    : t("purchases.review.none")}
                 </dd>
-                <dt className="text-muted-foreground">Finance entry</dt>
+                <dt className="text-muted-foreground">{t("purchases.review.protocolTasks")}</dt>
+                <dd className="text-right">
+                  {pendingBatch.create_animals
+                    ? t("purchases.review.quarantineSchedule")
+                    : t("purchases.review.noneNoStubs")}
+                </dd>
+                <dt className="text-muted-foreground">{t("purchases.review.financeEntry")}</dt>
                 <dd className="text-right">
                   {pendingBatch.total_price === undefined
-                    ? "No expense amount"
-                    : `${formatMoney(pendingBatch.total_price)} ANIMAL_PURCHASE`}
+                    ? t("purchases.review.noExpense")
+                    : t("purchases.review.financeAmount", {
+                        amount: formatMoney(pendingBatch.total_price),
+                      })}
                 </dd>
               </dl>
               <p role="alert" className="text-sm font-medium text-destructive">
-                Creation is immediate. This page does not currently provide a batch reversal.
+                {t("purchases.review.noReversal")}
               </p>
               <DialogFooter>
                 <Button
@@ -775,35 +838,35 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
                   disabled={createFlight.pending}
                   onClick={() => setPendingBatch(null)}
                 >
-                  Back and edit
+                  {t("purchases.review.back")}
                 </Button>
                 <Button
                   type="button"
                   disabled={createFlight.pending}
                   onClick={() => void createBatch(pendingBatch)}
                 >
-                  {createFlight.pending ? "Creating…" : "Confirm and create"}
+                  {createFlight.pending ? t("purchases.review.creating") : t("purchases.review.confirm")}
                 </Button>
               </DialogFooter>
             </>
           ) : (
             <>
               <DialogHeader>
-                <DialogTitle>New purchase batch</DialogTitle>
+                <DialogTitle>{t("purchases.dialog.title")}</DialogTitle>
               </DialogHeader>
               <p className="text-sm text-muted-foreground">
                 {wCreateAnimals
-                  ? "Animal stubs and the 45-day, 11-step quarantine protocol (arrival inspection → rest/electrolytes → deworm → liver tonic+AD3E → PPR → ET+TT → Goat Pox → FMD → day-13 fecal → day-30 fecal recheck → day-45 footbath/release) will be auto-created. "
-                  : "With animal-stub creation off, this records only the batch and any purchase expense; it creates no quarantine protocol tasks. "}
-                An ANIMAL_PURCHASE expense is booked when a total price is provided.
+                  ? t("purchases.dialog.createAnimalsHint")
+                  : t("purchases.dialog.noAnimalsHint")}
+                {t("purchases.dialog.expenseHint")}
               </p>
               <form onSubmit={handleSubmit(onReview)} className="space-y-4" noValidate>
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Batch details
+              {t("purchases.form.sectionTitle")}
             </p>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="date">Date *</Label>
+                <Label htmlFor="date">{t("purchases.form.date")}</Label>
                 <Input
                   id="date"
                   type="date"
@@ -819,7 +882,7 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="supplier">Supplier</Label>
+                <Label htmlFor="supplier">{t("purchases.form.supplier")}</Label>
                 <Input
                   id="supplier"
                   maxLength={120}
@@ -834,7 +897,7 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="origin_market">Origin market</Label>
+                <Label htmlFor="origin_market">{t("purchases.form.originMarket")}</Label>
                 <Input
                   id="origin_market"
                   maxLength={120}
@@ -849,7 +912,7 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="transport_hours">Transport hours</Label>
+                <Label htmlFor="transport_hours">{t("purchases.form.transportHours")}</Label>
                 <Input
                   id="transport_hours"
                   type="number"
@@ -861,7 +924,7 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
                   {...register("transport_hours")}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Journey length from the purchase market to the farm (0–{MAX_TRANSPORT_HOURS} h).
+                  {t("purchases.form.transportHint", { max: MAX_TRANSPORT_HOURS })}
                 </p>
                 {errors.transport_hours && (
                   <p id="purchase-transport-error" role="alert" className="text-sm text-destructive">
@@ -870,7 +933,7 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="count">Count *</Label>
+                <Label htmlFor="count">{t("purchases.form.count")}</Label>
                 <Input
                   id="count"
                   type="number"
@@ -888,25 +951,29 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="purchase-sex">Sex *</Label>
+                <Label htmlFor="purchase-sex">{t("purchases.form.sex")}</Label>
                 <Controller
                   control={control}
                   name="sex"
                   render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange} items={SEX_ITEMS}>
+                    <Select value={field.value} onValueChange={field.onChange} items={sexItems(language)}>
                       <SelectTrigger id="purchase-sex" className="w-full">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={PurchaseBatchInSex.F}>Female</SelectItem>
-                        <SelectItem value={PurchaseBatchInSex.M}>Male</SelectItem>
+                        <SelectItem value={PurchaseBatchInSex.F}>
+                          {enumLabel("sex", PurchaseBatchInSex.F, language)}
+                        </SelectItem>
+                        <SelectItem value={PurchaseBatchInSex.M}>
+                          {enumLabel("sex", PurchaseBatchInSex.M, language)}
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                   )}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="avg_age_months">Avg age (months)</Label>
+                <Label htmlFor="avg_age_months">{t("purchases.form.avgAge")}</Label>
                 <Input
                   id="avg_age_months"
                   type="number"
@@ -916,9 +983,7 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
                   {...register("avg_age_months")}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Fractional months are spread across the actual day span of the surrounding
-                  calendar month, not a fixed average, so the estimated birth date stays accurate
-                  even across February.
+                  {t("purchases.form.avgAgeHint")}
                 </p>
                 {errors.avg_age_months && (
                   <p role="alert" className="text-sm text-destructive">
@@ -927,7 +992,7 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="avg_weight_kg">Avg weight (kg)</Label>
+                <Label htmlFor="avg_weight_kg">{t("purchases.form.avgWeight")}</Label>
                 <Input
                   id="avg_weight_kg"
                   type="number"
@@ -943,7 +1008,7 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="total_price">Total price (₹)</Label>
+                <Label htmlFor="total_price">{t("purchases.form.totalPrice")}</Label>
                 <Input
                   id="total_price"
                   type="number"
@@ -959,7 +1024,7 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="individual_weights">Individual arrival weights (kg)</Label>
+              <Label htmlFor="individual_weights">{t("purchases.form.weights")}</Label>
               <Textarea
                 id="individual_weights"
                 rows={3}
@@ -972,10 +1037,9 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
                 {...register("individual_weights")}
               />
               <p id="purchase-weights-help" className="text-xs text-muted-foreground">
-                One weight per line — exactly {wCount ?? 1}{" "}
-                {(wCount ?? 1) === 1 ? "line" : "lines"} for{" "}
-                {(wCount ?? 1) === 1 ? "this animal" : `these ${wCount ?? 1} animals`}. Left
-                blank, every stub gets the average weight above.
+                {(wCount ?? 1) === 1
+                  ? t("purchases.form.weightsHelp_one", { count: wCount ?? 1 })
+                  : t("purchases.form.weightsHelp_many", { count: wCount ?? 1 })}
               </p>
               {errors.individual_weights && (
                 <p id="purchase-weights-error" role="alert" className="text-sm text-destructive">
@@ -984,7 +1048,7 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="seller_health_history">Seller health history</Label>
+              <Label htmlFor="seller_health_history">{t("purchases.form.history")}</Label>
               <Textarea
                 id="seller_health_history"
                 rows={2}
@@ -996,7 +1060,7 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
                 {...register("seller_health_history")}
               />
               <p className="text-xs text-muted-foreground">
-                Vaccinations and deworming the seller reports for the source herd.
+                {t("purchases.form.historyHint")}
               </p>
               {errors.seller_health_history && (
                 <p id="purchase-history-error" role="alert" className="text-sm text-destructive">
@@ -1005,7 +1069,7 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="notes">Notes</Label>
+              <Label htmlFor="notes">{t("purchases.form.notes")}</Label>
               <Input
                 id="notes"
                 maxLength={4_000}
@@ -1026,12 +1090,12 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
                 onCheckedChange={(checked) => setValue("create_animals", checked === true)}
               />
               <Label htmlFor="create_animals" className="font-normal">
-                Create animal stubs in QUARANTINE (auto tags B&lt;batch&gt;-001…)
+                {t("purchases.form.createStubs")}
               </Label>
             </div>
             <DialogFooter>
               <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Reviewing…" : "Review batch"}
+                {isSubmitting ? t("purchases.form.reviewing") : t("purchases.form.review")}
               </Button>
             </DialogFooter>
           </form>
@@ -1046,12 +1110,12 @@ function PurchasesPageContent({ perms }: { perms: PermissionsState }) {
 /** Suspense boundary required because the content reads useSearchParams(). */
 export default function PurchasesPage() {
   const perms = usePermissions();
-  const vocabulary = farmVocabulary;
+  const t = useT();
   return (
     <Suspense
       fallback={
         <div role="status" aria-live="polite">
-          <span className="sr-only">Loading…</span>
+          <span className="sr-only">{t("common.loading")}</span>
           <PageSkeleton cards={1} />
         </div>
       }
@@ -1059,8 +1123,8 @@ export default function PurchasesPage() {
       <PermissionGate
         perms={perms}
         perm="purchases.view"
-        label="Purchase batches"
-        description={`Incoming groups of ${vocabulary.speciesPlural} — each batch auto-creates its 45-day quarantine protocol.`}
+        label={t("purchases.page.title")}
+        description={t("purchases.page.description", { species: t("purchases.speciesPlural") })}
         cards={1}
       >
         <PurchasesPageContent perms={perms} />

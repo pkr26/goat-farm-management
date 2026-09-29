@@ -5,9 +5,10 @@
  * OpenAPI spec version: 2.0.0
  */
 import type { BucketAnimalOut } from './bucketAnimalOut';
+import type { BucketBoardRowBucket } from './bucketBoardRowBucket';
 
 export interface BucketBoardRow {
-  bucket: string;
+  bucket: BucketBoardRowBucket;
   name: string;
   who: string;
   exit_rule: string;

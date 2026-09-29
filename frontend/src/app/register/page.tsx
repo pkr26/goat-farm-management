@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { useT, type TFn } from "@/lib/i18n";
+import { mapServerError } from "@/lib/server-error-phrases";
 import type { RegisterIn, TokenOut } from "@/api/generated/models";
 import { useSingleFlight } from "@/lib/use-single-flight";
 
@@ -83,11 +84,15 @@ export default function RegisterPage() {
         // Stryker disable next-line ConditionalExpression: the only guarded statement is setServerError, a no-op on an unmounted component
         if (!mounted.current) return;
         // Surface the server's own message for every API error (400 duplicate
-        // email, 429 rate limit, 422 password policy, 5xx); only a network
-        // failure gets the human connection guidance — never dev-flavoured
-        // copy.
+        // email, 429 rate limit, 422 password policy, 5xx) — mapped through
+        // the language catalog when the backend attached an error code, so a
+        // Telugu user's rate-limit/validation guidance is Telugu; only a
+        // network failure gets the human connection guidance — never
+        // dev-flavoured copy.
         setServerError(
-          err instanceof ApiError ? err.detail : t("register.networkError"),
+          err instanceof ApiError
+            ? mapServerError(t, err.detail, err.status, err.code)
+            : t("register.networkError"),
         );
       }
     });

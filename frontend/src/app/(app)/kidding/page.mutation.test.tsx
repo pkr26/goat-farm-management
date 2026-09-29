@@ -24,8 +24,13 @@ import { addDays, farmToday, formatDate } from "@/lib/format";
 import { ALL_PERMISSIONS, permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
-import KiddingPage, { kiddingSchema } from "./page";
+import KiddingPage, { buildKiddingSchema } from "./page";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
+import { translate, type TFn } from "@/lib/i18n";
+
+/** English resolver for direct schema-level assertions (the page itself
+ * builds its schema from the active language). */
+const enT: TFn = (key, vars) => translate("en", key, vars);
 
 const { navState, toastMock } = vi.hoisted(() => ({
   navState: { search: "" },
@@ -82,6 +87,7 @@ function makeBreeding(overrides: Partial<BreedingRecordOut>): BreedingRecordOut 
     loss_notes: null,
     loss_recorded_by_id: null,
     loss_recorded_at: null,
+    created_at: "2026-01-01T00:00:00Z",
     has_kidding: false,
     doe_tag: "G-010",
     buck_tag: "G-020",
@@ -100,6 +106,7 @@ function makeKidding(overrides: Partial<KiddingRecordOut>): KiddingRecordOut {
     placenta_passed: null,
     mastitis_suspected: false,
     notes: null,
+    created_at: "2026-01-01T00:00:00Z",
     kids: [],
     doe_tag: "G-010",
     ...overrides,
@@ -725,8 +732,8 @@ afterAll(() => {
 });
 
 
-describe("kiddingSchema — regex and message anchors", () => {
-  const schema = kiddingSchema(farmVocabulary);
+describe("buildKiddingSchema — regex and message anchors", () => {
+  const schema = buildKiddingSchema(enT, farmVocabulary);
   const kid = { tag: "", sex: "F" as const, birth_weight: 2.5, status: "ALIVE" as const, mortality_reported_at: "" };
   const base = { date: "2026-07-20", ease: "NORMAL" as const, notes: "", kids: [kid] };
 

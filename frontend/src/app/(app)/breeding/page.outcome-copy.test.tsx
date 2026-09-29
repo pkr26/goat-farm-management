@@ -83,6 +83,7 @@ function makeRecord(overrides: Partial<BreedingRecordOut>): BreedingRecordOut {
     loss_notes: null,
     loss_recorded_by_id: null,
     loss_recorded_at: null,
+    created_at: "2026-01-01T00:00:00Z",
     has_kidding: false,
     doe_tag: "G-010",
     buck_tag: "G-020",
@@ -336,7 +337,8 @@ describe("BreedingPage copy and write bookkeeping", () => {
 
   async function chooseDoeAndBuck(user: User, dialog: HTMLElement) {
     await within(dialog).findByText("Select doe"); // animals loaded
-    const [doeTrigger, buckTrigger] = within(dialog).getAllByRole("combobox");
+    const doeTrigger = within(dialog).getByRole("button", { name: "Doe *" });
+    const buckTrigger = within(dialog).getByRole("button", { name: "Buck *" });
     await pickOption(user, doeTrigger, /G-010 · Lakshmi/);
     await pickOption(user, buckTrigger, /G-020 — 24 mo/);
   }
@@ -348,10 +350,10 @@ describe("BreedingPage copy and write bookkeeping", () => {
     await user.click(within(dialog).getByRole("button", { name: "Save breeding" }));
 
     expect(await within(dialog).findByText("Pick a valid date")).toBeInTheDocument();
-    expect(within(dialog).getByRole("combobox", { name: "Doe *" })).toHaveAccessibleDescription(
+    expect(within(dialog).getByRole("button", { name: "Doe *" })).toHaveAccessibleDescription(
       /Select a doe/,
     );
-    expect(within(dialog).getByRole("combobox", { name: "Buck *" })).toHaveAccessibleDescription(
+    expect(within(dialog).getByRole("button", { name: "Buck *" })).toHaveAccessibleDescription(
       /Select a buck/,
     );
     expect(within(dialog).getByLabelText(/breeding date/i)).toHaveAccessibleDescription(
@@ -442,10 +444,10 @@ describe("BreedingPage copy and write bookkeeping", () => {
 
     const reopened = await screen.findByRole("dialog", { name: "Add breeding" });
     expect(within(reopened).getByLabelText(/breeding date/i)).toHaveValue(TODAY);
-    expect(within(reopened).getByRole("combobox", { name: "Doe *" })).toHaveTextContent(
+    expect(within(reopened).getByRole("button", { name: "Doe *" })).toHaveTextContent(
       "Select doe",
     );
-    expect(within(reopened).getByRole("combobox", { name: "Buck *" })).toHaveTextContent(
+    expect(within(reopened).getByRole("button", { name: "Buck *" })).toHaveTextContent(
       "Select buck",
     );
   });

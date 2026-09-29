@@ -88,7 +88,7 @@ export function AuthLayout({
                   <span className="block text-sm font-semibold">
                     {feature.title}
                   </span>
-                  <span className="block text-sm text-primary-foreground/75">
+                  <span className="block text-sm text-primary-foreground/90">
                     {feature.description}
                   </span>
                 </span>
@@ -96,7 +96,7 @@ export function AuthLayout({
             ))}
           </ul>
         </div>
-        <p className="relative text-sm text-primary-foreground/65">
+        <p className="relative text-sm text-primary-foreground/90">
           {t("auth.brandFoot")}
         </p>
       </div>

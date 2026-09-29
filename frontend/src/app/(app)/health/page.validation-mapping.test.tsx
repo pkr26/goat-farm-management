@@ -75,6 +75,7 @@ function makeEvent(overrides: Partial<HealthEventOut>): HealthEventOut {
     authority_notified_at: null,
     isolation_started_at: null,
     notes: null,
+    created_at: "2026-01-01T00:00:00Z",
     animal_tag: "G-003",
     ...overrides,
   };
@@ -235,7 +236,7 @@ describe("HealthPage 422 field mapping", () => {
     server.use(
       http.post("/api/health/events", () => HttpResponse.json({ detail }, { status: 422 })),
     );
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003 · Kaveri/);
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
   }
 

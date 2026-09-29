@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
+import { LanguageProvider, LANGUAGE_STORAGE_KEY } from "@/lib/i18n";
 
 import BucketsPage from "./page";
 
@@ -258,6 +259,46 @@ describe("BucketsPage", () => {
     );
     renderWithProviders(<BucketsPage />);
     expect(await screen.findByText("Farm mismatch")).toBeInTheDocument();
+  });
+
+  it("renders a coded server error in Telugu when the worker switched languages", async () => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "te");
+    server.use(
+      http.get("/api/buckets", () =>
+        HttpResponse.json(
+          { detail: "You are not authorized for this farm", code: "PERMISSION_DENIED" },
+          { status: 403 },
+        ),
+      ),
+    );
+    renderWithProviders(
+      <LanguageProvider>
+        <BucketsPage />
+      </LanguageProvider>,
+    );
+    // The backend's error code beats the English detail wording: the catalog
+    // sentence renders, never the raw server prose (2026-09-28 audit, H6).
+    expect(await screen.findByText("మీ పాత్రలో ఈ చర్య చేయలేరు.")).toBeInTheDocument();
+    expect(screen.queryByText("You are not authorized for this farm")).not.toBeInTheDocument();
+  });
+
+  it("passes an unmapped detail through unchanged, even in a Telugu session", async () => {
+    // The catalog covers the four coded statuses, three status shapes and
+    // the pinned phrases; everything else is mapServerError's designed
+    // fallback — the server text itself. Pinned so a future widening of the
+    // catalog updates this expectation deliberately.
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "te");
+    server.use(
+      http.get("/api/buckets", () =>
+        HttpResponse.json({ detail: "Board aggregation failed" }, { status: 500 }),
+      ),
+    );
+    renderWithProviders(
+      <LanguageProvider>
+        <BucketsPage />
+      </LanguageProvider>,
+    );
+    expect(await screen.findByText("Board aggregation failed")).toBeInTheDocument();
   });
 
   it("denies access without buckets.view and never calls the API", async () => {

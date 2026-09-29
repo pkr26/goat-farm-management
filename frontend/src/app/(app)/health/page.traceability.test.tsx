@@ -77,6 +77,7 @@ function makeEvent(overrides: Partial<HealthEventOut>): HealthEventOut {
     authority_notified_at: null,
     isolation_started_at: null,
     notes: null,
+    created_at: "2026-01-01T00:00:00Z",
     animal_tag: "G-003",
     ...overrides,
   };
@@ -327,7 +328,7 @@ describe("HealthPage traceability cell and event targets", () => {
 
   it("flags the animal target invalid only after a submit without one", async () => {
     const { user, dialog } = await openDialog();
-    const picker = within(dialog).getByRole("combobox", { name: "Animal *" });
+    const picker = within(dialog).getByRole("button", { name: "Animal *" });
     expect(picker).not.toHaveAttribute("aria-invalid");
 
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
@@ -368,7 +369,7 @@ describe("HealthPage traceability cell and event targets", () => {
   it("flags the purchase-batch target invalid only after a submit without one", async () => {
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("radio", { name: "Purchase batch" }));
-    const batch = within(dialog).getByRole("combobox", { name: "Purchase batch *" });
+    const batch = within(dialog).getByRole("button", { name: "Purchase batch *" });
     expect(batch).not.toHaveAttribute("aria-invalid");
 
     await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
@@ -391,7 +392,7 @@ describe("HealthPage traceability cell and event targets", () => {
     const duty = await within(dialog).findByLabelText(/Linked duty/);
     await pickOption(user, duty, /PPR vaccination/);
 
-    const picker = within(dialog).getByRole("combobox", { name: "Animal *" });
+    const picker = within(dialog).getByRole("button", { name: "Animal *" });
     await waitFor(() => expect(picker).toHaveTextContent("G-003 · Kaveri"));
     expect(within(dialog).getByLabelText("Disease target")).toHaveValue("PPR vaccination");
 
@@ -408,7 +409,7 @@ describe("HealthPage traceability cell and event targets", () => {
     const duty = await within(dialog).findByLabelText(/Linked duty/);
     await pickOption(user, duty, /Deworm batch #2/);
 
-    const picker = await within(dialog).findByRole("combobox", { name: "Purchase batch *" });
+    const picker = await within(dialog).findByRole("button", { name: "Purchase batch *" });
     await waitFor(() => expect(picker).toHaveTextContent("Batch #2"));
     expect(within(dialog).getByLabelText("Disease target")).toHaveValue("Deworming");
     expect(within(dialog).getByRole("combobox", { name: "Type" })).toHaveTextContent(

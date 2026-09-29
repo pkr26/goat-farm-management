@@ -66,8 +66,10 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/lib/api-client";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
+import { bucketAllowsSex } from "@/lib/bucket-sex";
 import { enumLabel } from "@/lib/enum-labels";
-import { useLanguage, useT, type MessageKey } from "@/lib/i18n";
+import { useLanguage, useT, type MessageKey, type TFn } from "@/lib/i18n";
+import { mapServerError } from "@/lib/server-error-phrases";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { farmToday, formatDate, formatFarmDateTime, formatMoney } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
@@ -86,9 +88,13 @@ const BUCKETS = Object.values(MoveInToBucket);
 const MORTALITY_CAUSE_CODES = Object.values(StatusChangeInMortalityCauseCode);
 /** value → label map for the root `items` prop, in the active language:
  * without it, Base UI's Select.Value renders the raw code in the closed
- * trigger. */
-const mortalityCauseCodeItems = (language: "en" | "te"): Record<string, string> => ({
-  "": "— not coded —",
+ * trigger. `emptyLabel` is the caller's catalog string for the no-code
+ * sentinel (empty string is not a valid item value). */
+const mortalityCauseCodeItems = (
+  language: "en" | "te",
+  emptyLabel: string,
+): Record<string, string> => ({
+  "": emptyLabel,
   ...Object.fromEntries(
     MORTALITY_CAUSE_CODES.map((code) => [code, enumLabel("mortalityCause", code, language)]),
   ),
@@ -97,8 +103,11 @@ const mortalityCauseCodeItems = (language: "en" | "te"): Record<string, string> 
  * enum's order and labelled through the enum catalog. */
 const DISPOSAL_METHODS = Object.values(StatusChangeInDisposalMethod);
 /** value → label map for the root `items` prop, in the active language. */
-const disposalMethodItems = (language: "en" | "te"): Record<string, string> => ({
-  "": "— not recorded —",
+const disposalMethodItems = (
+  language: "en" | "te",
+  emptyLabel: string,
+): Record<string, string> => ({
+  "": emptyLabel,
   ...Object.fromEntries(
     DISPOSAL_METHODS.map((method) => [method, enumLabel("disposalMethod", method, language)]),
   ),
@@ -115,16 +124,6 @@ const COAT_COLOR_LABEL_KEYS: Record<string, MessageKey> = {
   white: "animals.coatColor.white",
   spotted: "animals.coatColor.spotted",
 };
-
-/** Sex each bucket is reserved for, mirroring backend/app/schemas/animals.py
- * (and the ck_animals_bucket_sex CHECK). Buckets absent here take both. */
-const BUCKET_REQUIRED_SEX: Record<string, string> = {
-  [MoveInToBucket.MALE_KIDS]: "M",
-  [MoveInToBucket.FEMALE_KIDS]: "F",
-  [MoveInToBucket.RESTING]: "F",
-};
-const bucketAllowsSex = (bucket: string, sex: string) =>
-  (BUCKET_REQUIRED_SEX[bucket] ?? sex) === sex;
 
 const optNum = (schema: z.ZodNumber) =>
   z.preprocess(
@@ -152,22 +151,26 @@ function useProfileRefresh(animalId: number) {
 }
 
 /** Species-scaled cap (max_adult_weight_kg): the backend rejects a recorded
- * weight above it, so mirror the band inline per the farm's species. */
-const weightSchema = (maxWeightKg: number) =>
-  z.object({
+ * weight above it, so mirror the band inline per the farm's species. The
+ * messages resolve through the i18n catalog, so the factory takes the
+ * caller's `t` (health.buildEventSchema precedent) and the mounted dialog
+ * rebuilds it whenever the active language changes. */
+function buildWeightSchema(t: TFn, maxWeightKg: number) {
+  return z.object({
     date: z
       .string()
       .optional()
-      .refine((s) => !s || s <= farmToday(), "Date can't be in the future"),
+      .refine((s) => !s || s <= farmToday(), t("animalDetail.validation.dateFuture")),
     weight_kg: z.coerce
       .number()
-      .positive("Weight must be greater than 0")
-      .max(maxWeightKg, `Weight must be at most ${maxWeightKg} kg for this farm's species`),
+      .positive(t("animalDetail.validation.weightPositive"))
+      .max(maxWeightKg, t("animalDetail.validation.weightTooLargeSpecies", { max: maxWeightKg })),
     bcs: optNum(z.number().int().min(1).max(5)),
-    notes: z.string().max(255, "Notes cannot exceed 255 characters").optional(),
+    notes: z.string().max(255, t("animalDetail.validation.notesTooLong")).optional(),
   });
-type WeightInput = z.input<ReturnType<typeof weightSchema>>;
-type WeightValues = z.output<ReturnType<typeof weightSchema>>;
+}
+type WeightInput = z.input<ReturnType<typeof buildWeightSchema>>;
+type WeightValues = z.output<ReturnType<typeof buildWeightSchema>>;
 type ProfileActionFlight = ReturnType<typeof useSingleFlight>;
 
 function AddWeightDialog({
@@ -183,8 +186,12 @@ function AddWeightDialog({
 }) {
   const [open, setOpen] = useState(false);
   const mut = useRecordWeightApiAnimalsAnimalIdWeightPost();
+  const t = useT();
   const vocabulary = farmVocabulary;
-  const schema = useMemo(() => weightSchema(vocabulary.facts.maxWeightKg), [vocabulary]);
+  const schema = useMemo(
+    () => buildWeightSchema(t, vocabulary.facts.maxWeightKg),
+    [t, vocabulary],
+  );
   const {
     register,
     handleSubmit,
@@ -207,13 +214,13 @@ function AddWeightDialog({
           },
         });
         if (!farmScope()) return;
-        toast.success("Weight recorded.");
+        toast.success(t("animalDetail.toast.weightRecorded"));
         reset();
         setOpen(false);
         onDone();
       } catch (err) {
         if (!farmScope()) return;
-        toast.error(err instanceof ApiError ? err.detail : "Something went wrong");
+        toast.error(err instanceof ApiError ? err.detail : t("common.somethingWentWrong"));
       }
     });
   }
@@ -234,11 +241,11 @@ function AddWeightDialog({
         disabled={actionFlight.pending || profileSettling}
         onClick={() => setOpen(true)}
       >
-        Record weight
+        {t("animalDetail.actions.recordWeight")}
       </Button>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Record weight</DialogTitle>
+          <DialogTitle>{t("animalDetail.actions.recordWeight")}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3" noValidate>
           <fieldset
@@ -246,7 +253,7 @@ function AddWeightDialog({
             className="contents"
           >
           <div className="space-y-1.5">
-            <Label htmlFor="w_date">Date (defaults to today)</Label>
+            <Label htmlFor="w_date">{t("animalDetail.field.dateDefaultsToday")}</Label>
             <Input
               id="w_date"
               type="date"
@@ -258,7 +265,7 @@ function AddWeightDialog({
             {errors.date && <p id="weight-date-error" role="alert" className="text-sm text-destructive">{errors.date.message}</p>}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="w_kg">Weight (kg) *</Label>
+            <Label htmlFor="w_kg">{t("animalDetail.weightDialog.weightLabel")}</Label>
             <Input
               id="w_kg"
               type="number"
@@ -273,7 +280,7 @@ function AddWeightDialog({
             )}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="w_bcs">BCS (1–5)</Label>
+            <Label htmlFor="w_bcs">{t("animalDetail.weightDialog.bcsLabel")}</Label>
             <Input
               id="w_bcs"
               type="number"
@@ -286,7 +293,7 @@ function AddWeightDialog({
             {errors.bcs && <p id="weight-bcs-error" role="alert" className="text-sm text-destructive">{errors.bcs.message}</p>}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="w_notes">Notes</Label>
+            <Label htmlFor="w_notes">{t("animalDetail.field.notes")}</Label>
             <Textarea
               id="w_notes"
               rows={2}
@@ -306,7 +313,7 @@ function AddWeightDialog({
               type="submit"
               disabled={isSubmitting || actionFlight.pending || profileSettling}
             >
-              {isSubmitting || actionFlight.pending ? "Saving…" : "Save"}
+              {isSubmitting || actionFlight.pending ? t("animalDetail.saving") : t("common.save")}
             </Button>
           </DialogFooter>
           </fieldset>
@@ -459,11 +466,13 @@ function EditPhenotypeDialog({
   );
 }
 
-const moveSchema = z.object({
-  to_bucket: z.enum(BUCKETS as [string, ...string[]]),
-  reason: z.string().max(255, "Reason cannot exceed 255 characters").optional(),
-});
-type MoveValues = z.infer<typeof moveSchema>;
+function buildMoveSchema(t: TFn) {
+  return z.object({
+    to_bucket: z.enum(BUCKETS as [string, ...string[]]),
+    reason: z.string().max(255, t("animalDetail.validation.reasonTooLong")).optional(),
+  });
+}
+type MoveValues = z.infer<ReturnType<typeof buildMoveSchema>>;
 
 function MoveBucketDialog({
   animalId,
@@ -482,14 +491,16 @@ function MoveBucketDialog({
 }) {
   const [open, setOpen] = useState(false);
   const { language } = useLanguage();
+  const t = useT();
   const mut = useMoveBucketApiAnimalsAnimalIdMovePost();
+  const schema = useMemo(() => buildMoveSchema(t), [t]);
   const {
     handleSubmit,
     control,
     register,
     reset,
     formState: { errors, isSubmitting },
-  } = useForm<MoveValues>({ resolver: zodResolver(moveSchema) });
+  } = useForm<MoveValues>({ resolver: zodResolver(schema) });
 
   async function onSubmit(values: MoveValues) {
     if (profileSettling) return;
@@ -504,13 +515,13 @@ function MoveBucketDialog({
           },
         });
         if (!farmScope()) return;
-        toast.success("Animal moved.");
+        toast.success(t("animalDetail.toast.moved"));
         reset();
         setOpen(false);
         onDone();
       } catch (err) {
         if (!farmScope()) return;
-        toast.error(err instanceof ApiError ? err.detail : "Something went wrong");
+        toast.error(err instanceof ApiError ? err.detail : t("common.somethingWentWrong"));
       }
     });
   }
@@ -529,11 +540,11 @@ function MoveBucketDialog({
         disabled={actionFlight.pending || profileSettling}
         onClick={() => setOpen(true)}
       >
-        Move bucket
+        {t("animalDetail.actions.moveBucket")}
       </Button>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Move bucket</DialogTitle>
+          <DialogTitle>{t("animalDetail.actions.moveBucket")}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3" noValidate>
           <fieldset
@@ -541,7 +552,7 @@ function MoveBucketDialog({
             className="contents"
           >
           <div className="space-y-1.5">
-            <Label htmlFor="move-to-bucket">To bucket *</Label>
+            <Label htmlFor="move-to-bucket">{t("animalDetail.moveDialog.toBucketLabel")}</Label>
             <Controller
               control={control}
               name="to_bucket"
@@ -559,7 +570,7 @@ function MoveBucketDialog({
                     aria-invalid={Boolean(errors.to_bucket) || undefined}
                     aria-describedby={errors.to_bucket ? "move-to-bucket-error" : undefined}
                   >
-                    <SelectValue placeholder="Choose bucket…" />
+                    <SelectValue placeholder={t("animalDetail.moveDialog.chooseBucket")} />
                   </SelectTrigger>
                   <SelectContent>
                     {BUCKETS.filter(
@@ -580,7 +591,7 @@ function MoveBucketDialog({
             )}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="m_reason">Reason</Label>
+            <Label htmlFor="m_reason">{t("animalDetail.field.reason")}</Label>
             <Textarea
               id="m_reason"
               rows={2}
@@ -600,7 +611,7 @@ function MoveBucketDialog({
               type="submit"
               disabled={isSubmitting || actionFlight.pending || profileSettling}
             >
-              {isSubmitting || actionFlight.pending ? "Moving…" : "Move"}
+              {isSubmitting || actionFlight.pending ? t("animalDetail.moveDialog.submitting") : t("animalDetail.moveDialog.submit")}
             </Button>
           </DialogFooter>
           </fieldset>
@@ -610,7 +621,12 @@ function MoveBucketDialog({
   );
 }
 
-const statusSchema = z
+/** Messages resolve through the i18n catalog, so the schema is a factory of
+ * the caller's `t`; the mounted dialog rebuilds it on every language change
+ * (health.buildEventSchema precedent). The money-floor message stays the
+ * shared MIN_PERSISTED_MONEY_MESSAGE constant the other money forms pin. */
+function buildStatusSchema(t: TFn) {
+  return z
   .object({
     new_status: z.enum([
       StatusChangeInNewStatus.SOLD,
@@ -622,7 +638,7 @@ const statusSchema = z
       z
         .number()
         .nonnegative()
-        .max(1_000_000_000, "Sale price cannot exceed ₹1,000,000,000")
+        .max(1_000_000_000, t("animalDetail.validation.salePriceTooLarge"))
         .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
     ),
     // Operational sale facts (WeightKgFloat / MoneyFloat on the wire): the
@@ -630,21 +646,21 @@ const statusSchema = z
     sale_weight_kg: optNum(
       z
         .number()
-        .positive("Weight must be greater than 0")
-        .max(1_000, "Weight must be at most 1000 kg"),
+        .positive(t("animalDetail.validation.weightPositive"))
+        .max(1_000, t("animalDetail.validation.weightTooLarge")),
     ),
     sale_price_per_kg: optNum(
       z
         .number()
-        .positive("Price per kg must be greater than 0")
-        .max(1_000_000_000, "Price per kg cannot exceed ₹1,000,000,000")
+        .positive(t("animalDetail.validation.pricePerKgPositive"))
+        .max(1_000_000_000, t("animalDetail.validation.pricePerKgTooLarge"))
         .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
     ),
-    buyer_name: z.string().max(120, "Buyer name cannot exceed 120 characters").optional(),
-    notes: z.string().max(255, "Notes cannot exceed 255 characters").optional(),
+    buyer_name: z.string().max(120, t("animalDetail.validation.buyerNameTooLong")).optional(),
+    notes: z.string().max(255, t("animalDetail.validation.notesTooLong")).optional(),
     mortality_cause: z
       .string()
-      .max(120, "Mortality cause cannot exceed 120 characters")
+      .max(120, t("animalDetail.validation.mortalityCauseTooLong"))
       .optional(),
     mortality_cause_code: z.enum(MORTALITY_CAUSE_CODES as [string, ...string[]]).optional(),
     disposal_method: z.enum(DISPOSAL_METHODS as [string, ...string[]]).optional(),
@@ -652,12 +668,12 @@ const statusSchema = z
     necropsy_done: z.boolean(),
     necropsy_findings: z
       .string()
-      .max(4_000, "Necropsy findings cannot exceed 4000 characters")
+      .max(4_000, t("animalDetail.validation.necropsyFindingsTooLong"))
       .optional(),
     suspected_scheduled_disease: z.boolean(),
     suspected_disease: z
       .string()
-      .max(120, "Suspected disease cannot exceed 120 characters")
+      .max(120, t("animalDetail.validation.suspectedDiseaseTooLong"))
       // Keep the resolver output total. Besides simplifying the statutory
       // validation below, this prevents an omitted programmatic value from
       // ever reaching a string operation as `undefined`.
@@ -677,7 +693,7 @@ const statusSchema = z
       "estimated_dob",
     ] as const) {
       if (values[field] && values[field] > farmToday()) {
-        context.addIssue({ code: "custom", path: [field], message: "Date can't be in the future" });
+        context.addIssue({ code: "custom", path: [field], message: t("animalDetail.validation.dateFuture") });
       }
     }
     if (
@@ -688,7 +704,7 @@ const statusSchema = z
       context.addIssue({
         code: "custom",
         path: ["estimated_dob"],
-        message: "An estimated date of birth only applies to sales",
+        message: t("animalDetail.validation.estimatedDobSalesOnly"),
       });
     }
     if (
@@ -699,7 +715,7 @@ const statusSchema = z
       context.addIssue({
         code: "custom",
         path: ["mortality_reported_at"],
-        message: "Mortality report cannot be before the death date",
+        message: t("animalDetail.validation.reportBeforeDeath"),
       });
     }
     // Mirrors StatusChangeIn._death_escalation_fields_are_coherent: the rate
@@ -708,14 +724,14 @@ const statusSchema = z
       context.addIssue({
         code: "custom",
         path: ["sale_price_per_kg"],
-        message: "Enter the weight at sale before the price per kg",
+        message: t("animalDetail.validation.weightBeforeRate"),
       });
     }
     if (values.necropsy_findings && values.necropsy_findings.trim() && !values.necropsy_done) {
       context.addIssue({
         code: "custom",
         path: ["necropsy_findings"],
-        message: "Necropsy findings require a performed necropsy",
+        message: t("animalDetail.validation.necropsyFindingsNeedDone"),
       });
     }
     if (
@@ -726,12 +742,13 @@ const statusSchema = z
       context.addIssue({
         code: "custom",
         path: ["suspected_disease"],
-        message: "Identify the suspected scheduled disease",
+        message: t("animalDetail.validation.nameSuspectedDisease"),
       });
     }
   });
-type StatusInput = z.input<typeof statusSchema>;
-type StatusValues = z.output<typeof statusSchema>;
+}
+type StatusInput = z.input<ReturnType<typeof buildStatusSchema>>;
+type StatusValues = z.output<ReturnType<typeof buildStatusSchema>>;
 
 /** Mirrors the API's SALE_CAPABLE_STATUSES: both statuses persist sale_price
  * and post an ANIMAL_SALE transaction, so both must also render it. */
@@ -761,6 +778,7 @@ function StatusDialog({
 }) {
   const [open, setOpen] = useState(false);
   const { language } = useLanguage();
+  const t = useT();
   const mut = useChangeStatusApiAnimalsAnimalIdStatusPost();
   // A male with neither a recorded nor an estimated birth date cannot pass
   // the backend's meat-sale age floor — the sale payload must carry the
@@ -769,7 +787,7 @@ function StatusDialog({
   const needsEstimatedDob = sex === "M" && !hasDob;
   const resolverSchema = useMemo(
     () =>
-      statusSchema.superRefine((values, context) => {
+      buildStatusSchema(t).superRefine((values, context) => {
         if (
           needsEstimatedDob &&
           values.new_status === StatusChangeInNewStatus.SOLD &&
@@ -778,11 +796,11 @@ function StatusDialog({
           context.addIssue({
             code: "custom",
             path: ["estimated_dob"],
-            message: `This male has no birth or estimated date on record — estimate one so the sale age floor can be verified`,
+            message: t("animalDetail.validation.maleNeedsEstimatedDob"),
           });
         }
       }),
-    [needsEstimatedDob],
+    [t, needsEstimatedDob],
   );
   const {
     register,
@@ -807,6 +825,14 @@ function StatusDialog({
   });
   const necropsyDone = useWatch({ control, name: "necropsy_done" });
   const saleWeight = useWatch({ control, name: "sale_weight_kg" });
+  /** value → label map for the root `items` prop, in the active language:
+   * without it, Base UI's Select.Value renders the raw status code in the
+   * closed trigger. */
+  const statusItems: Record<string, string> = Object.fromEntries(
+    [StatusChangeInNewStatus.SOLD, StatusChangeInNewStatus.DEAD, StatusChangeInNewStatus.CULLED].map(
+      (status) => [status, enumLabel("status", status, language)],
+    ),
+  );
 
   async function onSubmit(values: StatusValues) {
     if (profileSettling) return;
@@ -878,13 +904,17 @@ function StatusDialog({
           },
         });
         if (!farmScope()) return;
-        toast.success(`Marked ${values.new_status}.`);
+        toast.success(
+          t("animalDetail.toast.statusChanged", {
+            status: enumLabel("status", values.new_status, language),
+          }),
+        );
         reset();
         setOpen(false);
         onDone();
       } catch (err) {
         if (!farmScope()) return;
-        toast.error(err instanceof ApiError ? err.detail : "Something went wrong");
+        toast.error(err instanceof ApiError ? err.detail : t("common.somethingWentWrong"));
       }
     });
   }
@@ -903,11 +933,11 @@ function StatusDialog({
         disabled={actionFlight.pending || profileSettling}
         onClick={() => setOpen(true)}
       >
-        Change status
+        {t("animalDetail.actions.changeStatus")}
       </Button>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Change status</DialogTitle>
+          <DialogTitle>{t("animalDetail.actions.changeStatus")}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3" noValidate>
           <fieldset
@@ -915,13 +945,14 @@ function StatusDialog({
             className="contents"
           >
           <div className="space-y-1.5">
-            <Label htmlFor="animal-new-status">New status *</Label>
+            <Label htmlFor="animal-new-status">{t("animalDetail.statusDialog.newStatusLabel")}</Label>
             <Controller
               control={control}
               name="new_status"
               render={({ field }) => (
                 <Select
                   value={field.value}
+                  items={statusItems}
                   onValueChange={(value) => {
                     const nextStatus = value as StatusValues["new_status"];
                     field.onChange(nextStatus);
@@ -953,16 +984,20 @@ function StatusDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={StatusChangeInNewStatus.SOLD}>SOLD</SelectItem>
-                    <SelectItem value={StatusChangeInNewStatus.DEAD}>DEAD</SelectItem>
-                    <SelectItem value={StatusChangeInNewStatus.CULLED}>CULLED</SelectItem>
+                    {[StatusChangeInNewStatus.SOLD, StatusChangeInNewStatus.DEAD, StatusChangeInNewStatus.CULLED].map(
+                      (status) => (
+                        <SelectItem key={status} value={status}>
+                          {enumLabel("status", status, language)}
+                        </SelectItem>
+                      ),
+                    )}
                   </SelectContent>
                 </Select>
               )}
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="s_date">Date (defaults to today)</Label>
+            <Label htmlFor="s_date">{t("animalDetail.field.dateDefaultsToday")}</Label>
             <Input
               id="s_date"
               type="date"
@@ -977,7 +1012,7 @@ function StatusDialog({
             <>
               {newStatus === StatusChangeInNewStatus.SOLD && (
                 <div className="space-y-1.5">
-                  <Label htmlFor="s_weight">Weight at sale (kg)</Label>
+                  <Label htmlFor="s_weight">{t("animalDetail.statusDialog.saleWeightLabel")}</Label>
                   <Input
                     id="s_weight"
                     type="number"
@@ -995,7 +1030,7 @@ function StatusDialog({
                 </div>
               )}
               <div className="space-y-1.5">
-                <Label htmlFor="s_price">Sale price (₹)</Label>
+                <Label htmlFor="s_price">{t("animalDetail.statusDialog.salePriceLabel")}</Label>
                 <Input
                   id="s_price"
                   type="number"
@@ -1011,7 +1046,7 @@ function StatusDialog({
               </div>
               {newStatus === StatusChangeInNewStatus.SOLD && (
                 <div className="space-y-1.5">
-                  <Label htmlFor="s_price_per_kg">Price per kg (₹)</Label>
+                  <Label htmlFor="s_price_per_kg">{t("animalDetail.statusDialog.pricePerKgLabel")}</Label>
                   <Input
                     id="s_price_per_kg"
                     type="number"
@@ -1029,8 +1064,7 @@ function StatusDialog({
                     {...register("sale_price_per_kg")}
                   />
                   <p id="status-price-per-kg-hint" className="text-xs text-muted-foreground">
-                    The sale price can be derived from weight × rate — leave the total price blank
-                    and the server books it paise-exact.
+                    {t("animalDetail.statusDialog.rateHint")}
                   </p>
                   {errors.sale_price_per_kg && (
                     <p id="status-price-per-kg-error" role="alert" className="text-sm text-destructive">
@@ -1040,7 +1074,7 @@ function StatusDialog({
                 </div>
               )}
               <div className="space-y-1.5">
-                <Label htmlFor="s_buyer">Buyer name</Label>
+                <Label htmlFor="s_buyer">{t("animalDetail.statusDialog.buyerNameLabel")}</Label>
                 <Input
                   id="s_buyer"
                   maxLength={120}
@@ -1056,7 +1090,7 @@ function StatusDialog({
               </div>
               {newStatus === StatusChangeInNewStatus.SOLD && needsEstimatedDob && (
                 <div className="space-y-1.5">
-                  <Label htmlFor="s_estimated_dob">Estimated date of birth *</Label>
+                  <Label htmlFor="s_estimated_dob">{t("animalDetail.statusDialog.estimatedDobLabel")}</Label>
                   <Input
                     id="s_estimated_dob"
                     type="date"
@@ -1068,8 +1102,7 @@ function StatusDialog({
                     {...register("estimated_dob")}
                   />
                   <p id="status-estimated-dob-hint" className="text-xs text-muted-foreground">
-                    This male has no birth or estimated date on record; the estimate is saved to
-                    the animal so the meat-sale age floor can be verified.
+                    {t("animalDetail.statusDialog.estimatedDobHint")}
                   </p>
                   {errors.estimated_dob && (
                     <p id="status-estimated-dob-error" role="alert" className="text-sm text-destructive">
@@ -1082,13 +1115,13 @@ function StatusDialog({
           )}
           {newStatus === StatusChangeInNewStatus.DEAD && (
             <fieldset className="space-y-3 rounded-lg border p-3">
-              <legend className="px-1 text-sm font-medium">Mortality & disease reporting</legend>
+              <legend className="px-1 text-sm font-medium">{t("animalDetail.statusDialog.mortalityLegend")}</legend>
               <div className="space-y-1.5">
-                <Label htmlFor="mortality-cause">Mortality cause</Label>
+                <Label htmlFor="mortality-cause">{t("animalDetail.field.mortalityCause")}</Label>
                 <Input
                   id="mortality-cause"
                   maxLength={120}
-                  placeholder="confirmed or suspected cause"
+                  placeholder={t("animalDetail.statusDialog.mortalityCausePlaceholder")}
                   aria-invalid={Boolean(errors.mortality_cause) || undefined}
                   aria-describedby={
                     errors.mortality_cause ? "mortality-cause-error" : undefined
@@ -1106,7 +1139,7 @@ function StatusDialog({
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="mortality-cause-code">Cause (coded)</Label>
+                <Label htmlFor="mortality-cause-code">{t("animalDetail.statusDialog.causeCodedLabel")}</Label>
                 <Controller
                   control={control}
                   name="mortality_cause_code"
@@ -1116,7 +1149,7 @@ function StatusDialog({
                       onValueChange={(value) =>
                         field.onChange(value === "" ? undefined : value)
                       }
-                      items={mortalityCauseCodeItems(language)}
+                      items={mortalityCauseCodeItems(language, t("animalDetail.statusDialog.notCoded"))}
                     >
                       <SelectTrigger
                         id="mortality-cause-code"
@@ -1126,7 +1159,7 @@ function StatusDialog({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">— not coded —</SelectItem>
+                        <SelectItem value="">{t("animalDetail.statusDialog.notCoded")}</SelectItem>
                         {MORTALITY_CAUSE_CODES.map((code) => (
                           <SelectItem key={code} value={code}>
                             {enumLabel("mortalityCause", code, language)}
@@ -1137,12 +1170,11 @@ function StatusDialog({
                   )}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Coded causes drive the mortality breakdown; pick the closest and keep the
-                  detail in the free-text cause.
+                  {t("animalDetail.statusDialog.codedCauseHint")}
                 </p>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="disposal-method">Disposal method</Label>
+                <Label htmlFor="disposal-method">{t("animalDetail.field.disposalMethod")}</Label>
                 <Controller
                   control={control}
                   name="disposal_method"
@@ -1152,7 +1184,7 @@ function StatusDialog({
                       onValueChange={(value) =>
                         field.onChange(value === "" ? undefined : value)
                       }
-                      items={disposalMethodItems(language)}
+                      items={disposalMethodItems(language, t("animalDetail.statusDialog.disposalNotRecorded"))}
                     >
                       <SelectTrigger
                         id="disposal-method"
@@ -1165,7 +1197,7 @@ function StatusDialog({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">— not recorded —</SelectItem>
+                        <SelectItem value="">{t("animalDetail.statusDialog.disposalNotRecorded")}</SelectItem>
                         {DISPOSAL_METHODS.map((method) => (
                           <SelectItem key={method} value={method}>
                             {enumLabel("disposalMethod", method, language)}
@@ -1182,7 +1214,7 @@ function StatusDialog({
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="mortality-reported-at">Mortality reported date</Label>
+                <Label htmlFor="mortality-reported-at">{t("animalDetail.statusDialog.mortalityReportedDate")}</Label>
                 <Input
                   id="mortality-reported-at"
                   type="date"
@@ -1216,12 +1248,12 @@ function StatusDialog({
                   )}
                 />
                 <Label htmlFor="necropsy-done" className="font-normal">
-                  Necropsy performed
+                  {t("animalDetail.field.necropsyPerformed")}
                 </Label>
               </div>
               {necropsyDone && (
                 <div className="space-y-1.5">
-                  <Label htmlFor="necropsy-findings">Necropsy findings</Label>
+                  <Label htmlFor="necropsy-findings">{t("animalDetail.field.necropsyFindings")}</Label>
                   <Textarea
                     id="necropsy-findings"
                     rows={3}
@@ -1262,13 +1294,13 @@ function StatusDialog({
                   )}
                 />
                 <Label htmlFor="mortality-scheduled-disease" className="font-normal">
-                  Suspected scheduled/notifiable disease
+                  {t("animalDetail.statusDialog.scheduledDiseaseCheckbox")}
                 </Label>
               </div>
               {suspectedScheduledDisease && (
                 <>
                   <div className="space-y-1.5">
-                    <Label htmlFor="suspected-disease">Suspected disease *</Label>
+                    <Label htmlFor="suspected-disease">{t("animalDetail.field.suspectedDisease")} *</Label>
                     <Input
                       id="suspected-disease"
                       maxLength={120}
@@ -1283,7 +1315,7 @@ function StatusDialog({
                     )}
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="mortality-authority-notified">Authority notified date</Label>
+                    <Label htmlFor="mortality-authority-notified">{t("animalDetail.statusDialog.authorityNotifiedDate")}</Label>
                     <Input
                       id="mortality-authority-notified"
                       type="date"
@@ -1303,7 +1335,7 @@ function StatusDialog({
             </fieldset>
           )}
           <div className="space-y-1.5">
-            <Label htmlFor="s_notes">Notes</Label>
+            <Label htmlFor="s_notes">{t("animalDetail.field.notes")}</Label>
             <Textarea
               id="s_notes"
               rows={2}
@@ -1324,7 +1356,7 @@ function StatusDialog({
               variant="destructive"
               disabled={isSubmitting || actionFlight.pending || profileSettling}
             >
-              {isSubmitting || actionFlight.pending ? "Saving…" : "Confirm"}
+              {isSubmitting || actionFlight.pending ? t("animalDetail.saving") : t("animalDetail.statusDialog.confirm")}
             </Button>
           </DialogFooter>
           </fieldset>
@@ -1352,13 +1384,14 @@ function ClearRestrictionDialog({
   const [error, setError] = useState<string | null>(null);
   const [conflictedVersion, setConflictedVersion] = useState<number | null>(null);
   const mutation = useClearMovementRestrictionApiHealthRestrictionsAnimalIdClearPost();
+  const t = useT();
   const awaitingEpisodeRefresh = conflictedVersion === restrictionVersion;
 
   async function clearRestriction() {
     if (actionFlight.pending || profileSettling || awaitingEpisodeRefresh) return;
     const clearanceReference = reference.trim();
     if (!clearanceReference) {
-      setError("A veterinary or authority clearance reference is required.");
+      setError(t("animalDetail.clearance.referenceRequired"));
       return;
     }
     setError(null);
@@ -1373,7 +1406,7 @@ function ClearRestrictionDialog({
           },
         });
         if (!farmScope()) return;
-        toast.success("Movement restriction cleared with an audit reference.");
+        toast.success(t("animalDetail.toast.restrictionCleared"));
         setReference("");
         setConflictedVersion(null);
         setOpen(false);
@@ -1382,10 +1415,14 @@ function ClearRestrictionDialog({
         if (!farmScope()) return;
         if (caught instanceof ApiError && caught.status === 409) {
           setConflictedVersion(restrictionVersion);
-          setError(`${caught.detail} Refreshing the current restriction episode before retrying.`);
+          setError(`${mapServerError(t, caught.detail, caught.status, caught.code)} ${t("animalDetail.clearance.refreshingEpisode")}`);
           onDone();
         } else {
-          setError(caught instanceof ApiError ? caught.detail : "Could not clear the restriction.");
+          setError(
+            caught instanceof ApiError
+              ? mapServerError(t, caught.detail, caught.status, caught.code)
+              : t("animalDetail.clearance.failed"),
+          );
         }
       }
     });
@@ -1418,24 +1455,23 @@ function ClearRestrictionDialog({
         disabled={actionFlight.pending || profileSettling}
         onClick={openDialog}
       >
-        Record clearance
+        {t("animalDetail.actions.recordClearance")}
       </Button>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Clear movement restriction?</DialogTitle>
+          <DialogTitle>{t("animalDetail.clearance.title")}</DialogTitle>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
-          Only record a factual release issued by a veterinarian or competent authority. The
-          hold and this clearance remain in the audit trail.
+          {t("animalDetail.clearance.description")}
         </p>
         <div className="space-y-1.5">
-          <Label htmlFor={`clearance-reference-${animalId}`}>Clearance reference *</Label>
+          <Label htmlFor={`clearance-reference-${animalId}`}>{t("animalDetail.clearance.referenceLabel")}</Label>
           <Input
             id={`clearance-reference-${animalId}`}
             value={reference}
             disabled={actionFlight.pending || profileSettling || awaitingEpisodeRefresh}
             maxLength={255}
-            placeholder="certificate/order number and issuing authority"
+            placeholder={t("animalDetail.clearance.referencePlaceholder")}
             aria-invalid={Boolean(error) || undefined}
             aria-describedby={error ? `clearance-reference-${animalId}-error` : undefined}
             onChange={(event) => setReference(event.target.value)}
@@ -1457,11 +1493,11 @@ function ClearRestrictionDialog({
             disabled={actionFlight.pending}
             onClick={() => setOpen(false)}
           >
-            Cancel
+            {t("common.cancel")}
           </Button>
           {awaitingEpisodeRefresh && (
             <Button type="button" variant="outline" onClick={onDone}>
-              Refresh episode
+              {t("animalDetail.clearance.refreshEpisode")}
             </Button>
           )}
           <Button
@@ -1475,12 +1511,12 @@ function ClearRestrictionDialog({
             onClick={() => void clearRestriction()}
           >
             {mutation.isPending
-              ? "Recording…"
+              ? t("animalDetail.clearance.recording")
               : awaitingEpisodeRefresh
-                ? "Waiting for current episode…"
+                ? t("animalDetail.clearance.waiting")
                 : error
-                  ? "Retry clearance"
-                  : "Confirm clearance"}
+                  ? t("animalDetail.clearance.retry")
+                  : t("animalDetail.clearance.confirm")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1498,6 +1534,7 @@ function LifetimePnlCard({
   animalId: number;
   canViewFinance: boolean;
 }) {
+  const t = useT();
   const query = useAnimalLifetimePnlApiFinanceAnimalsAnimalIdLifetimePnlGet(animalId, {
     query: { enabled: canViewFinance },
   });
@@ -1505,18 +1542,18 @@ function LifetimePnlCard({
 
   return (
     <DataTableCard
-      title="Lifetime P&L"
-      description="Money in and out recorded against this animal."
+      title={t("animalDetail.pnl.title")}
+      description={t("animalDetail.pnl.description")}
       ariaBusy={query.isFetching}
     >
       {query.isLoading ? (
-        <InlineLoading>Loading lifetime P&L…</InlineLoading>
+        <InlineLoading>{t("animalDetail.pnl.loading")}</InlineLoading>
       ) : query.isError ? (
         <div role="alert" className="flex flex-wrap items-center gap-3">
           <p className="text-sm text-destructive">
             {query.error instanceof ApiError
-              ? query.error.detail
-              : "Could not load the lifetime P&L."}
+              ? mapServerError(t, query.error.detail, query.error.status, query.error.code)
+              : t("animalDetail.pnl.loadFailed")}
           </p>
           <Button
             type="button"
@@ -1524,7 +1561,7 @@ function LifetimePnlCard({
             variant="outline"
             onClick={() => void query.refetch()}
           >
-            Retry P&L
+            {t("animalDetail.pnl.retry")}
           </Button>
         </div>
       ) : pnl ? (
@@ -1532,16 +1569,16 @@ function LifetimePnlCard({
           <Table>
             <TableHeader className="sr-only">
               <TableRow>
-                <th scope="col">Line</th>
-                <th scope="col">Amount</th>
+                <th scope="col">{t("animalDetail.pnl.line")}</th>
+                <th scope="col">{t("animalDetail.pnl.amount")}</th>
               </TableRow>
             </TableHeader>
             <TableBody>
               {[
-                { label: "Purchase cost", value: pnl.purchase_cost },
-                { label: "Health cost", value: pnl.health_cost },
-                { label: "Insurance premiums", value: pnl.insurance_premiums },
-                { label: "Sale income", value: pnl.sale_income },
+                { label: t("animalDetail.pnl.purchaseCost"), value: pnl.purchase_cost },
+                { label: t("animalDetail.pnl.healthCost"), value: pnl.health_cost },
+                { label: t("animalDetail.pnl.insurancePremiums"), value: pnl.insurance_premiums },
+                { label: t("animalDetail.pnl.saleIncome"), value: pnl.sale_income },
               ].map((row) => (
                 <TableRow key={row.label}>
                   <TableCell>{row.label}</TableCell>
@@ -1551,7 +1588,7 @@ function LifetimePnlCard({
                 </TableRow>
               ))}
               <TableRow>
-                <TableCell className="font-medium">Net</TableCell>
+                <TableCell className="font-medium">{t("animalDetail.pnl.net")}</TableCell>
                 <TableCell
                   className={cn(
                     "text-right tabular-nums font-medium",
@@ -1603,6 +1640,15 @@ function ProfileBody({
   const t = useT();
   const a = profile.animal;
   const vocabulary = farmVocabulary;
+  // Farm-vocabulary nouns with a Telugu rendering for the localized surface
+  // (simulation.token.* precedent): English reads the species vocabulary.
+  const kidsNounCap =
+    language === "en"
+      ? vocabulary.youngPlural.charAt(0).toUpperCase() + vocabulary.youngPlural.slice(1)
+      : t("simulation.token.kids");
+  const kidsNoun = language === "en" ? vocabulary.youngPlural : t("simulation.token.kids");
+  const parturitionNoun =
+    language === "en" ? vocabulary.parturition : t("simulation.token.litter");
   const active = a.status === "ACTIVE";
   const canViewHealth = can("health.view");
   const canManageHealth = can("health.manage");
@@ -1698,21 +1744,21 @@ function ProfileBody({
             <div className="space-y-1">
               <h2 className="flex items-center gap-2 font-medium text-destructive">
                 <AlertTriangle className="size-4" aria-hidden />
-                Movement restricted
+                {t("animalDetail.restriction.title")}
               </h2>
               <p className="text-sm text-destructive/90">
-                {a.restriction_reason ?? "A health hold is active for this animal."}
+                {a.restriction_reason ?? t("animalDetail.restriction.holdFallback")}
               </p>
               {a.suspected_disease && (
-                <p className="text-sm">Suspected disease: {a.suspected_disease}</p>
+                <p className="text-sm">{t("animalDetail.field.suspectedDisease")}: {a.suspected_disease}</p>
               )}
               {a.authority_notified_at && (
                 <p className="text-xs text-muted-foreground">
-                  Authority notified {formatDate(a.authority_notified_at)}
+                  {t("animalDetail.detail.authorityNotified")} {formatDate(a.authority_notified_at)}
                 </p>
               )}
               <p className="text-xs text-muted-foreground">
-                Bucket movement is unavailable until a factual clearance is recorded.
+                {t("animalDetail.restriction.movementNote")}
               </p>
             </div>
             {can("health.manage") && (
@@ -1733,17 +1779,17 @@ function ProfileBody({
           restrictionHistoryQuery.isError ||
           (restrictionHistory?.total ?? 0) > 0) && (
           <DataTableCard
-            title={`Movement restriction audit (${restrictionHistory?.total ?? 0})`}
-            description="Immutable placement and clearance actions grouped by restriction episode."
+            title={t("animalDetail.restrictionAudit.title", { count: restrictionHistory?.total ?? 0 })}
+            description={t("animalDetail.restrictionAudit.description")}
           >
             {restrictionHistoryQuery.isLoading ? (
-              <InlineLoading>Loading restriction audit…</InlineLoading>
+              <InlineLoading>{t("animalDetail.restrictionAudit.loading")}</InlineLoading>
             ) : restrictionHistoryQuery.isError ? (
               <div role="alert" className="flex flex-wrap items-center gap-3">
                 <p className="text-sm text-destructive">
                   {restrictionHistoryQuery.error instanceof ApiError
-                    ? restrictionHistoryQuery.error.detail
-                    : "Could not load the restriction audit."}
+                    ? mapServerError(t, restrictionHistoryQuery.error.detail, restrictionHistoryQuery.error.status, restrictionHistoryQuery.error.code)
+                    : t("animalDetail.restrictionAudit.loadFailed")}
                 </p>
                 <Button
                   type="button"
@@ -1751,7 +1797,7 @@ function ProfileBody({
                   variant="outline"
                   onClick={() => void restrictionHistoryQuery.refetch()}
                 >
-                  Retry audit
+                  {t("animalDetail.restrictionAudit.retry")}
                 </Button>
               </div>
             ) : (
@@ -1759,11 +1805,11 @@ function ProfileBody({
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Episode</TableHead>
-                      <TableHead>Action</TableHead>
-                      <TableHead>When</TableHead>
-                      <TableHead>Reference</TableHead>
-                      <TableHead>Disease</TableHead>
+                      <TableHead>{t("animalDetail.restrictionAudit.episode")}</TableHead>
+                      <TableHead>{t("animalDetail.restrictionAudit.action")}</TableHead>
+                      <TableHead>{t("animalDetail.restrictionAudit.when")}</TableHead>
+                      <TableHead>{t("animalDetail.restrictionAudit.reference")}</TableHead>
+                      <TableHead>{t("animalDetail.restrictionAudit.disease")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1787,7 +1833,7 @@ function ProfileBody({
                   limit={restrictionHistory?.limit ?? RESTRICTION_HISTORY_LIMIT}
                   offset={restrictionHistory?.offset ?? restrictionOffset}
                   onOffsetChange={setRestrictionOffset}
-                  label="movement restriction actions"
+                  label={t("animalDetail.pagination.restrictionActions")}
                   disabled={restrictionHistoryQuery.isPlaceholderData}
                 />
               </div>
@@ -1797,12 +1843,12 @@ function ProfileBody({
 
       <Card>
         <CardHeader>
-          <CardTitle>Details</CardTitle>
+          <CardTitle>{t("animalDetail.section.details")}</CardTitle>
         </CardHeader>
         <CardContent>
           <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-            <Detail label="Sex">{a.sex === "F" ? "Female" : "Male"}</Detail>
-            <Detail label="Breed">{a.breed}</Detail>
+            <Detail label={t("animalDetail.field.sex")}>{enumLabel("sex", a.sex, language)}</Detail>
+            <Detail label={t("animalDetail.detail.breed")}>{a.breed}</Detail>
             {a.coat_color ? (
               <Detail label={t("animals.coatColor")}>
                 {COAT_COLOR_LABEL_KEYS[a.coat_color]
@@ -1815,76 +1861,82 @@ function ProfileBody({
                 {a.horned ? t("common.yes") : t("common.no")}
               </Detail>
             ) : null}
-            <Detail label="Bucket">{enumLabel("bucket", a.current_bucket, language)}</Detail>
-            <Detail label="Days in bucket">{a.days_in_current_bucket ?? "—"}</Detail>
-            <Detail label="Date of birth">
+            <Detail label={t("animalDetail.detail.bucket")}>{enumLabel("bucket", a.current_bucket, language)}</Detail>
+            <Detail label={t("animalDetail.detail.daysInBucket")}>{a.days_in_current_bucket ?? "—"}</Detail>
+            <Detail label={t("animalDetail.detail.dateOfBirth")}>
               {a.date_of_birth
                 ? formatDate(a.date_of_birth)
                 : a.estimated_dob
                   ? `~${formatDate(a.estimated_dob)}`
                   : "—"}
             </Detail>
-            <Detail label="Age">{a.age_months != null ? `${a.age_months} months` : "—"}</Detail>
-            <Detail label="Birth type">{a.birth_type ? enumLabel("birthType", a.birth_type, language) : "—"}</Detail>
-            <Detail label="Birth weight">
+            <Detail label={t("animalDetail.detail.age")}>
+              {a.age_months != null
+                ? a.age_months === 1
+                  ? t("animalDetail.detail.ageMonths_one", { count: a.age_months })
+                  : t("animalDetail.detail.ageMonths", { count: a.age_months })
+                : "—"}
+            </Detail>
+            <Detail label={t("animalDetail.detail.birthType")}>{a.birth_type ? enumLabel("birthType", a.birth_type, language) : "—"}</Detail>
+            <Detail label={t("animalDetail.detail.birthWeight")}>
               {a.birth_weight != null ? `${a.birth_weight} kg` : "—"}
             </Detail>
-            <Detail label="Latest weight">
+            <Detail label={t("animalDetail.detail.latestWeight")}>
               {a.latest_weight_kg != null ? `${a.latest_weight_kg.toFixed(1)} kg` : "—"}
             </Detail>
-            <Detail label="Source">{enumLabel("source", a.source, language)}</Detail>
+            <Detail label={t("animalDetail.detail.source")}>{enumLabel("source", a.source, language)}</Detail>
             {a.source === "PURCHASED" && (
               <>
-                <Detail label="Purchase date">{formatDate(a.purchase_date)}</Detail>
-                <Detail label="Purchase price">{formatMoney(a.purchase_price)}</Detail>
-                <Detail label="Seller">{a.seller_name ?? "—"}</Detail>
+                <Detail label={t("animalDetail.detail.purchaseDate")}>{formatDate(a.purchase_date)}</Detail>
+                <Detail label={t("animalDetail.detail.purchasePrice")}>{formatMoney(a.purchase_price)}</Detail>
+                <Detail label={t("animalDetail.detail.seller")}>{a.seller_name ?? "—"}</Detail>
               </>
             )}
             {!active && (
               <>
-                <Detail label="Status date">{formatDate(a.status_date)}</Detail>
+                <Detail label={t("animalDetail.detail.statusDate")}>{formatDate(a.status_date)}</Detail>
                 {SALE_CAPABLE_STATUSES.includes(a.status) && (
                   <>
-                    <Detail label="Sale price">{formatMoney(a.sale_price)}</Detail>
+                    <Detail label={t("animalDetail.detail.salePrice")}>{formatMoney(a.sale_price)}</Detail>
                     {a.sale_weight_kg != null && (
-                      <Detail label="Sale weight">{a.sale_weight_kg} kg</Detail>
+                      <Detail label={t("animalDetail.detail.saleWeight")}>{a.sale_weight_kg} kg</Detail>
                     )}
                     {/* Buyer identity is finance-gated on the API; the "—"
                         fallback covers both "none recorded" and "withheld". */}
-                    <Detail label="Buyer">{a.buyer_name ?? "—"}</Detail>
+                    <Detail label={t("animalDetail.detail.buyer")}>{a.buyer_name ?? "—"}</Detail>
                   </>
                 )}
                 {a.status === "DEAD" && (
                   <>
-                    <Detail label="Mortality cause">{a.mortality_cause ?? "—"}</Detail>
+                    <Detail label={t("animalDetail.field.mortalityCause")}>{a.mortality_cause ?? "—"}</Detail>
                     {a.mortality_cause_code && (
-                      <Detail label="Cause code">
+                      <Detail label={t("animalDetail.detail.causeCode")}>
                         {enumLabel("mortalityCause", a.mortality_cause_code, language)}
                       </Detail>
                     )}
-                    <Detail label="Disposal method">
+                    <Detail label={t("animalDetail.field.disposalMethod")}>
                       {enumLabel("disposalMethod", a.disposal_method, language)}
                     </Detail>
-                    <Detail label="Necropsy performed">
+                    <Detail label={t("animalDetail.field.necropsyPerformed")}>
                       {/* Clinical facts fail closed without health.view. */}
-                      {!canViewHealth ? "—" : a.necropsy_done ? "Yes" : "No"}
+                      {!canViewHealth ? "—" : a.necropsy_done ? t("common.yes") : t("common.no")}
                     </Detail>
                     {a.necropsy_done && a.necropsy_findings && (
-                      <Detail label="Necropsy findings">{a.necropsy_findings}</Detail>
+                      <Detail label={t("animalDetail.field.necropsyFindings")}>{a.necropsy_findings}</Detail>
                     )}
-                    <Detail label="Mortality reported">
+                    <Detail label={t("animalDetail.detail.mortalityReported")}>
                       {formatDate(a.mortality_reported_at)}
                     </Detail>
-                    <Detail label="Scheduled disease suspected">
+                    <Detail label={t("animalDetail.detail.scheduledDiseaseSuspected")}>
                       {/* The API fails closed to `false` without health.view,
                           so a bare "No" would assert a fact we were not told. */}
-                      {!canViewHealth ? "—" : a.suspected_scheduled_disease ? "Yes" : "No"}
+                      {!canViewHealth ? "—" : a.suspected_scheduled_disease ? t("common.yes") : t("common.no")}
                     </Detail>
                     {a.suspected_disease && (
-                      <Detail label="Suspected disease">{a.suspected_disease}</Detail>
+                      <Detail label={t("animalDetail.field.suspectedDisease")}>{a.suspected_disease}</Detail>
                     )}
                     {a.authority_notified_at && (
-                      <Detail label="Authority notified">
+                      <Detail label={t("animalDetail.detail.authorityNotified")}>
                         {formatDate(a.authority_notified_at)}
                       </Detail>
                     )}
@@ -1894,16 +1946,16 @@ function ProfileBody({
             )}
             {a.restriction_cleared_at && (
               <>
-                <Detail label="Restriction cleared">
+                <Detail label={t("animalDetail.detail.restrictionCleared")}>
                   {formatFarmDateTime(a.restriction_cleared_at)}
                 </Detail>
-                <Detail label="Clearance reference">
+                <Detail label={t("animalDetail.detail.clearanceReference")}>
                   {a.restriction_clearance_reference ?? "—"}
                 </Detail>
               </>
             )}
             {a.dam_id != null && (
-              <Detail label="Dam">
+              <Detail label={t("animalDetail.detail.dam")}>
                 <Link
                   href={`/animals/${a.dam_id}`}
                   className="font-medium text-primary hover:underline"
@@ -1913,7 +1965,7 @@ function ProfileBody({
               </Detail>
             )}
             {a.sire_id != null && (
-              <Detail label="Sire">
+              <Detail label={t("animalDetail.detail.sire")}>
                 <Link
                   href={`/animals/${a.sire_id}`}
                   className="font-medium text-primary hover:underline"
@@ -1928,22 +1980,22 @@ function ProfileBody({
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <DataTableCard title={`Weight history (${profile.weights_total})`}>
+        <DataTableCard title={t("animalDetail.weights.title", { count: profile.weights_total })}>
           {profile.weights.length === 0 ? (
             <EmptyState
               icon={Scale}
-              title="No weight records yet."
-              description={can("animals.weight") ? "Use the “Record weight” action above to log the first entry and start the growth curve." : "A user with the weight permission can log the first entry and start the growth curve."}
+              title={t("animalDetail.weights.emptyTitle")}
+              description={can("animals.weight") ? t("animalDetail.weights.emptyDescriptionCanRecord") : t("animalDetail.weights.emptyDescriptionNoPermission")}
               className="py-8"
             />
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead className="text-right">Weight</TableHead>
+                  <TableHead>{t("animalDetail.table.date")}</TableHead>
+                  <TableHead className="text-right">{t("animalDetail.weights.weight")}</TableHead>
                   <TableHead className="text-right">BCS</TableHead>
-                  <TableHead>Notes</TableHead>
+                  <TableHead>{t("animalDetail.field.notes")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1963,28 +2015,28 @@ function ProfileBody({
             limit={profile.history_limit}
             offset={profile.weights_offset}
             onOffsetChange={onWeightsOffsetChange}
-            label="weight records"
+            label={t("animalDetail.pagination.weightRecords")}
             disabled={historySettling}
           />
         </DataTableCard>
 
-        <DataTableCard title={`Bucket moves (${profile.moves_total})`}>
+        <DataTableCard title={t("animalDetail.moves.title", { count: profile.moves_total })}>
           {profile.moves.length === 0 ? (
             <EmptyState
               icon={ArrowLeftRight}
-              title="No moves recorded."
-              description="Bucket changes will appear here once recorded."
+              title={t("animalDetail.moves.emptyTitle")}
+              description={t("animalDetail.moves.emptyDescription")}
               className="py-8"
             />
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Effective date</TableHead>
-                  <TableHead>Recorded</TableHead>
-                  <TableHead>From</TableHead>
-                  <TableHead>To</TableHead>
-                  <TableHead>Reason</TableHead>
+                  <TableHead>{t("animalDetail.moves.effectiveDate")}</TableHead>
+                  <TableHead>{t("animalDetail.moves.recorded")}</TableHead>
+                  <TableHead>{t("animalDetail.moves.from")}</TableHead>
+                  <TableHead>{t("animalDetail.moves.to")}</TableHead>
+                  <TableHead>{t("animalDetail.field.reason")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -2005,18 +2057,18 @@ function ProfileBody({
             limit={profile.history_limit}
             offset={profile.moves_offset}
             onOffsetChange={onMovesOffsetChange}
-            label="bucket moves"
+            label={t("animalDetail.pagination.bucketMoves")}
             disabled={historySettling}
           />
         </DataTableCard>
 
         {canViewHealth && (
-        <DataTableCard title={`Health events (${profile.health_events_total})`}>
+        <DataTableCard title={t("animalDetail.healthEvents.title", { count: profile.health_events_total })}>
           {profile.health_events.length === 0 ? (
             <EmptyState
               icon={HeartPulse}
-              title="No health events."
-              description="Treatments, vaccines and dewormings will appear here."
+              title={t("animalDetail.healthEvents.emptyTitle")}
+              description={t("animalDetail.healthEvents.emptyDescription")}
               className="py-8"
             >
               {canManageHealth && (
@@ -2024,7 +2076,7 @@ function ProfileBody({
                   href={withReturnTo("/health/new", `/animals/${a.id}`)}
                   className={buttonVariants({ variant: "outline", size: "sm" })}
                 >
-                  Add a health event
+                  {t("animalDetail.healthEvents.addEvent")}
                 </Link>
               )}
             </EmptyState>
@@ -2032,12 +2084,12 @@ function ProfileBody({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Product</TableHead>
-                  <TableHead className="text-right">Cost</TableHead>
-                  <TableHead>Next due</TableHead>
-                  <TableHead>Traceability</TableHead>
+                  <TableHead>{t("animalDetail.table.date")}</TableHead>
+                  <TableHead>{t("animalDetail.healthEvents.type")}</TableHead>
+                  <TableHead>{t("animalDetail.healthEvents.product")}</TableHead>
+                  <TableHead className="text-right">{t("animalDetail.healthEvents.cost")}</TableHead>
+                  <TableHead>{t("animalDetail.healthEvents.nextDue")}</TableHead>
+                  <TableHead>{t("animalDetail.healthEvents.traceability")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -2051,13 +2103,13 @@ function ProfileBody({
                     <TableCell>
                       <span className="text-xs">
                         {[
-                          h.product_lot ? `Lot ${h.product_lot}` : null,
-                          h.certificate_number ? `Cert ${h.certificate_number}` : null,
+                          h.product_lot ? t("animalDetail.healthEvents.traceLot", { lot: h.product_lot }) : null,
+                          h.certificate_number ? t("animalDetail.healthEvents.traceCert", { cert: h.certificate_number }) : null,
                           h.withdrawal_until
-                            ? `Withdrawal to ${formatDate(h.withdrawal_until)}`
+                            ? t("animalDetail.healthEvents.traceWithdrawal", { date: formatDate(h.withdrawal_until) })
                             : null,
                           h.suspected_scheduled_disease
-                            ? "Scheduled-disease hold"
+                            ? t("animalDetail.healthEvents.scheduledHold")
                             : null,
                         ]
                           .filter(Boolean)
@@ -2074,29 +2126,29 @@ function ProfileBody({
             limit={profile.history_limit}
             offset={profile.health_events_offset}
             onOffsetChange={onHealthEventsOffsetChange}
-            label="health events"
+            label={t("animalDetail.pagination.healthEvents")}
             disabled={historySettling}
           />
         </DataTableCard>
         )}
 
         {(a.sex === "F" || profile.kids_total > 0) && (
-          <DataTableCard title={`${vocabulary.youngPlural.charAt(0).toUpperCase() + vocabulary.youngPlural.slice(1)} (${profile.kids_total})`}>
+          <DataTableCard title={t("animalDetail.kids.title", { young: kidsNounCap, count: profile.kids_total })}>
             {profile.kids.length === 0 ? (
               <EmptyState
                 icon={Baby}
-                title={`No ${vocabulary.youngPlural} recorded.`}
-                description={`Offspring from this animal appear here as ${vocabulary.parturition} records are added.`}
+                title={t("animalDetail.kids.emptyTitle", { young: kidsNoun })}
+                description={t("animalDetail.kids.emptyDescription", { parturition: parturitionNoun })}
                 className="py-8"
               />
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Tag</TableHead>
-                    <TableHead>Sex</TableHead>
-                    <TableHead>Born</TableHead>
-                    <TableHead>Status</TableHead>
+                    <TableHead>{t("animalDetail.kids.tag")}</TableHead>
+                    <TableHead>{t("animalDetail.field.sex")}</TableHead>
+                    <TableHead>{t("animalDetail.kids.born")}</TableHead>
+                    <TableHead>{t("animalDetail.kids.status")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -2125,19 +2177,19 @@ function ProfileBody({
               limit={profile.history_limit}
               offset={profile.kids_offset}
               onOffsetChange={onKidsOffsetChange}
-              label="offspring"
+              label={t("animalDetail.pagination.offspring")}
               disabled={historySettling}
             />
           </DataTableCard>
         )}
 
         {canViewBreeding && (
-          <DataTableCard title={`Breeding history (${profile.breedings_total})`}>
+          <DataTableCard title={t("animalDetail.breeding.title", { count: profile.breedings_total })}>
             {profile.breedings.length === 0 ? (
               <EmptyState
                 icon={GitBranch}
-                title="No breeding records."
-                description="Linked breeding records will appear here."
+                title={t("animalDetail.breeding.emptyTitle")}
+                description={t("animalDetail.breeding.emptyDescription")}
                 className="py-8"
               />
             ) : (
@@ -2148,7 +2200,7 @@ function ProfileBody({
                       href={withReturnTo("/breeding", `/animals/${a.id}`)}
                       className="text-primary underline"
                     >
-                      Breeding record #{recordId}
+                      {t("animalDetail.breeding.recordLink", { id: recordId })}
                     </Link>
                   </li>
                 ))}
@@ -2159,7 +2211,7 @@ function ProfileBody({
               limit={profile.history_limit}
               offset={profile.breedings_offset}
               onOffsetChange={onBreedingsOffsetChange}
-              label="breeding records"
+              label={t("animalDetail.pagination.breedingRecords")}
               disabled={historySettling}
             />
           </DataTableCard>
@@ -2182,6 +2234,7 @@ function AnimalProfilePageContent({ perms }: { perms: PermissionsState }) {
     /^\d+$/.test(params.id) && Number.isSafeInteger(animalId) && animalId > 0;
   const { can } = perms;
   const allowed = can("animals.view");
+  const t = useT();
   const [kidsOffset, setKidsOffset] = useState(0);
   const [weightsOffset, setWeightsOffset] = useState(0);
   const [movesOffset, setMovesOffset] = useState(0);
@@ -2222,17 +2275,17 @@ function AnimalProfilePageContent({ perms }: { perms: PermissionsState }) {
   const refresh = useProfileRefresh(animalId);
   const backHref = permittedAppPath(searchParams.get("returnTo"), can) ?? "/animals";
   const backLabel = backHref.startsWith("/dashboard")
-    ? "Back to dashboard"
+    ? t("animalDetail.back.dashboard")
     : backHref.startsWith("/tasks")
-      ? "Back to tasks"
+      ? t("animalDetail.back.tasks")
       : backHref.startsWith("/health")
-        ? "Back to health"
-        : "Back to animals";
+        ? t("animalDetail.back.health")
+        : t("animalDetail.back.animals");
 
   if (!validAnimalId) {
     return (
       <div role="alert" className="space-y-3 rounded-lg border border-destructive/40 p-4">
-        <p className="text-sm text-destructive">Invalid animal id.</p>
+        <p className="text-sm text-destructive">{t("animalDetail.invalidId")}</p>
         <Link href={backHref} className="block text-sm text-primary underline">
           {backLabel}
         </Link>
@@ -2248,10 +2301,12 @@ function AnimalProfilePageContent({ perms }: { perms: PermissionsState }) {
   const profileErrorBox = (
     <div role="alert" className="space-y-3 rounded-lg border border-destructive/40 p-4">
       <p className="text-sm text-destructive">
-        {query.error instanceof ApiError ? query.error.detail : "Could not load this animal."}
+        {query.error instanceof ApiError
+          ? mapServerError(t, query.error.detail, query.error.status, query.error.code)
+          : t("animalDetail.loadFailed")}
       </p>
       <Button type="button" variant="outline" onClick={() => void query.refetch()}>
-        Retry animal profile
+        {t("animalDetail.retryProfile")}
       </Button>
       <Link href={backHref} className="block text-sm text-primary underline">
         {backLabel}
@@ -2268,8 +2323,8 @@ function AnimalProfilePageContent({ perms }: { perms: PermissionsState }) {
     if (query.isError) return profileErrorBox;
     return (
       <div className="space-y-6" role="status" aria-live="polite">
-        <span className="sr-only">Loading…</span>
-        <PageHeader title="Animal" description="Profile, history and lifecycle actions." />
+        <span className="sr-only">{t("common.loading")}</span>
+        <PageHeader title={t("animalDetail.page.title")} description={t("animalDetail.page.description")} />
         <PageSkeleton cards={3} />
       </div>
     );
@@ -2282,9 +2337,9 @@ function AnimalProfilePageContent({ perms }: { perms: PermissionsState }) {
           role="status"
           className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-warning/50 bg-warning-tint p-3 text-sm text-warning-tint-foreground dark:border-warning/40"
         >
-          <span>Could not refresh this profile — showing the last loaded data.</span>
+          <span>{t("animalDetail.refreshFailed")}</span>
           <Button type="button" size="sm" variant="outline" onClick={() => void query.refetch()}>
-            Retry
+            {t("common.retry")}
           </Button>
         </div>
       )}
@@ -2312,11 +2367,12 @@ function AnimalProfilePageContent({ perms }: { perms: PermissionsState }) {
 export default function AnimalProfilePage() {
   const params = useParams<{ id: string }>();
   const perms = usePermissions();
+  const t = useT();
   return (
     <Suspense
       fallback={
         <div role="status" aria-live="polite">
-          <span className="sr-only">Loading…</span>
+          <span className="sr-only">{t("common.loading")}</span>
           <PageSkeleton cards={3} />
         </div>
       }
@@ -2330,8 +2386,8 @@ export default function AnimalProfilePage() {
       <PermissionGate
         perms={perms}
         perm="animals.view"
-        label="Animal"
-        description="Profile, history and lifecycle actions."
+        label={t("animalDetail.page.title")}
+        description={t("animalDetail.page.description")}
         cards={3}
         announce
       >

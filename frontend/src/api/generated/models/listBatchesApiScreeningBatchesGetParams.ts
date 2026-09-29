@@ -11,4 +11,9 @@ export type ListBatchesApiScreeningBatchesGetParams = {
  * @maximum 50
  */
 limit?: number;
+/**
+ * @minimum 0
+ * @maximum 10000
+ */
+offset?: number;
 };

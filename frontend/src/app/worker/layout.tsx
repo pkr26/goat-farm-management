@@ -5,8 +5,9 @@
  *
  * A deliberately minimal surface OUTSIDE the (app) group: no sidebar, no
  * dense tables — big touch targets, farm + worker identity, an offline/queue
- * badge, and one End-shift button. Gates mirror the app shell: signed-out →
- * /login, signed-in without a farm → /worker/login.
+ * badge, and one End-shift button. Gates: this shell redirects signed-out
+ * sessions to the /worker/login PIN pad (2026-09-28 audit, W1); the
+ * signed-in-without-a-farm gate lives in worker/page.tsx.
  */
 
 import { LogOut, WifiOff } from "lucide-react";
@@ -16,6 +17,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
 import { LANGUAGE_STORAGE_KEY, useLanguage, useT } from "@/lib/i18n";
+import { safeStorage } from "@/lib/safe-storage";
 import {
   drainOfflineQueue,
   offlineQueueDepth,
@@ -29,7 +31,7 @@ export const TABLET_FARM_STORAGE_KEY = "herdly.tabletFarm";
 
 function readTabletFarmId(): number | null {
   try {
-    const raw = window.localStorage.getItem(TABLET_FARM_STORAGE_KEY);
+    const raw = safeStorage("local")?.getItem(TABLET_FARM_STORAGE_KEY) ?? null;
     if (raw === null) return null;
     const value = Number(raw);
     return Number.isSafeInteger(value) && value > 0 ? value : null;
@@ -43,7 +45,7 @@ function readTabletFarmId(): number | null {
  * falls back to the setup screen instead of a half-pinned roster. */
 export function writeTabletFarmId(farmId: number): void {
   try {
-    window.localStorage.setItem(TABLET_FARM_STORAGE_KEY, String(farmId));
+    safeStorage("local")?.setItem(TABLET_FARM_STORAGE_KEY, String(farmId));
   } catch {
     /* storage blocked: setup reruns next load */
   }
@@ -65,7 +67,7 @@ export function WorkerShell({ children }: { children: ReactNode }) {
   // setLanguage covers arrival by client-side navigation.
   useEffect(() => {
     try {
-      if (window.localStorage.getItem(LANGUAGE_STORAGE_KEY) === null) {
+      if (safeStorage("local")?.getItem(LANGUAGE_STORAGE_KEY) === null) {
         setLanguage("te");
       }
     } catch {
@@ -78,9 +80,19 @@ export function WorkerShell({ children }: { children: ReactNode }) {
   // network-first in sw.js, so no operational data is ever served stale).
   useEffect(() => {
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch(() => {
-        /* non-installed contexts (http:// IP dev) simply run without */
-      });
+      navigator.serviceWorker
+        .register("/sw.js")
+        .then((registration) => {
+          // Force an update check on every shell mount: the browser otherwise
+          // throttles sw.js revalidation to ~once per 24h, which is what kept
+          // tablets pinned to their install-time build (2026-09-28 audit, H1).
+          registration.update().catch(() => {
+            /* offline tablets simply keep the current worker */
+          });
+        })
+        .catch(() => {
+          /* non-installed contexts (http:// IP dev) simply run without */
+        });
     }
   }, []);
 
@@ -117,10 +129,14 @@ export function WorkerShell({ children }: { children: ReactNode }) {
   }, [user, farmId]);
 
   // Session gates: mirror the app shell's, aimed at the worker surface.
+  // PIN-only workers hold no password, so a signed-out session belongs on the
+  // PIN pad (/worker/login), not the manager's email/password form — the
+  // board page has the same gate; both must point the same way
+  // (2026-09-28 audit, W1).
   useEffect(() => {
     if (loading) return;
     if (user === null && pathname !== "/worker/login") {
-      router.replace("/login");
+      router.replace("/worker/login");
     }
   }, [loading, user, pathname, router]);
 
@@ -172,7 +188,14 @@ export function WorkerShell({ children }: { children: ReactNode }) {
                 {t("worker.queued", { count: depth })}
               </span>
             )}
-            <Button variant="destructive" onClick={() => void endShift()} data-testid="end-shift">
+            {/* h-11: the worker surface's ≥44px touch floor — the default
+             * h-9 left End shift at 36px (2026-09-28 audit, W9). */}
+            <Button
+              variant="destructive"
+              className="h-11"
+              onClick={() => void endShift()}
+              data-testid="end-shift"
+            >
               <LogOut aria-hidden /> {t("worker.endShift")}
             </Button>
           </div>

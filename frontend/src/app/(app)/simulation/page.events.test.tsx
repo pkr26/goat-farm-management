@@ -1106,7 +1106,7 @@ describe("SimulationPage use current herd", () => {
     // Change the dropdown without clicking "Load defaults": the editor still
     // holds the osmanabadi assumptions.
     await user.click(screen.getByLabelText("Breed"));
-    await user.click(await screen.findByRole("option", { name: "sirohi" }));
+    await user.click(await screen.findByRole("option", { name: "Sirohi" }));
     await user.click(screen.getByRole("button", { name: "Use current herd" }));
 
     expect(await screen.findByLabelText("Does")).toHaveValue(48);
@@ -1196,13 +1196,13 @@ describe("SimulationPage use current herd", () => {
     await user.click(screen.getByRole("button", { name: "Calibrate from farm" }));
     await calibrationStarted;
     await user.click(screen.getByLabelText("Breed"));
-    await user.click(await screen.findByRole("option", { name: "sirohi" }));
+    await user.click(await screen.findByRole("option", { name: "Sirohi" }));
     releaseCalibration();
 
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Calibrate from farm" })).toBeEnabled(),
     );
-    expect(screen.getByLabelText("Breed")).toHaveTextContent("sirohi");
+    expect(screen.getByLabelText("Breed")).toHaveTextContent("Sirohi");
     expect(screen.getByLabelText("Does")).toHaveValue(50);
   });
 

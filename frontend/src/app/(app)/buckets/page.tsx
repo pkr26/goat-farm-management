@@ -25,15 +25,18 @@ import {
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
 import { useEnumLabel } from "@/lib/enum-labels";
+import { formatNumber } from "@/lib/format";
 import { useT } from "@/lib/i18n";
+import { mapServerError } from "@/lib/server-error-phrases";
 import { safeAppPath } from "@/lib/utils";
 import { usePermissions, type PermissionsState } from "@/lib/use-permissions";
 
 /** The per-head ration is a setting the operator typed and will check against
  * what they configured, and the API stores/dispenses it at 0.001 kg. Render
  * every digit that survives storage and trim trailing zeros: `toFixed(1)`
- * reported a bucket set to 1.25 kg/head as "1.2". */
-const rationFormat = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 3 });
+ * reported a bucket set to 1.25 kg/head as "1.2". Grouping follows the
+ * active UI language (2026-09-28 audit — was hardcoded en-IN). */
+const RATION_FORMAT_OPTIONS: Intl.NumberFormatOptions = { maximumFractionDigits: 3 };
 
 /** The register link is backend-supplied: safeAppPath rejects foreign
  * origins, smuggled encodings and canonicalization drift, and this module
@@ -62,7 +65,7 @@ function BucketCard({ row, canViewAnimals }: { row: BucketBoardRow; canViewAnima
           <Badge variant="secondary">{t("buckets.headCount", { count: row.animals_total })}</Badge>
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          {enumLabel("bucket", row.bucket)} · {rationFormat.format(row.daily_kg_per_head)} kg/head/day · {row.who}
+          {enumLabel("bucket", row.bucket)} · {formatNumber(row.daily_kg_per_head, RATION_FORMAT_OPTIONS)} kg/head/day · {row.who}
         </p>
         {row.exit_rule && (
           <p className="text-xs text-muted-foreground">
@@ -174,7 +177,11 @@ function BucketsPageContent({ perms }: { perms: PermissionsState }) {
       ) : query.isError ? (
         <div role="alert" className="space-y-3">
           <p className="text-sm text-destructive">
-            {query.error instanceof ApiError ? query.error.detail : t("buckets.loadFailed")}
+            {/* (2026-09-28 audit, H6): backend details render through the
+             * language catalog, never as raw English server prose. */}
+            {query.error instanceof ApiError
+              ? mapServerError(t, query.error.detail, query.error.status, query.error.code)
+              : t("buckets.loadFailed")}
           </p>
           <Button type="button" variant="outline" onClick={() => void query.refetch()}>
             {t("buckets.retry")}

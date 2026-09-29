@@ -79,14 +79,18 @@ describe("protected mutation idempotency transport", () => {
     "/api/auth/farms",
     "/api/finance/new",
     "/api/finance/transactions/42/correct",
+    "/api/finance/insurance/9/renew",
     "/api/purchases/new",
     "/api/animals",
     "/api/animals/42/weight",
     "/api/tasks",
     "/api/team/workers",
+    "/api/team/workers/4/reset-pin",
     "/api/health/events",
     "/api/simulation/scenarios",
     "/api/planner/plans",
+    "/api/screening/batches",
+    "/api/screening/uploads",
     "/api/feeding/dispense",
     "/api/feeding/mix",
     "/api/feeding/inventory/7/add",
@@ -163,6 +167,16 @@ describe("protected mutation idempotency transport", () => {
     expect(
       isIdempotencyProtectedMutation("/api/finance/transactions/42/correct", "post"),
     ).toBe(true);
+    // The four spec-declared routes the allowlist missed (2026-09-28 audit):
+    // the server accepts Idempotency-Key on all of them.
+    expect(isIdempotencyProtectedMutation("/api/finance/insurance/9/renew", "POST")).toBe(
+      true,
+    );
+    expect(isIdempotencyProtectedMutation("/api/team/workers/4/reset-pin", "POST")).toBe(
+      true,
+    );
+    expect(isIdempotencyProtectedMutation("/api/screening/batches", "POST")).toBe(true);
+    expect(isIdempotencyProtectedMutation("/api/screening/uploads", "POST")).toBe(true);
     expect(isIdempotencyProtectedMutation("/api/purchases/new", "POST")).toBe(true);
     expect(isIdempotencyProtectedMutation("/api/animals", "POST")).toBe(true);
     expect(isIdempotencyProtectedMutation("/api/animals/42/weight", "POST")).toBe(true);
@@ -175,6 +189,9 @@ describe("protected mutation idempotency transport", () => {
     expect(isIdempotencyProtectedMutation("/api/planner/plans", "POST")).toBe(true);
     expect(isIdempotencyProtectedMutation("/api/finance", "POST")).toBe(false);
     expect(isIdempotencyProtectedMutation("/api/finance/42/correct", "POST")).toBe(false);
+    expect(isIdempotencyProtectedMutation("/api/finance/insurance/9", "POST")).toBe(false);
+    expect(isIdempotencyProtectedMutation("/api/team/workers/4", "POST")).toBe(false);
+    expect(isIdempotencyProtectedMutation("/api/screening", "POST")).toBe(false);
     expect(isIdempotencyProtectedMutation("/api/purchases", "POST")).toBe(false);
     expect(isIdempotencyProtectedMutation("/api/animals/not-an-id/weight", "POST")).toBe(
       false,
@@ -513,6 +530,40 @@ describe("protected mutation idempotency transport", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     release?.(jsonResponse(201, { id: 44 }));
     await expect(Promise.all([first, second])).resolves.toEqual([{ id: 44 }, { id: 44 }]);
+  });
+
+  it("never collapses two in-flight batch creates — a void POST cannot tell two walkthroughs apart", async () => {
+    // Batch creation carries no body, so the delayed create from a CLOSED
+    // walkthrough and the create from the REOPENED dialog are byte-identical
+    // yet two different batches: the reopened walkthrough starts its own
+    // immediately, under its own key (2026-09-28 audit; pinned end-to-end by
+    // the DiseaseCheckDialog isolation test).
+    const releases: Array<(response: Response) => void> = [];
+    fetchMock.mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          releases.push(resolve);
+        }),
+    );
+    const init = { method: "POST" };
+
+    const first = apiFetch<{ id: number }>("/api/screening/batches", init);
+    const second = apiFetch<{ id: number }>("/api/screening/batches", init);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const firstKey = requestKey(fetchMock.mock.calls[0]?.[1]);
+    const secondKey = requestKey(fetchMock.mock.calls[1]?.[1]);
+    expect(firstKey).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    expect(secondKey).not.toBe(firstKey);
+
+    releases[0]?.(jsonResponse(201, { id: 101 }));
+    releases[1]?.(jsonResponse(201, { id: 202 }));
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { id: 101 },
+      { id: 202 },
+    ]);
   });
 
   it("rejects a concurrent identical caller with different cancellation ownership", async () => {

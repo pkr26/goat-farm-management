@@ -45,10 +45,15 @@ export function formatMoneyDecimal(value: string | null | undefined): string {
   return `${negative ? "-" : ""}₹${grouped}${fracPart === "00" ? "" : "." + fracPart}`;
 }
 
-/** YYYY-MM-DD of today in UTC. Retained for UTC-specific utilities/tests;
- * business dates should use farmToday() so they follow the selected farm. */
-export function utcToday(): string {
-  return new Date().toISOString().slice(0, 10);
+/** Digit grouping that follows the active UI language (te-IN under Telugu,
+ * en-IN otherwise) — the shared form of what used to be per-page
+ * `new Intl.NumberFormat("en-IN")` copies (2026-09-28 audit: buckets grouped
+ * English-only while simulation was already language-aware). */
+export function formatNumber(
+  value: number,
+  options: Intl.NumberFormatOptions = {},
+): string {
+  return value.toLocaleString(getActiveLanguage() === "te" ? "te-IN" : "en-IN", options);
 }
 
 export const DEFAULT_FARM_TIMEZONE = "Asia/Kolkata";

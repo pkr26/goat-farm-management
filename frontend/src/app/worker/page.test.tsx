@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { permissionsHandler, server } from "@/test/msw-server";
 import { createTestQueryClient, renderWithProviders } from "@/test/render";
+import { LANGUAGE_STORAGE_KEY, LanguageProvider } from "@/lib/i18n";
 import { OFFLINE_QUEUE_STORAGE_KEY } from "@/lib/offline-queue";
 
 import WorkerLoginPage from "./login/page";
@@ -243,6 +244,102 @@ describe("WorkerLoginPage", () => {
     expect(window.localStorage.getItem("herdly.tabletFarm")).toBeNull();
   });
 
+  it("answers an offline setup attempt with the connection message, never 'check your details'", async () => {
+    // The request never reached the server, so the credentials were never
+    // judged — mapping a transport failure onto "check your details" sends
+    // the manager re-typing a good password (2026-09-28 audit). Mirrors the
+    // PIN flow's ApiError/non-ApiError split.
+    server.use(http.post("/api/auth/login", () => HttpResponse.error()));
+    const user = userEvent.setup();
+    renderWithProviders(<WorkerLoginPage />, createTestQueryClient());
+
+    await user.click(await screen.findByTestId("worker-setup-start"));
+    await user.type(screen.getByLabelText("Email"), "owner@farm.in");
+    await user.type(screen.getByLabelText("Password"), "owner-pass-123");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(
+      await screen.findByText(/No connection — the PIN never reached the server/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Check your details/)).not.toBeInTheDocument();
+    expect(signIn).not.toHaveBeenCalled();
+  });
+
+  it("unpinning the tablet needs a deliberate confirm (W2)", async () => {
+    window.localStorage.setItem("herdly.tabletFarm", "3");
+    server.use(http.get("/api/auth/worker-roster", () => HttpResponse.json(ROSTER)));
+    const user = userEvent.setup();
+    renderWithProviders(<WorkerLoginPage />, createTestQueryClient());
+
+    await screen.findByTestId("worker-roster");
+    await user.click(screen.getByRole("button", { name: "Change farm" }));
+
+    // One stray tap only opens the confirm dialog — the farm stays pinned.
+    expect(await screen.findByText("Change this tablet's farm?")).toBeInTheDocument();
+    expect(window.localStorage.getItem("herdly.tabletFarm")).toBe("3");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(screen.queryByText("Change this tablet's farm?")).not.toBeInTheDocument(),
+    );
+    expect(window.localStorage.getItem("herdly.tabletFarm")).toBe("3");
+
+    // The deliberate confirm unpins and offers the manager setup again.
+    await user.click(screen.getByRole("button", { name: "Change farm" }));
+    await user.click(await screen.findByTestId("worker-unpin-confirm"));
+    expect(window.localStorage.getItem("herdly.tabletFarm")).toBeNull();
+    expect(await screen.findByText("No farm on this tablet")).toBeInTheDocument();
+  });
+
+  it("cancelling setup at the farm choice signs the manager back out (W3)", async () => {
+    server.use(
+      http.post("/api/auth/login", () =>
+        HttpResponse.json({
+          access_token: "manager-token",
+          token_type: "bearer",
+          user: { id: 1, email: "owner@farm.in", name: "Owner", must_change_password: false },
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<WorkerLoginPage />, createTestQueryClient());
+
+    await user.click(await screen.findByTestId("worker-setup-start"));
+    await user.type(screen.getByLabelText("Email"), "owner@farm.in");
+    await user.type(screen.getByLabelText("Password"), "owner-pass-123");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    // Farm choice reached: the manager session is committed but unpinned.
+    await screen.findByTestId("worker-setup-farms");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => expect(signOutMock).toHaveBeenCalled());
+    expect(replaceMock).toHaveBeenCalledWith("/worker/login");
+  });
+
+  it("signs the manager out if the setup page is left mid-flow (W3)", async () => {
+    server.use(
+      http.post("/api/auth/login", () =>
+        HttpResponse.json({
+          access_token: "manager-token",
+          token_type: "bearer",
+          user: { id: 1, email: "owner@farm.in", name: "Owner", must_change_password: false },
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    const view = renderWithProviders(<WorkerLoginPage />, createTestQueryClient());
+
+    await user.click(await screen.findByTestId("worker-setup-start"));
+    await user.type(screen.getByLabelText("Email"), "owner@farm.in");
+    await user.type(screen.getByLabelText("Password"), "owner-pass-123");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByTestId("worker-setup-farms");
+
+    // Navigating away mid-setup is an abandon: the manager session ends.
+    view.unmount();
+    expect(signOutMock).toHaveBeenCalled();
+  });
+
   it("answers a wrong PIN with its own message", async () => {
     window.localStorage.setItem("herdly.tabletFarm", "3");
     server.use(
@@ -402,6 +499,64 @@ describe("WorkerBoardPage", () => {
     expect(screen.getByTestId("complete-1")).toBeInTheDocument();
   });
 
+  it("renders a keyed duty title in the worker's language, not the raw English payload", async () => {
+    // 2026-09-28 audit, H5: the backend ships title_key/title_args precisely
+    // so the Telugu-first board never shows the payload's English title.
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "te");
+    server.use(
+      http.get("/api/tasks", () =>
+        HttpResponse.json({
+          today: [
+            {
+              ...BOARD(1, "Kidding due: G-101", today()),
+              title_key: "kidding_due",
+              title_args: { tag: "G-101" },
+            },
+          ],
+          overdue: [],
+          upcoming: [],
+          awaiting: [],
+          completed: [],
+          totals: { today: 1, overdue: 0, upcoming: 0, awaiting: 0, completed: 0 },
+        }),
+      ),
+    );
+    renderWithProviders(
+      <LanguageProvider>
+        <WorkerBoardPage />
+      </LanguageProvider>,
+      createTestQueryClient(),
+    );
+
+    expect(await screen.findByText("ప్రసవం రానుంది: G-101")).toBeInTheDocument();
+    expect(screen.queryByText("Kidding due: G-101")).not.toBeInTheDocument();
+  });
+
+  it("renders a keyed duty title through the English catalog by default", async () => {
+    server.use(
+      http.get("/api/tasks", () =>
+        HttpResponse.json({
+          today: [
+            {
+              ...BOARD(1, "legacy English title", today()),
+              title_key: "kidding_due",
+              title_args: { tag: "G-101" },
+            },
+          ],
+          overdue: [],
+          upcoming: [],
+          awaiting: [],
+          completed: [],
+          totals: { today: 1, overdue: 0, upcoming: 0, awaiting: 0, completed: 0 },
+        }),
+      ),
+    );
+    renderBoard();
+
+    expect(await screen.findByText("Kidding due: G-101")).toBeInTheDocument();
+    expect(screen.queryByText("legacy English title")).not.toBeInTheDocument();
+  });
+
   it("completes a duty and refetches", async () => {
     let completed = 0;
     server.use(
@@ -517,5 +672,84 @@ describe("WorkerBoardPage", () => {
 
     expect(await screen.findByText("Herd vaccination round")).toBeInTheDocument();
     expect(screen.queryByTestId("open-form-3")).not.toBeInTheDocument();
+  });
+
+  // 2026-09-28 audit: the badge compared against the UTC date, so a duty due
+  // yesterday-in-IST lost its overdue badge every night between 00:00 and
+  // 05:30 IST (the tasks board compares against farmToday() for this reason).
+  it("badges overdue by the farm's calendar day inside the IST 00:00–05:30 window", async () => {
+    vi.setSystemTime(new Date("2026-09-28T23:30:00Z")); // 2026-09-29 05:00 IST
+    try {
+      server.use(
+        http.get("/api/tasks", () =>
+          HttpResponse.json({
+            today: [
+              BOARD(1, "Yesterday's spray round", "2026-09-28"),
+              BOARD(2, "Today's feed run", "2026-09-29"),
+            ],
+            overdue: [],
+            upcoming: [],
+            awaiting: [],
+            completed: [],
+            totals: { today: 2, overdue: 0, upcoming: 0, awaiting: 0, completed: 0 },
+          }),
+        ),
+      );
+      renderBoard();
+
+      // 2026-09-28 is already yesterday on the farm's calendar (2026-09-29):
+      // the badge must show even though the UTC date still reads 2026-09-28.
+      const pastCard = await screen.findByTestId("worker-duty-1");
+      expect(
+        pastCard.querySelector('[data-slot="badge"][data-variant="destructive"]'),
+      ).not.toBeNull();
+      expect(
+        screen
+          .getByTestId("worker-duty-2")
+          .querySelector('[data-slot="badge"]'),
+      ).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("tells a signed-in worker without tasks.view that the ACCOUNT lacks access, not that the tablet has no farm", async () => {
+    // The tablet IS pinned (the layout lets the page render) — the old copy
+    // claimed "No farm on this tablet", sending workers to re-pin a healthy
+    // tablet instead of asking a manager for duty access (2026-09-28 audit).
+    server.use(permissionsHandler(["health.view"]));
+    renderBoard();
+
+    expect(await screen.findByText("No duty access on this account")).toBeInTheDocument();
+    expect(screen.queryByText("No farm on this tablet")).not.toBeInTheDocument();
+  });
+
+  it("persists the skip reason in the device language, not a fixed English string", async () => {
+    // The reason is user-authored content (like a typed reason): it reads
+    // back to managers in the duty history, so it follows the device's
+    // language instead of the hardcoded "Tablet skip" (2026-09-28 audit).
+    let skipBody: Record<string, unknown> | null = null;
+    server.use(
+      http.get("/api/tasks", () =>
+        HttpResponse.json({
+          today: [BOARD(1, "Feed the bucks", today())],
+          overdue: [],
+          upcoming: [],
+          awaiting: [],
+          completed: [],
+          totals: { today: 1, overdue: 0, upcoming: 0, awaiting: 0, completed: 0 },
+        }),
+      ),
+      http.post("/api/tasks/1/skip", async ({ request }) => {
+        skipBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(BOARD(1, "Feed the bucks", today()));
+      }),
+    );
+    const user = userEvent.setup();
+    renderBoard();
+
+    await user.click(await screen.findByTestId("skip-1"));
+    await waitFor(() => expect(skipBody).not.toBeNull());
+    expect(skipBody).toEqual({ reason: "Skipped on the tablet" });
   });
 });

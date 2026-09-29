@@ -10,5 +10,6 @@ export interface ScreeningFindingReviewOut {
   id: number;
   status: ScreeningFindingReviewOutStatus;
   review_note: string | null;
+  reviewed_by_id: number | null;
   reviewed_at: string | null;
 }

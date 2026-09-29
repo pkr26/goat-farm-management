@@ -1,9 +1,15 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { render } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { LANGUAGE_STORAGE_KEY, LanguageProvider } from "@/lib/i18n";
 
 import { PaginationControls } from "./pagination-controls";
+
+beforeEach(() => {
+  window.localStorage.clear();
+});
 
 describe("PaginationControls", () => {
   it.each([0, -1])("renders nothing when total is %s", (total) => {
@@ -131,5 +137,28 @@ describe("PaginationControls", () => {
     await user.click(previous);
     await user.click(next);
     expect(onOffsetChange).not.toHaveBeenCalled();
+  });
+
+  it("renders buttons and the landmark in Telugu when the stored language is te", async () => {
+    // 2026-09-28 audit, I5: the controls ride otherwise-translated list
+    // pages, so they resolve through the active language catalog.
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "te");
+    render(
+      <LanguageProvider>
+        <PaginationControls
+          total={55}
+          limit={20}
+          offset={0}
+          label="records"
+          onOffsetChange={vi.fn()}
+        />
+      </LanguageProvider>,
+    );
+
+    expect(
+      await screen.findByRole("navigation", { name: "records పుటల మార్పు" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "వెనుకకు" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "ముందుకు" })).toBeEnabled();
   });
 });

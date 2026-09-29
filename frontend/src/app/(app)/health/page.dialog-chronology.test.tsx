@@ -82,6 +82,7 @@ const RECORDED_EVENT: HealthEventOut = {
   authority_notified_at: null,
   isolation_started_at: null,
   notes: null,
+  created_at: "2026-01-01T00:00:00Z",
   animal_tag: "G-003",
 };
 
@@ -262,7 +263,7 @@ describe("HealthPage dialog branches", () => {
     const { user, dialog } = await openDialog();
     await pickOption(
       user,
-      within(dialog).getByRole("combobox", { name: "Animal *" }),
+      within(dialog).getByRole("button", { name: "Animal *" }),
       /G-003 · Kaveri/,
     );
     await user.click(within(dialog).getByText("Advanced traceability & compliance"));
@@ -319,7 +320,7 @@ describe("HealthPage dialog branches", () => {
     const { dialog } = await openDeepLink("task_id=5&animal_id=3");
 
     await waitFor(() =>
-      expect(within(dialog).getByRole("combobox", { name: "Animal *" })).toHaveTextContent(
+      expect(within(dialog).getByRole("button", { name: "Animal *" })).toHaveTextContent(
         "G-003 · Kaveri",
       ),
     );
@@ -513,7 +514,7 @@ describe("HealthPage dialog branches", () => {
     const dutySelect = within(dialog).getByLabelText(/Linked duty/);
     await pickOption(user, dutySelect, /Deworm Kaveri/);
     await waitFor(() =>
-      expect(within(dialog).getByRole("combobox", { name: "Animal *" })).toHaveTextContent(
+      expect(within(dialog).getByRole("button", { name: "Animal *" })).toHaveTextContent(
         "G-003 · Kaveri",
       ),
     );
@@ -529,7 +530,7 @@ describe("HealthPage dialog branches", () => {
 
     expect(dutySelect).toHaveTextContent("— none —");
     expect(within(dialog).getByRole("radio", { name: "Single animal" })).toBeChecked();
-    expect(within(dialog).getByRole("combobox", { name: "Animal *" })).toHaveTextContent(
+    expect(within(dialog).getByRole("button", { name: "Animal *" })).toHaveTextContent(
       "G-003 · Kaveri",
     );
     expect(within(dialog).getByLabelText("Type")).toHaveTextContent("Treatment");
@@ -579,7 +580,7 @@ describe("HealthPage dialog branches", () => {
     const { user, dialog } = await openDialog();
     await pickOption(
       user,
-      within(dialog).getByRole("combobox", { name: "Animal *" }),
+      within(dialog).getByRole("button", { name: "Animal *" }),
       /G-003 · Kaveri/,
     );
     await user.click(within(dialog).getByText("Advanced traceability & compliance"));
@@ -636,7 +637,7 @@ describe("HealthPage dialog branches", () => {
   it("re-hydrates a deep link that changes only its animal", async () => {
     const { view, dialog } = await openDeepLink("animal_id=3");
     await waitFor(() =>
-      expect(within(dialog).getByRole("combobox", { name: "Animal *" })).toHaveTextContent(
+      expect(within(dialog).getByRole("button", { name: "Animal *" })).toHaveTextContent(
         "G-003 · Kaveri",
       ),
     );
@@ -646,7 +647,7 @@ describe("HealthPage dialog branches", () => {
 
     await waitFor(() =>
       expect(
-        within(screen.getByRole("dialog")).getByRole("combobox", { name: "Animal *" }),
+        within(screen.getByRole("dialog")).getByRole("button", { name: "Animal *" }),
       ).toHaveTextContent("G-004"),
     );
   });
@@ -655,7 +656,7 @@ describe("HealthPage dialog branches", () => {
     const { view, dialog } = await openDeepLink("purchase_batch_id=2");
     await waitFor(() =>
       expect(
-        within(dialog).getByRole("combobox", { name: "Purchase batch *" }),
+        within(dialog).getByRole("button", { name: "Purchase batch *" }),
       ).toHaveTextContent("Batch #2"),
     );
 
@@ -664,7 +665,7 @@ describe("HealthPage dialog branches", () => {
 
     await waitFor(() =>
       expect(
-        within(screen.getByRole("dialog")).getByRole("combobox", { name: "Purchase batch *" }),
+        within(screen.getByRole("dialog")).getByRole("button", { name: "Purchase batch *" }),
       ).toHaveTextContent("Batch #3"),
     );
   });

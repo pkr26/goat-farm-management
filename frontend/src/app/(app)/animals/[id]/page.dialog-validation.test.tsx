@@ -371,7 +371,7 @@ describe("AnimalProfilePage dialog branches", () => {
       expectPristine(within(dialog).getByLabelText(/sale price/i));
       expectPristine(within(dialog).getByLabelText(/buyer name/i));
 
-      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "Dead");
       expectPristine(within(dialog).getByLabelText("Mortality cause"));
       expectPristine(within(dialog).getByLabelText("Mortality reported date"));
       expect(within(dialog).queryAllByRole("alert")).toHaveLength(0);
@@ -403,7 +403,7 @@ describe("AnimalProfilePage dialog branches", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "Dead");
       const cause = within(dialog).getByLabelText("Mortality cause");
       const reported = within(dialog).getByLabelText("Mortality reported date");
 
@@ -423,7 +423,7 @@ describe("AnimalProfilePage dialog branches", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
-      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "Dead");
       await user.type(within(dialog).getByLabelText("Mortality cause"), "Bloat");
       await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
 
@@ -458,7 +458,7 @@ describe("AnimalProfilePage dialog branches", () => {
       // A price the user abandons must not survive as a hidden, unfixable
       // validation failure once the sale fields are gone.
       setInput(within(dialog).getByLabelText(/sale price/i), "-100");
-      await pickOption(user, within(dialog).getByLabelText(/new status/i), "DEAD");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "Dead");
       await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
 
       await waitFor(() => expect(statusBodies).toHaveLength(1));
@@ -470,12 +470,12 @@ describe("AnimalProfilePage dialog branches", () => {
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
       const combo = () => within(dialog).getByLabelText(/new status/i);
-      await pickOption(user, combo(), "DEAD");
+      await pickOption(user, combo(), "Dead");
       setInput(
         within(dialog).getByLabelText("Mortality reported date"),
         addDays(farmToday(), 1),
       );
-      await pickOption(user, combo(), "CULLED");
+      await pickOption(user, combo(), "Culled");
       await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
 
       await waitFor(() => expect(statusBodies).toHaveLength(1));
@@ -491,7 +491,7 @@ describe("AnimalProfilePage dialog branches", () => {
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
       setInput(within(dialog).getByLabelText(/sale price/i), "4500");
-      await pickOption(user, within(dialog).getByLabelText(/new status/i), "CULLED");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "Culled");
 
       expect(within(dialog).getByLabelText(/sale price/i)).toHaveValue(4500);
       await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
@@ -511,7 +511,7 @@ describe("AnimalProfilePage dialog branches", () => {
       // CULLED books proceeds exactly like SOLD, so the rejected amount is
       // still live — clearing the flag would hand back a form that only looks
       // fixed.
-      await pickOption(user, within(dialog).getByLabelText(/new status/i), "CULLED");
+      await pickOption(user, within(dialog).getByLabelText(/new status/i), "Culled");
       expect(within(dialog).getByLabelText(/sale price/i)).toHaveValue(-100);
       expect(within(dialog).getByText(/expected number to be >=0/)).toBeInTheDocument();
       expect(within(dialog).getByLabelText(/sale price/i)).toHaveAttribute(
@@ -526,7 +526,7 @@ describe("AnimalProfilePage dialog branches", () => {
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
       const combo = () => within(dialog).getByLabelText(/new status/i);
-      await pickOption(user, combo(), "DEAD");
+      await pickOption(user, combo(), "Dead");
       await user.type(within(dialog).getByLabelText("Mortality cause"), "Bloat");
       await user.click(
         within(dialog).getByRole("checkbox", {
@@ -534,7 +534,7 @@ describe("AnimalProfilePage dialog branches", () => {
         }),
       );
 
-      await pickOption(user, combo(), "DEAD");
+      await pickOption(user, combo(), "Dead");
 
       expect(within(dialog).getByLabelText("Mortality cause")).toHaveValue("Bloat");
       expect(

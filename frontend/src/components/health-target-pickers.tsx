@@ -18,6 +18,7 @@ import {
   type RemotePickerOption,
   type RemotePickerPage,
 } from "@/components/remote-picker";
+import { useT, type TFn } from "@/lib/i18n";
 
 interface HealthTargetPickerProps {
   id: string;
@@ -32,14 +33,14 @@ interface HealthTargetPickerProps {
   "aria-describedby"?: string;
 }
 
-function healthAnimalOption(animal: HealthAnimalOptionOut): RemotePickerOption {
+function healthAnimalOption(animal: HealthAnimalOptionOut, t: TFn): RemotePickerOption {
   return {
     value: String(animal.id),
     label:
       `${animal.tag_number}${animal.name ? ` · ${animal.name}` : ""} — ${animal.current_bucket}` +
       // A restricted animal stays selectable (the write is not forbidden),
       // but the operator must see the hold before choosing it (L16).
-      (animal.movement_restricted ? " — movement restricted" : ""),
+      (animal.movement_restricted ? t("picker.healthAnimal.restrictedSuffix") : ""),
   };
 }
 
@@ -50,13 +51,14 @@ export function HealthAnimalPicker({
   value,
   onValueChange,
   selectedOption,
-  placeholder = "Pick an animal",
-  dialogTitle = "Choose an animal",
+  placeholder,
+  dialogTitle,
   disabled,
   className,
   "aria-invalid": ariaInvalid,
   "aria-describedby": ariaDescribedBy,
 }: HealthTargetPickerProps) {
+  const t = useT();
   const [chosenOption, setChosenOption] = useState<RemotePickerOption | null>(null);
   const selectedId = /^\d+$/.test(value) ? Number(value) : null;
   const selectedQuery = useHealthAnimalOptionsApiHealthAnimalsGet(
@@ -76,7 +78,7 @@ export function HealthAnimalPicker({
       ? selectedQuery.data.data.animals.find((animal) => animal.id === selectedId)
       : undefined;
   const resolvedOption = resolved
-    ? healthAnimalOption(resolved)
+    ? healthAnimalOption(resolved, t)
     : selectedOption?.value === value
       ? selectedOption
       : null;
@@ -94,7 +96,7 @@ export function HealthAnimalPicker({
     );
     if (response.status !== 200) throw new Error("Could not load health animals.");
     return {
-      options: response.data.animals.map(healthAnimalOption),
+      options: response.data.animals.map((animal) => healthAnimalOption(animal, t)),
       total: response.data.total,
       nextOffset: offset + response.data.animals.length,
     };
@@ -107,13 +109,13 @@ export function HealthAnimalPicker({
       onValueChange={onValueChange}
       onOptionChange={setChosenOption}
       selectedOption={selected}
-      placeholder={placeholder}
-      dialogTitle={dialogTitle}
-      dialogDescription="Search active animals by tag, name or exact #id."
-      searchLabel="Search health animals"
-      searchPlaceholder="Search tag, name or #animal ID…"
+      placeholder={placeholder ?? t("picker.animal.placeholder")}
+      dialogTitle={dialogTitle ?? t("picker.animal.dialogTitle")}
+      dialogDescription={t("picker.healthAnimal.dialogDescription")}
+      searchLabel={t("picker.healthAnimal.searchLabel")}
+      searchPlaceholder={t("picker.healthAnimal.searchPlaceholder")}
       searchMaxLength={60}
-      emptyMessage="No active animals match this search."
+      emptyMessage={t("picker.healthAnimal.noMatch")}
       sourcePath="/api/health/animals"
       cacheKey={["health-animal-picker"]}
       loadPage={loadPage}
@@ -125,10 +127,13 @@ export function HealthAnimalPicker({
   );
 }
 
-function healthBatchOption(batch: HealthPurchaseBatchOptionOut): RemotePickerOption {
+function healthBatchOption(batch: HealthPurchaseBatchOptionOut, t: TFn): RemotePickerOption {
   return {
     value: String(batch.id),
-    label: `Batch #${batch.id} — ${batch.active_quarantine_animal_count} active in quarantine`,
+    label: t("picker.batch.optionLabel", {
+      id: batch.id,
+      count: batch.active_quarantine_animal_count,
+    }),
   };
 }
 
@@ -138,13 +143,14 @@ export function HealthPurchaseBatchPicker({
   value,
   onValueChange,
   selectedOption,
-  placeholder = "Pick a purchase batch",
-  dialogTitle = "Choose a purchase batch",
+  placeholder,
+  dialogTitle,
   disabled,
   className,
   "aria-invalid": ariaInvalid,
   "aria-describedby": ariaDescribedBy,
 }: HealthTargetPickerProps) {
+  const t = useT();
   const [chosenOption, setChosenOption] = useState<RemotePickerOption | null>(null);
   const selectedId = /^\d+$/.test(value) ? Number(value) : null;
   const selectedQuery = useHealthPurchaseBatchOptionsApiHealthPurchaseBatchesGet(
@@ -164,7 +170,7 @@ export function HealthPurchaseBatchPicker({
       ? selectedQuery.data.data.batches.find((batch) => batch.id === selectedId)
       : undefined;
   const resolvedOption = resolved
-    ? healthBatchOption(resolved)
+    ? healthBatchOption(resolved, t)
     : selectedOption?.value === value
       ? selectedOption
       : null;
@@ -182,7 +188,7 @@ export function HealthPurchaseBatchPicker({
     );
     if (response.status !== 200) throw new Error("Could not load health purchase batches.");
     return {
-      options: response.data.batches.map(healthBatchOption),
+      options: response.data.batches.map((batch) => healthBatchOption(batch, t)),
       total: response.data.total,
       nextOffset: offset + response.data.batches.length,
     };
@@ -195,13 +201,13 @@ export function HealthPurchaseBatchPicker({
       onValueChange={onValueChange}
       onOptionChange={setChosenOption}
       selectedOption={selected}
-      placeholder={placeholder}
-      dialogTitle={dialogTitle}
-      dialogDescription="Find a targetable purchase batch by its exact batch ID."
-      searchLabel="Search health purchase batches"
-      searchPlaceholder="Enter batch ID…"
+      placeholder={placeholder ?? t("picker.batch.placeholder")}
+      dialogTitle={dialogTitle ?? t("picker.batch.dialogTitle")}
+      dialogDescription={t("picker.batch.dialogDescription")}
+      searchLabel={t("picker.batch.searchLabel")}
+      searchPlaceholder={t("picker.batch.searchPlaceholder")}
       searchMaxLength={20}
-      emptyMessage="No targetable purchase batches match this search."
+      emptyMessage={t("picker.batch.noMatch")}
       sourcePath="/api/health/purchase-batches"
       cacheKey={["health-purchase-batch-picker"]}
       loadPage={loadPage}

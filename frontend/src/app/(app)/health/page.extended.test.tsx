@@ -130,6 +130,7 @@ function makeEvent(overrides: Partial<HealthEventOut>): HealthEventOut {
     authority_notified_at: null,
     isolation_started_at: null,
     notes: null,
+    created_at: "2026-01-01T00:00:00Z",
     animal_tag: "G-003",
     ...overrides,
   };
@@ -482,12 +483,12 @@ describe("HealthPage", () => {
     const card = screen.getByText("Vaccination schedule per animal").closest(
       "[data-slot='card']",
     ) as HTMLElement;
-    await pickOption(user, within(card).getByRole("combobox"), /G-003 · Kaveri/);
+    await pickOption(user, within(card).getByRole("button", { name: "View schedule for" }), /G-003 · Kaveri/);
 
     await user.click(screen.getByRole("button", { name: "Add event" }));
     const dialog = await screen.findByRole("dialog", { name: "Add health event" });
     await user.click(within(dialog).getByRole("radio", { name: "Purchase batch" }));
-    await user.click(within(dialog).getByRole("combobox", { name: "Purchase batch *" }));
+    await user.click(within(dialog).getByRole("button", { name: "Purchase batch *" }));
     expect(
       await screen.findByRole("option", { name: "Batch #2 — 12 active in quarantine" }),
     ).toBeInTheDocument();
@@ -506,7 +507,7 @@ describe("HealthPage", () => {
     const card = screen.getByText("Vaccination schedule per animal").closest(
       "[data-slot='card']",
     ) as HTMLElement;
-    await pickOption(user, within(card).getByRole("combobox"), /G-003 · Kaveri/);
+    await pickOption(user, within(card).getByRole("button", { name: "View schedule for" }), /G-003 · Kaveri/);
     expect(viewButton).toBeEnabled();
     await user.click(viewButton);
     expect(pushMock).toHaveBeenCalledWith(
@@ -521,7 +522,7 @@ describe("HealthPage", () => {
     const card = screen.getByText("Vaccination schedule per animal").closest(
       "[data-slot='card']",
     ) as HTMLElement;
-    const picker = within(card).getByRole("combobox");
+    const picker = within(card).getByRole("button", { name: "View schedule for" });
     await waitFor(() => expect(picker).toHaveTextContent("G-003 · Kaveri"));
 
     window.history.replaceState({}, "", "/health?schedule_animal_id=4");
@@ -591,7 +592,7 @@ describe("HealthPage", () => {
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("radio", { name: "Purchase batch" }));
 
-    await user.click(within(dialog).getAllByRole("combobox")[0]);
+    await user.click(within(dialog).getByRole("button", { name: "Purchase batch *" }));
     expect(
       await screen.findByRole("option", {
         name: "Batch #2 — 12 active in quarantine",
@@ -601,12 +602,12 @@ describe("HealthPage", () => {
 
   it("clears an old target whenever its conditional scope is hidden", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003 · Kaveri/);
     await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
     await pickOption(user, within(dialog).getAllByRole("combobox")[0], "Breeding");
 
     await user.click(within(dialog).getByRole("radio", { name: "Single animal" }));
-    expect(within(dialog).getByRole("combobox", { name: "Animal *" })).toHaveTextContent(
+    expect(within(dialog).getByRole("button", { name: "Animal *" })).toHaveTextContent(
       "Pick an animal",
     );
     await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
@@ -621,7 +622,7 @@ describe("HealthPage", () => {
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("Pick an animal");
     expect(
       within(dialog)
-        .getByRole("combobox", { name: "Animal *" })
+        .getByRole("button", { name: "Animal *" })
         .getAttribute("aria-describedby"),
     ).toContain("event-animal-error");
     expect(postBody).toBeNull();
@@ -685,7 +686,7 @@ describe("HealthPage", () => {
 
   it("accepts the exact zero-cost boundary", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003 · Kaveri/);
     fireEvent.change(within(dialog).getByLabelText(/total cost/i), {
       target: { value: "0" },
     });
@@ -697,7 +698,7 @@ describe("HealthPage", () => {
 
   it("requires a named schedule and authority whenever a next-due date is recorded", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003 · Kaveri/);
     fireEvent.change(within(dialog).getByLabelText("Next due date"), {
       target: { value: addDays(TODAY, 30) },
     });
@@ -714,7 +715,7 @@ describe("HealthPage", () => {
 
   it("validates dependent dates against farm today when the blank event date uses its API default", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003 · Kaveri/);
     fireEvent.change(within(dialog).getByLabelText(/^date/i), { target: { value: "" } });
     fireEvent.change(within(dialog).getByLabelText("Next due date"), {
       target: { value: TODAY },
@@ -735,7 +736,7 @@ describe("HealthPage", () => {
 
   it("mirrors the API's chronology and storage ceilings, accepting every exact boundary", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003 · Kaveri/);
     await user.click(within(dialog).getByText("Advanced traceability & compliance"));
 
     const eventDate = addDays(TODAY, -30);
@@ -845,7 +846,7 @@ describe("HealthPage", () => {
 
   it("rejects every independent traceability chronology violation", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003 · Kaveri/);
     await user.click(within(dialog).getByText("Advanced traceability & compliance"));
     const save = within(dialog).getByRole("button", { name: "Save event" });
 
@@ -887,7 +888,7 @@ describe("HealthPage", () => {
 
   it("requires a disease name and rejects future statutory reporting dates", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003 · Kaveri/);
     await user.click(within(dialog).getByText("Advanced traceability & compliance"));
     await user.click(
       within(dialog).getByRole("checkbox", {
@@ -915,7 +916,7 @@ describe("HealthPage", () => {
 
   it("posts an animal-scoped event with NONE sentinels mapped to null", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003 · Kaveri/);
     fireEvent.change(within(dialog).getByLabelText(/product name/i), {
       target: { value: "  PPR vaccine  " },
     });
@@ -961,7 +962,7 @@ describe("HealthPage", () => {
 
   it("posts the complete traceability and scheduled-disease audit trail", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003 · Kaveri/);
     await user.click(within(dialog).getByText("Advanced traceability & compliance"));
     fireEvent.change(within(dialog).getByLabelText(/disease target/i), {
       target: { value: "  PPR  " },
@@ -1072,7 +1073,7 @@ describe("HealthPage", () => {
     await user.click(within(dialog).getByRole("radio", { name: "Purchase batch" }));
     await pickOption(
       user,
-      within(dialog).getAllByRole("combobox")[0],
+      within(dialog).getByRole("button", { name: "Purchase batch *" }),
       "Batch #2 — 12 active in quarantine",
     );
     await reviewAndConfirmBulk(user, dialog);
@@ -1095,7 +1096,7 @@ describe("HealthPage", () => {
 
     expect(within(dialog).getByRole("radio", { name: "Purchase batch" })).toBeChecked();
     await waitFor(() =>
-      expect(within(dialog).getByRole("combobox", { name: "Purchase batch *" }))
+      expect(within(dialog).getByRole("button", { name: "Purchase batch *" }))
         .toHaveTextContent("Batch #2"),
     );
   });
@@ -1321,11 +1322,11 @@ describe("HealthPage", () => {
 
   it("sends a picked route and event type", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-004/);
-    const combos = () => within(dialog).getAllByRole("combobox");
-    // Order: animal, type, route, linked duty.
-    await pickOption(user, combos()[1], "Deworming");
-    await pickOption(user, combos()[2], "IM");
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-004/);
+    const typeSelect = () => within(dialog).getByRole("combobox", { name: "Type" });
+    const routeSelect = () => within(dialog).getByRole("combobox", { name: "Route" });
+    await pickOption(user, typeSelect(), "Deworming");
+    await pickOption(user, routeSelect(), "IM");
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
 
     await waitFor(() => expect(postBody).not.toBeNull());
@@ -1347,7 +1348,7 @@ describe("HealthPage", () => {
       }),
     );
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003 · Kaveri/);
     const form = within(dialog).getByRole("button", { name: "Save event" }).closest("form")!;
 
     fireEvent.submit(form);
@@ -1367,7 +1368,7 @@ describe("HealthPage", () => {
       ),
     );
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003 · Kaveri/);
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
 
     await waitFor(() => expect(eventsCalls).toBe(1));
@@ -1379,7 +1380,7 @@ describe("HealthPage", () => {
   it("surfaces a generic write error after a network failure", async () => {
     server.use(http.post("/api/health/events", () => HttpResponse.error()));
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003 · Kaveri/);
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
 
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(
@@ -1532,7 +1533,7 @@ describe("HealthPage", () => {
 
     expect(within(dialog).getByRole("radio", { name: "Single animal" })).toBeChecked();
     // Type switched to the duty's category.
-    expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("Deworming");
+    expect(within(dialog).getByRole("combobox", { name: "Type" })).toHaveTextContent("Deworming");
 
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
     await waitFor(() => expect(postBody).not.toBeNull());
@@ -1571,15 +1572,15 @@ describe("HealthPage", () => {
     await pickOption(user, within(dialog).getByLabelText(/Linked duty/), /Deworm Kaveri/);
 
     expect(within(dialog).getByLabelText(/Linked duty/)).toHaveTextContent("Deworm Kaveri");
-    expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("Deworming");
+    expect(within(dialog).getByRole("combobox", { name: "Type" })).toHaveTextContent("Deworming");
     await pickOption(
       user,
-      within(dialog).getByRole("combobox", { name: "Animal *" }),
+      within(dialog).getByRole("button", { name: "Animal *" }),
       /G-004/,
     );
 
     expect(within(dialog).getByLabelText(/Linked duty/)).toHaveTextContent("— none —");
-    expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("Vaccination");
+    expect(within(dialog).getByRole("combobox", { name: "Type" })).toHaveTextContent("Vaccination");
     expect(within(dialog).getByLabelText(/disease target/i)).toHaveValue("");
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
 
@@ -1606,12 +1607,12 @@ describe("HealthPage", () => {
     await pickOption(user, within(dialog).getByLabelText(/Linked duty/), /Deworm batch #2/);
     await pickOption(
       user,
-      within(dialog).getByRole("combobox", { name: "Purchase batch *" }),
+      within(dialog).getByRole("button", { name: "Purchase batch *" }),
       /Batch #3/,
     );
 
     expect(within(dialog).getByLabelText(/Linked duty/)).toHaveTextContent("— none —");
-    expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("Vaccination");
+    expect(within(dialog).getByRole("combobox", { name: "Type" })).toHaveTextContent("Vaccination");
     expect(within(dialog).getByLabelText(/disease target/i)).toHaveValue("");
     await reviewAndConfirmBulk(user, dialog);
 
@@ -1646,7 +1647,7 @@ describe("HealthPage", () => {
     });
     await pickOption(
       user,
-      within(reopened).getByRole("combobox", { name: "Animal *" }),
+      within(reopened).getByRole("button", { name: "Animal *" }),
       /G-004/,
     );
 
@@ -1714,13 +1715,13 @@ describe("HealthPage", () => {
     await pickOption(user, dutySelect, /Deworm batch #2/);
 
     expect(within(dialog).getByRole("radio", { name: "Purchase batch" })).toBeChecked();
-    expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("Deworming");
+    expect(within(dialog).getByRole("combobox", { name: "Type" })).toHaveTextContent("Deworming");
     expect(within(dialog).getByLabelText(/disease target/i)).toHaveValue("Deworming");
 
     await pickOption(user, dutySelect, /none/);
 
     expect(within(dialog).getByRole("radio", { name: "Single animal" })).toBeChecked();
-    expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("Vaccination");
+    expect(within(dialog).getByRole("combobox", { name: "Type" })).toHaveTextContent("Vaccination");
     expect(within(dialog).getByLabelText(/disease target/i)).toHaveValue("");
   });
 
@@ -1746,7 +1747,7 @@ describe("HealthPage", () => {
 
     expect(within(dialog).getByRole("radio", { name: "Single animal" })).toBeChecked();
     await waitFor(() =>
-      expect(within(dialog).getAllByRole("combobox")[0]).toHaveTextContent("G-003 · Kaveri"),
+      expect(within(dialog).getByRole("button", { name: "Animal *" })).toHaveTextContent("G-003 · Kaveri"),
     );
   });
 
@@ -1755,7 +1756,7 @@ describe("HealthPage", () => {
     const view = renderWithProviders(<HealthPage />);
     const firstDialog = await screen.findByRole("dialog");
     await waitFor(() =>
-      expect(within(firstDialog).getAllByRole("combobox")[0]).toHaveTextContent(
+      expect(within(firstDialog).getByRole("button", { name: "Animal *" })).toHaveTextContent(
         "G-003 · Kaveri",
       ),
     );
@@ -1772,7 +1773,7 @@ describe("HealthPage", () => {
 
     const nextDialog = await screen.findByRole("dialog");
     await waitFor(() =>
-      expect(within(nextDialog).getAllByRole("combobox")[0]).toHaveTextContent("G-004"),
+      expect(within(nextDialog).getByRole("button", { name: "Animal *" })).toHaveTextContent("G-004"),
     );
   });
 
@@ -1813,7 +1814,7 @@ describe("HealthPage", () => {
     const view = renderWithProviders(<HealthPage />);
     let dialog = await screen.findByRole("dialog");
     await waitFor(() =>
-      expect(within(dialog).getByRole("combobox", { name: "Animal *" })).toHaveTextContent(
+      expect(within(dialog).getByRole("button", { name: "Animal *" })).toHaveTextContent(
         "G-004",
       ),
     );
@@ -1831,7 +1832,7 @@ describe("HealthPage", () => {
     view.rerender(<HealthPage />);
 
     await waitFor(() =>
-      expect(within(dialog).getByRole("combobox", { name: "Animal *" })).toHaveTextContent(
+      expect(within(dialog).getByRole("button", { name: "Animal *" })).toHaveTextContent(
         "G-004",
       ),
     );
@@ -1870,7 +1871,7 @@ describe("HealthPage", () => {
     const user = userEvent.setup();
     await pickOption(
       user,
-      within(dialog).getByRole("combobox", { name: "Animal *" }),
+      within(dialog).getByRole("button", { name: "Animal *" }),
       /G-004/,
     );
 
@@ -1878,7 +1879,7 @@ describe("HealthPage", () => {
     await waitFor(() =>
       expect(within(dialog).getByLabelText(/Linked duty/)).toHaveTextContent("— none —"),
     );
-    expect(within(dialog).getByRole("combobox", { name: "Animal *" }))
+    expect(within(dialog).getByRole("button", { name: "Animal *" }))
       .toHaveTextContent("G-004");
     expect(within(dialog).queryByText(/Could not link duty/)).not.toBeInTheDocument();
   });
@@ -1984,7 +1985,7 @@ describe("HealthPage", () => {
     await user.click(screen.getByRole("button", { name: "Add event" }));
     const dialog = await screen.findByRole("dialog");
 
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003 · Kaveri/);
     await user.click(within(dialog).getByText("Advanced traceability & compliance"));
     fireEvent.change(within(dialog).getByLabelText("Next due date"), {
       target: { value: addDays(TODAY, 30) },

@@ -7,11 +7,13 @@
  *    vice versa (the runtime catalogs; TypeScript alone would not catch a
  *    missing Telugu key).
  * 2. **English-literal snapshot** — `english-literal-baseline.json` is the
- *    audited inventory of raw English JSX text (and user-facing string
- *    attributes) still awaiting Telugu. The gate fails when a NEW literal
- *    appears (ship the string in BOTH catalogs and render it through
- *    t(...)) and when a baseline entry goes STALE (a literal was translated
- *    — regenerate the baseline so the inventory stays honest).
+ *    audited inventory of raw English UI copy (JSX text, user-facing string
+ *    attributes and copy props, expression-container strings, default
+ *    parameters, toasts, zod messages) still awaiting Telugu. The gate
+ *    fails when a NEW literal appears (ship the string in BOTH catalogs and
+ *    render it through t(...)) and when a baseline entry goes STALE (a
+ *    literal was translated — regenerate the baseline so the inventory
+ *    stays honest).
  * 3. **Shrink-only ceiling** — the baseline length is pinned. It may be
  *    lowered (localization wins shrink it) but never raised: hand-growing
  *    the JSON to whitelist future English cannot pass review quietly.
@@ -34,9 +36,23 @@ const BASELINE_PATH = join(import.meta.dirname, "english-literal-baseline.json")
 /** The baseline may only shrink. Lower this number in the same change that
  * regenerates the baseline after localization work — never raise it.
  * (History: 357 at the 2026-09-21 audit → 457 when the scanner learned to
- * read string attributes; every localization pass since then only lowers
- * it.) */
-const ENGLISH_LITERAL_CEILING = 457;
+ * read string attributes → 753 at the 2026-09-28 ONE-TIME scanner-driven
+ * expansion — AUDIT_REPORT_2026-09-28 H7: the scanner now also sees JSX
+ * expression-container strings, camelCase copy props (emptyMessage,
+ * dialogTitle, …), default-parameter strings, toast.* literals and zod
+ * messages, so the baseline finally matches the true untranslated
+ * inventory. The ratchet remains shrink-only from here: localization wins
+ * lower it, nothing raises it. → 437 when the animal profile page
+ * (animals/[id]) moved to the animalDetail.* catalog keys and the
+ * already-translated planner/purchases entries left the inventory. → 156
+ * when the animals list page and the shared animal/health-target pickers
+ * moved to the animals.list/create/validation/toast/filter.* and picker.*
+ * keys (the duplicated bucket-sex maps also folded into lib/bucket-sex.ts).
+ * → 72 when the breeding and kidding pages moved to the breeding.* and
+ * kidding.* catalog keys. → 23 when the account dialog and the shared
+ * remote picker moved to the account.* and picker.remote.* keys (the
+ * already-converted worker-board and sidebar entries left with them).) */
+const ENGLISH_LITERAL_CEILING = 23;
 
 describe("i18n gate (ITEM 5)", () => {
   it("the two catalogs carry exactly the same keys", () => {

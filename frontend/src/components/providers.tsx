@@ -36,8 +36,10 @@ export function Providers({ children, nonce }: { children: ReactNode; nonce?: st
               {children}
               {/* top-center: on phones the top-right corner is the least
                * visible spot (thumb reach + notch), and it stays out of the
-               * way on desktop too. */}
-              <Toaster richColors position="top-center" />
+               * way on desktop too. richColors stays off: the toast hues
+               * come from the app's status tokens (see ui/sonner.tsx), not
+               * the library palette (2026-09-28 audit). */}
+              <Toaster position="top-center" />
             </TooltipProvider>
           </LanguageProvider>
         </AuthProvider>

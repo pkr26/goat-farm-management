@@ -169,10 +169,13 @@ describe("ADV A2: farm switch mid-write on breeding (M-2 now fenced)", () => {
     });
     expect(addBreedingButtons.length).toBeGreaterThanOrEqual(1);
 
-    // Open the dialog and pick a doe + buck via the combobox triggers.
+    // Open the dialog and pick a doe + buck via the picker triggers (plain
+    // buttons since the APG dialog-picker fix — they are labelled by their
+    // field labels).
     await user.click(addBreedingButtons[0]);
     const dialog = await screen.findByRole("dialog");
-    const [doeTrigger, buckTrigger] = await within(dialog).findAllByRole("combobox");
+    const doeTrigger = await within(dialog).findByRole("button", { name: /^Doe/ });
+    const buckTrigger = await within(dialog).findByRole("button", { name: /^Buck/ });
     await user.click(doeTrigger);
     await user.click(await screen.findByRole("option", { name: /G-DOE/ }));
     await user.click(buckTrigger);

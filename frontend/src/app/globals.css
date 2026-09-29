@@ -17,8 +17,6 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-inter);
   --font-mono: var(--font-jetbrains-mono);
-  --font-geist-mono: var(--font-jetbrains-mono);
-  --font-display: var(--font-fraunces);
   --font-heading: var(--font-fraunces);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -190,8 +188,7 @@
     --font-inter: var(--font-noto-sans-telugu);
     --font-fraunces: var(--font-noto-sans-telugu);
   }
-  /* Subtle paper grain for the app canvas — barely visible, but it
-   * kills the flat "default white" feel in light mode. */
+  /* Selections take a soft brand wash instead of the UA default blue. */
   ::selection {
     @apply bg-primary/20;
   }

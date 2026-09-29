@@ -1043,7 +1043,7 @@ describe("SimulationPage loader and run feedback", () => {
     expect(screen.getAllByLabelText("Month")).toHaveLength(1);
 
     await user.click(screen.getByLabelText("Breed"));
-    await user.click(await screen.findByRole("option", { name: "sirohi" }));
+    await user.click(await screen.findByRole("option", { name: "Sirohi" }));
     await user.click(screen.getByRole("button", { name: "Calibrate from farm" }));
 
     await waitFor(() => expect(screen.getByLabelText("Does")).toHaveValue(73));

@@ -54,9 +54,12 @@ describe("ADV C4: hand-copied zod enums must equal the generated contract", () =
     );
   });
 
-  it("finance: correction schema inherits the same list (extends txnSchema)", () => {
+  it("finance: correction schema inherits the same list (extends the txn schema)", () => {
+    // The schemas are function-factored for i18n; the pin is the inheritance,
+    // not the spelling: the correction schema must EXTEND buildTxnSchema so a
+    // category-list change can never drift between create and correct.
     const source = pageSource("finance/page.tsx");
-    expect(source).toContain("correctionSchema = txnSchema.extend");
+    expect(source).toContain("buildTxnSchema(t).extend");
   });
 
   it("feeding: dispense bucket list === DispenseInBucket", () => {

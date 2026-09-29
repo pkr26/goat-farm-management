@@ -896,7 +896,7 @@ describe("TasksPage new-duty dialog copy", () => {
 
   it("starts the animal picker on its none option and names the animal once chosen", async () => {
     const { user, dialog } = await openDialog();
-    const picker = within(dialog).getByRole("combobox", { name: "Animal (optional)" });
+    const picker = within(dialog).getByRole("button", { name: "Animal (optional)" });
     expect(picker).toHaveTextContent("— none —");
 
     await pickOption(user, picker, "G-007 — Radha");
@@ -989,14 +989,15 @@ describe("TasksPage new-duty dialog copy", () => {
   it("clears an already chosen role when a worker is picked instead", async () => {
     const { user, dialog } = await openDialog();
     await user.type(fieldsOf(dialog).title, "Herd check");
-    const combos = () => within(dialog).getAllByRole("combobox");
+    const roleSelect = () => within(dialog).getByRole("combobox", { name: /assign to role/i });
+    const workerSelect = () => within(dialog).getByRole("combobox", { name: /assign to worker/i });
 
     // Order: category, animal, role, worker.
-    await pickOption(user, combos()[2], "Vet");
-    await pickOption(user, combos()[3], "Raju (Vet)");
+    await pickOption(user, roleSelect(), "Vet");
+    await pickOption(user, workerSelect(), "Raju (Vet)");
 
-    expect(combos()[2]).toHaveTextContent("— none —");
-    expect(combos()[3]).toHaveTextContent("Raju (Vet)");
+    expect(roleSelect()).toHaveTextContent("— none —");
+    expect(workerSelect()).toHaveTextContent("Raju (Vet)");
     await user.click(fieldsOf(dialog).create);
 
     await waitFor(() => expect(createBody).not.toBeNull());
@@ -1006,9 +1007,10 @@ describe("TasksPage new-duty dialog copy", () => {
   it("treats — none — as a real selection in both assignment selects", async () => {
     const { dialog } = await openDialog();
     await within(dialog).findByLabelText("Assign to role");
-    const combos = within(dialog).getAllByRole("combobox");
+    const roleSelect = within(dialog).getByRole("combobox", { name: /assign to role/i });
+    const workerSelect = within(dialog).getByRole("combobox", { name: /assign to worker/i });
 
-    for (const trigger of [combos[2], combos[3]]) {
+    for (const trigger of [roleSelect, workerSelect]) {
       expect(trigger).toHaveTextContent("— none —");
       // The sentinel has to be a real item value: an empty string would leave
       // the select unfilled, greying the label out as a placeholder.
@@ -1018,11 +1020,11 @@ describe("TasksPage new-duty dialog copy", () => {
 
   it("labels a worker who holds no role as a plain worker", async () => {
     const { user, dialog } = await openDialog();
-    const combos = () => within(dialog).getAllByRole("combobox");
+    const workerSelect = () => within(dialog).getByRole("combobox", { name: /assign to worker/i });
 
-    await pickOption(user, combos()[3], "Sita (worker)");
+    await pickOption(user, workerSelect(), "Sita (worker)");
 
-    expect(combos()[3]).toHaveTextContent("Sita (worker)");
+    expect(workerSelect()).toHaveTextContent("Sita (worker)");
   });
 
   it("offers only the none option when the directory carries no roles", async () => {
@@ -1031,7 +1033,7 @@ describe("TasksPage new-duty dialog copy", () => {
     );
     const { user, dialog } = await openDialog();
 
-    await user.click(within(dialog).getAllByRole("combobox")[2]);
+    await user.click(within(dialog).getByRole("combobox", { name: /assign to role/i }));
 
     const options = await screen.findAllByRole("option");
     expect(options).toHaveLength(1);

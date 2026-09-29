@@ -14,4 +14,5 @@ export interface FeedingRecordOut {
   bucket: FeedingRecordOutBucket;
   recipe_code: string | null;
   qty_kg: number;
+  created_at: string;
 }
