@@ -2,15 +2,19 @@
 # endpoints. The backend's per-IP limiter (10 login attempts / 300 s)
 # already bounds credential guessing; this zone keeps raw request floods
 # off the single uvicorn worker before they can occupy its two Argon2
-# slots. 5 r/s with burst 20 per client address is far above human
-# login/refresh cadence (and refreshes carry no Argon2 cost) while
+# slots. The default 5 r/s with burst 20 per client address is far above
+# human login/refresh cadence (and refreshes carry no Argon2 cost) while
 # capping an attacker at ~1/6th of the measured rejection throughput.
-# Caveat for the outer-TLS-terminator topology: this edge sees the
-# terminator's address as $binary_remote_addr, so the zone's 5 r/s is
-# AGGREGATE across all clients in that deployment. The backend's own
-# X-Forwarded-For-keyed limiter remains per-client there; this zone is
-# coarse flood shaping only.
-limit_req_zone $binary_remote_addr zone=auth_flood:10m rate=5r/s;
+# Rate and burst are operator knobs: GOATFARM_EDGE_AUTH_RATE/_BURST reach
+# this template through edge-entrypoint.sh, which grammar-validates them
+# before rendering — hard-coded literals here used to discard the
+# compose-forwarded values silently (2026-09-28 audit, F2). Caveat for the
+# outer-TLS-terminator topology: this edge sees the terminator's address
+# as $binary_remote_addr, so the zone's rate is AGGREGATE across all
+# clients in that deployment. The backend's own X-Forwarded-For-keyed
+# limiter remains per-client there; this zone is coarse flood shaping
+# only.
+limit_req_zone $binary_remote_addr zone=auth_flood:10m rate=__GOATFARM_EDGE_AUTH_RATE__;
 server {
     listen 3000;
     server_name _;
@@ -41,19 +45,25 @@ server {
     # or error pages.
     server_tokens off;
 
-    # Baseline headers for responses THIS server generates (limit_req 429s,
-    # upstream-failure error pages, the health endpoint). Proxied app
-    # responses already carry the identical set from next.config.ts plus the
-    # per-request nonce CSP from the frontend's proxy.ts (M-1, 2026-09-20):
-    # a nonce policy cannot be emitted here because the edge cannot mint and
-    # embed the nonce into the rendered HTML the way the render boundary can.
-    # Deployment S3/MinIO origins reach the frontend container as
-    # GOATFARM_CSP_IMG_ORIGINS / GOATFARM_CSP_CONNECT_ORIGINS env (validated
-    # at edge boot by edge-entrypoint.sh); this template no longer renders
-    # them. No HSTS in development — the local edge is deliberately HTTP.
-    add_header X-Content-Type-Options nosniff always;
-    add_header X-Frame-Options DENY always;
-    add_header Referrer-Policy no-referrer always;
+    # Security response headers: the application owns the complete set on
+    # every proxied response — the next.config.ts baseline (COOP/CORP/
+    # Permissions-Policy included) plus the per-request nonce CSP from the
+    # frontend's proxy.ts (M-1, 2026-09-20): a nonce policy cannot be
+    # emitted here because the edge cannot mint and embed the nonce into
+    # the rendered HTML the way the render boundary can. The API sets its
+    # own baseline on /api responses. A server-level `add_header ... always`
+    # here stamped a second, partial set onto those same proxied responses —
+    # duplicate X-Frame-Options/X-Content-Type-Options and a CONFLICTING
+    # Referrer-Policy (edge no-referrer vs the SPA's
+    # strict-origin-when-cross-origin) on every response (2026-09-28 audit,
+    # F1). The edge therefore adds its minimal set ONLY to the responses
+    # nginx itself generates: the limit_req 429 (error_page-routed through
+    # @auth_flood_rejected below) and /edge-healthz. Upstream-failure pages
+    # keep nginx's built-in error bodies. Deployment S3/MinIO origins reach
+    # the frontend container as GOATFARM_CSP_IMG_ORIGINS /
+    # GOATFARM_CSP_CONNECT_ORIGINS env (validated at edge boot by
+    # edge-entrypoint.sh); this template no longer renders them. No HSTS in
+    # development — the local edge is deliberately HTTP.
 
     # nginx resolves a literal upstream name once, at configuration load,
     # and caches that address for the worker's lifetime. Recreating
@@ -68,8 +78,12 @@ server {
     # Container-local liveness endpoint for the Compose healthcheck:
     # answered by nginx itself (no upstream), reachable only from the
     # container's own loopback. Must sit above `location /` so the SPA
-    # proxy does not shadow it.
+    # proxy does not shadow it. One of the two response types this server
+    # generates itself, so it carries the edge's minimal header set (F1).
     location = /edge-healthz {
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-Frame-Options DENY always;
+        add_header Referrer-Policy no-referrer always;
         allow 127.0.0.1;
         deny all;
         access_log off;
@@ -81,14 +95,30 @@ server {
     # dropping the slash on the exact parent path of every credential route.
     location /api/auth {
         # RT-R-1: applies the zone declared above to the auth family.
-        limit_req zone=auth_flood burst=20 nodelay;
+        limit_req zone=auth_flood burst=__GOATFARM_EDGE_AUTH_BURST__ nodelay;
         limit_req_status 429;
+        # The 429 is generated by nginx, not the app: route it through the
+        # named location below so the rejection carries the edge's minimal
+        # header set while proxied responses keep only the app's headers
+        # (2026-09-28 audit, F1).
+        error_page 429 = @auth_flood_rejected;
         # A variable in proxy_pass disables nginx's automatic URI
         # pass-through, so the original URI must be restated;
         # $request_uri is the unmodified request target including its
         # query string, which is what the literal form sent.
         set $backend_upstream backend;
         proxy_pass http://$backend_upstream:8000$request_uri;
+    }
+
+    # Edge-generated limit_req rejection. This is the only other place
+    # add_header may appear: nginx applies a location's add_header to
+    # proxied responses as well, which is exactly the duplication/conflict
+    # F1 removes, so proxied locations carry none.
+    location @auth_flood_rejected {
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-Frame-Options DENY always;
+        add_header Referrer-Policy no-referrer always;
+        return 429 "rate limited\n";
     }
     location /api/ {
         # A variable in proxy_pass disables nginx's automatic URI

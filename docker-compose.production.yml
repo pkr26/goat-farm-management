@@ -133,6 +133,12 @@ services:
       GOATFARM_SCREENING_OPENAI_API_KEY: ${GOATFARM_SCREENING_OPENAI_API_KEY:-}
       GOATFARM_SCREENING_OPENAI_MODEL: ${GOATFARM_SCREENING_OPENAI_MODEL:-gpt-5}
       GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM: ${GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM:-400}
+      # The API runs the same boot-time screening cross-validation as the
+      # worker (the horizon must cover (2 x providers + 6) x the timeout), so
+      # it needs the identical pair — an operator override that reaches only
+      # the worker would boot-fail the API (2026-09-28 audit, F3).
+      GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS: ${GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS:-120}
+      GOATFARM_SCREENING_STALE_PROCESSING_AFTER_SECONDS: ${GOATFARM_SCREENING_STALE_PROCESSING_AFTER_SECONDS:-1800}
       # Farm cap for the 20-farm owner operation (ITEM 0/8).
       GOATFARM_MAX_FARMS_PER_USER: ${GOATFARM_MAX_FARMS_PER_USER:-25}
       # Notifications (ITEM 4). Provider default is console (logs only).
@@ -220,6 +226,10 @@ services:
       # claim path, so the worker — not just the API process — must receive it.
       GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM: ${GOATFARM_SCREENING_DAILY_CALL_BUDGET_PER_FARM:-400}
       GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS: ${GOATFARM_SCREENING_PROVIDER_TIMEOUT_SECONDS:-120}
+      # Must rise together with the timeout above: boot-time cross-validation
+      # requires this horizon to cover (2 x providers + 6) x the timeout
+      # (2026-09-28 audit, F3).
+      GOATFARM_SCREENING_STALE_PROCESSING_AFTER_SECONDS: ${GOATFARM_SCREENING_STALE_PROCESSING_AFTER_SECONDS:-1800}
       GOATFARM_SCREENING_WORKER_HEARTBEAT_PATH: ${GOATFARM_SCREENING_WORKER_HEARTBEAT_PATH:-/tmp/goatfarm-screening-worker.json}
       GOATFARM_SCREENING_WORKER_HEALTH_MAX_AGE_SECONDS: ${GOATFARM_SCREENING_WORKER_HEALTH_MAX_AGE_SECONDS:-900}
       GOATFARM_SCREENING_WORKER_MAX_CONSECUTIVE_CYCLE_FAILURES: ${GOATFARM_SCREENING_WORKER_MAX_CONSECUTIVE_CYCLE_FAILURES:-3}

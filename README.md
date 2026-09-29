@@ -73,8 +73,10 @@ default (`GOATFARM_MAX_REQUEST_BODY_BYTES`); configure the edge proxy to
 the same or a smaller limit. Request paths plus query strings are capped at
 8 KiB (`GOATFARM_MAX_REQUEST_TARGET_BYTES`, returning 414); the edge must
 apply an equal or smaller request-line limit. RS256 key pairs are
-auto-generated into `backend/keys/` on first run in development only
-(gitignored). Production must mount a stable matching RSA keypair (at least
+auto-generated on first run in development only: new generations land in
+`~/.cache/goatfarm/keys` (`$XDG_CACHE_HOME/goatfarm/keys` when set), outside
+the repository tree; an existing `backend/keys/` pair is still honored when
+already present. Production must mount a stable matching RSA keypair (at least
 2048 bits); startup fails immediately if it is missing or invalid. With
 `GOATFARM_ENVIRONMENT=production` the app **refuses to boot** if
 `GOATFARM_COOKIE_SECURE` is false, the password minimum is below 12, database
@@ -269,7 +271,7 @@ passes. Resume API replicas only after that succeeds.
 ```bash
 # Backend
 cd backend
-./.venv/bin/python -m pytest            # 4,700+ tests, real PostgreSQL (goatfarm_test)
+./.venv/bin/python -m pytest            # 4,800+ tests, real PostgreSQL (goatfarm_test)
 ./.venv/bin/ruff format --check . && ./.venv/bin/ruff check .
 ./.venv/bin/python -m mypy --strict app scripts  # strict-green: 0 errors; keep it that way
 ./.venv/bin/python scripts/export_openapi.py   # regenerate shared/openapi.json
@@ -277,8 +279,8 @@ cd backend
 # Frontend
 cd frontend
 pnpm orval           # regenerate the typed client from shared/openapi.json
-pnpm test:coverage   # 1,300+ Vitest + MSW tests; 85/80/85/85 thresholds — the CI gate
-pnpm exec playwright test   # browser/proxy e2e suite across 18 specs (fresh user+farm
+pnpm test:coverage   # 1,300+ Vitest + MSW tests; 90/87/90/90 thresholds — the CI gate
+pnpm exec playwright test   # browser/proxy e2e suite across 23 specs (fresh user+farm
                      # provisioned per run by e2e/global-setup.ts; serial workers)
 pnpm build           # strict typecheck + production build
 ```
@@ -296,7 +298,7 @@ CI artifacts so the measured numbers stay auditable), `ruff format --check`,
 `ruff check`, `mypy --strict`, an OpenAPI-snapshot freshness check, an Alembic
 upgrade/downgrade round-trip, and `pip-audit`; frontend `pnpm install
 --frozen-lockfile`, ESLint, TypeScript, an Orval freshness check, `pnpm
-test:coverage` (the 85/80/85/85 statements/branches/functions/lines thresholds
+test:coverage` (the 90/87/90/90 statements/branches/functions/lines thresholds
 in `vitest.config.ts` fail the job), `pnpm build`, `pnpm audit`; Playwright
 against the real frontend, API, and PostgreSQL; and builds both application
 containers. A separate pinned-action security workflow runs CodeQL,
@@ -565,16 +567,21 @@ decoding again and the version is added to the safe set.
   `docker compose up -d`, or Compose refuses to start with an
   "incorrect ipam config" error. The
   `frontend` service is only `expose`d, never published.
-  The edge also emits the browser Content-Security-Policy at runtime. This is
-  intentionally outside the Next build so a generic signed registry frontend
-  can support direct S3 screening traffic: when
+  The browser Content-Security-Policy is a per-request nonce policy emitted
+  by the frontend's `src/proxy.ts` (M-1, 2026-09-20) — a nonce must be minted
+  at the render boundary so Next.js can stamp it on its own scripts, which
+  neither the Next build nor the edge can do. The deployment's S3/MinIO
+  origins reach the frontend container as runtime env: when
   `GOATFARM_SCREENING_ENABLED=true`, set both
   `GOATFARM_CSP_CONNECT_ORIGINS` and `GOATFARM_CSP_IMG_ORIGINS` to the public
   S3/MinIO origin (space-separated exact HTTPS origins; loopback HTTP is
-  permitted only for local development). The edge validates the values before
-  rendering nginx and refuses startup if either list is blank, malformed, or
-  attempts header syntax injection. Do not publish the standalone frontend
-  directly; it is the edge response that carries this deployment-specific CSP.
+  permitted only for local development). The proxy re-validates them before
+  they enter `connect-src`/`img-src`, and the edge entrypoint independently
+  validates the same values at boot, refusing startup if either list is
+  blank, malformed, or attempts header syntax injection — so a bad
+  deployment value fails loudly before nginx starts. Do not publish the
+  standalone frontend directly: the edge is the sole published listener and
+  owns that boot-time validation.
   Next's server-side rewrite still uses changeOrigin and sends
   `Host: backend:8000` for anything it does proxy, so every Compose
   `GOATFARM_ALLOWED_HOSTS` override must retain the exact `backend` service
@@ -1264,7 +1271,7 @@ backend/
                      movement-clearance hardening)
   scripts/           export_openapi.py, healthcheck.py, backup.sh, restore.sh,
                      libpq_url.py (URL → credential-safe libpq inputs)
-  tests/             3,400+ tests (logic, RBAC, adversarial, concurrency) on real PostgreSQL
+  tests/             4,800+ tests (logic, RBAC, adversarial, concurrency) on real PostgreSQL
 ```
 
 ## Frontend layout
@@ -1285,7 +1292,7 @@ frontend/
     lib/                  api-client (token store, refresh retry, ApiError),
                           auth-context, use-permissions, format
     components/ui/        Committed shadcn/ui primitives (base-ui)
-  e2e/                    Playwright specs — 18 total, incl. auth, animals,
+  e2e/                    Playwright specs — 23 total, incl. auth, animals,
                           breeding flow, task guards, planner, ops-simulation,
                           navigation RBAC, and API-contract/proxy suites
   src/**/*.test.*         Vitest + MSW unit/component tests
@@ -1332,12 +1339,12 @@ frontend/
 - **Scaling multiplies per-process budgets** (GOV-2): the auth rate ledgers,
   simulation semaphore/CPU budget, and background-loop cadence are
   per-process. One process is pinned by the shipped Dockerfile
-  (`--workers 1`) and *warned* at boot in production (a
-  `UVICORN_WORKERS`/`WEB_CONCURRENCY` override only logs a loud warning;
-  any other launcher must enforce the single-process budget itself) — do
-  not horizontally scale backend containers behind a load balancer without
-  first moving those budgets to Postgres; each replica multiplies the
-  limits.
+  (`--workers 1`), and production **refuses to boot** when a
+  `UVICORN_WORKERS`/`WEB_CONCURRENCY` override requests more than one
+  worker (any other launcher must enforce the single-process budget
+  itself) — do not horizontally scale backend containers behind a load
+  balancer without first moving those budgets to Postgres; each replica
+  multiplies the limits.
 - **Worker data retention position (DPDP)** (GOV-1): a departing worker's
   account identity is scrubbed (tombstone), but their *contributions* to farm
   records (task attribution, transaction authorship, free-text they wrote)

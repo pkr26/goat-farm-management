@@ -46,7 +46,18 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             range="${{ github.event.pull_request.base.sha }}..HEAD"
           else
-            range="HEAD~1..HEAD"
+            # A push can carry many commits: diff its whole span, not just
+            # the tip commit — an in-place revision edit inside an earlier
+            # commit of the same push otherwise escapes the gate
+            # (2026-09-28 audit, F4). github.event.before is the all-zeros
+            # sha on branch creation (no prior commit to diff against), so
+            # fall back to the tip-only range in that case.
+            before="${{ github.event.before }}"
+            if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
+              range="HEAD~1..HEAD"
+            else
+              range="$before..HEAD"
+            fi
           fi
           # 2026-09-20 audit P1-6 (bd201c1cdc1b: wipe feed lines/finished
           # stock before recipes) and P2-13 (b5d7f9a1c3e5: detach ORF-linked
@@ -71,7 +82,7 @@ jobs:
   backend:
     runs-on: ubuntu-latest
     # pytest drives a real PostgreSQL and is the only slow step here — every
-    # other step in this job finishes inside a minute. With 3,200+ tests it can
+    # other step in this job finishes inside a minute. With 4,800+ tests it can
     # exceed 35 minutes on a hosted runner, and coverage instrumentation
     # (--cov=app) adds roughly 15–25% on top, so keep enough headroom for both
     # plus runner variance and the dependency audit after pytest.
