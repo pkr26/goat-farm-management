@@ -274,6 +274,8 @@ cd backend
 ./.venv/bin/python -m pytest            # 4,800+ tests, real PostgreSQL (goatfarm_test)
 ./.venv/bin/ruff format --check . && ./.venv/bin/ruff check .
 ./.venv/bin/python -m mypy --strict app scripts  # strict-green: 0 errors; keep it that way
+./.venv/bin/python -m mypy --strict mutation     # mutation harness: strict-green too
+./.venv/bin/python scripts/mypy_tests_ratchet.py # tests/ strict-error ratchet (1778; CI fails on growth)
 ./.venv/bin/python scripts/export_openapi.py   # regenerate shared/openapi.json
 
 # Frontend
@@ -295,7 +297,8 @@ pytest against a Postgres service with line-and-branch coverage floor (`--cov=ap
 `fail_under` floor in `backend/pyproject.toml` `[tool.coverage.report]` — a
 coverage regression fails the build; both coverage reports are uploaded as
 CI artifacts so the measured numbers stay auditable), `ruff format --check`,
-`ruff check`, `mypy --strict`, an OpenAPI-snapshot freshness check, an Alembic
+`ruff check`, `mypy --strict` (app+scripts, the mutation harness, and the
+tests/ counted ratchet), an OpenAPI-snapshot freshness check, an Alembic
 upgrade/downgrade round-trip, and `pip-audit`; frontend `pnpm install
 --frozen-lockfile`, ESLint, TypeScript, an Orval freshness check, `pnpm
 test:coverage` (the 90/87/90/90 statements/branches/functions/lines thresholds

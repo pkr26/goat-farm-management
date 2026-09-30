@@ -76,7 +76,13 @@ from ..schemas.auth import (
     WorkerRosterEntryOut,
     WorkerRosterOut,
 )
-from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID
+from ..schemas.common import (
+    COMMON_ERROR_RESPONSES,
+    MAX_INT32_ID,
+    lifecycle_conflict,
+    stale_state_conflict,
+    standing_quota,
+)
 from ..security import (
     LEGACY_PBKDF2_PREFIX,
     TOTP_CHALLENGE_TTL_SECONDS,
@@ -671,8 +677,7 @@ async def _make_refresh_session_slot(
     if len(overflow_ids) > REFRESH_SESSION_HISTORY_HARD_CEILING:
         detail = "Refresh-session history exceeds its repairable bound"
         detail += "; contact an administrator."
-        raise HTTPException(
-            status_code=409,
+        raise standing_quota(
             detail=detail,
         )
     if overflow_ids:
@@ -1772,8 +1777,7 @@ async def export_account(response: Response, db: DbSession, user: CurrentUser) -
         ).scalars()
     )
     if len(owned) > affiliation_cap:
-        raise HTTPException(
-            status_code=409,
+        raise standing_quota(
             detail="Account has too many farm affiliations to return safely.",
         )
     remaining_affiliations = affiliation_cap - len(owned)
@@ -1794,8 +1798,7 @@ async def export_account(response: Response, db: DbSession, user: CurrentUser) -
         ).scalars()
     )
     if len(memberships) > remaining_affiliations:
-        raise HTTPException(
-            status_code=409,
+        raise standing_quota(
             detail="Account has too many farm affiliations to return safely.",
         )
     response.headers["Content-Disposition"] = (
@@ -1920,8 +1923,7 @@ async def delete_account(
         if owns_farm is not None:
             # Two Argon2 runs already happened. The admission charge remains in
             # place; only a completed deletion clears it below.
-            raise HTTPException(
-                status_code=409,
+            raise lifecycle_conflict(
                 detail=(
                     "Account deletion is unavailable while this account owns a farm; "
                     "farm ownership cannot currently be transferred or deleted."
@@ -2253,8 +2255,7 @@ async def totp_enroll(
     # the enrolled secret; route re-enrollers through it first. Re-rolling a
     # merely PENDING (never confirmed) enrollment stays allowed.
     if locked.totp_state == "ACTIVE":
-        raise HTTPException(
-            status_code=409,
+        raise lifecycle_conflict(
             detail=(
                 "Two-factor is already enabled. Disable it (with a current code) "
                 "before starting a new enrollment."
@@ -2265,6 +2266,18 @@ async def totp_enroll(
     locked.totp_state = "PENDING"
     locked.totp_last_step = None
     await db.commit()
+    # A completed enrollment proves the caller knew the current password —
+    # the confirmation budget's own contract ("successful commits clear the
+    # counters") must hold here like it does in change_password and
+    # delete_account, or a user toggling 2FA inside one rate-limit window
+    # crawls toward the composite ceiling on correct passwords
+    # (2026-09-29 audit, L3).
+    _reset_account_password_attempts(
+        TOTP_ENROLL_SCOPE,
+        ACCOUNT_PASSWORD_CONFIRM_ACCOUNT_SCOPE,
+        f"{_client_key(request)}|{user_id}",
+        user_id,
+    )
     security_event(
         "auth.totp.enroll_started",
         "TOTP enrollment started (pending confirmation)",
@@ -2314,7 +2327,7 @@ async def totp_confirm(
         # → 500 here (2026-09-17 re-audit).
         raise HTTPException(status_code=401, detail="Account no longer exists.")
     if locked.totp_state != "PENDING" or locked.totp_secret_enc is None:
-        raise HTTPException(status_code=409, detail="Start enrollment first.")
+        raise lifecycle_conflict(detail="Start enrollment first.")
     # Same guess budget as the login challenge: a stolen access token must
     # not get an unthrottled 6-digit oracle here either (2026-09-17 re-audit).
     s = get_settings()
@@ -2339,7 +2352,7 @@ async def totp_confirm(
         raise _too_many_attempts()
     encrypted = locked.totp_secret_enc
     if encrypted is None:  # unreachable: the PENDING check above plus the pairing CHECK
-        raise HTTPException(status_code=409, detail="Start enrollment first.")
+        raise lifecycle_conflict(detail="Start enrollment first.")
     decrypted = await _decrypt_totp_secret_or_unavailable(
         db, encrypted, user_id=locked.id, operation="confirm"
     )
@@ -2415,7 +2428,7 @@ async def totp_disable(
             raise HTTPException(status_code=401, detail="Account no longer exists.")
         state = locked.totp_state
         if state is None or locked.totp_secret_enc is None:
-            raise HTTPException(status_code=409, detail="Two-factor is not enrolled.")
+            raise lifecycle_conflict(detail="Two-factor is not enrolled.")
         if not password_confirmed:
             await _confirm_current_password(
                 db, request, payload.current_password, locked, scope=TOTP_ENROLL_SCOPE
@@ -2428,7 +2441,7 @@ async def totp_disable(
         if state == "ACTIVE":
             encrypted = locked.totp_secret_enc
             if encrypted is None:  # unreachable: checked above + the pairing CHECK
-                raise HTTPException(status_code=409, detail="Two-factor is not enrolled.")
+                raise lifecycle_conflict(detail="Two-factor is not enrolled.")
             # Same is_blocked pre-check pattern as totp_confirm: consult the
             # ledger before another code ever reaches the verifier.
             if s.auth_rate_limit_enabled and (
@@ -2489,6 +2502,16 @@ async def totp_disable(
         # it must retire them (a later re-enrollment mints a fresh set).
         await db.execute(delete(TotpRecoveryCode).where(TotpRecoveryCode.user_id == user_id))
         await db.commit()
+        # The password side of the proof succeeded and committed — clear the
+        # confirmation budget like every other successful credential workflow
+        # (2026-09-29 audit, L3); disable shares TOTP_ENROLL_SCOPE with
+        # enrollment by design, so one reset covers both charge sites.
+        _reset_account_password_attempts(
+            TOTP_ENROLL_SCOPE,
+            ACCOUNT_PASSWORD_CONFIRM_ACCOUNT_SCOPE,
+            f"{_client_key(request)}|{user_id}",
+            user_id,
+        )
         if s.auth_rate_limit_enabled:
             # A completed disable proves possession of the current code; clear
             # its ledger the way a successful confirm does.
@@ -2503,7 +2526,7 @@ async def totp_disable(
     # The state kept changing under the lock across the whole retry budget;
     # nothing was modified.
     await db.rollback()
-    raise HTTPException(status_code=409, detail="Two-factor state changed; try again.")
+    raise stale_state_conflict(detail="Two-factor state changed; try again.")
 
 
 @router.post("/totp/recovery/regenerate", status_code=200)
@@ -2542,7 +2565,7 @@ async def totp_recovery_regenerate(
         raise HTTPException(status_code=401, detail="Account no longer exists.")
     if locked.totp_state != "ACTIVE" or locked.totp_secret_enc is None:
         await db.rollback()
-        raise HTTPException(status_code=409, detail="Two-factor is not active.")
+        raise lifecycle_conflict(detail="Two-factor is not active.")
     s = get_settings()
     composite_key = f"{_client_key(request)}|{user_id}"
     if s.auth_rate_limit_enabled and (
@@ -2588,6 +2611,14 @@ async def totp_recovery_regenerate(
         locked.totp_secret_enc = encrypt_totp_secret(decrypted.secret)
     codes = await _mint_totp_recovery_codes(db, locked)
     await db.commit()
+    # Password proof committed successfully — clear the confirmation budget
+    # like change_password/delete_account do (2026-09-29 audit, L3).
+    _reset_account_password_attempts(
+        TOTP_RECOVERY_REGEN_SCOPE,
+        ACCOUNT_PASSWORD_CONFIRM_ACCOUNT_SCOPE,
+        f"{_client_key(request)}|{user_id}",
+        user_id,
+    )
     if s.auth_rate_limit_enabled:
         auth_limiter.reset(TOTP_RECOVERY_REGEN_SCOPE, str(user_id))
         auth_limiter.reset(TOTP_RECOVERY_REGEN_SCOPE, composite_key)

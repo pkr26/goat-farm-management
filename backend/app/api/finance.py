@@ -24,7 +24,12 @@ from ..models import (
     Transaction,
     TransactionType,
 )
-from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET
+from ..schemas.common import (
+    COMMON_ERROR_RESPONSES,
+    MAX_INT32_ID,
+    MAX_PAGE_OFFSET,
+    lifecycle_conflict,
+)
 from ..schemas.finance import (
     SYSTEM_ONLY_CATEGORIES,
     FinanceOut,
@@ -113,8 +118,7 @@ async def _locked_source_animal(db: DbSession, farm: CurrentFarm, animal_id: int
         else None
     )
     if animal is None or animal.farm_id != farm.id:
-        raise HTTPException(
-            status_code=409,
+        raise lifecycle_conflict(
             detail="The animal this transaction was booked from is no longer on this farm",
         )
     return animal
@@ -204,7 +208,7 @@ async def _reconcile_feed_purchase(
             )
         return await _resolve_related_animal(db, farm, txn.related_animal_id)
     if txn.source_id is None:
-        raise HTTPException(status_code=409, detail="This feed purchase has no stable source id")
+        raise lifecycle_conflict(detail="This feed purchase has no stable source id")
     # The legacy all-null form above is supported deliberately. Any *partial*
     # provenance is corrupt data, though: with assertions disabled it used to
     # reach Decimal arithmetic or inventory updates with None and turn a
@@ -215,8 +219,7 @@ async def _reconcile_feed_purchase(
         or txn.feed_quantity_kg is None
         or txn.feed_unit_price_per_kg is None
     ):
-        raise HTTPException(
-            status_code=409,
+        raise lifecycle_conflict(
             detail="This feed purchase has incomplete inventory provenance",
         )
     corrected_qty_kg = _corrected_feed_quantity_kg(txn, payload)
@@ -224,8 +227,7 @@ async def _reconcile_feed_purchase(
         # Defensive against a hand-edited ORM instance: the database
         # constraint above prevents this on normal rows, but the correction
         # path must stay deterministic even under corrupt historical data.
-        raise HTTPException(
-            status_code=409,
+        raise lifecycle_conflict(
             detail="This feed purchase has incomplete inventory provenance",
         )
     quantity_changed = corrected_qty_kg != txn.feed_quantity_kg
@@ -245,8 +247,7 @@ async def _reconcile_feed_purchase(
         )
     ).scalar_one_or_none()
     if inventory is None:
-        raise HTTPException(
-            status_code=409,
+        raise lifecycle_conflict(
             detail="The feed inventory item this purchase updated no longer exists",
         )
 
@@ -259,8 +260,7 @@ async def _reconcile_feed_purchase(
         delta = corrected_qty_kg - txn.feed_quantity_kg
         new_qty_on_hand = Decimal(str(inventory.qty_on_hand)) + delta
         if new_qty_on_hand < 0:
-            raise HTTPException(
-                status_code=409,
+            raise lifecycle_conflict(
                 detail=(
                     "Correcting this purchase's quantity would drive on-hand stock "
                     "negative — some of it has already been used"
@@ -282,8 +282,7 @@ async def _reconcile_feed_purchase(
 
     corrected_unit_price = _corrected_feed_unit_price(txn, amount, corrected_qty_kg)
     if corrected_unit_price is None:
-        raise HTTPException(
-            status_code=409,
+        raise lifecycle_conflict(
             detail="This feed purchase has incomplete inventory provenance",
         )
 
@@ -306,8 +305,7 @@ async def _reconcile_feed_purchase(
         latest_unit_price = corrected_unit_price
     else:
         if other_latest is None or other_key is None or other_latest.feed_unit_price_per_kg is None:
-            raise HTTPException(
-                status_code=409,
+            raise lifecycle_conflict(
                 detail="The latest feed purchase has incomplete inventory provenance",
             )
         latest_key = other_key
@@ -331,8 +329,7 @@ async def _reconcile_feed_purchase(
         and legacy_latest.source_id is not None
         and latest_key <= (legacy_latest.date, legacy_latest.source_id)
     ):
-        raise HTTPException(
-            status_code=409,
+        raise lifecycle_conflict(
             detail=(
                 "A legacy feed purchase may be the latest purchase for this inventory; "
                 "its unit price cannot be reconciled safely"
@@ -391,8 +388,7 @@ async def _reconcile_source_record(
             # Pregnancy-loss attribution is an immutable audit fact at the DB
             # layer. Letting only the sale date move would split the one status
             # event into contradictory dates, so date correction is unsafe.
-            raise HTTPException(
-                status_code=409,
+            raise lifecycle_conflict(
                 detail=(
                     "This sale date also anchors an immutable pregnancy auto-abort; "
                     "book a compensating entry instead"
@@ -413,8 +409,7 @@ async def _reconcile_source_record(
             )
         ).scalar_one_or_none()
         if withdrawal is not None:
-            raise HTTPException(
-                status_code=409,
+            raise lifecycle_conflict(
                 detail=f"Sale/cull is blocked by medicine withdrawal through {withdrawal}",
             )
         if payload.date != animal.status_date:
@@ -438,8 +433,7 @@ async def _reconcile_source_record(
                 )
             ).scalar_one_or_none()
             if orphan_move is not None:
-                raise HTTPException(
-                    status_code=409,
+                raise lifecycle_conflict(
                     detail=(
                         "This sale date also anchors the early weaning of this dam's kids; "
                         "book a compensating entry instead"
@@ -495,8 +489,7 @@ async def _reconcile_source_record(
             )
         ).scalar_one_or_none()
         if batch is None:
-            raise HTTPException(
-                status_code=409,
+            raise lifecycle_conflict(
                 detail="The purchase batch this transaction was booked from no longer exists",
             )
         allocated_count = (
@@ -509,8 +502,7 @@ async def _reconcile_source_record(
         ).scalar_one()
         if allocated_count:
             if amount != txn.amount or payload.date != txn.date:
-                raise HTTPException(
-                    status_code=409,
+                raise lifecycle_conflict(
                     detail=(
                         "A PURCHASE_BATCH amount and date are allocated across its animals; "
                         "book a compensating entry instead"
@@ -530,8 +522,7 @@ async def _reconcile_source_record(
         # date without a source-specific reconciler would create two versions
         # of the same event.
         if amount != txn.amount or payload.date != txn.date:
-            raise HTTPException(
-                status_code=409,
+            raise lifecycle_conflict(
                 detail=(
                     f"A {txn.source_type} amount and date are shared by the records it was "
                     "booked from; book a compensating entry instead"
@@ -734,7 +725,7 @@ async def correct_transaction(
         if txn is None or txn.farm_id != farm.id:
             raise HTTPException(status_code=404, detail="Transaction not found")
         if txn.voided_at is not None:
-            raise HTTPException(status_code=409, detail="Transaction has already been corrected")
+            raise lifecycle_conflict(detail="Transaction has already been corrected")
         if payload.feed_quantity_kg is not None and txn.source_type != "FEED_PURCHASE":
             raise HTTPException(
                 status_code=422,
@@ -907,8 +898,7 @@ async def add_insurance_policy(
     except IntegrityError as exc:
         if unique_constraint_name(exc) != "uq_insurance_policies_farm_policy_number":
             raise
-        raise HTTPException(
-            status_code=409,
+        raise lifecycle_conflict(
             detail=f"Policy number {payload.policy_number} is already registered on this farm",
         ) from None
     await db.commit()
@@ -1028,7 +1018,7 @@ async def claim_policy(
             claimed_by_id=user.id,
         )
     except PolicyAlreadyClaimedError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from None
+        raise lifecycle_conflict(detail=str(exc)) from None
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
     await db.commit()

@@ -11,7 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..deps import CurrentFarm, CurrentMembership, CurrentUser, DbSession, require_perm
 from ..models import Animal, PurchaseBatch, Task, TaskStatus
 from ..models.species import GOAT_PROFILE
-from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET, PostgresText
+from ..schemas.common import (
+    COMMON_ERROR_RESPONSES,
+    MAX_INT32_ID,
+    MAX_PAGE_OFFSET,
+    PostgresText,
+    lifecycle_conflict,
+)
 from ..schemas.purchases import (
     PurchaseBatchDetailOut,
     PurchaseBatchIn,
@@ -212,8 +218,7 @@ async def create_batch(
                 raise
             # The outer idempotency transaction rolls the whole batch/claim
             # back.
-            raise HTTPException(
-                status_code=409,
+            raise lifecycle_conflict(
                 detail="A generated animal tag already exists on this farm — please retry.",
             ) from None
         return (await _batch_out(db, [batch]))[0]

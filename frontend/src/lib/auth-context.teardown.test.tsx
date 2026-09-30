@@ -18,6 +18,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { apiFetch, setAccessToken, setCurrentFarmId } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { farmToday } from "@/lib/format";
+import {
+  clearOfflineQueueDrainBackoff,
+  drainOfflineQueue,
+  enqueueOfflineMutation,
+  wipeOfflineQueue,
+} from "@/lib/offline-queue";
 import { server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 import { settle } from "@/test/settle";
@@ -130,6 +136,10 @@ describe("AuthProvider teardown — module-level scopes reset with the session",
     replaceMock.mockClear();
     setAccessToken(null);
     setCurrentFarmId(null);
+    // The offline queue and its 429 gate are module state too — start every
+    // case from a clean slate so a failed assertion can't leak across tests.
+    wipeOfflineQueue();
+    clearOfflineQueueDrainBackoff();
   });
 
   it("stops stamping the signed-out farm on later requests", async () => {
@@ -153,6 +163,61 @@ describe("AuthProvider teardown — module-level scopes reset with the session",
 
     await apiFetch("/api/animals");
     expect(farmScope()).toBeNull();
+  });
+
+  it("clears the offline queue's 429 drain backoff on sign-out", async () => {
+    // The Retry-After gate is module state next to the queue itself. Before
+    // the 2026-09-29 audit fix it survived session teardown, so a shared
+    // tablet's next worker inherited the previous session's throttle: their
+    // first drain sat behind a stale backoff for up to an hour.
+    acceptLogout();
+    const user = userEvent.setup();
+    renderWithProviders(<Probe />);
+    await expectLoaded();
+
+    const scopes = { actorScope: "7", farmScope: "3" };
+    expect(
+      enqueueOfflineMutation(
+        "/api/tasks/9/complete",
+        { method: "POST", body: "{}" },
+        scopes,
+      ),
+    ).toBe(true);
+
+    // First drain meets a 429 with a Retry-After hint: record kept, gate set.
+    const throttled = vi.fn(() =>
+      Promise.reject(
+        Object.assign(new Error("rate limited"), { status: 429, retryAfterSeconds: 3600 }),
+      ),
+    );
+    const throttledOutcome = await drainOfflineQueue(scopes, throttled);
+    expect(throttled).toHaveBeenCalledTimes(1);
+    expect(throttledOutcome.remaining).toBe(1);
+
+    // While gated, another drain must not touch the network at all.
+    const gated = vi.fn(() => Promise.resolve({ ok: true }));
+    await drainOfflineQueue(scopes, gated);
+    expect(gated).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "sign-out" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("user")).toHaveTextContent("none"),
+    );
+
+    // The next actor's record must reach the network immediately — the
+    // previous session's Retry-After must not gate it.
+    const nextActor = { actorScope: "8", farmScope: "3" };
+    expect(
+      enqueueOfflineMutation(
+        "/api/tasks/10/complete",
+        { method: "POST", body: "{}" },
+        nextActor,
+      ),
+    ).toBe(true);
+    const sent = vi.fn(() => Promise.resolve({ ok: true }));
+    const outcome = await drainOfflineQueue(nextActor, sent);
+    expect(sent).toHaveBeenCalledTimes(1);
+    expect(outcome.replayed).toBe(1);
   });
 
   it("returns date-only business rules to the default zone on sign-out", async () => {

@@ -59,13 +59,17 @@ class NotificationRecipient(Base):
         UniqueConstraint("farm_id", "id", name="uq_notification_recipients_farm_id_id"),
         CheckConstraint("btrim(phone) <> ''", name="ck_notification_recipients_phone_nonblank"),
         Index("ix_notification_recipients_farm_enabled", "farm_id", "daily_digest"),
+        ForeignKeyConstraint(
+            ["farm_id", "membership_id"],
+            ["farm_memberships.farm_id", "farm_memberships.id"],
+            name="fk_notification_recipients_farm_id_membership_id",
+            ondelete="CASCADE",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id", ondelete="CASCADE"))
-    membership_id: Mapped[int] = mapped_column(
-        ForeignKey("farm_memberships.id", ondelete="CASCADE")
-    )
+    membership_id: Mapped[int] = mapped_column()
     phone: Mapped[str] = mapped_column(String(20))
     # Alert-class opt-ins. The daily digest is the headline; the rest are
     # same-day owner/operator alerts.

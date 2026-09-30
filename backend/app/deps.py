@@ -20,7 +20,7 @@ from .db import get_db
 from .models import Farm, FarmMembership, RefreshSession, Role, User
 from .permissions import ALL_PERMISSIONS
 from .ratelimit import auth_limiter
-from .schemas.common import MAX_INT32_ID
+from .schemas.common import MAX_INT32_ID, standing_quota
 from .security import decode_access_claims_result
 from .utils import utcnow
 
@@ -475,8 +475,7 @@ async def accessible_farms(db: AsyncSession, user: User) -> list[tuple[Farm, str
         ).scalars()
     )
     if len(owned) > cap:
-        raise HTTPException(
-            status_code=409,
+        raise standing_quota(
             detail="Account has too many farm affiliations to return safely.",
         )
     pairs: list[tuple[Farm, str | None]] = [(farm, None) for farm in owned]
@@ -498,8 +497,7 @@ async def accessible_farms(db: AsyncSession, user: User) -> list[tuple[Farm, str
         ).scalars()
     )
     if len(memberships) > remaining:
-        raise HTTPException(
-            status_code=409,
+        raise standing_quota(
             detail="Account has too many farm affiliations to return safely.",
         )
     for membership in memberships:

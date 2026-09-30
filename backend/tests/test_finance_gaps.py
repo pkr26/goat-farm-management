@@ -127,3 +127,48 @@ async def test_ledger_correction_voids_and_replaces(client: httpx.AsyncClient) -
 
     # Net effect of the pair is exactly the replacement amount.
     _ = date.today()
+
+
+async def test_correcting_an_already_corrected_row_is_a_coded_lifecycle_conflict(
+    client: httpx.AsyncClient,
+) -> None:
+    """The 2026-09-29 audit (L1) moved every remaining bare 409 onto the coded
+    conflict families. A correction replay against an already-voided row must
+    carry LIFECYCLE_CONFLICT so localized clients can branch on the code
+    instead of byte-pinning the English detail."""
+    owner = await owner_with_farm(client, email="coded-409@farm.in")
+    created = await client.post(
+        "/api/finance/new",
+        json={
+            "date": (today() - timedelta(days=2)).isoformat(),
+            "type": "EXPENSE",
+            "category": "OTHER",
+            "amount": 200.00,
+            "notes": "original",
+        },
+        headers=owner,
+    )
+    assert created.status_code == 201, created.text
+    original = created.json()
+    correction = {
+        "date": (today() - timedelta(days=2)).isoformat(),
+        "type": "EXPENSE",
+        "category": "OTHER",
+        "amount": 210.00,
+        "notes": "correct amount",
+        "reason": "mis-keyed",
+    }
+    first = await client.post(
+        f"/api/finance/transactions/{original['id']}/correct",
+        json=correction,
+        headers=owner | {"Idempotency-Key": "coded-409-a"},
+    )
+    assert first.status_code in (200, 201), first.text
+    replay = await client.post(
+        f"/api/finance/transactions/{original['id']}/correct",
+        json=correction,
+        headers=owner | {"Idempotency-Key": "coded-409-b"},
+    )
+    assert replay.status_code == 409, replay.text
+    assert replay.json()["code"] == "LIFECYCLE_CONFLICT"
+    assert replay.json()["detail"] == "Transaction has already been corrected"

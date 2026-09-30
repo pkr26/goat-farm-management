@@ -43,8 +43,9 @@ HEAD = (
     # CONCURRENTLY builds) -> notification/totp timestamp server defaults ->
     # screening join indexes -> screening_images bucket varchar(20) ->
     # index-hygiene wave 2 + subsumed birth-weight CHECK -> timestamp
-    # server defaults wave 2, the D7 completion)
-    "d9e0f2a4b6c8"
+    # server defaults wave 2, the D7 completion -> notification_recipients
+    # membership composite tenant FK, the L2 completion)
+    "c1d3e5f7a9b4"
 )
 SCREENING_CONTENT_CLAIMS_PARENT = "b7e8f9a0c1d2"
 SCREENING_CONTENT_CLAIMS = "f7a9c1e3b5d7"

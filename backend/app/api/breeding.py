@@ -20,7 +20,13 @@ from ..schemas.breeding import (
     PregnancyLossIn,
     UltrasoundIn,
 )
-from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET, PostgresText
+from ..schemas.common import (
+    COMMON_ERROR_RESPONSES,
+    MAX_INT32_ID,
+    MAX_PAGE_OFFSET,
+    PostgresText,
+    lifecycle_conflict,
+)
 from ..services import (
     IdempotencyKey,
     LitterSizeError,
@@ -322,13 +328,12 @@ async def create_breeding(
             # Lifecycle/biology conflict (unresolved breeding, VWP, inbreeding
             # fence, species protocol) — raced or forged request.
             await db.rollback()
-            raise HTTPException(status_code=409, detail=str(exc)) from None
+            raise lifecycle_conflict(detail=str(exc)) from None
         except IntegrityError:
             # A concurrent create raced the pre-check into the
             # uq_breeding_open_pregnancy partial UNIQUE (one PENDING per doe).
             await db.rollback()
-            raise HTTPException(
-                status_code=409,
+            raise lifecycle_conflict(
                 detail=f"{doe_tag} already has an unresolved breeding/pregnancy",
             ) from None
         # Re-fetch with eager loads: the fresh row has no relationships loaded, and
@@ -373,8 +378,7 @@ async def submit_ultrasound(
         # The doe left the herd before her check, so the sale/death closed
         # this service as unassessable. Name the real reason instead of
         # claiming a result that was never recorded.
-        raise HTTPException(
-            status_code=409,
+        raise lifecycle_conflict(
             detail=(
                 f"{br.doe.tag_number} is {br.doe.status.lower()} — "
                 "cannot record an ultrasound result"
@@ -384,7 +388,7 @@ async def submit_ultrasound(
         # Result already recorded — no replays (the service would no-op anyway).
         # Re-checked under the row lock, so a raced double submit serializes:
         # the loser re-reads the committed outcome and lands here.
-        raise HTTPException(status_code=409, detail="Ultrasound result already recorded")
+        raise lifecycle_conflict(detail="Ultrasound result already recorded")
     result_date = payload.date or today(farm.timezone)
     try:
         require_farm_not_future(result_date, farm, "ultrasound date")
@@ -413,7 +417,7 @@ async def submit_ultrasound(
         # service as UNASSESSED (caught above), so the service's own ACTIVE
         # guard only fires for a row written outside that path.
         await db.rollback()
-        raise HTTPException(status_code=409, detail=str(exc)) from None
+        raise lifecycle_conflict(detail=str(exc)) from None
     await db.commit()
     return breeding_out(br)
 
@@ -432,8 +436,7 @@ async def abort_pregnancy(
         # mark_aborted no-ops here — surface the rejection, never a fake success.
         # Re-checked under the row lock: a raced double-abort (or a kidding
         # that committed while we waited) re-reads and lands here.
-        raise HTTPException(
-            status_code=409,
+        raise lifecycle_conflict(
             detail="Only a confirmed pregnancy without a kidding record can be aborted",
         )
     try:

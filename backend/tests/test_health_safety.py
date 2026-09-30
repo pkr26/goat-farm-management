@@ -196,9 +196,11 @@ async def test_stale_reviewed_snapshot_states_its_conflict_verbatim(
 
     # The locked ids still match the reviewed set, so it is the stability guard
     # that speaks here rather than the id-mismatch guard. Its wording is what
-    # the operator is shown, so it is pinned exactly rather than case-folded.
+    # the operator is shown, so it is pinned exactly rather than case-folded;
+    # the coded-conflict family (2026-09-29 audit, L1) rides alongside.
     assert stale.status_code == 409, stale.text
     assert stale.json()["detail"] == "Reviewed target snapshot is stale"
+    assert stale.json()["code"] == "STALE_STATE_CONFLICT"
 
 
 async def test_bulk_snapshot_never_locks_or_doses_a_foreign_farm_animal(
@@ -226,6 +228,7 @@ async def test_bulk_snapshot_never_locks_or_doses_a_foreign_farm_animal(
     # or dosed — the composite health-event foreign key is not the last line.
     assert stolen.status_code == 409, stolen.text
     assert stolen.json()["detail"] == "Reviewed target snapshot is stale"
+    assert stolen.json()["code"] == "STALE_STATE_CONFLICT"
     victim_ledger = await client.get("/api/health/events", headers=victim)
     assert victim_ledger.status_code == 200, victim_ledger.text
     assert victim_ledger.json()["events"] == []

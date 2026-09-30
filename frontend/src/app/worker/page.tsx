@@ -303,7 +303,10 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
           )}
           {hiddenDuties > 0 && (
             <p className="text-sm text-muted-foreground">
-              {t("worker.moreDuties", { count: hiddenDuties })}
+              {t(
+                hiddenDuties === 1 ? "worker.moreDuties_one" : "worker.moreDuties_many",
+                { count: hiddenDuties },
+              )}
             </p>
           )}
         </>

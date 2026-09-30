@@ -16,10 +16,19 @@ import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth-context";
 import { LANGUAGE_STORAGE_KEY, useLanguage, useT } from "@/lib/i18n";
 import { safeStorage } from "@/lib/safe-storage";
 import {
+  clearOfflineQueueDrainBackoff,
   drainOfflineQueue,
   offlineQueueDepth,
   startOfflineQueueWorkers,
@@ -61,6 +70,10 @@ export function WorkerShell({ children }: { children: ReactNode }) {
   const { setLanguage } = useLanguage();
   const [online, setOnline] = useState(true);
   const [depth, setDepth] = useState(0);
+  /** Non-null = the unsent-duties confirm is open for that many queued
+   * records (snapshot at open time, so the copy can't shift under the
+   * dialog while the 1.5s badge tick continues). */
+  const [endShiftPendingCount, setEndShiftPendingCount] = useState<number | null>(null);
 
   // Telugu-first: field workers are the primary audience of this surface; a
   // manager who chose a language keeps their choice. Writing storage before
@@ -122,7 +135,12 @@ export function WorkerShell({ children }: { children: ReactNode }) {
       // stay PENDING and reappear on the board, but the recorded
       // completions are gone — say so instead of dropping them silently
       // (2026-09-29 audit).
-      toast.error(t("worker.offlineRejected", { count: rejected }));
+      toast.error(
+        t(
+          rejected === 1 ? "worker.offlineRejected_one" : "worker.offlineRejected_many",
+          { count: rejected },
+        ),
+      );
     });
     const tick = window.setInterval(() => setDepth(offlineQueueDepth()), 1500);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- the badge must reflect the queue depth this session inherited, not wait 1.5s
@@ -168,8 +186,12 @@ export function WorkerShell({ children }: { children: ReactNode }) {
 
   async function endShift() {
     // End shift is a shared-device handover: the queued writes belong to the
-    // departing worker's session and must not leak to the next one.
+    // departing worker's session and must not leak to the next one. The
+    // 429 drain backoff is the same session's — clear it so the next
+    // actor's first drain isn't gated by this session's Retry-After
+    // (clearSession clears it too; belt and braces for the worker path).
     wipeOfflineQueue();
+    clearOfflineQueueDrainBackoff();
     await signOut();
     router.replace("/worker/login");
   }
@@ -199,11 +221,16 @@ export function WorkerShell({ children }: { children: ReactNode }) {
               </span>
             )}
             {/* h-11: the worker surface's ≥44px touch floor — the default
-             * h-9 left End shift at 36px (2026-09-28 audit, W9). */}
+             * h-9 left End shift at 36px (2026-09-28 audit, W9). A non-empty
+             * queue routes through the confirm dialog: the badge promised
+             * "will send when online", so silently discarding those writes
+             * on handover must be an explicit choice (2026-09-29 audit, M2). */}
             <Button
               variant="destructive"
               className="h-11"
-              onClick={() => void endShift()}
+              onClick={() =>
+                depth > 0 ? setEndShiftPendingCount(depth) : void endShift()
+              }
               data-testid="end-shift"
             >
               <LogOut aria-hidden /> {t("worker.endShift")}
@@ -219,6 +246,47 @@ export function WorkerShell({ children }: { children: ReactNode }) {
       <main id="main-content" className="mx-auto max-w-3xl space-y-6 p-4">
         {children}
       </main>
+      <Dialog
+        open={endShiftPendingCount !== null}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setEndShiftPendingCount(null);
+        }}
+      >
+        <DialogContent role="alertdialog">
+          <DialogHeader>
+            <DialogTitle>{t("worker.endShiftConfirm.title")}</DialogTitle>
+            <DialogDescription>
+              {t(
+                endShiftPendingCount === 1
+                  ? "worker.endShiftConfirm.description_one"
+                  : "worker.endShiftConfirm.description_many",
+                { count: endShiftPendingCount ?? 0 },
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="h-11"
+              onClick={() => setEndShiftPendingCount(null)}
+              data-testid="end-shift-cancel"
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button
+              variant="destructive"
+              className="h-11"
+              onClick={() => {
+                setEndShiftPendingCount(null);
+                void endShift();
+              }}
+              data-testid="end-shift-confirm"
+            >
+              {t("worker.endShiftConfirm.confirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

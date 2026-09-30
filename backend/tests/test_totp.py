@@ -883,6 +883,65 @@ async def test_disable_wrong_code_is_throttled(
     assert locked.status_code == 429
 
 
+async def test_password_confirmation_budget_clears_on_successful_totp_commits(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """2026-09-29 audit, L3: _record_account_password_attempt documents
+    "successful commits clear the counters", and change_password and
+    delete_account honor it — but enroll/disable/recovery-regenerate never
+    reset, so a legitimate user toggling 2FA inside one rate-limit window
+    crawled toward the composite password-confirm ceiling on correct
+    passwords and could hit an early 429. Every successful commit now resets
+    both scopes exactly like its siblings."""
+    monkeypatch.setattr(get_settings(), "auth_rate_limit_enabled", True)
+    # Shrink the per-key budget so the regression (and the control below) is
+    # reachable in a handful of calls instead of the default five.
+    monkeypatch.setattr(get_settings(), "auth_rate_limit_max_attempts", 2)
+    headers = await register(client, "totp-budgetclear@farm.in")
+
+    # Re-rolling a PENDING enrollment three times in one window: three
+    # successful password-confirmed commits against a budget of two —
+    # without the success-side reset the third would already 429.
+    for attempt in range(3):
+        enroll = await client.post(
+            "/api/auth/totp/enroll", json={"current_password": OWNER_PW}, headers=headers
+        )
+        assert enroll.status_code == 200, (attempt, enroll.text)
+
+    # The same contract on the disable and regenerate paths: each commits
+    # with a proven password and must leave the budget cleared behind it.
+    secret, _codes = await _enroll_and_activate(client, headers)
+    code, _step = _current_code(secret, drift=1)
+    disabled = await client.post(
+        "/api/auth/totp/disable",
+        json={"current_password": OWNER_PW, "code": code},
+        headers=headers,
+    )
+    assert disabled.status_code == 204, disabled.text
+    secret2, _codes2 = await _enroll_and_activate(client, headers)
+    code2, _step2 = _current_code(secret2, drift=1)
+    regen = await client.post(
+        "/api/auth/totp/recovery/regenerate",
+        json={"current_password": OWNER_PW, "code": code2},
+        headers=headers,
+    )
+    assert regen.status_code == 200, regen.text
+
+    # Control — the reset is success-only: wrong passwords still charge, and
+    # two failures at the shrunk budget lock the composite key out again.
+    for _ in range(2):
+        bad = await client.post(
+            "/api/auth/totp/enroll",
+            json={"current_password": "not-the-password"},
+            headers=headers,
+        )
+        assert bad.status_code == 400, bad.text
+    locked = await client.post(
+        "/api/auth/totp/enroll", json={"current_password": OWNER_PW}, headers=headers
+    )
+    assert locked.status_code == 429, locked.status_code
+
+
 async def test_non_ascii_digit_codes_are_rejected_without_a_500(
     client: httpx.AsyncClient,
 ) -> None:
@@ -1416,3 +1475,18 @@ async def test_disabling_totp_purges_recovery_codes(
     async with get_sessionmaker()() as db:
         remaining = list((await db.execute(select(TotpRecoveryCode))).scalars())
     assert remaining == []
+
+
+async def test_enroll_over_active_is_a_coded_lifecycle_conflict(
+    client: httpx.AsyncClient,
+) -> None:
+    """2026-09-29 audit, L1: the MFA state 409s carry their conflict family
+    code so localized clients branch on the code, not English prose."""
+    headers = await register(client, "totp-coded409@farm.in")
+    await _enroll_and_activate(client, headers)
+    refused = await client.post(
+        "/api/auth/totp/enroll", json={"current_password": OWNER_PW}, headers=headers
+    )
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["code"] == "LIFECYCLE_CONFLICT"
+    assert refused.json()["detail"].startswith("Two-factor is already enabled.")

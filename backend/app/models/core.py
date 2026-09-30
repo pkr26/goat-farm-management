@@ -256,6 +256,11 @@ class FarmMembership(Base):
         # those, so dropping this constraint would seq-scan them.
         UniqueConstraint("user_id", "farm_id", name="uq_membership_user_farm"),
         UniqueConstraint("farm_id", "user_id", name="uq_farm_memberships_farm_user"),
+        # Tenant candidate key: notification_recipients' composite
+        # (farm_id, membership_id) FK targets it, so a recipient row can
+        # never point across farms (2026-09-29 audit, L2 — roles carries
+        # the same guard for the farm_role FK).
+        UniqueConstraint("farm_id", "id", name="uq_farm_memberships_farm_id_id"),
         Index(
             "ix_farm_memberships_active_user_id_id",
             "user_id",

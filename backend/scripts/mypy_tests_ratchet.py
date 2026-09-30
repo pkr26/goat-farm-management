@@ -30,8 +30,15 @@ def current_count() -> int:
     for line in reversed(proc.stdout.splitlines()):
         if line.startswith("Found ") and " error" in line:
             return int(line.split()[1])
-    # No summary line means zero errors.
-    return 0
+    # Zero errors is the ratchet's destination and prints a Success line.
+    if any(line.startswith("Success: no issues found") for line in proc.stdout.splitlines()):
+        return 0
+    # Anything else (a crashed mypy — bad flag, unreadable file, fatal
+    # error) prints no summary at all; treating that as zero would announce
+    # a bogus "improvement". Fail the run instead of misreporting.
+    print("mypy produced no error summary — the run crashed or misconfigured:")
+    print(proc.stdout.strip() or proc.stderr.strip() or "(no output)")
+    raise SystemExit(1)
 
 
 def main() -> int:

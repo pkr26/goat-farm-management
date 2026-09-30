@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 import httpx
 import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError
 
 from app.core.config import Settings
 from app.db import get_sessionmaker
@@ -1336,3 +1337,69 @@ async def test_mortality_hook_fires_on_scheduled_disease_death(
             ).scalars()
         )
     assert len(rows) == 1 and rows[0].status == "SENT"
+
+
+async def test_recipient_membership_fk_blocks_cross_farm_rows(
+    client: httpx.AsyncClient,
+) -> None:
+    """2026-09-29 audit, L2: notification_recipients.membership_id was the
+    last single-column tenant reference in the notifications schema — a row
+    could point at another farm's membership via direct SQL, the exact class
+    d7e9f1a3b5c7's docstring claims was closed. The composite
+    (farm_id, membership_id) FK now refuses it, like notification_log."""
+    from sqlalchemy import text
+
+    from app.models import FarmMembership, Role, User
+
+    owner_a = await owner_with_farm(client, email="tenant-fk-a@farm.in")
+    owner_b = await owner_with_farm(client, email="tenant-fk-b@farm.in")
+    farm_a = int(owner_a["X-Farm-Id"])
+    farm_b = int(owner_b["X-Farm-Id"])
+    async with get_sessionmaker()() as db:
+        owner_b_row = (
+            await db.execute(select(User).where(User.email == "tenant-fk-b@farm.in"))
+        ).scalar_one()
+        role = Role(farm_id=farm_b, name="Cross-farm probe", permissions=["dashboard.view"])
+        db.add(role)
+        await db.flush()
+        membership_b = FarmMembership(
+            farm_id=farm_b, user_id=owner_b_row.id, role_id=role.id, is_active=True
+        )
+        db.add(membership_b)
+        await db.commit()
+        # Snapshot before the failing insert: the rollback it forces expires
+        # the ORM instance, and re-reading .id then would refresh a detached
+        # object.
+        membership_b_id = membership_b.id
+
+        # Direct SQL with farm A's tenant and farm B's membership: the
+        # composite FK must abort the insert before it ever lands.
+        with pytest.raises(DBAPIError):
+            await db.execute(
+                text(
+                    "INSERT INTO notification_recipients "
+                    "(farm_id, membership_id, phone, daily_digest, screening_flags, "
+                    "kidding_watch, overdue_critical, feed_reorder, movement_restriction, "
+                    "verified, created_at, updated_at) "
+                    "VALUES (:farm, :membership, '+919999999997', true, true, true, "
+                    "true, true, true, true, now(), now())"
+                ),
+                {"farm": farm_a, "membership": membership_b_id},
+            )
+            await db.commit()
+        await db.rollback()
+
+        # Control: the same membership under its OWN farm still inserts —
+        # the guard is tenant-crossing, not the table.
+        await db.execute(
+            text(
+                "INSERT INTO notification_recipients "
+                "(farm_id, membership_id, phone, daily_digest, screening_flags, "
+                "kidding_watch, overdue_critical, feed_reorder, movement_restriction, "
+                "verified, created_at, updated_at) "
+                "VALUES (:farm, :membership, '+919999999996', true, true, true, "
+                "true, true, true, true, now(), now())"
+            ),
+            {"farm": farm_b, "membership": membership_b_id},
+        )
+        await db.commit()

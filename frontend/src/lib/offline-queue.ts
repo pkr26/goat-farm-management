@@ -247,9 +247,11 @@ let drainInFlight = false;
  * from the server's Retry-After hint. Zero means "no backoff outstanding". */
 let nextDrainAfterMs = 0;
 
-/** Clear any outstanding 429 backoff gate. Called on session teardown (the
- * next actor's first drain re-observes the server's throttle for itself)
- * and by tests between scenarios. */
+/** Clear any outstanding 429 backoff gate. Called by the auth context's
+ * clearSession (sign-out and forced logout both funnel through it), so the
+ * next actor's first drain re-observes the server's throttle for itself
+ * instead of inheriting the previous session's Retry-After; tests call it
+ * between scenarios. */
 export function clearOfflineQueueDrainBackoff(): void {
   nextDrainAfterMs = 0;
 }

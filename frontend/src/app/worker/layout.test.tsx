@@ -29,6 +29,7 @@ const {
   authState,
   navState,
   wipeQueueMock,
+  clearBackoffMock,
   queueDepthMock,
   startWorkersMock,
   drainQueueMock,
@@ -47,6 +48,7 @@ const {
   },
   navState: { pathname: "/worker" },
   wipeQueueMock: vi.fn(),
+  clearBackoffMock: vi.fn(),
   queueDepthMock: vi.fn<() => number>(() => 0),
   startWorkersMock: vi.fn(() => vi.fn()),
   drainQueueMock: vi.fn(),
@@ -85,6 +87,7 @@ vi.mock("@/lib/offline-queue", async (importOriginal) => ({
   offlineQueueDepth: queueDepthMock,
   startOfflineQueueWorkers: startWorkersMock,
   wipeOfflineQueue: wipeQueueMock,
+  clearOfflineQueueDrainBackoff: clearBackoffMock,
 }));
 
 beforeAll(() => {
@@ -104,6 +107,7 @@ beforeEach(() => {
   authState.loading = false;
   navState.pathname = "/worker";
   wipeQueueMock.mockClear();
+  clearBackoffMock.mockClear();
   queueDepthMock.mockReset().mockReturnValue(0);
   startWorkersMock.mockClear();
   drainQueueMock.mockClear();
@@ -202,6 +206,60 @@ describe("WorkerShell end shift", () => {
       signOutMock.mock.invocationCallOrder[0],
     );
     expect(replaceMock).toHaveBeenCalledWith("/worker/login");
+  });
+
+  it("clears the 429 drain backoff on end shift (M1: next actor starts un-gated)", async () => {
+    const user = userEvent.setup();
+    renderShell();
+
+    await user.click(await screen.findByTestId("end-shift"));
+
+    await waitFor(() => expect(signOutMock).toHaveBeenCalled());
+    expect(clearBackoffMock).toHaveBeenCalled();
+  });
+
+  it("asks before discarding queued writes the badge promised would send (M2)", async () => {
+    const user = userEvent.setup();
+    queueDepthMock.mockReturnValue(2);
+    renderShell();
+
+    await user.click(await screen.findByTestId("end-shift"));
+
+    // The confirm opens with the queued count; nothing is wiped or signed
+    // out until the worker explicitly chooses to discard.
+    expect(await screen.findByText("Unsent duties")).toBeInTheDocument();
+    expect(
+      screen.getByText("2 saved duties have not been sent yet. Ending the shift now deletes them permanently."),
+    ).toBeInTheDocument();
+    expect(signOutMock).not.toHaveBeenCalled();
+    expect(wipeQueueMock).not.toHaveBeenCalled();
+
+    await user.click(await screen.findByTestId("end-shift-confirm"));
+
+    await waitFor(() => expect(signOutMock).toHaveBeenCalled());
+    expect(wipeQueueMock).toHaveBeenCalled();
+    expect(clearBackoffMock).toHaveBeenCalled();
+    expect(replaceMock).toHaveBeenCalledWith("/worker/login");
+  });
+
+  it("keeps the queue and session when the worker cancels the discard", async () => {
+    const user = userEvent.setup();
+    queueDepthMock.mockReturnValue(1);
+    renderShell();
+
+    await user.click(await screen.findByTestId("end-shift"));
+
+    // Singular copy for exactly one queued record (L7).
+    expect(
+      await screen.findByText("1 saved duty has not been sent yet. Ending the shift now deletes it permanently."),
+    ).toBeInTheDocument();
+    await user.click(await screen.findByTestId("end-shift-cancel"));
+
+    await waitFor(() =>
+      expect(screen.queryByText("Unsent duties")).not.toBeInTheDocument(),
+    );
+    expect(signOutMock).not.toHaveBeenCalled();
+    expect(wipeQueueMock).not.toHaveBeenCalled();
   });
 });
 

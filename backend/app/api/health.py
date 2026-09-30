@@ -28,7 +28,15 @@ from ..models import (
     VaccineTemplate,
 )
 from ..schemas.animals import BucketStr
-from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET, PostgresText
+from ..schemas.common import (
+    COMMON_ERROR_RESPONSES,
+    MAX_INT32_ID,
+    MAX_PAGE_OFFSET,
+    PostgresText,
+    lifecycle_conflict,
+    stale_state_conflict,
+    standing_quota,
+)
 from ..schemas.health import (
     MAX_BULK_BUCKET_TARGETS,
     MAX_BULK_HEALTH_TARGETS,
@@ -352,12 +360,11 @@ async def clear_movement_restriction(
     if animal is None or animal.farm_id != farm.id:
         raise HTTPException(status_code=404, detail="Animal not found")
     if animal.restriction_version != payload.expected_restriction_version:
-        raise HTTPException(
-            status_code=409,
+        raise lifecycle_conflict(
             detail="Movement restriction was superseded; refresh the current episode",
         )
     if not animal.movement_restricted and not animal.suspected_scheduled_disease:
-        raise HTTPException(status_code=409, detail="Animal has no active movement restriction")
+        raise lifecycle_conflict(detail="Animal has no active movement restriction")
     if animal.suspected_scheduled_disease:
         # Two-person rule for statutory holds (mirroring duty verification,
         # with the same owner exemption): the worker who recorded the
@@ -378,8 +385,7 @@ async def clear_movement_restriction(
             )
         ).scalar_one_or_none()
         if placed_by_id == user.id and farm.owner_id != user.id:
-            raise HTTPException(
-                status_code=409,
+            raise lifecycle_conflict(
                 detail="Someone else must clear this scheduled-disease hold",
             )
     cleared_at = utcnow()
@@ -514,7 +520,7 @@ async def _bulk_target_snapshot(
         filters.append(Animal.current_bucket == Bucket.QUARANTINE.value)
         if target.task_id is not None:
             if target.task_id > MAX_INT32_ID:
-                raise HTTPException(status_code=409, detail="Linked health task is unavailable")
+                raise lifecycle_conflict(detail="Linked health task is unavailable")
             task = (
                 await db.execute(
                     select(Task).where(
@@ -528,9 +534,7 @@ async def _bulk_target_snapshot(
                 )
             ).scalar_one_or_none()
             if task is None:
-                raise HTTPException(
-                    status_code=409, detail="Linked health task is not pending or compatible"
-                )
+                raise lifecycle_conflict(detail="Linked health task is not pending or compatible")
             if task.purchase_batch_id != target.purchase_batch_id:
                 raise HTTPException(
                     status_code=422, detail="Health preview scope must match the linked batch"
@@ -547,8 +551,7 @@ async def _bulk_target_snapshot(
     if not rows:
         raise HTTPException(status_code=400, detail="No active animals match the given scope")
     if len(rows) > target_limit:
-        raise HTTPException(
-            status_code=409,
+        raise standing_quota(
             detail=(
                 f"Bulk health scope exceeds {target_limit} animals; "
                 "split it into smaller reviewed sets"
@@ -617,23 +620,20 @@ async def _lock_event_targets(
 
     expected = payload.expected_animal_ids
     if not expected:
-        raise HTTPException(
-            status_code=409,
+        raise lifecycle_conflict(
             detail="Bulk health events require a non-empty reviewed target snapshot",
         )
     target_limit = MAX_BULK_BUCKET_TARGETS if payload.scope == "bucket" else MAX_BULK_HEALTH_TARGETS
     if len(expected) > target_limit:
-        raise HTTPException(
-            status_code=409,
+        raise standing_quota(
             detail=f"Bulk health events are limited to {target_limit} animals",
         )
     if len(set(expected)) != len(expected):
-        raise HTTPException(
-            status_code=409,
+        raise lifecycle_conflict(
             detail="Reviewed target snapshot contains duplicate animal ids",
         )
     if any(animal_id > MAX_INT32_ID for animal_id in expected):
-        raise HTTPException(status_code=409, detail="Reviewed target snapshot is stale")
+        raise stale_state_conflict(detail="Reviewed target snapshot is stale")
 
     expected_ids = sorted(expected)
     # A linked quarantine protocol duty covers the whole authoritative batch,
@@ -677,8 +677,7 @@ async def _lock_event_targets(
             if animal.current_bucket == Bucket.QUARANTINE.value
         ]
         if not animals or [animal.id for animal in animals] != expected_ids:
-            raise HTTPException(
-                status_code=409,
+            raise stale_state_conflict(
                 detail=(
                     "Reviewed target snapshot does not match the linked batch's "
                     "active quarantine animals"
@@ -693,7 +692,7 @@ async def _lock_event_targets(
             )
         ).scalar_one_or_none()
         if linked_batch is None:
-            raise HTTPException(status_code=409, detail="Reviewed target snapshot is stale")
+            raise stale_state_conflict(detail="Reviewed target snapshot is stale")
         return animals, linked_batch, linked_batch.id
 
     animals = list(
@@ -707,7 +706,7 @@ async def _lock_event_targets(
         ).scalars()
     )
     if [animal.id for animal in animals] != expected_ids:
-        raise HTTPException(status_code=409, detail="Reviewed target snapshot is stale")
+        raise stale_state_conflict(detail="Reviewed target snapshot is stale")
 
     batch: PurchaseBatch | None = None
     batch_id: int | None = None
@@ -743,7 +742,7 @@ async def _lock_event_targets(
             for animal in animals
         )
     if not stable:
-        raise HTTPException(status_code=409, detail="Reviewed target snapshot is stale")
+        raise stale_state_conflict(detail="Reviewed target snapshot is stale")
     return animals, batch, batch_id
 
 
@@ -903,9 +902,7 @@ async def _record_event_mutation(
             or task.status != TaskStatus.PENDING.value
             or task.category not in (TaskCategory.VACCINE.value, TaskCategory.DEWORMING.value)
         ):
-            raise HTTPException(
-                status_code=409, detail="Linked health task is not pending or compatible"
-            )
+            raise lifecycle_conflict(detail="Linked health task is not pending or compatible")
         # Same assignment rule as the duties page — the record form is not a
         # backdoor around task RBAC. The 403 aborts before the event is saved.
         if not await visible_to(db, task, user, farm, membership, lock_assignee=True):
@@ -915,7 +912,7 @@ async def _record_event_mutation(
                 status_code=422, detail="Health event type must match the linked task"
             )
         if event_date < task.due_date:
-            raise HTTPException(status_code=409, detail="This linked health duty is not due yet")
+            raise lifecycle_conflict(detail="This linked health duty is not due yet")
         if task.purchase_batch_id is not None:
             if payload.scope != "batch" or batch_id != task.purchase_batch_id:
                 raise HTTPException(

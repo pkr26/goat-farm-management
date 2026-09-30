@@ -30,7 +30,10 @@ import {
   setOnAuthFailure,
 } from "@/lib/api-client";
 import { clearPersistedIdempotencyRequestState } from "@/lib/idempotent-request";
-import { wipeOfflineQueue } from "@/lib/offline-queue";
+import {
+  clearOfflineQueueDrainBackoff,
+  wipeOfflineQueue,
+} from "@/lib/offline-queue";
 import { safeStorage } from "@/lib/safe-storage";
 import { setActiveFarmTimezone } from "@/lib/format";
 
@@ -269,8 +272,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Last, so the in-memory teardown above can never be left half applied.
     clearStoredFarmId();
     // Shared-tablet hygiene: queued offline writes are the departing
-    // worker's, not the next one's.
+    // worker's, not the next one's. The 429 drain backoff belongs to the
+    // same session — leaving it set would gate the next actor's first drain
+    // behind the previous actor's Retry-After hint.
     wipeOfflineQueue();
+    clearOfflineQueueDrainBackoff();
   }, [queryClient]);
 
   const signOut = useCallback((): Promise<void> => {

@@ -72,12 +72,11 @@ jobs:
           # 2026-09-20 audit P1-6 (bd201c1cdc1b: wipe feed lines/finished
           # stock before recipes) and P2-13 (b5d7f9a1c3e5: detach ORF-linked
           # health_events before the template delete, behind the trigger).
-          # 2026-09-29 audit D6 follow-up: the int8 widen (c6d7e8f9a0b1) and
-          # the CONCURRENTLY index builds (a4b5c6d7e8f9) swapped chain
-          # positions (e8f9a0b1c2d3 re-parented onto the segment's new tail) — down_revision edits only, both verified by the full
-          # upgrade/downgrade round-trip; no database past either revision
-          # needs any re-run (end state identical).
-          sanctioned="backend/alembic/versions/bd201c1cdc1b_goat_only_simplification.py backend/alembic/versions/b5d7f9a1c3e5_backfill_species_reference_data.py backend/alembic/versions/a4b5c6d7e8f9_screening_join_indexes.py backend/alembic/versions/c6d7e8f9a0b1_screening_finding_crop_bigint.py backend/alembic/versions/e8f9a0b1c2d3_screening_images_bucket_width.py"
+          # (The 2026-09-29 D6 re-parenting entries — a4b5c6d7e8f9,
+          # c6d7e8f9a0b1, e8f9a0b1c2d3 — were removed once that push landed:
+          # the allowlist only ever names genuinely-applied revisions whose
+          # in-place correction shipped, never permanently.)
+          sanctioned="backend/alembic/versions/bd201c1cdc1b_goat_only_simplification.py backend/alembic/versions/b5d7f9a1c3e5_backfill_species_reference_data.py"
           touched="$(git diff --name-only --diff-filter=MDR "$range" -- 'backend/alembic/versions/')"
           unexpected=""
           while IFS= read -r file; do
