@@ -1,7 +1,7 @@
 # Backend mutation testing report
 
 - mutants in manifest: **6565**
-- executed: **6565** (killed 6033, timeout 14, survived 75, not-covered 443, errors 0)
+- executed: **6565** (killed 6043, timeout 5, survived 74, not-covered 443, errors 0)
 - **mutation score: 98.8%** (killed / executed-with-coverage)
 
 ## Surviving mutants
@@ -230,7 +230,7 @@
   - `content_length = int(response.get('ContentLength', 0))`
   - `content_length = int(response.get('ContentLength', 1))`
 
-### `app/services/simulation_calibration.py` (23 survivors)
+### `app/services/simulation_calibration.py` (22 survivors)
 
 - **L172** `compare` Lt -> LtE — `7f7ad19ed247`
   - `lower = max((a for a in ages if a < age))`
@@ -238,9 +238,6 @@
 - **L199** `boolconst` True -> False — `51a3ddbe7334`
   - `assumptions = get_preset(breed, system).model_copy(deep=True)`
   - `assumptions = get_preset(breed, system).model_copy(deep=False)`
-- **L245** `intconst` n -> n+1 — `44b93a773025`
-  - `age_months = (reference_date.year - func.extract('year', effective_dob_expr)) * 12 + reference_date.month - func.extract('month', effective_dob_expr) - case((func.extract('day', effective_dob_expr) > reference_date.day, 1), else_=0)`
-  - `age_months = (reference_date.year - func.extract('year', effective_dob_expr)) * 12 + reference_date.month - func.extract('month', effective_dob_expr) - case((func.extract('day', effective_dob_expr) > reference_date.day, 2), else_=0)`
 - **L351** `intconst` n -> n-1 — `8273768d68a7`
   - `record(f'herd.{target_key}', count_previous, count_calibrated, current_head, 'Exact ACTIVE-animal cohort count on the reference date', 'animals', medium=1, high=1)`
   - `record(f'herd.{target_key}', count_previous, count_calibrated, current_head, 'Exact ACTIVE-animal cohort count on the reference date', 'animals', medium=0, high=1)`

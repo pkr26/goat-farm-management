@@ -11,10 +11,10 @@ re-measured every non-killed mutant against the strengthened suite.
 | Metric | Campaign (fresh) | After gap fixes |
 |---|---|---|
 | Mutants | 6,565 (100% of manifest) | same |
-| Killed | 5,819 + 14 timeout | **6,033 + 14 timeout** |
-| Survived (full-selection verified) | 281 | **75** |
+| Killed | 5,819 + 14 timeout | **6,043 + 5 confirmed hangs** |
+| Survived (full-selection verified) | 281 | **74** |
 | Not covered by any test | 451 | 443 |
-| **Mutation score (covered code)** | **95.4%** | **98.8%** |
+| **Mutation score (covered code)** | **95.4%** | **98.8%** (98.79%) |
 
 Baseline suite: 4,836 passed / 4 skipped, 92.52% line+branch coverage
 (pytest-cov, per-test contexts). Final suite: 4,904 passed / 4 skipped
@@ -47,8 +47,17 @@ Baseline suite: 4,836 passed / 4 skipped, 92.52% line+branch coverage
    non-killed mutants re-measured; a final pass force-included the 16 gap
    files in every selection (coverage-guided sampling can miss a killing
    test, and module-level constants attribute their import context to one
-   arbitrary first-importing test). 206 former survivors are now killed
-   (281 → 75; plus 8 not-covered lines now covered and killed).
+   arbitrary first-importing test). 207 former survivors are now killed
+   (281 → 74; plus 8 not-covered lines now covered and killed).
+7. **Edge-verdict verification** (`mutate_verify_extremes.py`): every
+   TIMEOUT was re-run at a 1,200 s budget — 9 were slow-but-finite and got
+   real KILLED verdicts, 5 re-timed-out and are confirmed true hangs
+   (`security.py:374` / `idempotency.py:401` break→continue loops and the
+   `cadence.py:177`, `feeding.py:186`, `simulation_calibration.py:474`,
+   `tasks.py:323` boundary flips that spin). Every final SURVIVED verdict
+   was then re-run against its FULL covering selection (cap 400) plus the
+   gap files: 74 confirmed, 1 more sampling miss killed
+   (`simulation_calibration.py:245`).
 
 ## What the gap tests fixed (206 mutant kills)
 
@@ -89,7 +98,7 @@ Baseline suite: 4,836 passed / 4 skipped, 92.52% line+branch coverage
   fallback, module constants (`_RUN_BUDGET_*`, IP multiplier,
   `REBREED_AFTER_RESTING_DAYS`).
 
-## The 75 remaining survivors — triage
+## The 74 remaining survivors — triage
 
 **Equivalent or defense-in-depth-only (~18):**
 - `security.py:363` (×2): `O_RDONLY == 0`, so `&`/`|` swaps are no-ops.
@@ -112,7 +121,7 @@ Baseline suite: 4,836 passed / 4 skipped, 92.52% line+branch coverage
 - `feeding.py:138` (×2): remainder-ranking modulus under the fixed
   40/20/40 split — allocation orderings coincide for every total.
 
-**Fixable, documented as follow-ups (~57):** concentrated in
+**Fixable, documented as follow-ups (~56):** concentrated in
 `simulation_calibration` flow math (24: SQL age arithmetic, gestation
 window 90–220 and the 1–7-month clamp, birth-weight filters, mortality
 windows, feed/labour sample sizing — each needs an exact-value
@@ -154,6 +163,8 @@ COVERAGE_FILE=.coverage-mut .venv/bin/python -m pytest -q --cov=app \
 .venv/bin/python mutation/mutate_reverify.py --workers 10      # full-selection
 .venv/bin/python mutation/mutate_rerun_survivors.py --workers 10  # after fixes
 .venv/bin/python mutation/mutate_final_pass.py --workers 10    # gap-aimed
+.venv/bin/python mutation/mutate_verify_extremes.py --status TIMEOUT  # hangs
+.venv/bin/python mutation/mutate_verify_extremes.py --status SURVIVED # final check
 .venv/bin/python mutation/mutate_report.py                     # report.md
 ```
 
@@ -162,9 +173,12 @@ Artifacts: `backend/mutation/{manifest.json, results.jsonl, report.md}`
 
 ## Caveats
 
-- Verdicts use escalating capped selections (15→60; full ≤400 at
-  re-verification); the final pass additionally aims all 15 gap files at
-  every survivor, so no known killing test was left out of any selection.
-- Timeout-kills (14) count as killed; a handful may be slow-but-finite.
+- Verdicts use escalating capped selections (15→60); re-verification,
+  the gap-aimed final pass, and the edge-verdict pass each ran every
+  remaining mutant against its full (cap-400) covering selection plus all
+  15 gap files, so no known killing test was left out of any final verdict.
+- The 5 remaining timeout-kills were confirmed as true hangs at a 1,200 s
+  budget (see step 7); the other 9 original timeouts were slow-but-finite
+  and carry real KILLED verdicts.
 - The score is a property of this operator set; it complements, not
   replaces, the 92.52% line+branch coverage ratchet.
