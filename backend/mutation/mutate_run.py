@@ -144,6 +144,13 @@ class Runner:
         env = os.environ.copy()
         env["GOATFARM_TEST_DB"] = f"goatfarm_mut{worker}_test"
         env.pop("COVERAGE_FILE", None)
+        # Never persist bytecode during a campaign: a byte-exact restore that
+        # lands in the same mtime second as a SAME-SIZED mutant leaves the
+        # mutant's .pyc looking fresh, and later clean runs silently execute
+        # the mutant (observed 2026-09-30: the swapped-branches mutant of
+        # record_screening_provider_call survived the restore this way and
+        # failed test_metrics until __pycache__ was purged).
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
         cmd = [
             str(VENV_PY),
             "-m",
