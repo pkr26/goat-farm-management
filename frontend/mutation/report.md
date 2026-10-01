@@ -1,118 +1,119 @@
-# Frontend Mutation Testing Report — 2026-09-23
+# Frontend Mutation Testing Report — 2026-10-01
 
-Manifest: 9763 mutants over 125 files
+Manifest: 9944 mutants over 126 files
 (compare ==/!=/</<=/>/>=; boolop &&/||/??; not-drop; binop +-*/&|; boolconst true/false; intconst +-1; ifexp swap; loopjump break/continue).
 
 ## Headline
 
 | Metric | Value |
 |---|---|
-| Mutants executed | 3200 |
-| Killed by tests | 2780 |
+| Mutants executed | 9866 |
+| Killed by tests | 7869 |
 | Killed by timeout | 2 |
-| **Survived** | **418** |
-| On lines no test covers | 40 |
+| **Survived** | **1995** |
+| On lines no test covers | 78 |
 | Runner errors | 0 |
-| Not yet run | 6523 |
-| **Mutation score (covered code)** | **86.9%** |
+| Not yet run | 0 |
+| **Mutation score (covered code)** | **79.8%** |
 
-Per-operator scores: compare 93.7%, intconst 83.6%, binop 79.7%, boolconst 87.2%, not 96.1%, ifexp 95.6%, loopjump 50.0%
+Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%, not 94.2%, ifexp 93.0%, loopjump 31.3%
 
 ## Per-file scores (covered mutants only)
 
 | File | Mutants | Killed | Survived | NoCov | Score |
 |---|---|---|---|---|---|
-| src/app/(app)/app-layout-client.tsx | 43 | 0 | 1 | 0 | 0.0% |
-| src/app/(app)/screening/page.tsx | 194 | 0 | 1 | 0 | 0.0% |
-| src/app/(app)/breeding/page.tsx | 298 | 1 | 1 | 0 | 50.0% |
-| src/app/(app)/feeding/page.tsx | 261 | 1 | 1 | 0 | 50.0% |
-| src/app/(app)/kidding/page.tsx | 315 | 1 | 1 | 0 | 50.0% |
-| src/app/(app)/purchases/page.tsx | 263 | 1 | 1 | 0 | 50.0% |
-| src/app/(app)/team/page.tsx | 425 | 2 | 1 | 0 | 66.7% |
-| src/api/custom-instance.ts | 13 | 10 | 3 | 0 | 76.9% |
-| src/app/(app)/simulation/page.tsx | 1410 | 7 | 2 | 0 | 77.8% |
-| src/app/(app)/animals/[id]/page.tsx | 518 | 438 | 80 | 0 | 84.6% |
-| src/app/(app)/animals/page.tsx | 421 | 266 | 34 | 1 | 88.7% |
-| src/app/(app)/animals/new/page.tsx | 3 | 3 | 0 | 0 | 100.0% |
-| src/app/(app)/breeding/[id]/ultrasound/page.tsx | 5 | 0 | 0 | 0 | — |
-| src/app/(app)/buckets/page.tsx | 37 | 0 | 0 | 0 | — |
-| src/app/(app)/dashboard/page.tsx | 293 | 2 | 0 | 0 | 100.0% |
-| src/app/(app)/feeding/inventory/page.tsx | 148 | 0 | 0 | 0 | — |
-| src/app/(app)/feeding/recipes/page.tsx | 17 | 0 | 0 | 0 | — |
-| src/app/(app)/finance/insurance/page.tsx | 187 | 1 | 0 | 0 | 100.0% |
-| src/app/(app)/finance/page.tsx | 269 | 2 | 0 | 0 | 100.0% |
-| src/app/(app)/health/new/page.tsx | 2 | 0 | 0 | 0 | — |
-| src/app/(app)/health/page.tsx | 614 | 4 | 0 | 0 | 100.0% |
-| src/app/(app)/health/schedule/[animalId]/page.tsx | 35 | 0 | 0 | 0 | — |
-| src/app/(app)/health/task-prefill.ts | 9 | 0 | 0 | 0 | — |
-| src/app/(app)/kidding/new/page.tsx | 2 | 0 | 0 | 0 | — |
-| src/app/(app)/layout.tsx | 1 | 0 | 0 | 0 | — |
-| src/app/(app)/loading.tsx | 4 | 0 | 0 | 0 | — |
-| src/app/(app)/not-found.tsx | 2 | 0 | 0 | 0 | — |
-| src/app/(app)/reports/page.tsx | 88 | 0 | 1 | 0 | 0.0% |
-| src/app/(app)/ops-simulation/page.tsx | 285 | 1 | 1 | 0 | 50.0% |
-| src/app/(app)/owner/page.tsx | 76 | 0 | 0 | 0 | — |
-| src/app/(app)/planner/page.tsx | 330 | 1 | 1 | 0 | 50.0% |
-| src/app/(app)/simulation/components/editor-widgets.tsx | 1 | 0 | 0 | 0 | — |
-| src/app/(app)/simulation/components/format-helpers.ts | 26 | 0 | 0 | 0 | — |
-| src/app/(app)/simulation/components/number-inputs.tsx | 98 | 0 | 0 | 0 | — |
-| src/app/(app)/simulation/components/results-visuals.tsx | 67 | 0 | 0 | 0 | — |
+| src/app/(app)/loading.tsx | 4 | 0 | 4 | 0 | 0.0% |
+| src/app/layout.tsx | 1 | 0 | 1 | 0 | 0.0% |
+| src/components/stale-data-notice.tsx | 1 | 0 | 1 | 0 | 0.0% |
+| src/components/ui/select.tsx | 5 | 0 | 1 | 4 | 0.0% |
+| src/app/(app)/breeding/[id]/ultrasound/page.tsx | 5 | 1 | 2 | 2 | 33.3% |
+| src/app/(app)/owner/page.tsx | 76 | 32 | 44 | 0 | 42.1% |
+| src/app/(app)/screening/page.tsx | 194 | 83 | 111 | 0 | 42.8% |
+| src/app/worker/page.tsx | 75 | 33 | 42 | 0 | 44.0% |
+| src/app/(app)/ops-simulation/page.tsx | 285 | 129 | 156 | 0 | 45.3% |
+| src/components/status-badge.tsx | 6 | 3 | 3 | 0 | 50.0% |
+| src/lib/bucket-sex.ts | 2 | 1 | 1 | 0 | 50.0% |
+| src/app/worker/login/page.tsx | 81 | 42 | 39 | 0 | 51.9% |
+| src/app/worker/layout.tsx | 51 | 30 | 21 | 0 | 58.8% |
+| src/app/(app)/finance/insurance/page.tsx | 187 | 117 | 70 | 0 | 62.6% |
+| src/app/(app)/dashboard/page.tsx | 293 | 184 | 109 | 0 | 62.8% |
+| src/app/(app)/feeding/recipes/page.tsx | 17 | 11 | 6 | 0 | 64.7% |
+| src/app/(app)/health/schedule/[animalId]/page.tsx | 35 | 24 | 11 | 0 | 68.6% |
+| src/lib/auth-context.tsx | 139 | 97 | 42 | 0 | 69.8% |
+| src/components/permission-gate.tsx | 12 | 5 | 2 | 5 | 71.4% |
+| src/app/(app)/team/page.tsx | 425 | 315 | 108 | 2 | 74.5% |
 | src/components/data-table-card.tsx | 16 | 12 | 4 | 0 | 75.0% |
 | src/components/empty-state.tsx | 8 | 6 | 2 | 0 | 75.0% |
-| src/components/animal-picker.tsx | 46 | 44 | 2 | 0 | 95.7% |
-| src/components/charts.tsx | 117 | 113 | 4 | 0 | 96.6% |
-| src/app/(app)/tasks/page.tsx | 277 | 1 | 0 | 0 | 100.0% |
-| src/app/farm-select/page.tsx | 72 | 0 | 0 | 0 | — |
-| src/app/healthz/route.ts | 2 | 0 | 0 | 0 | — |
-| src/app/layout.tsx | 1 | 0 | 0 | 0 | — |
-| src/app/login/page.tsx | 70 | 0 | 1 | 0 | 0.0% |
-| src/app/page.tsx | 10 | 0 | 0 | 0 | — |
-| src/app/register/page.tsx | 36 | 0 | 0 | 0 | — |
-| src/app/worker/layout.tsx | 35 | 0 | 0 | 0 | — |
-| src/app/worker/login/page.tsx | 73 | 0 | 0 | 0 | — |
-| src/app/worker/page.tsx | 60 | 0 | 0 | 0 | — |
-| src/components/ui/checkbox.tsx | 1 | 0 | 1 | 0 | 0.0% |
-| src/components/ui/select.tsx | 5 | 0 | 1 | 4 | 0.0% |
-| src/components/status-badge.tsx | 6 | 3 | 3 | 0 | 50.0% |
-| src/lib/auth-context.tsx | 138 | 72 | 66 | 0 | 52.2% |
-| src/components/permission-gate.tsx | 12 | 5 | 2 | 5 | 71.4% |
 | src/components/page-header.tsx | 8 | 6 | 2 | 0 | 75.0% |
-| src/lib/image-deps-guard.ts | 42 | 32 | 10 | 0 | 76.2% |
+| src/app/(app)/finance/page.tsx | 270 | 205 | 65 | 0 | 75.9% |
+| src/app/(app)/purchases/page.tsx | 273 | 208 | 65 | 0 | 76.2% |
+| src/api/custom-instance.ts | 13 | 10 | 3 | 0 | 76.9% |
 | src/lib/i18n/index.tsx | 9 | 7 | 2 | 0 | 77.8% |
+| src/app/(app)/reports/page.tsx | 88 | 69 | 19 | 0 | 78.4% |
+| src/app/(app)/buckets/page.tsx | 37 | 29 | 8 | 0 | 78.4% |
 | src/lib/permission-navigation.ts | 28 | 22 | 6 | 0 | 78.6% |
-| src/lib/server-error-phrases.ts | 14 | 11 | 3 | 0 | 78.6% |
-| src/components/pagination-controls.tsx | 30 | 23 | 6 | 1 | 79.3% |
+| src/app/(app)/simulation/components/results-visuals.tsx | 67 | 52 | 14 | 1 | 78.8% |
+| src/app/(app)/kidding/page.tsx | 321 | 255 | 65 | 1 | 79.7% |
+| src/app/login/page.tsx | 70 | 56 | 14 | 0 | 80.0% |
+| src/lib/image-deps-guard.ts | 42 | 32 | 8 | 2 | 80.0% |
+| src/components/pagination-controls.tsx | 31 | 24 | 6 | 1 | 80.0% |
 | src/lib/simulation-field-help.ts | 10 | 8 | 2 | 0 | 80.0% |
+| src/app/(app)/planner/page.tsx | 343 | 276 | 67 | 0 | 80.5% |
+| src/app/(app)/simulation/page.tsx | 1411 | 1135 | 273 | 3 | 80.6% |
+| src/app/(app)/feeding/page.tsx | 261 | 212 | 49 | 0 | 81.2% |
+| src/lib/server-error-phrases.ts | 16 | 13 | 3 | 0 | 81.3% |
 | src/lib/utils.ts | 11 | 9 | 2 | 0 | 81.8% |
-| src/lib/offline-queue.ts | 135 | 111 | 24 | 0 | 82.2% |
+| src/app/(app)/breeding/page.tsx | 299 | 245 | 53 | 1 | 82.2% |
+| src/app/(app)/animals/page.tsx | 430 | 356 | 73 | 1 | 83.0% |
+| src/app/farm-select/page.tsx | 72 | 60 | 12 | 0 | 83.3% |
 | src/lib/use-permissions.ts | 12 | 10 | 2 | 0 | 83.3% |
-| src/components/task-row-actions.tsx | 99 | 82 | 16 | 1 | 83.7% |
+| src/app/(app)/tasks/page.tsx | 277 | 234 | 43 | 0 | 84.5% |
+| src/app/(app)/health/page.tsx | 614 | 522 | 90 | 2 | 85.3% |
+| src/app/(app)/animals/[id]/page.tsx | 524 | 447 | 77 | 0 | 85.3% |
+| src/app/(app)/feeding/inventory/page.tsx | 148 | 126 | 21 | 1 | 85.7% |
+| src/app/register/page.tsx | 36 | 31 | 5 | 0 | 86.1% |
+| src/lib/format.ts | 138 | 119 | 19 | 0 | 86.2% |
 | src/lib/enum-labels.ts | 22 | 19 | 3 | 0 | 86.4% |
 | src/components/screening-check-dialog.tsx | 94 | 82 | 12 | 0 | 87.2% |
-| src/lib/format.ts | 139 | 122 | 17 | 0 | 87.8% |
-| src/lib/api-client.ts | 279 | 249 | 30 | 0 | 89.2% |
+| src/app/(app)/simulation/components/format-helpers.ts | 26 | 21 | 3 | 2 | 87.5% |
+| src/components/task-row-actions.tsx | 100 | 87 | 12 | 1 | 87.9% |
+| src/lib/api-client.ts | 286 | 249 | 31 | 6 | 88.9% |
 | src/components/remote-picker.tsx | 146 | 128 | 15 | 3 | 89.5% |
-| src/lib/idempotent-request.ts | 240 | 216 | 24 | 0 | 90.0% |
-| src/lib/task-title.ts | 60 | 54 | 6 | 0 | 90.0% |
+| src/lib/idempotent-request.ts | 253 | 229 | 24 | 0 | 90.5% |
 | src/components/stat-card.tsx | 11 | 10 | 1 | 0 | 90.9% |
 | src/components/theme-toggle.tsx | 11 | 10 | 1 | 0 | 90.9% |
+| src/lib/use-single-flight.ts | 11 | 10 | 1 | 0 | 90.9% |
+| src/lib/task-title.ts | 60 | 55 | 5 | 0 | 91.7% |
 | src/lib/csp.ts | 39 | 36 | 3 | 0 | 92.3% |
-| src/components/account-dialog.tsx | 190 | 176 | 12 | 2 | 93.6% |
+| src/app/(app)/app-layout-client.tsx | 43 | 40 | 3 | 0 | 93.0% |
+| src/lib/offline-queue.ts | 189 | 166 | 11 | 12 | 93.8% |
+| src/app/(app)/simulation/components/number-inputs.tsx | 98 | 91 | 6 | 1 | 93.8% |
 | src/components/skeletons.tsx | 45 | 34 | 2 | 9 | 94.4% |
+| src/lib/use-url-state.ts | 23 | 22 | 1 | 0 | 95.7% |
+| src/components/account-dialog.tsx | 199 | 191 | 8 | 0 | 96.0% |
+| src/components/charts.tsx | 117 | 108 | 4 | 5 | 96.4% |
+| src/components/animal-picker.tsx | 48 | 47 | 1 | 0 | 97.9% |
+| src/app/(app)/animals/new/page.tsx | 3 | 3 | 0 | 0 | 100.0% |
+| src/app/(app)/health/new/page.tsx | 2 | 2 | 0 | 0 | 100.0% |
+| src/app/(app)/health/task-prefill.ts | 9 | 9 | 0 | 0 | 100.0% |
+| src/app/(app)/kidding/new/page.tsx | 2 | 2 | 0 | 0 | 100.0% |
+| src/app/(app)/layout.tsx | 1 | 1 | 0 | 0 | 100.0% |
+| src/app/(app)/not-found.tsx | 2 | 2 | 0 | 0 | 100.0% |
+| src/app/(app)/simulation/components/editor-widgets.tsx | 1 | 1 | 0 | 0 | 100.0% |
+| src/app/healthz/route.ts | 2 | 2 | 0 | 0 | 100.0% |
+| src/app/page.tsx | 10 | 10 | 0 | 0 | 100.0% |
 | src/components/breeding-candidate-picker.tsx | 22 | 22 | 0 | 0 | 100.0% |
-| src/components/feeding-nav.tsx | 4 | 4 | 0 | 0 | 100.0% |
-| src/components/finance-nav.tsx | 4 | 4 | 0 | 0 | 100.0% |
-| src/components/health-target-pickers.tsx | 61 | 61 | 0 | 0 | 100.0% |
+| src/components/health-target-pickers.tsx | 65 | 65 | 0 | 0 | 100.0% |
 | src/components/language-toggle.tsx | 2 | 2 | 0 | 0 | 100.0% |
 | src/components/logo.tsx | 2 | 1 | 0 | 1 | 100.0% |
 | src/components/providers.tsx | 5 | 5 | 0 | 0 | 100.0% |
+| src/components/section-nav.tsx | 4 | 4 | 0 | 0 | 100.0% |
+| src/components/ui/checkbox.tsx | 1 | 1 | 0 | 0 | 100.0% |
 | src/components/ui/dialog.tsx | 4 | 2 | 0 | 2 | 100.0% |
 | src/components/ui/sheet.tsx | 2 | 1 | 0 | 1 | 100.0% |
 | src/components/ui/sidebar.tsx | 54 | 49 | 0 | 5 | 100.0% |
 | src/components/ui/table.tsx | 8 | 8 | 0 | 0 | 100.0% |
 | src/components/ui/tooltip.tsx | 4 | 0 | 0 | 4 | — |
-| src/lib/use-single-flight.ts | 11 | 10 | 1 | 0 | 90.9% |
-| src/lib/use-url-state.ts | 23 | 22 | 1 | 0 | 95.7% |
 | src/hooks/use-mobile.ts | 6 | 6 | 0 | 0 | 100.0% |
 | src/lib/backend-caps.ts | 16 | 16 | 0 | 0 | 100.0% |
 | src/lib/backend-rewrites.ts | 21 | 21 | 0 | 0 | 100.0% |
@@ -122,11 +123,12 @@ Per-operator scores: compare 93.7%, intconst 83.6%, binop 79.7%, boolconst 87.2%
 | src/lib/permission-envelope.ts | 3 | 3 | 0 | 0 | 100.0% |
 | src/lib/persisted-numbers.ts | 19 | 19 | 0 | 0 | 100.0% |
 | src/lib/query-invalidation.ts | 7 | 7 | 0 | 0 | 100.0% |
+| src/lib/safe-storage.ts | 3 | 3 | 0 | 0 | 100.0% |
 | src/lib/task-action-access.ts | 29 | 29 | 0 | 0 | 100.0% |
 | src/lib/task-optimistic.ts | 7 | 7 | 0 | 0 | 100.0% |
-| src/proxy.ts | 1 | 0 | 0 | 1 | — |
+| src/proxy.ts | 1 | 1 | 0 | 0 | 100.0% |
 
-## Survivors (418)
+## Survivors (1995)
 
 ### src/api/custom-instance.ts (3)
 
@@ -134,561 +136,2252 @@ Per-operator scores: compare 93.7%, intconst 83.6%, binop 79.7%, boolconst 87.2%
 - `m00003` L34: `if (queryStart === -1) return url;` → `if (queryStart === -0) return url;` (intconst: 1 -> 0) ⚠capped-sample
 - `m00006` L35: `const params = new URLSearchParams(url.slice(queryStart + 1));` → `const params = new URLSearchParams(url.slice(queryStart + 0));` (intconst: 1 -> 0) ⚠capped-sample
 
-### src/app/(app)/animals/[id]/page.tsx (80)
+### src/app/(app)/animals/[id]/page.tsx (77)
 
-- `m00019` L127: `(BUCKET_REQUIRED_SEX[bucket] ?? sex) === sex;` → `(BUCKET_REQUIRED_SEX[bucket] || sex) === sex;` (binop: ?? -> ||)
-- `m00021` L131: `(v) => (v === "" || v === null || v === undefined ? undefined : Number(v)),` → `(v) => (v === "" || v === null && v === undefined ? undefined : Number(v)),` (binop: || -> &&)
-- `m00035` L167: `notes: z.string().max(255, "Notes cannot exceed 255 characters").optional(),` → `notes: z.string().max(254, "Notes cannot exceed 255 characters").optional(),` (intconst: 255 -> 254)
-- `m00056` L292: `rows={2}` → `rows={3}` (intconst: 2 -> 3)
-- `m00057` L292: `rows={2}` → `rows={1}` (intconst: 2 -> 1)
-- `m00063` L307: `disabled={isSubmitting || actionFlight.pending || profileSettling}` → `disabled={isSubmitting || actionFlight.pending && profileSettling}` (binop: || -> &&)
-- `m00068` L340: `const [coatColor, setCoatColor] = useState<string>(animal.coat_color ?? "");` → `const [coatColor, setCoatColor] = useState<string>(animal.coat_color || "");` (binop: ?? -> ||)
-- `m00075` L360: `setCoatColor(animal.coat_color ?? "");` → `setCoatColor(animal.coat_color || "");` (binop: ?? -> ||)
-- `m00097` L464: `reason: z.string().max(255, "Reason cannot exceed 255 characters").optional(),` → `reason: z.string().max(254, "Reason cannot exceed 255 characters").optional(),` (intconst: 255 -> 254)
-- `m00108` L550: `value={field.value ?? ""}` → `value={field.value || ""}` (binop: ?? -> ||)
-- `m00114` L586: `rows={2}` → `rows={3}` (intconst: 2 -> 3)
-- `m00115` L586: `rows={2}` → `rows={1}` (intconst: 2 -> 1)
-- `m00121` L601: `disabled={isSubmitting || actionFlight.pending || profileSettling}` → `disabled={isSubmitting || actionFlight.pending && profileSettling}` (binop: || -> &&)
-- `m00140` L660: `.max(120, "Suspected disease cannot exceed 120 characters")` → `.max(119, "Suspected disease cannot exceed 120 characters")` (intconst: 120 -> 119)
-- `m00148` L686: `values.estimated_dob !== ""` → `values.estimated_dob === ""` (compare: !== -> ===)
-- `m00174` L822: `? (values.sale_price ?? null)` → `? (values.sale_price || null)` (binop: ?? -> ||)
-- `m00177` L827: `? (values.sale_weight_kg ?? null)` → `? (values.sale_weight_kg || null)` (binop: ?? -> ||)
-- `m00180` L831: `? (values.sale_price_per_kg ?? null)` → `? (values.sale_price_per_kg || null)` (binop: ?? -> ||)
-- `m00182` L836: `values.new_status === StatusChangeInNewStatus.SOLD && needsEstimatedDob` → `values.new_status === StatusChangeInNewStatus.SOLD || needsEstimatedDob` (binop: && -> ||)
-- `m00189` L849: `? ((values.mortality_cause_code ?? null) as StatusChangeInMortalityCauseCode)` → `? ((values.mortality_cause_code || null) as StatusChangeInMortalityCauseCode)` (binop: ?? -> ||)
-- `m00192` L853: `? ((values.disposal_method ?? null) as StatusChangeInDisposalMethod)` → `? ((values.disposal_method || null) as StatusChangeInDisposalMethod)` (binop: ?? -> ||)
-- `m00198` L862: `values.new_status === StatusChangeInNewStatus.DEAD && values.necropsy_done` → `values.new_status === StatusChangeInNewStatus.DEAD || values.necropsy_done` (binop: && -> ||)
-- `m00203` L869: `values.new_status === StatusChangeInNewStatus.DEAD &&` → `values.new_status === StatusChangeInNewStatus.DEAD ||` (binop: && -> ||)
-- `m00206` L874: `values.new_status === StatusChangeInNewStatus.DEAD &&` → `values.new_status === StatusChangeInNewStatus.DEAD ||` (binop: && -> ||)
-- `m00218` L934: `if (nextStatus !== StatusChangeInNewStatus.SOLD) {` → `if (nextStatus === StatusChangeInNewStatus.SOLD) {` (compare: !== -> ===)
-- `m00221` L939: `setValue("necropsy_done", false);` → `setValue("necropsy_done", true);` (boolconst: -> true)
-- `m00228` L986: `aria-invalid={Boolean(errors.sale_weight_kg) || undefined}` → `aria-invalid={Boolean(errors.sale_weight_kg) && undefined}` (binop: || -> &&)
-- `m00229` L987: `aria-describedby={errors.sale_weight_kg ? "status-sale-weight-error" : undefined}` → `aria-describedby={errors.sale_weight_kg ? undefined : "status-sale-weight-error"}` (ifexp: swap ternary branches)
-- `m00238` L1024: `disabled={!saleWeight || Number(saleWeight) <= 0}` → `disabled={!saleWeight || Number(saleWeight) < 0}` (compare: <= -> <)
-- `m00239` L1024: `disabled={!saleWeight || Number(saleWeight) <= 0}` → `disabled={!saleWeight || Number(saleWeight) <= 1}` (intconst: 0 -> 1)
-- `m00240` L1025: `aria-invalid={Boolean(errors.sale_price_per_kg) || undefined}` → `aria-invalid={Boolean(errors.sale_price_per_kg) && undefined}` (binop: || -> &&)
-- `m00241` L1027: `errors.sale_price_per_kg ? "status-price-per-kg-error" : "status-price-per-kg-hint"` → `errors.sale_price_per_kg ? "status-price-per-kg-hint" : "status-price-per-kg-error"` (ifexp: swap ternary branches)
-- `m00243` L1046: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
-- `m00244` L1046: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
-- `m00256` L1090: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
-- `m00257` L1090: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
-- `m00261` L1115: `value={field.value ?? ""}` → `value={field.value || ""}` (binop: ?? -> ||)
-- `m00264` L1124: `aria-invalid={Boolean(errors.mortality_cause_code) || undefined}` → `aria-invalid={Boolean(errors.mortality_cause_code) && undefined}` (binop: || -> &&)
-- `m00265` L1151: `value={field.value ?? ""}` → `value={field.value || ""}` (binop: ?? -> ||)
-- `m00268` L1160: `aria-invalid={Boolean(errors.disposal_method) || undefined}` → `aria-invalid={Boolean(errors.disposal_method) && undefined}` (binop: || -> &&)
-- `m00269` L1162: `errors.disposal_method ? "disposal-method-error" : undefined` → `errors.disposal_method ? undefined : "disposal-method-error"` (ifexp: swap ternary branches)
-- `m00276` L1210: `if (!selected) {` → `if (selected) {` (not: drop !)
-- `m00278` L1227: `rows={3}` → `rows={4}` (intconst: 3 -> 4)
-- `m00279` L1227: `rows={3}` → `rows={2}` (intconst: 3 -> 2)
-- `m00280` L1228: `maxLength={4_000}` → `maxLength={4001}` (intconst: 4000 -> 4001)
-- `m00281` L1228: `maxLength={4_000}` → `maxLength={3999}` (intconst: 4000 -> 3999)
-- `m00282` L1229: `aria-invalid={Boolean(errors.necropsy_findings) || undefined}` → `aria-invalid={Boolean(errors.necropsy_findings) && undefined}` (binop: || -> &&)
-- `m00283` L1231: `errors.necropsy_findings ? "necropsy-findings-error" : undefined` → `errors.necropsy_findings ? undefined : "necropsy-findings-error"` (ifexp: swap ternary branches)
-- `m00289` L1274: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
-- `m00290` L1274: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
-- `m00297` L1309: `rows={2}` → `rows={3}` (intconst: 2 -> 3)
-- `m00298` L1309: `rows={2}` → `rows={1}` (intconst: 2 -> 1)
-- `m00299` L1310: `maxLength={255}` → `maxLength={256}` (intconst: 255 -> 256)
-- `m00300` L1310: `maxLength={255}` → `maxLength={254}` (intconst: 255 -> 254)
-- `m00304` L1325: `disabled={isSubmitting || actionFlight.pending || profileSettling}` → `disabled={isSubmitting || actionFlight.pending && profileSettling}` (binop: || -> &&)
-- `m00310` L1358: `if (actionFlight.pending || profileSettling || awaitingEpisodeRefresh) return;` → `if (actionFlight.pending || profileSettling && awaitingEpisodeRefresh) return;` (binop: || -> &&)
-- `m00311` L1358: `if (actionFlight.pending || profileSettling || awaitingEpisodeRefresh) return;` → `if (actionFlight.pending && profileSettling || awaitingEpisodeRefresh) return;` (binop: || -> &&)
-- `m00327` L1437: `maxLength={255}` → `maxLength={256}` (intconst: 255 -> 256)
-- `m00328` L1437: `maxLength={255}` → `maxLength={254}` (intconst: 255 -> 254)
-- `m00347` L1518: `? query.error.detail` → `? "Could not load the lifetime P&L."query.error.detail` (ifexp: swap ternary branches)
-- `m00349` L1558: `pnl.net < 0 ? "text-destructive" : "text-success",` → `pnl.net < 0 ? "text-success" : "text-destructive",` (ifexp: swap ternary branches)
-- `m00350` L1558: `pnl.net < 0 ? "text-destructive" : "text-success",` → `pnl.net <= 0 ? "text-destructive" : "text-success",` (compare: < -> <=)
-- `m00351` L1558: `pnl.net < 0 ? "text-destructive" : "text-success",` → `pnl.net < 1 ? "text-destructive" : "text-success",` (intconst: 0 -> 1)
-- `m00372` L1704: `{a.restriction_reason ?? "A health hold is active for this animal."}` → `{a.restriction_reason || "A health hold is active for this animal."}` (binop: ?? -> ||)
-- `m00381` L1734: `(restrictionHistory?.total ?? 0) > 0) && (` → `(restrictionHistory?.total || 0) > 0) && (` (binop: ?? -> ||)
-- `m00384` L1736: `title={`Movement restriction audit (${restrictionHistory?.total ?? 0})`}` → `title={`Movement restriction audit (${restrictionHistory?.total || 0})`}` (binop: ?? -> ||)
-- `m00389` L1780: `<TableCell>{action.disease_target ?? "—"}</TableCell>` → `<TableCell>{action.disease_target || "—"}</TableCell>` (binop: ?? -> ||)
-- `m00390` L1786: `total={restrictionHistory?.total ?? 0}` → `total={restrictionHistory?.total || 0}` (binop: ?? -> ||)
-- `m00391` L1786: `total={restrictionHistory?.total ?? 0}` → `total={restrictionHistory?.total ?? 1}` (intconst: 0 -> 1)
-- `m00392` L1787: `limit={restrictionHistory?.limit ?? RESTRICTION_HISTORY_LIMIT}` → `limit={restrictionHistory?.limit || RESTRICTION_HISTORY_LIMIT}` (binop: ?? -> ||)
-- `m00393` L1788: `offset={restrictionHistory?.offset ?? restrictionOffset}` → `offset={restrictionHistory?.offset || restrictionOffset}` (binop: ?? -> ||)
-- `m00401` L1819: `<Detail label="Days in bucket">{a.days_in_current_bucket ?? "—"}</Detail>` → `<Detail label="Days in bucket">{a.days_in_current_bucket || "—"}</Detail>` (binop: ?? -> ||)
-- `m00415` L1840: `<Detail label="Seller">{a.seller_name ?? "—"}</Detail>` → `<Detail label="Seller">{a.seller_name || "—"}</Detail>` (binop: ?? -> ||)
-- `m00421` L1854: `<Detail label="Buyer">{a.buyer_name ?? "—"}</Detail>` → `<Detail label="Buyer">{a.buyer_name || "—"}</Detail>` (binop: ?? -> ||)
-- `m00424` L1859: `<Detail label="Mortality cause">{a.mortality_cause ?? "—"}</Detail>` → `<Detail label="Mortality cause">{a.mortality_cause || "—"}</Detail>` (binop: ?? -> ||)
-- `m00437` L1901: `{a.restriction_clearance_reference ?? "—"}` → `{a.restriction_clearance_reference || "—"}` (binop: ?? -> ||)
-- `m00449` L1954: `<TableCell className="text-right">{w.bcs ?? "—"}</TableCell>` → `<TableCell className="text-right">{w.bcs || "—"}</TableCell>` (binop: ?? -> ||)
-- `m00450` L1955: `<TableCell>{w.notes ?? ""}</TableCell>` → `<TableCell>{w.notes || ""}</TableCell>` (binop: ?? -> ||)
-- `m00455` L1997: `<TableCell>{m.reason ?? ""}</TableCell>` → `<TableCell>{m.reason || ""}</TableCell>` (binop: ?? -> ||)
-- `m00504` L2223: `const backHref = permittedAppPath(searchParams.get("returnTo"), can) ?? "/animals";` → `const backHref = permittedAppPath(searchParams.get("returnTo"), can) || "/animals";` (binop: ?? -> ||)
+- `m00019` L129: `(v) => (v === "" || v === null || v === undefined ? undefined : Number(v)),` → `(v) => (v === "" || v === null && v === undefined ? undefined : Number(v)),` (binop: || -> &&)
+- `m00033` L168: `notes: z.string().max(255, t("animalDetail.validation.notesTooLong")).optional(),` → `notes: z.string().max(254, t("animalDetail.validation.notesTooLong")).optional(),` (intconst: 255 -> 254)
+- `m00035` L211: `bcs: values.bcs ?? null,` → `bcs: values.bcs || null,` (binop: ?? -> ||)
+- `m00061` L317: `disabled={isSubmitting || actionFlight.pending || profileSettling}` → `disabled={isSubmitting || actionFlight.pending && profileSettling}` (binop: || -> &&)
+- `m00066` L350: `const [coatColor, setCoatColor] = useState<string>(animal.coat_color ?? "");` → `const [coatColor, setCoatColor] = useState<string>(animal.coat_color || "");` (binop: ?? -> ||)
+- `m00067` L352: `animal.horned === true ? "yes" : animal.horned === false ? "no" : "",` → `animal.horned === true ? animal.horned === false ? "no" : "" : "yes",` (ifexp: swap ternary branches)
+- `m00068` L352: `animal.horned === true ? "yes" : animal.horned === false ? "no" : "",` → `animal.horned !== true ? "yes" : animal.horned === false ? "no" : "",` (compare: === -> !==)
+- `m00069` L352: `animal.horned === true ? "yes" : animal.horned === false ? "no" : "",` → `animal.horned === false ? "yes" : animal.horned === false ? "no" : "",` (boolconst: -> false)
+- `m00070` L352: `animal.horned === true ? "yes" : animal.horned === false ? "no" : "",` → `animal.horned === true ? "yes" : animal.horned === false ? "" : "no",` (ifexp: swap ternary branches)
+- `m00071` L352: `animal.horned === true ? "yes" : animal.horned === false ? "no" : "",` → `animal.horned === true ? "yes" : animal.horned !== false ? "no" : "",` (compare: === -> !==)
+- `m00072` L352: `animal.horned === true ? "yes" : animal.horned === false ? "no" : "",` → `animal.horned === true ? "yes" : animal.horned === true ? "no" : "",` (boolconst: -> true)
+- `m00073` L370: `setCoatColor(animal.coat_color ?? "");` → `setCoatColor(animal.coat_color || "");` (binop: ?? -> ||)
+- `m00079` L371: `setHorned(animal.horned === true ? "yes" : animal.horned === false ? "no" : "");` → `setHorned(animal.horned === true ? "yes" : animal.horned === true ? "no" : "");` (boolconst: -> true)
+- `m00089` L412: `if (!nextOpen && actionFlight.pending) return;` → `if (!nextOpen || actionFlight.pending) return;` (binop: && -> ||)
+- `m00090` L412: `if (!nextOpen && actionFlight.pending) return;` → `if (nextOpen && actionFlight.pending) return;` (not: drop !)
+- `m00095` L479: `reason: z.string().max(255, t("animalDetail.validation.reasonTooLong")).optional(),` → `reason: z.string().max(254, t("animalDetail.validation.reasonTooLong")).optional(),` (intconst: 255 -> 254)
+- `m00106` L572: `value={field.value ?? ""}` → `value={field.value || ""}` (binop: ?? -> ||)
+- `m00119` L623: `disabled={isSubmitting || actionFlight.pending || profileSettling}` → `disabled={isSubmitting || actionFlight.pending && profileSettling}` (binop: || -> &&)
+- `m00138` L687: `.max(120, t("animalDetail.validation.suspectedDiseaseTooLong"))` → `.max(119, t("animalDetail.validation.suspectedDiseaseTooLong"))` (intconst: 120 -> 119)
+- `m00146` L713: `values.estimated_dob !== ""` → `values.estimated_dob === ""` (compare: !== -> ===)
+- `m00172` L859: `? (values.sale_price ?? null)` → `? (values.sale_price || null)` (binop: ?? -> ||)
+- `m00175` L864: `? (values.sale_weight_kg ?? null)` → `? (values.sale_weight_kg || null)` (binop: ?? -> ||)
+- `m00178` L868: `? (values.sale_price_per_kg ?? null)` → `? (values.sale_price_per_kg || null)` (binop: ?? -> ||)
+- `m00180` L873: `values.new_status === StatusChangeInNewStatus.SOLD && needsEstimatedDob` → `values.new_status === StatusChangeInNewStatus.SOLD || needsEstimatedDob` (binop: && -> ||)
+- `m00187` L886: `? ((values.mortality_cause_code ?? null) as StatusChangeInMortalityCauseCode)` → `? ((values.mortality_cause_code || null) as StatusChangeInMortalityCauseCode)` (binop: ?? -> ||)
+- `m00190` L890: `? ((values.disposal_method ?? null) as StatusChangeInDisposalMethod)` → `? ((values.disposal_method || null) as StatusChangeInDisposalMethod)` (binop: ?? -> ||)
+- `m00196` L899: `values.new_status === StatusChangeInNewStatus.DEAD && values.necropsy_done` → `values.new_status === StatusChangeInNewStatus.DEAD || values.necropsy_done` (binop: && -> ||)
+- `m00201` L906: `values.new_status === StatusChangeInNewStatus.DEAD &&` → `values.new_status === StatusChangeInNewStatus.DEAD ||` (binop: && -> ||)
+- `m00204` L911: `values.new_status === StatusChangeInNewStatus.DEAD &&` → `values.new_status === StatusChangeInNewStatus.DEAD ||` (binop: && -> ||)
+- `m00216` L980: `if (nextStatus !== StatusChangeInNewStatus.SOLD) {` → `if (nextStatus === StatusChangeInNewStatus.SOLD) {` (compare: !== -> ===)
+- `m00219` L985: `setValue("necropsy_done", false);` → `setValue("necropsy_done", true);` (boolconst: -> true)
+- `m00236` L1074: `disabled={!saleWeight || Number(saleWeight) <= 0}` → `disabled={!saleWeight || Number(saleWeight) < 0}` (compare: <= -> <)
+- `m00237` L1074: `disabled={!saleWeight || Number(saleWeight) <= 0}` → `disabled={!saleWeight || Number(saleWeight) <= 1}` (intconst: 0 -> 1)
+- `m00259` L1163: `value={field.value ?? ""}` → `value={field.value || ""}` (binop: ?? -> ||)
+- `m00262` L1172: `aria-invalid={Boolean(errors.mortality_cause_code) || undefined}` → `aria-invalid={Boolean(errors.mortality_cause_code) && undefined}` (binop: || -> &&)
+- `m00263` L1198: `value={field.value ?? ""}` → `value={field.value || ""}` (binop: ?? -> ||)
+- `m00266` L1207: `aria-invalid={Boolean(errors.disposal_method) || undefined}` → `aria-invalid={Boolean(errors.disposal_method) && undefined}` (binop: || -> &&)
+- `m00267` L1209: `errors.disposal_method ? "disposal-method-error" : undefined` → `errors.disposal_method ? undefined : "disposal-method-error"` (ifexp: swap ternary branches)
+- `m00274` L1257: `if (!selected) {` → `if (selected) {` (not: drop !)
+- `m00287` L1321: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
+- `m00288` L1321: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
+- `m00302` L1372: `disabled={isSubmitting || actionFlight.pending || profileSettling}` → `disabled={isSubmitting || actionFlight.pending && profileSettling}` (binop: || -> &&)
+- `m00308` L1406: `if (actionFlight.pending || profileSettling || awaitingEpisodeRefresh) return;` → `if (actionFlight.pending || profileSettling && awaitingEpisodeRefresh) return;` (binop: || -> &&)
+- `m00309` L1406: `if (actionFlight.pending || profileSettling || awaitingEpisodeRefresh) return;` → `if (actionFlight.pending && profileSettling || awaitingEpisodeRefresh) return;` (binop: || -> &&)
+- `m00325` L1488: `maxLength={255}` → `maxLength={256}` (intconst: 255 -> 256)
+- `m00326` L1488: `maxLength={255}` → `maxLength={254}` (intconst: 255 -> 254)
+- `m00345` L1570: `? mapServerError(t, query.error.detail, query.error.status, query.error.code)` → `? t("animalDetail.pnl.loadFailed")mapServerError(t, query.error.detail, query.error.status, query.error.code)` (ifexp: swap ternary branches)
+- `m00347` L1610: `pnl.net < 0 ? "text-destructive" : "text-success",` → `pnl.net < 0 ? "text-success" : "text-destructive",` (ifexp: swap ternary branches)
+- `m00348` L1610: `pnl.net < 0 ? "text-destructive" : "text-success",` → `pnl.net <= 0 ? "text-destructive" : "text-success",` (compare: < -> <=)
+- `m00349` L1610: `pnl.net < 0 ? "text-destructive" : "text-success",` → `pnl.net < 1 ? "text-destructive" : "text-success",` (intconst: 0 -> 1)
+- `m00350` L1662: `? vocabulary.youngPlural.charAt(0).toUpperCase() + vocabulary.youngPlural.slice(1)` → `? t("simulation.token.kids")vocabulary.youngPlural.charAt(0).toUpperCase() + vocabulary.youngPlural.slice(1)` (ifexp: swap ternary branches)
+- `m00351` L1661: `language === "en"` → `language !== "en"` (compare: === -> !==)
+- `m00380` L1765: `{a.restriction_reason ?? t("animalDetail.restriction.holdFallback")}` → `{a.restriction_reason || t("animalDetail.restriction.holdFallback")}` (binop: ?? -> ||)
+- `m00389` L1795: `(restrictionHistory?.total ?? 0) > 0) && (` → `(restrictionHistory?.total || 0) > 0) && (` (binop: ?? -> ||)
+- `m00392` L1797: `title={t("animalDetail.restrictionAudit.title", { count: restrictionHistory?.total ?? 0 })}` → `title={t("animalDetail.restrictionAudit.title", { count: restrictionHistory?.total || 0 })}` (binop: ?? -> ||)
+- `m00397` L1841: `<TableCell>{action.disease_target ?? "—"}</TableCell>` → `<TableCell>{action.disease_target || "—"}</TableCell>` (binop: ?? -> ||)
+- `m00398` L1847: `total={restrictionHistory?.total ?? 0}` → `total={restrictionHistory?.total || 0}` (binop: ?? -> ||)
+- `m00399` L1847: `total={restrictionHistory?.total ?? 0}` → `total={restrictionHistory?.total ?? 1}` (intconst: 0 -> 1)
+- `m00400` L1848: `limit={restrictionHistory?.limit ?? RESTRICTION_HISTORY_LIMIT}` → `limit={restrictionHistory?.limit || RESTRICTION_HISTORY_LIMIT}` (binop: ?? -> ||)
+- `m00401` L1849: `offset={restrictionHistory?.offset ?? restrictionOffset}` → `offset={restrictionHistory?.offset || restrictionOffset}` (binop: ?? -> ||)
+- `m00407` L1880: `<Detail label={t("animalDetail.detail.daysInBucket")}>{a.days_in_current_bucket ?? "—"}</Detail>` → `<Detail label={t("animalDetail.detail.daysInBucket")}>{a.days_in_current_bucket || "—"}</Detail>` (binop: ?? -> ||)
+- `m00414` L1890: `? a.age_months === 1` → `? a.age_months === 2` (intconst: 1 -> 2)
+- `m00415` L1890: `? a.age_months === 1` → `? a.age_months === 0` (intconst: 1 -> 0)
+- `m00425` L1907: `<Detail label={t("animalDetail.detail.seller")}>{a.seller_name ?? "—"}</Detail>` → `<Detail label={t("animalDetail.detail.seller")}>{a.seller_name || "—"}</Detail>` (binop: ?? -> ||)
+- `m00431` L1921: `<Detail label={t("animalDetail.detail.buyer")}>{a.buyer_name ?? "—"}</Detail>` → `<Detail label={t("animalDetail.detail.buyer")}>{a.buyer_name || "—"}</Detail>` (binop: ?? -> ||)
+- `m00434` L1926: `<Detail label={t("animalDetail.field.mortalityCause")}>{a.mortality_cause ?? "—"}</Detail>` → `<Detail label={t("animalDetail.field.mortalityCause")}>{a.mortality_cause || "—"}</Detail>` (binop: ?? -> ||)
+- `m00447` L1968: `{a.restriction_clearance_reference ?? "—"}` → `{a.restriction_clearance_reference || "—"}` (binop: ?? -> ||)
+- `m00459` L2021: `<TableCell className="text-right">{w.bcs ?? "—"}</TableCell>` → `<TableCell className="text-right">{w.bcs || "—"}</TableCell>` (binop: ?? -> ||)
+- `m00460` L2022: `<TableCell>{w.notes ?? ""}</TableCell>` → `<TableCell>{w.notes || ""}</TableCell>` (binop: ?? -> ||)
+- `m00465` L2064: `<TableCell>{m.reason ?? ""}</TableCell>` → `<TableCell>{m.reason || ""}</TableCell>` (binop: ?? -> ||)
+- `m00510` L2291: `const backHref = permittedAppPath(searchParams.get("returnTo"), can) ?? "/animals";` → `const backHref = permittedAppPath(searchParams.get("returnTo"), can) || "/animals";` (binop: ?? -> ||)
+- `m00529` L2343: `<PageSkeleton cards={3} />` → `<PageSkeleton cards={4} />` (intconst: 3 -> 4)
+- `m00530` L2343: `<PageSkeleton cards={3} />` → `<PageSkeleton cards={2} />` (intconst: 3 -> 2)
+- `m00534` L2391: `<PageSkeleton cards={3} />` → `<PageSkeleton cards={4} />` (intconst: 3 -> 4)
+- `m00535` L2391: `<PageSkeleton cards={3} />` → `<PageSkeleton cards={2} />` (intconst: 3 -> 2)
+- `m00536` L2406: `cards={3}` → `cards={4}` (intconst: 3 -> 4)
+- `m00537` L2406: `cards={3}` → `cards={2}` (intconst: 3 -> 2)
 
-### src/app/(app)/animals/page.tsx (34)
+### src/app/(app)/animals/page.tsx (73)
 
-- `m00546` L120: `(BUCKET_REQUIRED_SEX[bucket] ?? sex) === sex;` → `(BUCKET_REQUIRED_SEX[bucket] || sex) === sex;` (binop: ?? -> ||)
-- `m00584` L231: `.max(1_000_000_000, "Purchase price cannot exceed ₹1,000,000,000")` → `.max(999999999, "Purchase price cannot exceed ₹1,000,000,000")` (intconst: 1000000000 -> 999999999)
-- `m00586` L234: `seller_name: z.string().max(120).optional(),` → `seller_name: z.string().max(119).optional(),` (intconst: 120 -> 119)
-- `m00590` L253: `historical_import_reason: z.string().max(255).optional().default(""),` → `historical_import_reason: z.string().max(256).optional().default(""),` (intconst: 255 -> 256)
-- `m00591` L253: `historical_import_reason: z.string().max(255).optional().default(""),` → `historical_import_reason: z.string().max(254).optional().default(""),` (intconst: 255 -> 254)
-- `m00613` L329: `const raw = searchParams.get("page") ?? "";` → `const raw = searchParams.get("page") || "";` (binop: ?? -> ||)
-- `m00618` L335: `return parsed >= 1 ? Math.min(parsed, MAX_PAGE) : 1;` → `return parsed > 1 ? Math.min(parsed, MAX_PAGE) : 1;` (compare: >= -> >)
-- `m00619` L335: `return parsed >= 1 ? Math.min(parsed, MAX_PAGE) : 1;` → `return parsed >= 2 ? Math.min(parsed, MAX_PAGE) : 1;` (intconst: 1 -> 2)
-- `m00644` L466: `shouldValidate: true,` → `shouldValidate: false,` (boolconst: -> false)
-- `m00647` L474: `if (!isOwner && source === AnimalCreateInSource.BORN) {` → `if (!isOwner && source !== AnimalCreateInSource.BORN) {` (compare: === -> !==)
-- `m00648` L475: `setValue("source", AnimalCreateInSource.PURCHASED, { shouldValidate: true });` → `setValue("source", AnimalCreateInSource.PURCHASED, { shouldValidate: false });` (boolconst: -> false)
-- `m00660` L505: `? { horned: false }` → `? { horned: true }` (boolconst: -> true)
-- `m00662` L510: `birth_weight: values.birth_weight ?? null,` → `birth_weight: values.birth_weight || null,` (binop: ?? -> ||)
-- `m00663` L512: `purchase_price: values.purchase_price ?? null,` → `purchase_price: values.purchase_price || null,` (binop: ?? -> ||)
-- `m00665` L514: `weight_kg: values.weight_kg ?? null,` → `weight_kg: values.weight_kg || null,` (binop: ?? -> ||)
-- `m00677` L546: `const cancelBusy = isSubmitting || createFlight.pending;` → `const cancelBusy = isSubmitting && createFlight.pending;` (binop: || -> &&)
-- `m00702` L698: `? vocabulary.breedingEntry.male.minMonths` → `? vocabulary.breedingEntry.female.minMonthsvocabulary.breedingEntry.male.minMonths` (ifexp: swap ternary branches)
-- `m00703` L697: `{sex === AnimalCreateInSex.M` → `{sex !== AnimalCreateInSex.M` (compare: === -> !==)
-- `m00706` L713: `maxLength={60}` → `maxLength={61}` (intconst: 60 -> 61)
-- `m00707` L713: `maxLength={60}` → `maxLength={59}` (intconst: 60 -> 59)
-- `m00754` L1009: `const navigationSeq = useRef(0);` → `const navigationSeq = useRef(1);` (intconst: 0 -> 1)
-- `m00755` L1025: `const pageNavigationPending = useRef(false);` → `const pageNavigationPending = useRef(true);` (boolconst: -> true)
-- `m00756` L1046: `urlQ: (new URLSearchParams(key).get("q") ?? "").trim(),` → `urlQ: (new URLSearchParams(key).get("q") || "").trim(),` (binop: ?? -> ||)
-- `m00773` L1117: `const hasUnmatchedPending = pending.size > 0;` → `const hasUnmatchedPending = pending.size >= 0;` (compare: > -> >=)
-- `m00777` L1125: `if (seq > matchedSeq) break;` → `if (seq > matchedSeq) continue;` (loopjump: break -> continue)
-- `m00778` L1140: `const nextQ = clampSearch(params.get("q") ?? "");` → `const nextQ = clampSearch(params.get("q") || "");` (binop: ?? -> ||)
-- `m00789` L1184: `const urlQ = (new URLSearchParams(paramsKey).get("q") ?? "").trim();` → `const urlQ = (new URLSearchParams(paramsKey).get("q") || "").trim();` (binop: ?? -> ||)
-- `m00793` L1197: `setSearchNavigationPending(true);` → `setSearchNavigationPending(false);` (boolconst: -> false)
-- `m00797` L1206: `page: 1,` → `page: 0,` (intconst: 1 -> 0)
-- `m00798` L1209: `}, 300);` → `}, 301);` (intconst: 300 -> 301)
-- `m00799` L1209: `}, 300);` → `}, 299);` (intconst: 300 -> 299)
-- `m00821` L1226: `const total = Math.max(0, payload?.total ?? 0);` → `const total = Math.max(0, payload?.total || 0);` (binop: ?? -> ||)
-- `m00822` L1226: `const total = Math.max(0, payload?.total ?? 0);` → `const total = Math.max(0, payload?.total ?? 1);` (intconst: 0 -> 1)
-- `m00846` L1303: `setPage(1);` → `setPage(2);` (intconst: 1 -> 2)
+- `m00588` L246: `.max(1_000_000_000, t("animals.validation.purchasePriceMax"))` → `.max(999999999, t("animals.validation.purchasePriceMax"))` (intconst: 1000000000 -> 999999999)
+- `m00590` L249: `seller_name: z.string().max(120).optional(),` → `seller_name: z.string().max(119).optional(),` (intconst: 120 -> 119)
+- `m00594` L268: `historical_import_reason: z.string().max(255).optional().default(""),` → `historical_import_reason: z.string().max(256).optional().default(""),` (intconst: 255 -> 256)
+- `m00595` L268: `historical_import_reason: z.string().max(255).optional().default(""),` → `historical_import_reason: z.string().max(254).optional().default(""),` (intconst: 255 -> 254)
+- `m00617` L357: `const raw = searchParams.get("page") ?? "";` → `const raw = searchParams.get("page") || "";` (binop: ?? -> ||)
+- `m00622` L363: `return parsed >= 1 ? Math.min(parsed, MAX_PAGE) : 1;` → `return parsed > 1 ? Math.min(parsed, MAX_PAGE) : 1;` (compare: >= -> >)
+- `m00623` L363: `return parsed >= 1 ? Math.min(parsed, MAX_PAGE) : 1;` → `return parsed >= 2 ? Math.min(parsed, MAX_PAGE) : 1;` (intconst: 1 -> 2)
+- `m00650` L513: `shouldValidate: true,` → `shouldValidate: false,` (boolconst: -> false)
+- `m00653` L521: `if (!isOwner && source === AnimalCreateInSource.BORN) {` → `if (!isOwner && source !== AnimalCreateInSource.BORN) {` (compare: === -> !==)
+- `m00654` L522: `setValue("source", AnimalCreateInSource.PURCHASED, { shouldValidate: true });` → `setValue("source", AnimalCreateInSource.PURCHASED, { shouldValidate: false });` (boolconst: -> false)
+- `m00666` L552: `? { horned: false }` → `? { horned: true }` (boolconst: -> true)
+- `m00668` L557: `birth_weight: values.birth_weight ?? null,` → `birth_weight: values.birth_weight || null,` (binop: ?? -> ||)
+- `m00669` L559: `purchase_price: values.purchase_price ?? null,` → `purchase_price: values.purchase_price || null,` (binop: ?? -> ||)
+- `m00671` L561: `weight_kg: values.weight_kg ?? null,` → `weight_kg: values.weight_kg || null,` (binop: ?? -> ||)
+- `m00683` L597: `const cancelBusy = isSubmitting || createFlight.pending;` → `const cancelBusy = isSubmitting && createFlight.pending;` (binop: || -> &&)
+- `m00710` L755: `? vocabulary.breedingEntry.male.minMonths` → `? vocabulary.breedingEntry.female.minMonthsvocabulary.breedingEntry.male.minMonths` (ifexp: swap ternary branches)
+- `m00711` L754: `sex === AnimalCreateInSex.M` → `sex !== AnimalCreateInSex.M` (compare: === -> !==)
+- `m00714` L770: `maxLength={60}` → `maxLength={61}` (intconst: 60 -> 61)
+- `m00715` L770: `maxLength={60}` → `maxLength={59}` (intconst: 60 -> 59)
+- `m00719` L790: `value={field.value ?? ""}` → `value={field.value || ""}` (binop: ?? -> ||)
+- `m00720` L816: `value={field.value ?? ""}` → `value={field.value || ""}` (binop: ?? -> ||)
+- `m00727` L868: `rows={2}` → `rows={3}` (intconst: 2 -> 3)
+- `m00728` L868: `rows={2}` → `rows={1}` (intconst: 2 -> 1)
+- `m00729` L869: `maxLength={255}` → `maxLength={256}` (intconst: 255 -> 256)
+- `m00730` L869: `maxLength={255}` → `maxLength={254}` (intconst: 255 -> 254)
+- `m00733` L887: `value={field.value ?? ""}` → `value={field.value || ""}` (binop: ?? -> ||)
+- `m00745` L982: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
+- `m00746` L982: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
+- `m00750` L1000: `rows={2}` → `rows={3}` (intconst: 2 -> 3)
+- `m00751` L1000: `rows={2}` → `rows={1}` (intconst: 2 -> 1)
+- `m00757` L1024: `disabled={isSubmitting || createFlight.pending || (!canManagePurchases && !isOwner)}` → `disabled={isSubmitting || createFlight.pending || (!canManagePurchases || !isOwner)}` (binop: && -> ||)
+- `m00762` L1064: `const [q, setQ] = useState(clampSearch(searchParams.get("q") ?? ""));` → `const [q, setQ] = useState(clampSearch(searchParams.get("q") || ""));` (binop: ?? -> ||)
+- `m00764` L1067: `const navigationSeq = useRef(0);` → `const navigationSeq = useRef(1);` (intconst: 0 -> 1)
+- `m00765` L1083: `const pageNavigationPending = useRef(false);` → `const pageNavigationPending = useRef(true);` (boolconst: -> true)
+- `m00766` L1104: `urlQ: (new URLSearchParams(key).get("q") ?? "").trim(),` → `urlQ: (new URLSearchParams(key).get("q") || "").trim(),` (binop: ?? -> ||)
+- `m00783` L1175: `const hasUnmatchedPending = pending.size > 0;` → `const hasUnmatchedPending = pending.size >= 0;` (compare: > -> >=)
+- `m00787` L1183: `if (seq > matchedSeq) break;` → `if (seq > matchedSeq) continue;` (loopjump: break -> continue)
+- `m00788` L1198: `const nextQ = clampSearch(params.get("q") ?? "");` → `const nextQ = clampSearch(params.get("q") || "");` (binop: ?? -> ||)
+- `m00799` L1242: `const urlQ = (new URLSearchParams(paramsKey).get("q") ?? "").trim();` → `const urlQ = (new URLSearchParams(paramsKey).get("q") || "").trim();` (binop: ?? -> ||)
+- `m00803` L1255: `setSearchNavigationPending(true);` → `setSearchNavigationPending(false);` (boolconst: -> false)
+- `m00807` L1264: `page: 1,` → `page: 0,` (intconst: 1 -> 0)
+- `m00808` L1267: `}, 300);` → `}, 301);` (intconst: 300 -> 301)
+- `m00809` L1267: `}, 300);` → `}, 299);` (intconst: 300 -> 299)
+- `m00831` L1284: `const total = Math.max(0, payload?.total ?? 0);` → `const total = Math.max(0, payload?.total || 0);` (binop: ?? -> ||)
+- `m00832` L1284: `const total = Math.max(0, payload?.total ?? 0);` → `const total = Math.max(0, payload?.total ?? 1);` (intconst: 0 -> 1)
+- `m00849` L1300: `const handle = window.setTimeout(() => setPage(totalPages), 0);` → `const handle = window.setTimeout(() => setPage(totalPages), 1);` (intconst: 0 -> 1)
+- `m00851` L1334: `const next = { bucket, sex, status, q: q.trim(), page: 1, [field]: value };` → `const next = { bucket, sex, status, q: q.trim(), page: 0, [field]: value };` (intconst: 1 -> 0)
+- `m00856` L1361: `setPage(1);` → `setPage(2);` (intconst: 1 -> 2)
+- `m00857` L1361: `setPage(1);` → `setPage(0);` (intconst: 1 -> 0)
+- `m00858` L1370: `page: 1,` → `page: 2,` (intconst: 1 -> 2)
+- `m00859` L1370: `page: 1,` → `page: 0,` (intconst: 1 -> 0)
+- `m00860` L1381: `nextPage < 1 ||` → `nextPage < 1 &&` (binop: || -> &&)
+- `m00861` L1379: `query.isFetching ||` → `query.isFetching &&` (binop: || -> &&)
+- `m00865` L1381: `nextPage < 1 ||` → `nextPage < 0 ||` (intconst: 1 -> 0)
+- `m00874` L1413: `page: 1,` → `page: 0,` (intconst: 1 -> 0)
+- `m00881` L1433: `const listedAnimals = payload?.animals ?? [];` → `const listedAnimals = payload?.animals || [];` (binop: ?? -> ||)
+- `m00886` L1437: `const dir = sort.direction === "asc" ? 1 : -1;` → `const dir = sort.direction === "asc" ? 2 : -1;` (intconst: 1 -> 2)
+- `m00888` L1437: `const dir = sort.direction === "asc" ? 1 : -1;` → `const dir = sort.direction === "asc" ? 1 : -2;` (intconst: 1 -> 2)
+- `m00891` L1439: `if (sort.column === "tag") return a.tag_number.localeCompare(b.tag_number) * dir;` → `if (sort.column === "tag") return a.tag_number.localeCompare(b.tag_number) / dir;` (binop: * -> /)
+- `m00893` L1442: `return ((a.age_months ?? -1) - (b.age_months ?? -1)) * dir;` → `return ((a.age_months ?? -1) - (b.age_months ?? -1)) / dir;` (binop: * -> /)
+- `m00896` L1442: `return ((a.age_months ?? -1) - (b.age_months ?? -1)) * dir;` → `return ((a.age_months ?? -2) - (b.age_months ?? -1)) * dir;` (intconst: 1 -> 2)
+- `m00899` L1442: `return ((a.age_months ?? -1) - (b.age_months ?? -1)) * dir;` → `return ((a.age_months ?? -1) - (b.age_months ?? -2)) * dir;` (intconst: 1 -> 2)
+- `m00901` L1445: `return ((a.latest_weight_kg ?? -1) - (b.latest_weight_kg ?? -1)) * dir;` → `return ((a.latest_weight_kg ?? -1) - (b.latest_weight_kg ?? -1)) / dir;` (binop: * -> /)
+- `m00903` L1445: `return ((a.latest_weight_kg ?? -1) - (b.latest_weight_kg ?? -1)) * dir;` → `return ((a.latest_weight_kg || -1) - (b.latest_weight_kg ?? -1)) * dir;` (binop: ?? -> ||)
+- `m00904` L1445: `return ((a.latest_weight_kg ?? -1) - (b.latest_weight_kg ?? -1)) * dir;` → `return ((a.latest_weight_kg ?? -2) - (b.latest_weight_kg ?? -1)) * dir;` (intconst: 1 -> 2)
+- `m00907` L1445: `return ((a.latest_weight_kg ?? -1) - (b.latest_weight_kg ?? -1)) * dir;` → `return ((a.latest_weight_kg ?? -1) - (b.latest_weight_kg ?? -2)) * dir;` (intconst: 1 -> 2)
+- `m00908` L1445: `return ((a.latest_weight_kg ?? -1) - (b.latest_weight_kg ?? -1)) * dir;` → `return ((a.latest_weight_kg ?? -1) - (b.latest_weight_kg ?? -0)) * dir;` (intconst: 1 -> 0)
+- `m00944` L1665: `<TableCell dir="auto">{a.name ?? "—"}</TableCell>` → `<TableCell dir="auto">{a.name || "—"}</TableCell>` (binop: ?? -> ||)
+- `m00945` L1672: `<TableCell className="text-right">{a.age_months ?? "—"}</TableCell>` → `<TableCell className="text-right">{a.age_months || "—"}</TableCell>` (binop: ?? -> ||)
+- `m00967` L1708: `<PageSkeleton cards={1} />` → `<PageSkeleton cards={2} />` (intconst: 1 -> 2)
+- `m00968` L1708: `<PageSkeleton cards={1} />` → `<PageSkeleton cards={0} />` (intconst: 1 -> 0)
+- `m00969` L1717: `cards={1}` → `cards={2}` (intconst: 1 -> 2)
+- `m00970` L1717: `cards={1}` → `cards={0}` (intconst: 1 -> 0)
 
-### src/app/(app)/app-layout-client.tsx (1)
+### src/app/(app)/app-layout-client.tsx (3)
 
-- `m00973` L347: `if (loading || !user || !farmId) {` → `if (loading && !user || !farmId) {` (binop: || -> &&)
+- `m00988` L350: `if (loading || !user || !farmId) {` → `if (loading && !user || !farmId) {` (binop: || -> &&)
+- `m01010` L416: `<AccountDialog name={user.name ?? null} email={user.email} />` → `<AccountDialog name={user.name || null} email={user.email} />` (binop: ?? -> ||)
+- `m01011` L430: `{user.must_change_password ? (` → `{user.must_change_password ? null)` (ifexp: swap ternary branches)
 
-### src/app/(app)/breeding/page.tsx (1)
+### src/app/(app)/breeding/[id]/ultrasound/page.tsx (2)
 
-- `m01297` L1305: `<PageSkeleton stats={3} cards={1} />` → `<PageSkeleton stats={3} cards={0} />` (intconst: 1 -> 0)
+- `m01015` L47: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={3} />` (intconst: 2 -> 3)
+- `m01016` L47: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={1} />` (intconst: 2 -> 1)
 
-### src/app/(app)/feeding/page.tsx (1)
+### src/app/(app)/breeding/page.tsx (53)
 
-- `m01945` L644: `const recorded = dispensedByBucket.get(bucketName) ?? 0;` → `const recorded = dispensedByBucket.get(bucketName) || 0;` (binop: ?? -> ||)
+- `m01039` L199: `const eligibleBuckCount = candidateAvailability?.eligible_buck_count ?? null;` → `const eligibleBuckCount = candidateAvailability?.eligible_buck_count || null;` (binop: ?? -> ||)
+- `m01048` L235: `const semenSirePayload = values.method !== "NATURAL" ? { method: values.method, semen_sire_name: values.semen_sire_name?.trim() || null } : {};` → `const semenSirePayload = values.method !== "NATURAL" ? { method: values.method, semen_sire_name: values.semen_sire_name?.trim() && null } : {};` (binop: || -> &&)
+- `m01056` L277: `} else if (unmapped.length > 0) {` → `} else if (unmapped.length > 1) {` (intconst: 0 -> 1)
+- `m01059` L291: `if (!nextOpen && (isSubmitting || createFlight.pending)) return;` → `if (!nextOpen && (isSubmitting && createFlight.pending)) return;` (binop: || -> &&)
+- `m01066` L324: `disabled={isSubmitting || createFlight.pending}` → `disabled={isSubmitting && createFlight.pending}` (binop: || -> &&)
+- `m01083` L442: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
+- `m01084` L442: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
+- `m01089` L473: `isSubmitting ||` → `isSubmitting &&` (binop: || -> &&)
+- `m01099` L528: `? (record.ultrasound_date ?? record.breeding_date)` → `? (record.ultrasound_date || record.breeding_date)` (binop: ?? -> ||)
+- `m01115` L548: `days: negativeResultGapDays ?? 0,` → `days: negativeResultGapDays || 0,` (binop: ?? -> ||)
+- `m01116` L548: `days: negativeResultGapDays ?? 0,` → `days: negativeResultGapDays ?? 1,` (intconst: 0 -> 1)
+- `m01124` L566: `if (resultDateError || kidCountError || saveLock.current) return;` → `if (resultDateError && kidCountError || saveLock.current) return;` (binop: || -> &&)
+- `m01136` L607: `doeTag: record.doe_tag ?? `#${record.doe_id}`,` → `doeTag: record.doe_tag || `#${record.doe_id}`,` (binop: ?? -> ||)
+- `m01137` L609: `buck: record.buck_tag ?? `#${record.buck_id}`,` → `buck: record.buck_tag || `#${record.buck_id}`,` (binop: ?? -> ||)
+- `m01153` L737: `const earliestLossDate = record.ultrasound_result_date && record.ultrasound_result_date > record.breeding_date ? record.ultrasound_result_date : record.breeding_date;` → `const earliestLossDate = record.ultrasound_result_date && record.ultrasound_result_date >= record.breeding_date ? record.ultrasound_result_date : record.breeding_date;` (compare: > -> >=)
+- `m01166` L752: `const saving = mutation.isPending || saveFlight.pending;` → `const saving = mutation.isPending && saveFlight.pending;` (binop: || -> &&)
+- `m01175` L794: `doeTag: record.doe_tag ?? `#${record.doe_id}`,` → `doeTag: record.doe_tag || `#${record.doe_id}`,` (binop: ?? -> ||)
+- `m01180` L858: `maxLength={4_000}` → `maxLength={4001}` (intconst: 4000 -> 4001)
+- `m01181` L858: `maxLength={4_000}` → `maxLength={3999}` (intconst: 4000 -> 3999)
+- `m01197` L933: `const candidateAvailability = payload?.candidate_availability ?? null;` → `const candidateAvailability = payload?.candidate_availability || null;` (binop: ?? -> ||)
+- `m01199` L938: `requestedUltrasoundId ?? 0,` → `requestedUltrasoundId || 0,` (binop: ?? -> ||)
+- `m01200` L938: `requestedUltrasoundId ?? 0,` → `requestedUltrasoundId ?? 1,` (intconst: 0 -> 1)
+- `m01211` L951: `const requestedRecord = pagedPrefillRecord ?? fetchedPrefillRecord;` → `const requestedRecord = pagedPrefillRecord || fetchedPrefillRecord;` (binop: ?? -> ||)
+- `m01221` L968: `const activeUltrasound = ultrasoundFor ?? deepLinkedUltrasound;` → `const activeUltrasound = ultrasoundFor || deepLinkedUltrasound;` (binop: ?? -> ||)
+- `m01239` L1008: `? "flex flex-wrap items-center gap-2"` → `? "flex flex-wrap items-center justify-end gap-2""flex flex-wrap items-center gap-2"` (ifexp: swap ternary branches)
+- `m01255` L1072: `<PageSkeleton stats={3} cards={1} />` → `<PageSkeleton stats={4} cards={1} />` (intconst: 3 -> 4)
+- `m01256` L1072: `<PageSkeleton stats={3} cards={1} />` → `<PageSkeleton stats={2} cards={1} />` (intconst: 3 -> 2)
+- `m01257` L1072: `<PageSkeleton stats={3} cards={1} />` → `<PageSkeleton stats={3} cards={2} />` (intconst: 1 -> 2)
+- `m01258` L1072: `<PageSkeleton stats={3} cards={1} />` → `<PageSkeleton stats={3} cards={0} />` (intconst: 1 -> 0)
+- `m01264` L1099: `id: requestedUltrasoundId ?? 0,` → `id: requestedUltrasoundId || 0,` (binop: ?? -> ||)
+- `m01265` L1099: `id: requestedUltrasoundId ?? 0,` → `id: requestedUltrasoundId ?? 1,` (intconst: 0 -> 1)
+- `m01274` L1168: `{r.doe_tag ?? `${femaleNounCap} #${r.doe_id}`}` → `{r.doe_tag || `${femaleNounCap} #${r.doe_id}`}` (binop: ?? -> ||)
+- `m01275` L1171: `(r.doe_tag ?? `${femaleNounCap} #${r.doe_id}`)` → `(r.doe_tag || `${femaleNounCap} #${r.doe_id}`)` (binop: ?? -> ||)
+- `m01277` L1176: `{r.buck_tag ?? `${maleNounCap} #${r.buck_id}`}` → `{r.buck_tag || `${maleNounCap} #${r.buck_id}`}` (binop: ?? -> ||)
+- `m01278` L1179: `(r.buck_tag ?? `${maleNounCap} #${r.buck_id}`)` → `(r.buck_tag || `${maleNounCap} #${r.buck_id}`)` (binop: ?? -> ||)
+- `m01279` L1184: `{r.ultrasound_done ? (` → `{r.ultrasound_done ? r.ultrasound_date ? (
+                    <>
+                      {t("breeding.card.ultrasoundDue", { date: formatDate(r.ultrasound_date) })}
+                    </>
+                  ) : (
+                    <>{t("breeding.card.noUltrasound")}</>
+                  ))` (ifexp: swap ternary branches)
+- `m01281` L1196: `count: r.kid_count_detected ?? "—",` → `count: r.kid_count_detected || "—",` (binop: ?? -> ||)
+- `m01285` L1209: `{enumLabel("lossCause", r.loss_cause ?? "UNKNOWN")}` → `{enumLabel("lossCause", r.loss_cause || "UNKNOWN")}` (binop: ?? -> ||)
+- `m01286` L1211: `{r.loss_notes && (` → `{r.loss_notes || (` (binop: && -> ||)
+- `m01291` L1253: `{r.doe_tag ?? `${femaleNounCap} #${r.doe_id}`}` → `{r.doe_tag || `${femaleNounCap} #${r.doe_id}`}` (binop: ?? -> ||)
+- `m01292` L1256: `r.doe_tag ?? `${femaleNounCap} #${r.doe_id}`` → `r.doe_tag || `${femaleNounCap} #${r.doe_id}`` (binop: ?? -> ||)
+- `m01294` L1262: `{r.buck_tag ?? `${maleNounCap} #${r.buck_id}`}` → `{r.buck_tag || `${maleNounCap} #${r.buck_id}`}` (binop: ?? -> ||)
+- `m01295` L1265: `r.buck_tag ?? `${maleNounCap} #${r.buck_id}`` → `r.buck_tag || `${maleNounCap} #${r.buck_id}`` (binop: ?? -> ||)
+- `m01298` L1286: `<TableCell>{r.kid_count_detected ?? "—"}</TableCell>` → `<TableCell>{r.kid_count_detected || "—"}</TableCell>` (binop: ?? -> ||)
+- `m01302` L1294: `{enumLabel("lossCause", r.loss_cause ?? "UNKNOWN", language)}` → `{enumLabel("lossCause", r.loss_cause || "UNKNOWN", language)}` (binop: ?? -> ||)
+- `m01310` L1380: `<PageSkeleton stats={3} cards={1} />` → `<PageSkeleton stats={4} cards={1} />` (intconst: 3 -> 4)
+- `m01311` L1380: `<PageSkeleton stats={3} cards={1} />` → `<PageSkeleton stats={2} cards={1} />` (intconst: 3 -> 2)
+- `m01312` L1380: `<PageSkeleton stats={3} cards={1} />` → `<PageSkeleton stats={3} cards={2} />` (intconst: 1 -> 2)
+- `m01313` L1380: `<PageSkeleton stats={3} cards={1} />` → `<PageSkeleton stats={3} cards={0} />` (intconst: 1 -> 0)
+- `m01314` L1389: `stats={3}` → `stats={4}` (intconst: 3 -> 4)
+- `m01315` L1389: `stats={3}` → `stats={2}` (intconst: 3 -> 2)
+- `m01316` L1390: `cards={1}` → `cards={2}` (intconst: 1 -> 2)
+- `m01317` L1390: `cards={1}` → `cards={0}` (intconst: 1 -> 0)
 
-### src/app/(app)/kidding/page.tsx (1)
+### src/app/(app)/buckets/page.tsx (8)
 
-- `m03403` L1006: `payload.total === 0 ? 0 : Math.floor((payload.total - 1) / payload.limit) * payload.limit;` → `payload.total === 0 ? 1 : Math.floor((payload.total - 1) / payload.limit) * payload.limit;` (intconst: 0 -> 1)
+- `m01318` L39: `const RATION_FORMAT_OPTIONS: Intl.NumberFormatOptions = { maximumFractionDigits: 3 };` → `const RATION_FORMAT_OPTIONS: Intl.NumberFormatOptions = { maximumFractionDigits: 4 };` (intconst: 3 -> 4)
+- `m01320` L49: `const path = safe.split(/[?#]/, 1)[0];` → `const path = safe.split(/[?#]/, 2)[0];` (intconst: 1 -> 2)
+- `m01331` L107: `<TableCell>{a.name ?? "—"}</TableCell>` → `<TableCell>{a.name || "—"}</TableCell>` (binop: ?? -> ||)
+- `m01336` L112: `<TableCell className="text-right">{a.days_in_current_bucket ?? "—"}</TableCell>` → `<TableCell className="text-right">{a.days_in_current_bucket || "—"}</TableCell>` (binop: ?? -> ||)
+- `m01339` L150: `cards={2}` → `cards={3}` (intconst: 2 -> 3)
+- `m01340` L150: `cards={2}` → `cards={1}` (intconst: 2 -> 1)
+- `m01346` L175: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={3} />` (intconst: 2 -> 3)
+- `m01347` L175: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={1} />` (intconst: 2 -> 1)
 
-### src/app/(app)/ops-simulation/page.tsx (1)
+### src/app/(app)/dashboard/page.tsx (109)
 
-- `m03727` L785: `{rowErrors.length > 0 && (` → `{rowErrors.length > 0 || (` (binop: && -> ||)
+- `m01360` L113: `{label ?? t("dashboard.openAction")}` → `{label || t("dashboard.openAction")}` (binop: ?? -> ||)
+- `m01361` L136: `stats={5}` → `stats={6}` (intconst: 5 -> 6)
+- `m01362` L136: `stats={5}` → `stats={4}` (intconst: 5 -> 4)
+- `m01363` L137: `cards={2}` → `cards={3}` (intconst: 2 -> 3)
+- `m01364` L137: `cards={2}` → `cards={1}` (intconst: 2 -> 1)
+- `m01365` L152: `vocabulary.femaleAdult.charAt(0).toUpperCase() + vocabulary.femaleAdult.slice(1);` → `vocabulary.femaleAdult.charAt(0).toUpperCase() - vocabulary.femaleAdult.slice(1);` (binop: + -> -)
+- `m01366` L152: `vocabulary.femaleAdult.charAt(0).toUpperCase() + vocabulary.femaleAdult.slice(1);` → `vocabulary.femaleAdult.charAt(1).toUpperCase() + vocabulary.femaleAdult.slice(1);` (intconst: 0 -> 1)
+- `m01367` L152: `vocabulary.femaleAdult.charAt(0).toUpperCase() + vocabulary.femaleAdult.slice(1);` → `vocabulary.femaleAdult.charAt(0).toUpperCase() + vocabulary.femaleAdult.slice(2);` (intconst: 1 -> 2)
+- `m01368` L152: `vocabulary.femaleAdult.charAt(0).toUpperCase() + vocabulary.femaleAdult.slice(1);` → `vocabulary.femaleAdult.charAt(0).toUpperCase() + vocabulary.femaleAdult.slice(0);` (intconst: 1 -> 0)
+- `m01369` L161: `query: { enabled: allowed, refetchOnWindowFocus: true },` → `query: { enabled: allowed, refetchOnWindowFocus: false },` (boolconst: -> false)
+- `m01380` L176: `const insuranceWithheld = payload?.insurance_expiring_total === null || !canViewFinance;` → `const insuranceWithheld = payload?.insurance_expiring_total === null && !canViewFinance;` (binop: || -> &&)
+- `m01389` L211: `<PageSkeleton stats={5} cards={2} />` → `<PageSkeleton stats={6} cards={2} />` (intconst: 5 -> 6)
+- `m01390` L211: `<PageSkeleton stats={5} cards={2} />` → `<PageSkeleton stats={4} cards={2} />` (intconst: 5 -> 4)
+- `m01391` L211: `<PageSkeleton stats={5} cards={2} />` → `<PageSkeleton stats={5} cards={3} />` (intconst: 2 -> 3)
+- `m01392` L211: `<PageSkeleton stats={5} cards={2} />` → `<PageSkeleton stats={5} cards={1} />` (intconst: 2 -> 1)
+- `m01395` L226: `const todaysTasks = (payload.todays_tasks as TaskOut[] | null) ?? [];` → `const todaysTasks = (payload.todays_tasks as TaskOut[] | null) || [];` (binop: ?? -> ||)
+- `m01396` L227: `const overdueTasks = (payload.overdue_tasks as TaskOut[] | null) ?? [];` → `const overdueTasks = (payload.overdue_tasks as TaskOut[] | null) || [];` (binop: ?? -> ||)
+- `m01397` L228: `const ultrasoundsDue = (payload.ultrasounds_due as TaskOut[] | null) ?? [];` → `const ultrasoundsDue = (payload.ultrasounds_due as TaskOut[] | null) || [];` (binop: ?? -> ||)
+- `m01398` L238: `.advisory ?? null;` → `.advisory || null;` (binop: ?? -> ||)
+- `m01400` L242: `todaysTasksTotal !== null && overdueTasksTotal !== null` → `todaysTasksTotal !== null || overdueTasksTotal !== null` (binop: && -> ||)
+- `m01413` L250: `const femaleStat = animalsWithheld || sexCounts === null ? null : (sexCounts.F ?? 0);` → `const femaleStat = animalsWithheld || sexCounts === null ? null : (sexCounts.F || 0);` (binop: ?? -> ||)
+- `m01418` L251: `const maleStat = animalsWithheld || sexCounts === null ? null : (sexCounts.M ?? 0);` → `const maleStat = animalsWithheld || sexCounts === null ? null : (sexCounts.M || 0);` (binop: ?? -> ||)
+- `m01420` L252: `const maxBucketCount = Math.max(1, ...(bucketCounts ?? []).map((b) => b.count));` → `const maxBucketCount = Math.max(2, ...(bucketCounts ?? []).map((b) => b.count));` (intconst: 1 -> 2)
+- `m01422` L252: `const maxBucketCount = Math.max(1, ...(bucketCounts ?? []).map((b) => b.count));` → `const maxBucketCount = Math.max(1, ...(bucketCounts || []).map((b) => b.count));` (binop: ?? -> ||)
+- `m01433` L261: `todaysTasks.length < (todaysTasksTotal ?? todaysTasks.length) ||` → `todaysTasks.length < (todaysTasksTotal || todaysTasks.length) ||` (binop: ?? -> ||)
+- `m01435` L262: `overdueTasks.length < (overdueTasksTotal ?? overdueTasks.length) ||` → `overdueTasks.length < (overdueTasksTotal || overdueTasks.length) ||` (binop: ?? -> ||)
+- `m01437` L263: `ultrasoundsDue.length < (ultrasoundsDueTotal ?? ultrasoundsDue.length) ||` → `ultrasoundsDue.length < (ultrasoundsDueTotal || ultrasoundsDue.length) ||` (binop: ?? -> ||)
+- `m01439` L264: `payload.kiddings_due.length < (payload.kiddings_due_total ?? 0) ||` → `payload.kiddings_due.length < (payload.kiddings_due_total || 0) ||` (binop: ?? -> ||)
+- `m01440` L264: `payload.kiddings_due.length < (payload.kiddings_due_total ?? 0) ||` → `payload.kiddings_due.length < (payload.kiddings_due_total ?? 1) ||` (intconst: 0 -> 1)
+- `m01442` L265: `payload.cull_candidates.length < (payload.cull_candidates_total ?? payload.cull_candidates.length) ||` → `payload.cull_candidates.length < (payload.cull_candidates_total || payload.cull_candidates.length) ||` (binop: ?? -> ||)
+- `m01444` L266: `payload.suggestions.length < (payload.suggestions_total ?? 0) ||` → `payload.suggestions.length < (payload.suggestions_total || 0) ||` (binop: ?? -> ||)
+- `m01445` L266: `payload.suggestions.length < (payload.suggestions_total ?? 0) ||` → `payload.suggestions.length < (payload.suggestions_total ?? 1) ||` (intconst: 0 -> 1)
+- `m01447` L267: `recentWeights.length < (payload.recent_weights_total ?? recentWeights.length);` → `recentWeights.length < (payload.recent_weights_total || recentWeights.length);` (binop: ?? -> ||)
+- `m01448` L274: `{query.isError && (` → `{query.isError || (` (binop: && -> ||)
+- `m01452` L289: `count: Number(advisory.args?.count ?? 0),` → `count: Number(advisory.args?.count || 0),` (binop: ?? -> ||)
+- `m01453` L289: `count: Number(advisory.args?.count ?? 0),` → `count: Number(advisory.args?.count ?? 1),` (intconst: 0 -> 1)
+- `m01463` L324: `step: 1,` → `step: 2,` (intconst: 1 -> 2)
+- `m01464` L324: `step: 1,` → `step: 0,` (intconst: 1 -> 0)
+- `m01465` L333: `step: 2,` → `step: 3,` (intconst: 2 -> 3)
+- `m01466` L333: `step: 2,` → `step: 1,` (intconst: 2 -> 1)
+- `m01467` L342: `step: 3,` → `step: 4,` (intconst: 3 -> 4)
+- `m01468` L342: `step: 3,` → `step: 2,` (intconst: 3 -> 2)
+- `m01472` L396: `value={payload.status_totals.SOLD ?? 0}` → `value={payload.status_totals.SOLD || 0}` (binop: ?? -> ||)
+- `m01479` L404: `taskStat !== null && (overdueTasksTotal ?? 0) > 0` → `taskStat !== null && (overdueTasksTotal || 0) > 0` (binop: ?? -> ||)
+- `m01480` L404: `taskStat !== null && (overdueTasksTotal ?? 0) > 0` → `taskStat !== null && (overdueTasksTotal ?? 1) > 0` (intconst: 0 -> 1)
+- `m01484` L406: `: (taskStat ?? 0) > 0` → `: (taskStat || 0) > 0` (binop: ?? -> ||)
+- `m01485` L406: `: (taskStat ?? 0) > 0` → `: (taskStat ?? 1) > 0` (intconst: 0 -> 1)
+- `m01491` L413: `{!tasksWithheld && (overdueTasksTotal ?? 0) > 0 && (` → `{!tasksWithheld && (overdueTasksTotal || 0) > 0 && (` (binop: ?? -> ||)
+- `m01492` L413: `{!tasksWithheld && (overdueTasksTotal ?? 0) > 0 && (` → `{!tasksWithheld && (overdueTasksTotal ?? 1) > 0 && (` (intconst: 0 -> 1)
+- `m01494` L419: `{t("dashboard.overdue.title", { count: overdueTasksTotal ?? 0 })}` → `{t("dashboard.overdue.title", { count: overdueTasksTotal || 0 })}` (binop: ?? -> ||)
+- `m01495` L419: `{t("dashboard.overdue.title", { count: overdueTasksTotal ?? 0 })}` → `{t("dashboard.overdue.title", { count: overdueTasksTotal ?? 1 })}` (intconst: 0 -> 1)
+- `m01498` L451: `{overdueShown.length < (overdueTasksTotal ?? overdueShown.length) && (` → `{overdueShown.length < (overdueTasksTotal || overdueShown.length) && (` (binop: ?? -> ||)
+- `m01499` L453: `{t("dashboard.showingOf", { shown: overdueShown.length, total: overdueTasksTotal ?? 0 })}{" "}` → `{t("dashboard.showingOf", { shown: overdueShown.length, total: overdueTasksTotal || 0 })}{" "}` (binop: ?? -> ||)
+- `m01500` L453: `{t("dashboard.showingOf", { shown: overdueShown.length, total: overdueTasksTotal ?? 0 })}{" "}` → `{t("dashboard.showingOf", { shown: overdueShown.length, total: overdueTasksTotal ?? 1 })}{" "}` (intconst: 0 -> 1)
+- `m01504` L468: `? t("dashboard.today.titleCount", { count: todaysTasksTotal ?? 0 })` → `? t("dashboard.today.titleCount", { count: todaysTasksTotal || 0 })` (binop: ?? -> ||)
+- `m01505` L468: `? t("dashboard.today.titleCount", { count: todaysTasksTotal ?? 0 })` → `? t("dashboard.today.titleCount", { count: todaysTasksTotal ?? 1 })` (intconst: 0 -> 1)
+- `m01515` L520: `todaysTasks.length < (todaysTasksTotal ?? todaysTasks.length) && (` → `todaysTasks.length < (todaysTasksTotal || todaysTasks.length) && (` (binop: ?? -> ||)
+- `m01516` L522: `{t("dashboard.showingOf", { shown: todaysTasks.length, total: todaysTasksTotal ?? 0 })}` → `{t("dashboard.showingOf", { shown: todaysTasks.length, total: todaysTasksTotal || 0 })}` (binop: ?? -> ||)
+- `m01517` L522: `{t("dashboard.showingOf", { shown: todaysTasks.length, total: todaysTasksTotal ?? 0 })}` → `{t("dashboard.showingOf", { shown: todaysTasks.length, total: todaysTasksTotal ?? 1 })}` (intconst: 0 -> 1)
+- `m01520` L534: `? t("dashboard.kiddings.titleCount", { count: payload.kiddings_due_total ?? 0 })` → `? t("dashboard.kiddings.titleCount", { count: payload.kiddings_due_total || 0 })` (binop: ?? -> ||)
+- `m01521` L534: `? t("dashboard.kiddings.titleCount", { count: payload.kiddings_due_total ?? 0 })` → `? t("dashboard.kiddings.titleCount", { count: payload.kiddings_due_total ?? 1 })` (intconst: 0 -> 1)
+- `m01528` L568: `{r.doe_tag ?? t("dashboard.kiddings.parentFallback", { id: r.doe_id })}` → `{r.doe_tag || t("dashboard.kiddings.parentFallback", { id: r.doe_id })}` (binop: ?? -> ||)
+- `m01529` L571: `r.doe_tag ?? t("dashboard.kiddings.parentFallback", { id: r.doe_id })` → `r.doe_tag || t("dashboard.kiddings.parentFallback", { id: r.doe_id })` (binop: ?? -> ||)
+- `m01537` L603: `{payload.kiddings_due.length < (payload.kiddings_due_total ?? 0) && (` → `{payload.kiddings_due.length < (payload.kiddings_due_total || 0) && (` (binop: ?? -> ||)
+- `m01538` L603: `{payload.kiddings_due.length < (payload.kiddings_due_total ?? 0) && (` → `{payload.kiddings_due.length < (payload.kiddings_due_total ?? 1) && (` (intconst: 0 -> 1)
+- `m01539` L605: `{t("dashboard.showingOf", { shown: payload.kiddings_due.length, total: payload.kiddings_due_total ?? 0 })}{" "}` → `{t("dashboard.showingOf", { shown: payload.kiddings_due.length, total: payload.kiddings_due_total || 0 })}{" "}` (binop: ?? -> ||)
+- `m01540` L605: `{t("dashboard.showingOf", { shown: payload.kiddings_due.length, total: payload.kiddings_due_total ?? 0 })}{" "}` → `{t("dashboard.showingOf", { shown: payload.kiddings_due.length, total: payload.kiddings_due_total ?? 1 })}{" "}` (intconst: 0 -> 1)
+- `m01544` L618: `? t("dashboard.ultrasounds.titleCount", { count: ultrasoundsDueTotal ?? 0 })` → `? t("dashboard.ultrasounds.titleCount", { count: ultrasoundsDueTotal || 0 })` (binop: ?? -> ||)
+- `m01545` L618: `? t("dashboard.ultrasounds.titleCount", { count: ultrasoundsDueTotal ?? 0 })` → `? t("dashboard.ultrasounds.titleCount", { count: ultrasoundsDueTotal ?? 1 })` (intconst: 0 -> 1)
+- `m01557` L674: `ultrasoundsDue.length < (ultrasoundsDueTotal ?? ultrasoundsDue.length) && (` → `ultrasoundsDue.length < (ultrasoundsDueTotal || ultrasoundsDue.length) && (` (binop: ?? -> ||)
+- `m01558` L676: `{t("dashboard.showingOf", { shown: ultrasoundsDue.length, total: ultrasoundsDueTotal ?? 0 })}` → `{t("dashboard.showingOf", { shown: ultrasoundsDue.length, total: ultrasoundsDueTotal || 0 })}` (binop: ?? -> ||)
+- `m01559` L676: `{t("dashboard.showingOf", { shown: ultrasoundsDue.length, total: ultrasoundsDueTotal ?? 0 })}` → `{t("dashboard.showingOf", { shown: ultrasoundsDue.length, total: ultrasoundsDueTotal ?? 1 })}` (intconst: 0 -> 1)
+- `m01562` L687: `!suggestionsWithheld ? t("dashboard.suggestions.titleCount", { count: payload.suggestions_total ?? 0 }) : t("dashboard.suggestions.title")` → `!suggestionsWithheld ? t("dashboard.suggestions.titleCount", { count: payload.suggestions_total || 0 }) : t("dashboard.suggestions.title")` (binop: ?? -> ||)
+- `m01563` L687: `!suggestionsWithheld ? t("dashboard.suggestions.titleCount", { count: payload.suggestions_total ?? 0 }) : t("dashboard.suggestions.title")` → `!suggestionsWithheld ? t("dashboard.suggestions.titleCount", { count: payload.suggestions_total ?? 1 }) : t("dashboard.suggestions.title")` (intconst: 0 -> 1)
+- `m01574` L739: `{!suggestionsWithheld && payload.suggestions.length < (payload.suggestions_total ?? 0) && (` → `{!suggestionsWithheld && payload.suggestions.length < (payload.suggestions_total || 0) && (` (binop: ?? -> ||)
+- `m01575` L739: `{!suggestionsWithheld && payload.suggestions.length < (payload.suggestions_total ?? 0) && (` → `{!suggestionsWithheld && payload.suggestions.length < (payload.suggestions_total ?? 1) && (` (intconst: 0 -> 1)
+- `m01576` L741: `{t("dashboard.suggestions.showingOf", { shown: payload.suggestions.length, total: payload.suggestions_total ?? 0 })}` → `{t("dashboard.suggestions.showingOf", { shown: payload.suggestions.length, total: payload.suggestions_total || 0 })}` (binop: ?? -> ||)
+- `m01577` L741: `{t("dashboard.suggestions.showingOf", { shown: payload.suggestions.length, total: payload.suggestions_total ?? 0 })}` → `{t("dashboard.suggestions.showingOf", { shown: payload.suggestions.length, total: payload.suggestions_total ?? 1 })}` (intconst: 0 -> 1)
+- `m01582` L749: `{!breedingWithheld && (payload.cull_candidates_total ?? 0) > 0 && (` → `{!breedingWithheld && (payload.cull_candidates_total || 0) > 0 && (` (binop: ?? -> ||)
+- `m01583` L749: `{!breedingWithheld && (payload.cull_candidates_total ?? 0) > 0 && (` → `{!breedingWithheld && (payload.cull_candidates_total ?? 1) > 0 && (` (intconst: 0 -> 1)
+- `m01585` L753: `{t("dashboard.cull.bannerPrefix", { count: payload.cull_candidates_total ?? 0 })}{" "}` → `{t("dashboard.cull.bannerPrefix", { count: payload.cull_candidates_total || 0 })}{" "}` (binop: ?? -> ||)
+- `m01586` L753: `{t("dashboard.cull.bannerPrefix", { count: payload.cull_candidates_total ?? 0 })}{" "}` → `{t("dashboard.cull.bannerPrefix", { count: payload.cull_candidates_total ?? 1 })}{" "}` (intconst: 0 -> 1)
+- `m01592` L772: `{!animalsWithheld && (payload.restricted_animals_total ?? 0) > 0 && (` → `{!animalsWithheld && (payload.restricted_animals_total || 0) > 0 && (` (binop: ?? -> ||)
+- `m01595` L774: `title={t("dashboard.restrictions.title", { count: payload.restricted_animals_total ?? 0 })}` → `title={t("dashboard.restrictions.title", { count: payload.restricted_animals_total || 0 })}` (binop: ?? -> ||)
+- `m01596` L774: `title={t("dashboard.restrictions.title", { count: payload.restricted_animals_total ?? 0 })}` → `title={t("dashboard.restrictions.title", { count: payload.restricted_animals_total ?? 1 })}` (intconst: 0 -> 1)
+- `m01597` L796: `{canViewAnimals ? (` → `{canViewAnimals ? (
+                        animalName(r.animal)
+                      ))` (ifexp: swap ternary branches)
+- `m01598` L817: `<TableCell className="max-w-64 truncate">{r.reason ?? "—"}</TableCell>` → `<TableCell className="max-w-64 truncate">{r.reason || "—"}</TableCell>` (binop: ?? -> ||)
+- `m01599` L822: `{payload.restricted_animals.length < (payload.restricted_animals_total ?? 0) && (` → `{payload.restricted_animals.length < (payload.restricted_animals_total ?? 0) || (` (binop: && -> ||)
+- `m01600` L822: `{payload.restricted_animals.length < (payload.restricted_animals_total ?? 0) && (` → `{payload.restricted_animals.length <= (payload.restricted_animals_total ?? 0) && (` (compare: < -> <=)
+- `m01601` L822: `{payload.restricted_animals.length < (payload.restricted_animals_total ?? 0) && (` → `{payload.restricted_animals.length < (payload.restricted_animals_total || 0) && (` (binop: ?? -> ||)
+- `m01602` L822: `{payload.restricted_animals.length < (payload.restricted_animals_total ?? 0) && (` → `{payload.restricted_animals.length < (payload.restricted_animals_total ?? 1) && (` (intconst: 0 -> 1)
+- `m01603` L824: `{t("dashboard.restrictions.showingOf", { shown: payload.restricted_animals.length, total: payload.restricted_animals_total ?? 0 })}` → `{t("dashboard.restrictions.showingOf", { shown: payload.restricted_animals.length, total: payload.restricted_animals_total || 0 })}` (binop: ?? -> ||)
+- `m01604` L824: `{t("dashboard.restrictions.showingOf", { shown: payload.restricted_animals.length, total: payload.restricted_animals_total ?? 0 })}` → `{t("dashboard.restrictions.showingOf", { shown: payload.restricted_animals.length, total: payload.restricted_animals_total ?? 1 })}` (intconst: 0 -> 1)
+- `m01609` L833: `{!insuranceWithheld && (payload.insurance_expiring_total ?? 0) > 0 && (` → `{!insuranceWithheld && (payload.insurance_expiring_total || 0) > 0 && (` (binop: ?? -> ||)
+- `m01611` L833: `{!insuranceWithheld && (payload.insurance_expiring_total ?? 0) > 0 && (` → `{!insuranceWithheld && (payload.insurance_expiring_total ?? 0) > 1 && (` (intconst: 0 -> 1)
+- `m01612` L835: `title={t("dashboard.insurance.title", { count: payload.insurance_expiring_total ?? 0 })}` → `title={t("dashboard.insurance.title", { count: payload.insurance_expiring_total || 0 })}` (binop: ?? -> ||)
+- `m01613` L835: `title={t("dashboard.insurance.title", { count: payload.insurance_expiring_total ?? 0 })}` → `title={t("dashboard.insurance.title", { count: payload.insurance_expiring_total ?? 1 })}` (intconst: 0 -> 1)
+- `m01614` L852: `<TableCell>{policy.animal_tag ?? "—"}</TableCell>` → `<TableCell>{policy.animal_tag || "—"}</TableCell>` (binop: ?? -> ||)
+- `m01615` L859: `{policy.renewal_date >= today ? (` → `{policy.renewal_date >= today ? (
+                        <span className="text-destructive">
+                          {t("dashboard.insurance.overdue", { days: daysBetween(policy.renewal_date, today) })}
+                        </span>
+                      ))` (ifexp: swap ternary branches)
+- `m01616` L859: `{policy.renewal_date >= today ? (` → `{policy.renewal_date > today ? (` (compare: >= -> >)
+- `m01621` L899: `centerValue={totalActive ?? 0}` → `centerValue={totalActive || 0}` (binop: ?? -> ||)
+- `m01622` L899: `centerValue={totalActive ?? 0}` → `centerValue={totalActive ?? 1}` (intconst: 0 -> 1)
+- `m01630` L954: `{animalsWithheld || payload.recent_weights_total === null ? (` → `{animalsWithheld && payload.recent_weights_total === null ? (` (binop: || -> &&)
+- `m01640` L1004: `<TableCell>{w.bcs ?? "—"}</TableCell>` → `<TableCell>{w.bcs || "—"}</TableCell>` (binop: ?? -> ||)
+- `m01641` L1005: `<TableCell>{w.notes ?? "—"}</TableCell>` → `<TableCell>{w.notes || "—"}</TableCell>` (binop: ?? -> ||)
+- `m01644` L1012: `{recentWeights.length < (payload.recent_weights_total ?? 0) && (` → `{recentWeights.length < (payload.recent_weights_total || 0) && (` (binop: ?? -> ||)
+- `m01645` L1012: `{recentWeights.length < (payload.recent_weights_total ?? 0) && (` → `{recentWeights.length < (payload.recent_weights_total ?? 1) && (` (intconst: 0 -> 1)
+- `m01646` L1014: `{t("dashboard.weights.showingOf", { shown: recentWeights.length, total: payload.recent_weights_total ?? 0 })}` → `{t("dashboard.weights.showingOf", { shown: recentWeights.length, total: payload.recent_weights_total || 0 })}` (binop: ?? -> ||)
+- `m01647` L1014: `{t("dashboard.weights.showingOf", { shown: recentWeights.length, total: payload.recent_weights_total ?? 0 })}` → `{t("dashboard.weights.showingOf", { shown: recentWeights.length, total: payload.recent_weights_total ?? 1 })}` (intconst: 0 -> 1)
 
-### src/app/(app)/planner/page.tsx (1)
+### src/app/(app)/feeding/inventory/page.tsx (21)
 
-- `m04051` L708: `const evaluation = report ? (report.plan.after ?? report.plan.before) : null;` → `const evaluation = report ? (report.plan.after || report.plan.before) : null;` (binop: ?? -> ||)
+- `m01649` L72: `(v) => (v === "" || v === null || v === undefined ? undefined : Number(v)),` → `(v) => (v === "" || v === null && v === undefined ? undefined : Number(v)),` (binop: || -> &&)
+- `m01654` L85: `.max(1_000_000, t("feeding.validation.qtyMax")),` → `.max(1000001, t("feeding.validation.qtyMax")),` (intconst: 1000000 -> 1000001)
+- `m01655` L85: `.max(1_000_000, t("feeding.validation.qtyMax")),` → `.max(999999, t("feeding.validation.qtyMax")),` (intconst: 1000000 -> 999999)
+- `m01657` L90: `.max(1_000_000_000, t("feedingInventory.validation.priceMax"))` → `.max(999999999, t("feedingInventory.validation.priceMax"))` (intconst: 1000000000 -> 999999999)
+- `m01700` L230: `<Button type="submit" disabled={isSubmitting || addFlight.pending}>` → `<Button type="submit" disabled={isSubmitting && addFlight.pending}>` (binop: || -> &&)
+- `m01703` L245: `recipe_code: z.string().min(1, t("feeding.validation.pickRecipe")),` → `recipe_code: z.string().min(2, t("feeding.validation.pickRecipe")),` (intconst: 1 -> 2)
+- `m01708` L250: `.max(50, t("feedingInventory.validation.batchesMax")),` → `.max(49, t("feedingInventory.validation.batchesMax")),` (intconst: 50 -> 49)
+- `m01713` L293: `defaultValues: { recipe_code: "", batches: 1 },` → `defaultValues: { recipe_code: "", batches: 2 },` (intconst: 1 -> 2)
+- `m01714` L293: `defaultValues: { recipe_code: "", batches: 1 },` → `defaultValues: { recipe_code: "", batches: 0 },` (intconst: 1 -> 0)
+- `m01743` L417: `isSubmitting ||` → `isSubmitting &&` (binop: || -> &&)
+- `m01746` L444: `cards={2}` → `cards={3}` (intconst: 2 -> 3)
+- `m01747` L444: `cards={2}` → `cards={1}` (intconst: 2 -> 1)
+- `m01759` L477: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={3} />` (intconst: 2 -> 3)
+- `m01760` L477: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={1} />` (intconst: 2 -> 1)
+- `m01770` L530: `const low = item.reorder_level !== null && item.qty_on_hand <= item.reorder_level;` → `const low = item.reorder_level !== null || item.qty_on_hand <= item.reorder_level;` (binop: && -> ||)
+- `m01771` L530: `const low = item.reorder_level !== null && item.qty_on_hand <= item.reorder_level;` → `const low = item.reorder_level === null && item.qty_on_hand <= item.reorder_level;` (compare: !== -> ===)
+- `m01772` L530: `const low = item.reorder_level !== null && item.qty_on_hand <= item.reorder_level;` → `const low = item.reorder_level !== null && item.qty_on_hand < item.reorder_level;` (compare: <= -> <)
+- `m01773` L536: `? "space-y-1.5 rounded-xl border border-warning-tint-border bg-warning-tint/50 p-3 shadow-xs"` → `? "space-y-1.5 rounded-xl border bg-card p-3 shadow-xs""space-y-1.5 rounded-xl border border-warning-tint-border bg-warning-tint/50 p-3 shadow-xs"` (ifexp: swap ternary branches)
+- `m01774` L544: `{low && (` → `{low || (` (binop: && -> ||)
+- `m01775` L555: `level: item.reorder_level ?? "—",` → `level: item.reorder_level || "—",` (binop: ?? -> ||)
+- `m01783` L600: `{item.reorder_level ?? "—"}` → `{item.reorder_level || "—"}` (binop: ?? -> ||)
 
-### src/app/(app)/purchases/page.tsx (1)
+### src/app/(app)/feeding/page.tsx (49)
 
-- `m04213` L127: `origin_market: z.string().max(120, "At most 120 characters").optional(),` → `origin_market: z.string().max(119, "At most 120 characters").optional(),` (intconst: 120 -> 119)
+- `m01804` L111: `if (fraction.length <= 3) return value;` → `if (fraction.length < 3) return value;` (compare: <= -> <)
+- `m01806` L111: `if (fraction.length <= 3) return value;` → `if (fraction.length <= 2) return value;` (intconst: 3 -> 2)
+- `m01824` L121: `const cell = (raw ?? {}) as Record<string, unknown>;` → `const cell = (raw || {}) as Record<string, unknown>;` (binop: ?? -> ||)
+- `m01833` L135: `line.basis === PlanLineOutBasis.weight && line.mean_weight_kg != null` → `line.basis === PlanLineOutBasis.weight || line.mean_weight_kg != null` (binop: && -> ||)
+- `m01836` L138: `line.note ?? null,` → `line.note || null,` (binop: ?? -> ||)
+- `m01838` L152: `.max(1_000_000, t("feeding.validation.qtyMax")),` → `.max(1000001, t("feeding.validation.qtyMax")),` (intconst: 1000000 -> 1000001)
+- `m01839` L152: `.max(1_000_000, t("feeding.validation.qtyMax")),` → `.max(999999, t("feeding.validation.qtyMax")),` (intconst: 1000000 -> 999999)
+- `m01849` L237: `<fieldset disabled={isSubmitting || settingFlight.pending} className="contents">` → `<fieldset disabled={isSubmitting && settingFlight.pending} className="contents">` (binop: || -> &&)
+- `m01853` L262: `<Button type="submit" disabled={isSubmitting || settingFlight.pending}>` → `<Button type="submit" disabled={isSubmitting && settingFlight.pending}>` (binop: || -> &&)
+- `m01855` L263: `{isSubmitting || settingFlight.pending ? t("feeding.saving") : t("feeding.save")}` → `{isSubmitting && settingFlight.pending ? t("feeding.saving") : t("feeding.save")}` (binop: || -> &&)
+- `m01856` L294: `recipe_code: z.string().min(1, t("feeding.validation.pickRecipe")),` → `recipe_code: z.string().min(2, t("feeding.validation.pickRecipe")),` (intconst: 1 -> 2)
+- `m01858` L301: `.max(1_000_000, t("feeding.validation.qtyMax")),` → `.max(1000001, t("feeding.validation.qtyMax")),` (intconst: 1000000 -> 1000001)
+- `m01859` L301: `.max(1_000_000, t("feeding.validation.qtyMax")),` → `.max(999999, t("feeding.validation.qtyMax")),` (intconst: 1000000 -> 999999)
+- `m01860` L304: `.min(1, t("feeding.validation.dateRequired"))` → `.min(2, t("feeding.validation.dateRequired"))` (intconst: 1 -> 2)
+- `m01867` L357: `setHistoryOffset(getUrlNumberRef.current("offset", 0, 0, MAX_PAGE_OFFSET));` → `setHistoryOffset(getUrlNumberRef.current("offset", 1, 0, MAX_PAGE_OFFSET));` (intconst: 0 -> 1)
+- `m01868` L357: `setHistoryOffset(getUrlNumberRef.current("offset", 0, 0, MAX_PAGE_OFFSET));` → `setHistoryOffset(getUrlNumberRef.current("offset", 0, 1, MAX_PAGE_OFFSET));` (intconst: 0 -> 1)
+- `m01869` L366: `if (qs !== null) lastWrittenParamsRef.current = qs;` → `if (qs === null) lastWrittenParamsRef.current = qs;` (compare: !== -> ===)
+- `m01911` L439: `for (const line of payload?.lines ?? []) {` → `for (const line of payload?.lines || []) {` (binop: ?? -> ||)
+- `m01919` L523: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={3} />` (intconst: 2 -> 3)
+- `m01920` L523: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={1} />` (intconst: 2 -> 1)
+- `m01922` L537: `(dispensedByAllocationShift.get(key) ?? 0) + total.qty_kg,` → `(dispensedByAllocationShift.get(key) || 0) + total.qty_kg,` (binop: ?? -> ||)
+- `m01925` L542: `(dispensedByBucket.get(total.bucket) ?? 0) + total.qty_kg,` → `(dispensedByBucket.get(total.bucket) || 0) + total.qty_kg,` (binop: ?? -> ||)
+- `m01928` L548: `plannedByBucket.set(l.bucket, (plannedByBucket.get(l.bucket) ?? 0) + l.daily_kg);` → `plannedByBucket.set(l.bucket, (plannedByBucket.get(l.bucket) || 0) + l.daily_kg);` (binop: ?? -> ||)
+- `m01933` L557: `) ?? 0,` → `) || 0,` (binop: ?? -> ||)
+- `m01934` L557: `) ?? 0,` → `) ?? 1,` (intconst: 0 -> 1)
+- `m01935` L561: `const current = bucketAllocationState.get(l.bucket) ?? { complete: 0, total: 0 };` → `const current = bucketAllocationState.get(l.bucket) || { complete: 0, total: 0 };` (binop: ?? -> ||)
+- `m01951` L582: `bucket: (firstLine?.bucket ?? "QUARANTINE") as DispenseValues["bucket"],` → `bucket: (firstLine?.bucket || "QUARANTINE") as DispenseValues["bucket"],` (binop: ?? -> ||)
+- `m01961` L647: `const recorded = dispensedByBucket.get(bucketName) ?? 0;` → `const recorded = dispensedByBucket.get(bucketName) || 0;` (binop: ?? -> ||)
+- `m01962` L647: `const recorded = dispensedByBucket.get(bucketName) ?? 0;` → `const recorded = dispensedByBucket.get(bucketName) ?? 1;` (intconst: 0 -> 1)
+- `m01963` L648: `const allocation = bucketAllocationState.get(bucketName) ?? {` → `const allocation = bucketAllocationState.get(bucketName) || {` (binop: ?? -> ||)
+- `m01964` L649: `complete: 0,` → `complete: 1,` (intconst: 0 -> 1)
+- `m01965` L650: `total: 0,` → `total: 1,` (intconst: 0 -> 1)
+- `m01967` L653: `allocation.total > 0 && allocation.complete === allocation.total;` → `allocation.total >= 0 && allocation.complete === allocation.total;` (compare: > -> >=)
+- `m01974` L690: `let lineComplete = shifts.length > 0;` → `let lineComplete = shifts.length > 1;` (intconst: 0 -> 1)
+- `m01975` L695: `) ?? 0;` → `) || 0;` (binop: ?? -> ||)
+- `m01978` L706: `{line.creep_band && (` → `{line.creep_band || (` (binop: && -> ||)
+- `m01981` L767: `) ?? 0,` → `) || 0,` (binop: ?? -> ||)
+- `m01994` L868: `<TableCell>{r.recipe_code ?? "—"}</TableCell>` → `<TableCell>{r.recipe_code || "—"}</TableCell>` (binop: ?? -> ||)
+- `m02031` L972: `{record.recipe_code ?? "—"}` → `{record.recipe_code || "—"}` (binop: ?? -> ||)
+- `m02032` L998: `<TableCell>{record.recipe_code ?? "—"}</TableCell>` → `<TableCell>{record.recipe_code || "—"}</TableCell>` (binop: ?? -> ||)
+- `m02033` L1025: `<fieldset disabled={isSubmitting || dispenseFlight.pending} className="contents">` → `<fieldset disabled={isSubmitting && dispenseFlight.pending} className="contents">` (binop: || -> &&)
+- `m02034` L1033: `setValue("bucket", v as DispenseValues["bucket"], { shouldValidate: true });` → `setValue("bucket", v as DispenseValues["bucket"], { shouldValidate: false });` (boolconst: -> false)
+- `m02041` L1066: `setValue("shift", v as DispenseValues["shift"], { shouldValidate: true })` → `setValue("shift", v as DispenseValues["shift"], { shouldValidate: false })` (boolconst: -> false)
+- `m02050` L1142: `<Button type="submit" disabled={isSubmitting || dispenseFlight.pending}>` → `<Button type="submit" disabled={isSubmitting && dispenseFlight.pending}>` (binop: || -> &&)
+- `m02052` L1143: `{isSubmitting || dispenseFlight.pending` → `{isSubmitting && dispenseFlight.pending` (binop: || -> &&)
+- `m02053` L1170: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={3} />` (intconst: 2 -> 3)
+- `m02054` L1170: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={1} />` (intconst: 2 -> 1)
+- `m02055` L1180: `cards={2}` → `cards={3}` (intconst: 2 -> 3)
+- `m02056` L1180: `cards={2}` → `cards={1}` (intconst: 2 -> 1)
 
-### src/app/(app)/reports/page.tsx (1)
+### src/app/(app)/feeding/recipes/page.tsx (6)
 
-- `m04537` L361: `<TableCell colSpan={2} className="text-muted-foreground">` → `<TableCell colSpan={1} className="text-muted-foreground">` (intconst: 2 -> 1)
+- `m02057` L43: `cards={2}` → `cards={3}` (intconst: 2 -> 3)
+- `m02058` L43: `cards={2}` → `cards={1}` (intconst: 2 -> 1)
+- `m02066` L82: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={3} />` (intconst: 2 -> 3)
+- `m02067` L82: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={1} />` (intconst: 2 -> 1)
+- `m02068` L90: `{query.isError && <StaleDataNotice onRetry={() => void query.refetch()} />}` → `{query.isError || <StaleDataNotice onRetry={() => void query.refetch()} />}` (binop: && -> ||)
+- `m02073` L129: `{(recipe.lines ?? []).map((line) => (` → `{(recipe.lines || []).map((line) => (` (binop: ?? -> ||)
 
-### src/app/(app)/screening/page.tsx (1)
+### src/app/(app)/finance/insurance/page.tsx (70)
 
-- `m04699` L487: `{agrees !== null && run.run_status === "OK" ? (` → `{agrees === null && run.run_status === "OK" ? (` (compare: !== -> ===)
+- `m02074` L78: `const MAX_AMOUNT = 1_000_000_000;` → `const MAX_AMOUNT = 1000000001;` (intconst: 1000000000 -> 1000000001)
+- `m02075` L78: `const MAX_AMOUNT = 1_000_000_000;` → `const MAX_AMOUNT = 999999999;` (intconst: 1000000000 -> 999999999)
+- `m02076` L81: `const INSURANCE_PAGE_LIMIT = 50;` → `const INSURANCE_PAGE_LIMIT = 51;` (intconst: 50 -> 51)
+- `m02077` L81: `const INSURANCE_PAGE_LIMIT = 50;` → `const INSURANCE_PAGE_LIMIT = 49;` (intconst: 50 -> 49)
+- `m02078` L83: `const INSURANCE_HISTORY_PAGE_LIMIT = 20;` → `const INSURANCE_HISTORY_PAGE_LIMIT = 21;` (intconst: 20 -> 21)
+- `m02079` L83: `const INSURANCE_HISTORY_PAGE_LIMIT = 20;` → `const INSURANCE_HISTORY_PAGE_LIMIT = 19;` (intconst: 20 -> 19)
+- `m02080` L94: `.min(1, t("insurance.validation.policyNumberRequired"))` → `.min(2, t("insurance.validation.policyNumberRequired"))` (intconst: 1 -> 2)
+- `m02082` L95: `.max(60, t("insurance.validation.policyNumberMax")),` → `.max(61, t("insurance.validation.policyNumberMax")),` (intconst: 60 -> 61)
+- `m02083` L95: `.max(60, t("insurance.validation.policyNumberMax")),` → `.max(59, t("insurance.validation.policyNumberMax")),` (intconst: 60 -> 59)
+- `m02084` L99: `.min(1, t("insurance.validation.insurerRequired"))` → `.min(2, t("insurance.validation.insurerRequired"))` (intconst: 1 -> 2)
+- `m02086` L100: `.max(120, t("insurance.validation.insurerMax")),` → `.max(121, t("insurance.validation.insurerMax")),` (intconst: 120 -> 121)
+- `m02087` L100: `.max(120, t("insurance.validation.insurerMax")),` → `.max(119, t("insurance.validation.insurerMax")),` (intconst: 120 -> 119)
+- `m02089` L114: `raw === "" || raw === null || raw === undefined ? undefined : Number(raw),` → `raw === "" || raw === null && raw === undefined ? undefined : Number(raw),` (binop: || -> &&)
+- `m02094` L123: `.min(1, t("insurance.validation.startDateRequired"))` → `.min(2, t("insurance.validation.startDateRequired"))` (intconst: 1 -> 2)
+- `m02096` L124: `.refine((s) => s <= farmToday(), t("insurance.validation.startDateFuture")),` → `.refine((s) => s < farmToday(), t("insurance.validation.startDateFuture")),` (compare: <= -> <)
+- `m02097` L125: `renewal_date: z.string().min(1, t("insurance.validation.renewalDateRequired")),` → `renewal_date: z.string().min(2, t("insurance.validation.renewalDateRequired")),` (intconst: 1 -> 2)
+- `m02099` L132: `.refine((v) => v.renewal_date >= v.start_date, {` → `.refine((v) => v.renewal_date > v.start_date, {` (compare: >= -> >)
+- `m02100` L180: `const saveBusy = isSubmitting || saveFlight.pending;` → `const saveBusy = isSubmitting && saveFlight.pending;` (binop: || -> &&)
+- `m02101` L199: `? Number(values.animal_id)` → `? nullNumber(values.animal_id)` (ifexp: swap ternary branches)
+- `m02102` L198: `values.animal_id && values.animal_id !== NONE` → `values.animal_id || values.animal_id !== NONE` (binop: && -> ||)
+- `m02103` L198: `values.animal_id && values.animal_id !== NONE` → `values.animal_id && values.animal_id === NONE` (compare: !== -> ===)
+- `m02106` L209: `if (!farmScope()) return;` → `if (farmScope()) return;` (not: drop !)
+- `m02107` L226: `if (!nextOpen) reset(policyDefaults());` → `if (nextOpen) reset(policyDefaults());` (not: drop !)
+- `m02108` L239: `{formError && (` → `{formError || (` (binop: && -> ||)
+- `m02109` L249: `maxLength={60}` → `maxLength={61}` (intconst: 60 -> 61)
+- `m02110` L249: `maxLength={60}` → `maxLength={59}` (intconst: 60 -> 59)
+- `m02114` L264: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
+- `m02115` L264: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
+- `m02131` L346: `{canViewAnimals ? (` → `{canViewAnimals ? (
+                  <>
+                    <p className="text-sm font-medium">{t("insurance.form.animalOptional")}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {t("insurance.form.noAnimalAccess")}
+                    </p>
+                  </>
+                ))` (ifexp: swap ternary branches)
+- `m02132` L351: `value={animalId || NONE}` → `value={animalId && NONE}` (binop: || -> &&)
+- `m02133` L374: `rows={2}` → `rows={3}` (intconst: 2 -> 3)
+- `m02134` L374: `rows={2}` → `rows={1}` (intconst: 2 -> 1)
+- `m02140` L409: `renewal_date: z.string().min(1, t("insurance.validation.newRenewalDateRequired")),` → `renewal_date: z.string().min(2, t("insurance.validation.newRenewalDateRequired")),` (intconst: 1 -> 2)
+- `m02141` L409: `renewal_date: z.string().min(1, t("insurance.validation.newRenewalDateRequired")),` → `renewal_date: z.string().min(0, t("insurance.validation.newRenewalDateRequired")),` (intconst: 1 -> 0)
+- `m02143` L414: `value === "" || value === null || value === undefined ? undefined : Number(value),` → `value === "" || value === null && value === undefined ? undefined : Number(value),` (binop: || -> &&)
+- `m02144` L414: `value === "" || value === null || value === undefined ? undefined : Number(value),` → `value === "" && value === null || value === undefined ? undefined : Number(value),` (binop: || -> &&)
+- `m02149` L469: `const renewBusy = isSubmitting || renewFlight.pending;` → `const renewBusy = isSubmitting && renewFlight.pending;` (binop: || -> &&)
+- `m02150` L480: `premium: values.premium ?? null,` → `premium: values.premium || null,` (binop: ?? -> ||)
+- `m02152` L488: `if (!farmScope()) return;` → `if (farmScope()) return;` (not: drop !)
+- `m02153` L511: `{formError && (` → `{formError || (` (binop: && -> ||)
+- `m02164` L595: `if (!farmScope()) return;` → `if (farmScope()) return;` (not: drop !)
+- `m02165` L600: `if (!farmScope()) return;` → `if (farmScope()) return;` (not: drop !)
+- `m02166` L621: `{formError && <p role="alert" className="text-sm text-destructive">{formError}</p>}` → `{formError || <p role="alert" className="text-sm text-destructive">{formError}</p>}` (binop: && -> ||)
+- `m02170` L655: `const [seenOpen, setSeenOpen] = useState(false);` → `const [seenOpen, setSeenOpen] = useState(true);` (boolconst: -> true)
+- `m02179` L674: `if (!open) {` → `if (open) {` (not: drop !)
+- `m02180` L676: `setOffset(0);` → `setOffset(1);` (intconst: 0 -> 1)
+- `m02193` L705: `{history.isLoading && premiums.length === 0 && (` → `{history.isLoading && premiums.length === 0 || (` (binop: && -> ||)
+- `m02194` L705: `{history.isLoading && premiums.length === 0 && (` → `{history.isLoading || premiums.length === 0 && (` (binop: && -> ||)
+- `m02195` L705: `{history.isLoading && premiums.length === 0 && (` → `{history.isLoading && premiums.length !== 0 && (` (compare: === -> !==)
+- `m02196` L705: `{history.isLoading && premiums.length === 0 && (` → `{history.isLoading && premiums.length === 1 && (` (intconst: 0 -> 1)
+- `m02197` L710: `{history.isError && (` → `{history.isError || (` (binop: && -> ||)
+- `m02211` L772: `? ` (${formatFarmDateTime(payload.policy.claimed_at)})`` → `? ""` (${formatFarmDateTime(payload.policy.claimed_at)})`` (ifexp: swap ternary branches)
+- `m02212` L795: `const [offset, setOffset] = useState(0);` → `const [offset, setOffset] = useState(1);` (intconst: 0 -> 1)
+- `m02218` L813: `if (query.isLoading || !payload) {` → `if (query.isLoading && !payload) {` (binop: || -> &&)
+- `m02220` L819: `? mapServerError(t, query.error.detail, query.error.status, query.error.code)` → `? t("insurance.loadFailed")mapServerError(t, query.error.detail, query.error.status, query.error.code)` (ifexp: swap ternary branches)
+- `m02221` L836: `<PageSkeleton cards={1} />` → `<PageSkeleton cards={2} />` (intconst: 1 -> 2)
+- `m02222` L836: `<PageSkeleton cards={1} />` → `<PageSkeleton cards={0} />` (intconst: 1 -> 0)
+- `m02223` L844: `{query.isError && <StaleDataNotice onRetry={() => void query.refetch()} />}` → `{query.isError || <StaleDataNotice onRetry={() => void query.refetch()} />}` (binop: && -> ||)
+- `m02229` L865: `{canManage && (` → `{canManage || (` (binop: && -> ||)
+- `m02230` L866: `<Button disabled={settling} onClick={() => setCreating(true)}>` → `<Button disabled={settling} onClick={() => setCreating(false)}>` (boolconst: -> false)
+- `m02231` L876: `? t("insurance.policiesDescriptionOne", { count: payload.total })` → `? t("insurance.policiesDescriptionMany", { count: payload.total })t("insurance.policiesDescriptionOne", { count: payload.total })` (ifexp: swap ternary branches)
+- `m02232` L875: `payload.total === 1` → `payload.total !== 1` (compare: === -> !==)
+- `m02233` L875: `payload.total === 1` → `payload.total === 2` (intconst: 1 -> 2)
+- `m02234` L875: `payload.total === 1` → `payload.total === 0` (intconst: 1 -> 0)
+- `m02235` L880: `{settling && (` → `{settling || (` (binop: && -> ||)
+- `m02237` L898: `{policy.animal_id !== null && policy.animal_tag ? (` → `{policy.animal_id !== null || policy.animal_tag ? (` (binop: && -> ||)
+- `m02245` L966: `{canManage && <TableHead className="text-right" />}` → `{canManage || <TableHead className="text-right" />}` (binop: && -> ||)
+- `m02247` L975: `{policy.animal_id !== null && policy.animal_tag ? (` → `{policy.animal_id !== null || policy.animal_tag ? (` (binop: && -> ||)
+- `m02259` L1077: `cards={1}` → `cards={2}` (intconst: 1 -> 2)
+- `m02260` L1077: `cards={1}` → `cards={0}` (intconst: 1 -> 0)
 
-### src/app/(app)/simulation/page.tsx (2)
+### src/app/(app)/finance/page.tsx (65)
 
-- `m05509` L1313: `setEditorVersion((version) => version + 1);` → `setEditorVersion((version) => version + 2);` (intconst: 1 -> 2)
-- `m06157` L3327: `tabIndex={-1}` → `tabIndex={-2}` (intconst: 1 -> 2)
+- `m02268` L146: `.min(1, t("finance.validation.dateRequired"))` → `.min(2, t("finance.validation.dateRequired"))` (intconst: 1 -> 2)
+- `m02287` L234: `value === "" || value === null || value === undefined` → `value === "" || value === null && value === undefined` (binop: || -> &&)
+- `m02293` L246: `value === "" || value === null || value === undefined ? undefined : Number(value),` → `value === "" || value === null && value === undefined ? undefined : Number(value),` (binop: || -> &&)
+- `m02299` L251: `.max(1_000_000, t("finance.validation.quantityMax"))` → `.max(999999, t("finance.validation.quantityMax"))` (intconst: 1000000 -> 999999)
+- `m02300` L254: `reason: z.string().trim().min(3, t("finance.validation.reasonMin")).max(255),` → `reason: z.string().trim().min(4, t("finance.validation.reasonMin")).max(255),` (intconst: 3 -> 4)
+- `m02302` L254: `reason: z.string().trim().min(3, t("finance.validation.reasonMin")).max(255),` → `reason: z.string().trim().min(3, t("finance.validation.reasonMin")).max(256),` (intconst: 255 -> 256)
+- `m02303` L254: `reason: z.string().trim().min(3, t("finance.validation.reasonMin")).max(255),` → `reason: z.string().trim().min(3, t("finance.validation.reasonMin")).max(254),` (intconst: 255 -> 254)
+- `m02305` L297: `notes: transaction.notes ?? "",` → `notes: transaction.notes || "",` (binop: ?? -> ||)
+- `m02308` L304: `const correctionBusy = isSubmitting || correctionFlight.pending;` → `const correctionBusy = isSubmitting && correctionFlight.pending;` (binop: || -> &&)
+- `m02314` L331: `values.related_animal_id && values.related_animal_id !== NONE` → `values.related_animal_id || values.related_animal_id !== NONE` (binop: && -> ||)
+- `m02317` L335: `...(isFeedPurchase && values.feed_quantity_kg !== undefined` → `...(isFeedPurchase || values.feed_quantity_kg !== undefined` (binop: && -> ||)
+- `m02340` L507: `transaction.animal_tag ??` → `transaction.animal_tag ||` (binop: ?? -> ||)
+- `m02343` L524: `? (transaction.animal_tag ??` → `? (transaction.animal_tag ||` (binop: ?? -> ||)
+- `m02344` L536: `<Input id={`correction-notes-${transaction.id}`} maxLength={255} {...register("notes")} />` → `<Input id={`correction-notes-${transaction.id}`} maxLength={256} {...register("notes")} />` (intconst: 255 -> 256)
+- `m02345` L536: `<Input id={`correction-notes-${transaction.id}`} maxLength={255} {...register("notes")} />` → `<Input id={`correction-notes-${transaction.id}`} maxLength={254} {...register("notes")} />` (intconst: 255 -> 254)
+- `m02346` L544: `maxLength={255}` → `maxLength={256}` (intconst: 255 -> 256)
+- `m02347` L544: `maxLength={255}` → `maxLength={254}` (intconst: 255 -> 254)
+- `m02360` L637: `const [offset, setOffset] = useState(0);` → `const [offset, setOffset] = useState(1);` (intconst: 0 -> 1)
+- `m02361` L638: `const limit = 50;` → `const limit = 51;` (intconst: 50 -> 51)
+- `m02362` L638: `const limit = 50;` → `const limit = 49;` (intconst: 50 -> 49)
+- `m02377` L699: `const addAttempt = useRef(0);` → `const addAttempt = useRef(1);` (intconst: 0 -> 1)
+- `m02381` L739: `values.related_animal_id && values.related_animal_id !== NONE` → `values.related_animal_id || values.related_animal_id !== NONE` (binop: && -> ||)
+- `m02392` L786: `<PageSkeleton stats={3} cards={2} />` → `<PageSkeleton stats={4} cards={2} />` (intconst: 3 -> 4)
+- `m02393` L786: `<PageSkeleton stats={3} cards={2} />` → `<PageSkeleton stats={2} cards={2} />` (intconst: 3 -> 2)
+- `m02394` L786: `<PageSkeleton stats={3} cards={2} />` → `<PageSkeleton stats={3} cards={3} />` (intconst: 2 -> 3)
+- `m02395` L786: `<PageSkeleton stats={3} cards={2} />` → `<PageSkeleton stats={3} cards={1} />` (intconst: 2 -> 1)
+- `m02404` L805: `const dir = sort.direction === "asc" ? 1 : -1;` → `const dir = sort.direction === "asc" ? 2 : -1;` (intconst: 1 -> 2)
+- `m02406` L805: `const dir = sort.direction === "asc" ? 1 : -1;` → `const dir = sort.direction === "asc" ? 1 : -2;` (intconst: 1 -> 2)
+- `m02409` L807: `if (sort.column === "date") return a.date.localeCompare(b.date) * dir;` → `if (sort.column === "date") return a.date.localeCompare(b.date) / dir;` (binop: * -> /)
+- `m02410` L809: `return (a.amount - b.amount) * dir;` → `return (a.amount - b.amount) / dir;` (binop: * -> /)
+- `m02417` L882: `setOffset(0);` → `setOffset(1);` (intconst: 0 -> 1)
+- `m02419` L902: `row.net < 0 ? "text-destructive" : "text-success",` → `row.net <= 0 ? "text-destructive" : "text-success",` (compare: < -> <=)
+- `m02420` L902: `row.net < 0 ? "text-destructive" : "text-success",` → `row.net < 1 ? "text-destructive" : "text-success",` (intconst: 0 -> 1)
+- `m02447` L1083: `txn.voided_at && "opacity-70",` → `txn.voided_at || "opacity-70",` (binop: && -> ||)
+- `m02448` L1089: `{txn.voided_at && <Badge variant="destructive">{t("finance.void")}</Badge>}` → `{txn.voided_at || <Badge variant="destructive">{t("finance.void")}</Badge>}` (binop: && -> ||)
+- `m02449` L1095: `txn.voided_at && "line-through",` → `txn.voided_at || "line-through",` (binop: && -> ||)
+- `m02451` L1103: `{txn.animal_tag && txn.related_animal_id ? (` → `{txn.animal_tag || txn.related_animal_id ? (` (binop: && -> ||)
+- `m02453` L1119: `{txn.notes && <p className="text-sm">{txn.notes}</p>}` → `{txn.notes || <p className="text-sm">{txn.notes}</p>}` (binop: && -> ||)
+- `m02454` L1121: `{txn.correction_of_id !== null && (` → `{txn.correction_of_id !== null || (` (binop: && -> ||)
+- `m02455` L1121: `{txn.correction_of_id !== null && (` → `{txn.correction_of_id === null && (` (compare: !== -> ===)
+- `m02457` L1127: `<p>{t("finance.sourceLine", { source: sourceLabel(txn, t) ?? "" })}</p>` → `<p>{t("finance.sourceLine", { source: sourceLabel(txn, t) || "" })}</p>` (binop: ?? -> ||)
+- `m02460` L1131: `{txn.void_reason && (` → `{txn.void_reason || (` (binop: && -> ||)
+- `m02464` L1143: `disabled={correctionPending || ledgerSettling || query.isFetching}` → `disabled={correctionPending || ledgerSettling && query.isFetching}` (binop: || -> &&)
+- `m02465` L1143: `disabled={correctionPending || ledgerSettling || query.isFetching}` → `disabled={correctionPending && ledgerSettling || query.isFetching}` (binop: || -> &&)
+- `m02479` L1214: `{txn.notes ?? ""}` → `{txn.notes || ""}` (binop: ?? -> ||)
+- `m02483` L1224: `{t("finance.sourceLine", { source: sourceLabel(txn, t) ?? "" })}` → `{t("finance.sourceLine", { source: sourceLabel(txn, t) || "" })}` (binop: ?? -> ||)
+- `m02490` L1244: `disabled={correctionPending || ledgerSettling || query.isFetching}` → `disabled={correctionPending || ledgerSettling && query.isFetching}` (binop: || -> &&)
+- `m02496` L1296: `addAttempt.current += 1;` → `addAttempt.current += 2;` (intconst: 1 -> 2)
+- `m02503` L1336: `setValue("type", v as TxnInput["type"], { shouldValidate: true })` → `setValue("type", v as TxnInput["type"], { shouldValidate: false })` (boolconst: -> false)
+- `m02504` L1358: `setValue("category", v as TxnInput["category"], { shouldValidate: true })` → `setValue("category", v as TxnInput["category"], { shouldValidate: false })` (boolconst: -> false)
+- `m02510` L1417: `maxLength={255}` → `maxLength={256}` (intconst: 255 -> 256)
+- `m02511` L1417: `maxLength={255}` → `maxLength={254}` (intconst: 255 -> 254)
+- `m02515` L1432: `disabled={isSubmitting || addFlight.pending}` → `disabled={isSubmitting && addFlight.pending}` (binop: || -> &&)
+- `m02516` L1437: `addAttempt.current += 1;` → `addAttempt.current += 2;` (intconst: 1 -> 2)
+- `m02517` L1437: `addAttempt.current += 1;` → `addAttempt.current += 0;` (intconst: 1 -> 0)
+- `m02519` L1443: `<Button type="submit" disabled={isSubmitting || addFlight.pending}>` → `<Button type="submit" disabled={isSubmitting && addFlight.pending}>` (binop: || -> &&)
+- `m02521` L1444: `{isSubmitting || addFlight.pending` → `{isSubmitting && addFlight.pending` (binop: || -> &&)
+- `m02523` L1474: `<PageSkeleton stats={3} cards={2} />` → `<PageSkeleton stats={4} cards={2} />` (intconst: 3 -> 4)
+- `m02524` L1474: `<PageSkeleton stats={3} cards={2} />` → `<PageSkeleton stats={2} cards={2} />` (intconst: 3 -> 2)
+- `m02525` L1474: `<PageSkeleton stats={3} cards={2} />` → `<PageSkeleton stats={3} cards={3} />` (intconst: 2 -> 3)
+- `m02526` L1474: `<PageSkeleton stats={3} cards={2} />` → `<PageSkeleton stats={3} cards={1} />` (intconst: 2 -> 1)
+- `m02527` L1483: `stats={3}` → `stats={4}` (intconst: 3 -> 4)
+- `m02528` L1483: `stats={3}` → `stats={2}` (intconst: 3 -> 2)
+- `m02529` L1484: `cards={2}` → `cards={3}` (intconst: 2 -> 3)
+- `m02530` L1484: `cards={2}` → `cards={1}` (intconst: 2 -> 1)
 
-### src/app/(app)/team/page.tsx (1)
+### src/app/(app)/health/page.tsx (90)
 
-- `m06805` L1054: `screening_flags: prefs?.screening_flags ?? false,` → `screening_flags: prefs?.screening_flags || false,` (binop: ?? -> ||)
+- `m02543` L139: `return Number.isSafeInteger(parsed) && parsed > 0 ? String(parsed) : null;` → `return Number.isSafeInteger(parsed) && parsed > 1 ? String(parsed) : null;` (intconst: 0 -> 1)
+- `m02557` L206: `product_name: z.string().max(120).optional(),` → `product_name: z.string().max(119).optional(),` (intconst: 120 -> 119)
+- `m02559` L207: `disease_target: z.string().max(120).optional(),` → `disease_target: z.string().max(119).optional(),` (intconst: 120 -> 119)
+- `m02561` L208: `dose: z.string().max(60).optional(),` → `dose: z.string().max(59).optional(),` (intconst: 60 -> 59)
+- `m02563` L210: `vet_name: z.string().max(120).optional(),` → `vet_name: z.string().max(119).optional(),` (intconst: 120 -> 119)
+- `m02574` L229: `schedule_template_name: z.string().max(120).optional(),` → `schedule_template_name: z.string().max(121).optional(),` (intconst: 120 -> 121)
+- `m02575` L229: `schedule_template_name: z.string().max(120).optional(),` → `schedule_template_name: z.string().max(119).optional(),` (intconst: 120 -> 119)
+- `m02576` L230: `next_due_authority: z.string().max(120).optional(),` → `next_due_authority: z.string().max(121).optional(),` (intconst: 120 -> 121)
+- `m02577` L230: `next_due_authority: z.string().max(120).optional(),` → `next_due_authority: z.string().max(119).optional(),` (intconst: 120 -> 119)
+- `m02578` L231: `product_lot: z.string().max(120).optional(),` → `product_lot: z.string().max(121).optional(),` (intconst: 120 -> 121)
+- `m02579` L231: `product_lot: z.string().max(120).optional(),` → `product_lot: z.string().max(119).optional(),` (intconst: 120 -> 119)
+- `m02580` L235: `certificate_number: z.string().max(120).optional(),` → `certificate_number: z.string().max(121).optional(),` (intconst: 120 -> 121)
+- `m02581` L235: `certificate_number: z.string().max(120).optional(),` → `certificate_number: z.string().max(119).optional(),` (intconst: 120 -> 119)
+- `m02582` L236: `official_tag_number: z.string().max(80).optional(),` → `official_tag_number: z.string().max(81).optional(),` (intconst: 80 -> 81)
+- `m02583` L236: `official_tag_number: z.string().max(80).optional(),` → `official_tag_number: z.string().max(79).optional(),` (intconst: 80 -> 79)
+- `m02584` L237: `administered_by: z.string().max(120).optional(),` → `administered_by: z.string().max(121).optional(),` (intconst: 120 -> 121)
+- `m02585` L237: `administered_by: z.string().max(120).optional(),` → `administered_by: z.string().max(119).optional(),` (intconst: 120 -> 119)
+- `m02629` L442: `return prefilled !== undefined && (current ?? "") === prefilled;` → `return prefilled !== undefined && (current || "") === prefilled;` (binop: ?? -> ||)
+- `m02636` L482: `setUrlState({ offset: next > 0 ? next : null });` → `setUrlState({ offset: next > 1 ? next : null });` (intconst: 0 -> 1)
+- `m02646` L508: `if (!payload || eventOffset === 0) return;` → `if (!payload || eventOffset === 1) return;` (intconst: 0 -> 1)
+- `m02655` L513: `: Math.floor((payload.total - 1) / eventLimit) * eventLimit;` → `: Math.floor((payload.total - 2) / eventLimit) * eventLimit;` (intconst: 1 -> 2)
+- `m02667` L532: `const exactTaskQuery = useGetTaskApiTasksTaskIdGet(deepLinkedTaskId ?? 0, {` → `const exactTaskQuery = useGetTaskApiTasksTaskIdGet(deepLinkedTaskId || 0, {` (binop: ?? -> ||)
+- `m02668` L532: `const exactTaskQuery = useGetTaskApiTasksTaskIdGet(deepLinkedTaskId ?? 0, {` → `const exactTaskQuery = useGetTaskApiTasksTaskIdGet(deepLinkedTaskId ?? 1, {` (intconst: 0 -> 1)
+- `m02700` L571: `const requestedScheduleAnimalId = positiveIdString(scheduleAnimalParam) ?? "";` → `const requestedScheduleAnimalId = positiveIdString(scheduleAnimalParam) || "";` (binop: ?? -> ||)
+- `m02701` L584: `const [advancedOpen, setAdvancedOpen] = useState(false);` → `const [advancedOpen, setAdvancedOpen] = useState(true);` (boolconst: -> true)
+- `m02702` L623: `if (!wTaskId || wTaskId === NONE) return false;` → `if (!wTaskId && wTaskId === NONE) return false;` (binop: || -> &&)
+- `m02719` L655: `const submissionEpoch = useRef(0);` → `const submissionEpoch = useRef(1);` (intconst: 0 -> 1)
+- `m02720` L657: `const mounted = useRef(true);` → `const mounted = useRef(false);` (boolconst: -> false)
+- `m02722` L664: `mounted.current = false;` → `mounted.current = true;` (boolconst: -> true)
+- `m02723` L669: `submissionEpoch.current += 1;` → `submissionEpoch.current += 2;` (intconst: 1 -> 2)
+- `m02724` L669: `submissionEpoch.current += 1;` → `submissionEpoch.current += 0;` (intconst: 1 -> 0)
+- `m02726` L702: `submissionEpoch.current += 1;` → `submissionEpoch.current += 2;` (intconst: 1 -> 2)
+- `m02737` L761: `changeScope("bucket", true);` → `changeScope("bucket", false);` (boolconst: -> false)
+- `m02743` L772: `if (hints.product_name && !(getValues("product_name") ?? "").trim()) {` → `if (hints.product_name && !(getValues("product_name") || "").trim()) {` (binop: ?? -> ||)
+- `m02746` L777: `if (hints.disease_target && !(getValues("disease_target") ?? "").trim()) {` → `if (hints.disease_target && !(getValues("disease_target") || "").trim()) {` (binop: ?? -> ||)
+- `m02752` L796: `changeScope("animal", true);` → `changeScope("animal", false);` (boolconst: -> false)
+- `m02757` L823: `? linkableHealthTasks.find((t) => String(t.id) === linkedId)` → `? undefinedlinkableHealthTasks.find((t) => String(t.id) === linkedId)` (ifexp: swap ternary branches)
+- `m02758` L822: `linkedId && linkedId !== NONE` → `linkedId || linkedId !== NONE` (binop: && -> ||)
+- `m02759` L822: `linkedId && linkedId !== NONE` → `linkedId && linkedId === NONE` (compare: !== -> ===)
+- `m02760` L823: `? linkableHealthTasks.find((t) => String(t.id) === linkedId)` → `? linkableHealthTasks.find((t) => String(t.id) !== linkedId)` (compare: === -> !==)
+- `m02764` L826: `linked && !linked.animal_id && !linked.purchase_batch_id,` → `linked && !linked.animal_id && linked.purchase_batch_id,` (not: drop !)
+- `m02766` L833: `setValue("scope", nextScope, { shouldValidate: true });` → `setValue("scope", nextScope, { shouldValidate: false });` (boolconst: -> false)
+- `m02773` L867: `const signature = `${taskId ?? ""}|${animalId ?? ""}|${batchId ?? ""}`;` → `const signature = `${taskId || ""}|${animalId ?? ""}|${batchId ?? ""}`;` (binop: ?? -> ||)
+- `m02774` L867: `const signature = `${taskId ?? ""}|${animalId ?? ""}|${batchId ?? ""}`;` → `const signature = `${taskId ?? ""}|${animalId || ""}|${batchId ?? ""}`;` (binop: ?? -> ||)
+- `m02775` L867: `const signature = `${taskId ?? ""}|${animalId ?? ""}|${batchId ?? ""}`;` → `const signature = `${taskId ?? ""}|${animalId ?? ""}|${batchId || ""}`;` (binop: ?? -> ||)
+- `m02847` L1022: `values.scope === "animal" && values.animal_id ? Number(values.animal_id) : null,` → `values.scope === "animal" || values.animal_id ? Number(values.animal_id) : null,` (binop: && -> ||)
+- `m02850` L1024: `values.scope === "bucket" && values.bucket` → `values.scope === "bucket" || values.bucket` (binop: && -> ||)
+- `m02853` L1028: `values.scope === "batch" && values.purchase_batch_id` → `values.scope === "batch" || values.purchase_batch_id` (binop: && -> ||)
+- `m02881` L1060: `task_id: values.task_id && values.task_id !== NONE ? Number(values.task_id) : null,` → `task_id: values.task_id || values.task_id !== NONE ? Number(values.task_id) : null,` (binop: && -> ||)
+- `m02909` L1135: `} else if (unmapped.length > 0) {` → `} else if (unmapped.length >= 0) {` (compare: > -> >=)
+- `m02914` L1172: `<CardSkeleton lines={2} />` → `<CardSkeleton lines={3} />` (intconst: 2 -> 3)
+- `m02915` L1172: `<CardSkeleton lines={2} />` → `<CardSkeleton lines={1} />` (intconst: 2 -> 1)
+- `m02916` L1173: `<TableSkeleton rows={6} columns={6} />` → `<TableSkeleton rows={7} columns={6} />` (intconst: 6 -> 7)
+- `m02917` L1173: `<TableSkeleton rows={6} columns={6} />` → `<TableSkeleton rows={5} columns={6} />` (intconst: 6 -> 5)
+- `m02918` L1173: `<TableSkeleton rows={6} columns={6} />` → `<TableSkeleton rows={6} columns={7} />` (intconst: 6 -> 7)
+- `m02919` L1173: `<TableSkeleton rows={6} columns={6} />` → `<TableSkeleton rows={6} columns={5} />` (intconst: 6 -> 5)
+- `m02924` L1184: `const previewCount = scope !== "animal" && bulkPreview !== null ? bulkPreview.target_count : 0;` → `const previewCount = scope !== "animal" && bulkPreview !== null ? bulkPreview.target_count : 1;` (intconst: 0 -> 1)
+- `m02946` L1357: `<TableCell>{e.product_name ?? "—"}</TableCell>` → `<TableCell>{e.product_name || "—"}</TableCell>` (binop: ?? -> ||)
+- `m02947` L1358: `<TableCell>{e.disease_target ?? "—"}</TableCell>` → `<TableCell>{e.disease_target || "—"}</TableCell>` (binop: ?? -> ||)
+- `m02948` L1359: `<TableCell>{e.dose ?? "—"}</TableCell>` → `<TableCell>{e.dose || "—"}</TableCell>` (binop: ?? -> ||)
+- `m02949` L1360: `<TableCell>{e.route ?? "—"}</TableCell>` → `<TableCell>{e.route || "—"}</TableCell>` (binop: ?? -> ||)
+- `m03034` L1670: `setValue("type", v as EventValues["type"], { shouldValidate: true });` → `setValue("type", v as EventValues["type"], { shouldValidate: false });` (boolconst: -> false)
+- `m03035` L1690: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
+- `m03036` L1690: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
+- `m03039` L1702: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
+- `m03040` L1702: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
+- `m03043` L1713: `maxLength={60}` → `maxLength={61}` (intconst: 60 -> 61)
+- `m03044` L1713: `maxLength={60}` → `maxLength={59}` (intconst: 60 -> 59)
+- `m03048` L1745: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
+- `m03049` L1745: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
+- `m03073` L1870: `value={field.value ?? ""}` → `value={field.value || ""}` (binop: ?? -> ||)
+- `m03078` L1887: `? `${template.name} — ${template.timing_note}`` → `? template.name`${template.name} — ${template.timing_note}`` (ifexp: swap ternary branches)
+- `m03079` L1898: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
+- `m03080` L1898: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
+- `m03086` L1917: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
+- `m03087` L1917: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
+- `m03091` L1931: `<Input id="product_lot" maxLength={120} {...register("product_lot")} />` → `<Input id="product_lot" maxLength={121} {...register("product_lot")} />` (intconst: 120 -> 121)
+- `m03092` L1931: `<Input id="product_lot" maxLength={120} {...register("product_lot")} />` → `<Input id="product_lot" maxLength={119} {...register("product_lot")} />` (intconst: 120 -> 119)
+- `m03093` L1935: `<Input id="administered_by" maxLength={120} {...register("administered_by")} />` → `<Input id="administered_by" maxLength={121} {...register("administered_by")} />` (intconst: 120 -> 121)
+- `m03094` L1935: `<Input id="administered_by" maxLength={120} {...register("administered_by")} />` → `<Input id="administered_by" maxLength={119} {...register("administered_by")} />` (intconst: 120 -> 119)
+- `m03107` L2000: `<Input id="certificate_number" maxLength={120} {...register("certificate_number")} />` → `<Input id="certificate_number" maxLength={121} {...register("certificate_number")} />` (intconst: 120 -> 121)
+- `m03108` L2000: `<Input id="certificate_number" maxLength={120} {...register("certificate_number")} />` → `<Input id="certificate_number" maxLength={119} {...register("certificate_number")} />` (intconst: 120 -> 119)
+- `m03109` L2004: `<Input id="official_tag_number" maxLength={80} {...register("official_tag_number")} />` → `<Input id="official_tag_number" maxLength={81} {...register("official_tag_number")} />` (intconst: 80 -> 81)
+- `m03110` L2004: `<Input id="official_tag_number" maxLength={80} {...register("official_tag_number")} />` → `<Input id="official_tag_number" maxLength={79} {...register("official_tag_number")} />` (intconst: 80 -> 79)
+- `m03121` L2075: `rows={2}` → `rows={3}` (intconst: 2 -> 3)
+- `m03122` L2075: `rows={2}` → `rows={1}` (intconst: 2 -> 1)
+- `m03143` L2138: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={3} />` (intconst: 2 -> 3)
+- `m03144` L2138: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={1} />` (intconst: 2 -> 1)
+- `m03145` L2147: `cards={2}` → `cards={3}` (intconst: 2 -> 3)
+- `m03146` L2147: `cards={2}` → `cards={1}` (intconst: 2 -> 1)
 
-### src/app/login/page.tsx (1)
+### src/app/(app)/health/schedule/[animalId]/page.tsx (11)
 
-- `m07129` L124: `router.push(requested ?? firstPermittedPathFromList(permissions.permissions));` → `router.push(requested || firstPermittedPathFromList(permissions.permissions));` (binop: ?? -> ||)
+- `m03153` L85: `animalId > 0;` → `animalId > 1;` (intconst: 0 -> 1)
+- `m03159` L92: `permittedAppPath(searchParams.get("returnTo"), can) ??` → `permittedAppPath(searchParams.get("returnTo"), can) ||` (binop: ?? -> ||)
+- `m03164` L121: `<TableSkeleton rows={6} columns={6} />` → `<TableSkeleton rows={7} columns={6} />` (intconst: 6 -> 7)
+- `m03165` L121: `<TableSkeleton rows={6} columns={6} />` → `<TableSkeleton rows={5} columns={6} />` (intconst: 6 -> 5)
+- `m03166` L121: `<TableSkeleton rows={6} columns={6} />` → `<TableSkeleton rows={6} columns={7} />` (intconst: 6 -> 7)
+- `m03167` L121: `<TableSkeleton rows={6} columns={6} />` → `<TableSkeleton rows={6} columns={5} />` (intconst: 6 -> 5)
+- `m03168` L129: `{query.isError && <StaleDataNotice onRetry={() => void query.refetch()} />}` → `{query.isError || <StaleDataNotice onRetry={() => void query.refetch()} />}` (binop: && -> ||)
+- `m03176` L200: `{row.timing_note && (` → `{row.timing_note || (` (binop: && -> ||)
+- `m03178` L281: `<PageSkeleton cards={1} />` → `<PageSkeleton cards={2} />` (intconst: 1 -> 2)
+- `m03179` L281: `<PageSkeleton cards={1} />` → `<PageSkeleton cards={0} />` (intconst: 1 -> 0)
+- `m03180` L290: `cards={1}` → `cards={2}` (intconst: 1 -> 2)
 
-### src/components/account-dialog.tsx (12)
+### src/app/(app)/kidding/page.tsx (65)
 
-- `m07413` L69: `const [codesCopied, setCodesCopied] = useState(false);` → `const [codesCopied, setCodesCopied] = useState(true);` (boolconst: -> true)
-- `m07414` L74: `const dialogEpoch = useRef(0);` → `const dialogEpoch = useRef(1);` (intconst: 0 -> 1)
-- `m07415` L76: `const mounted = useRef(true);` → `const mounted = useRef(false);` (boolconst: -> false)
-- `m07417` L95: `mounted.current = false;` → `mounted.current = true;` (boolconst: -> true)
-- `m07418` L99: `dialogEpoch.current += 1;` → `dialogEpoch.current += 2;` (intconst: 1 -> 2)
-- `m07419` L99: `dialogEpoch.current += 1;` → `dialogEpoch.current += 0;` (intconst: 1 -> 0)
-- `m07424` L127: `dialogEpoch.current += 1;` → `dialogEpoch.current += 2;` (intconst: 1 -> 2)
-- `m07428` L140: `setCodesCopied(false);` → `setCodesCopied(true);` (boolconst: -> true)
-- `m07495` L419: `const release = () => finishAction("password");` → `const release = () => fin||hAction("password");` (binop: ?? -> ||)
-- `m07496` L427: `void submission.then(release, release);` → `void s||mission.then(release, release);` (binop: ?? -> ||)
-- `m07500` L429: `<Dialog open={open} onOpenChange={(next) => (next ? setOpen(true) : close())}>` → `<Dialog open={open} onOpenChange={(next) => (next ? setOpen(true) : close||)}>` (binop: ?? -> ||)
-- `m07501` L437: `/>` → `||    />` (binop: ?? -> ||)
+- `m03199` L76: `return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;` → `return Number.isSafeInteger(parsed) && parsed > 1 ? parsed : null;` (intconst: 0 -> 1)
+- `m03200` L103: `const KIDDING_HISTORY_LIMIT = 50;` → `const KIDDING_HISTORY_LIMIT = 51;` (intconst: 50 -> 51)
+- `m03201` L103: `const KIDDING_HISTORY_LIMIT = 50;` → `const KIDDING_HISTORY_LIMIT = 49;` (intconst: 50 -> 49)
+- `m03202` L104: `const DUE_LIST_LIMIT = 25;` → `const DUE_LIST_LIMIT = 26;` (intconst: 25 -> 26)
+- `m03203` L104: `const DUE_LIST_LIMIT = 25;` → `const DUE_LIST_LIMIT = 24;` (intconst: 25 -> 24)
+- `m03205` L114: `tag: z.string().max(50, t("kidding.validation.tagMax", { max: 50 })).optional(),` → `tag: z.string().max(49, t("kidding.validation.tagMax", { max: 50 })).optional(),` (intconst: 50 -> 49)
+- `m03210` L167: `.max(4_000, t("kidding.validation.notesTooLong", { max: 4_000 }))` → `.max(3999, t("kidding.validation.notesTooLong", { max: 4_000 }))` (intconst: 4000 -> 3999)
+- `m03231` L345: `const earliest = breeding.ultrasound_result_date && breeding.ultrasound_result_date > minGestationDate ? breeding.ultrasound_result_date : minGestationDate;` → `const earliest = breeding.ultrasound_result_date && breeding.ultrasound_result_date >= minGestationDate ? breeding.ultrasound_result_date : minGestationDate;` (compare: > -> >=)
+- `m03233` L351: `return [earliest, maxGestationDate < farmToday() ? maxGestationDate : farmToday()];` → `return [earliest, maxGestationDate <= farmToday() ? maxGestationDate : farmToday()];` (compare: < -> <=)
+- `m03238` L408: `birth_weight: k.birth_weight ?? null,` → `birth_weight: k.birth_weight || null,` (binop: ?? -> ||)
+- `m03240` L417: `birth_weight: k.birth_weight ?? null,` → `birth_weight: k.birth_weight || null,` (binop: ?? -> ||)
+- `m03243` L421: `k.status === "DIED" ? (k.mortality_reported_at ?? null) : null,` → `k.status === "DIED" ? (k.mortality_reported_at || null) : null,` (binop: ?? -> ||)
+- `m03252` L458: `doeTag: breeding.doe_tag ?? `#${breeding.doe_id}`,` → `doeTag: breeding.doe_tag || `#${breeding.doe_id}`,` (binop: ?? -> ||)
+- `m03260` L527: `disabled={isSubmitting || createFlight.pending}` → `disabled={isSubmitting && createFlight.pending}` (binop: || -> &&)
+- `m03261` L554: `disabled={isSubmitting || createFlight.pending}` → `disabled={isSubmitting && createFlight.pending}` (binop: || -> &&)
+- `m03265` L568: `rows={2}` → `rows={3}` (intconst: 2 -> 3)
+- `m03266` L568: `rows={2}` → `rows={1}` (intconst: 2 -> 1)
+- `m03298` L711: `if (v === "STILLBORN") {` → `if (v !== "STILLBORN") {` (compare: === -> !==)
+- `m03341` L919: `const kids = kidding.kids ?? [];` → `const kids = kidding.kids || [];` (binop: ?? -> ||)
+- `m03349` L928: `{kid.tag ?? t("kidding.noun.young")}` → `{kid.tag || t("kidding.noun.young")}` (binop: ?? -> ||)
+- `m03350` L931: `(kid.tag ?? t("kidding.noun.young"))` → `(kid.tag || t("kidding.noun.young"))` (binop: ?? -> ||)
+- `m03351` L936: `kidStatusItems(language)[kid.status] ?? kid.status,` → `kidStatusItems(language)[kid.status] || kid.status,` (binop: ?? -> ||)
+- `m03366` L968: `return facts.length > 0 ? facts.join(" · ") : null;` → `return facts.length >= 0 ? facts.join(" · ") : null;` (compare: > -> >=)
+- `m03367` L968: `return facts.length > 0 ? facts.join(" · ") : null;` → `return facts.length > 1 ? facts.join(" · ") : null;` (intconst: 0 -> 1)
+- `m03377` L1011: `requestedBreedingId ?? 0,` → `requestedBreedingId || 0,` (binop: ?? -> ||)
+- `m03378` L1011: `requestedBreedingId ?? 0,` → `requestedBreedingId ?? 1,` (intconst: 0 -> 1)
+- `m03389` L1024: `const requestedRecord = pagedPrefillRecord ?? fetchedPrefillRecord;` → `const requestedRecord = pagedPrefillRecord || fetchedPrefillRecord;` (binop: ?? -> ||)
+- `m03393` L1032: `prefillRecordQuery.error.status === 404;` → `prefillRecordQuery.error.status === 405;` (intconst: 404 -> 405)
+- `m03394` L1032: `prefillRecordQuery.error.status === 404;` → `prefillRecordQuery.error.status === 403;` (intconst: 404 -> 403)
+- `m03402` L1040: `const activeRecord = recordFor ?? deepLinkedRecord;` → `const activeRecord = recordFor || deepLinkedRecord;` (binop: ?? -> ||)
+- `m03420` L1067: `payload.total === 0 ? 0 : Math.floor((payload.total - 1) / payload.limit) * payload.limit;` → `payload.total === 0 ? 1 : Math.floor((payload.total - 1) / payload.limit) * payload.limit;` (intconst: 0 -> 1)
+- `m03429` L1070: `? 0` → `? 1` (intconst: 0 -> 1)
+- `m03438` L1075: `? 0` → `? 1` (intconst: 0 -> 1)
+- `m03444` L1081: `if (historyOffset > lastHistoryOffset) setHistoryOffset(lastHistoryOffset);` → `if (historyOffset >= lastHistoryOffset) setHistoryOffset(lastHistoryOffset);` (compare: > -> >=)
+- `m03445` L1083: `if (upcomingOffset > lastUpcomingOffset) setUpcomingOffset(lastUpcomingOffset);` → `if (upcomingOffset >= lastUpcomingOffset) setUpcomingOffset(lastUpcomingOffset);` (compare: > -> >=)
+- `m03446` L1085: `if (overdueOffset > lastOverdueOffset) setOverdueOffset(lastOverdueOffset);` → `if (overdueOffset >= lastOverdueOffset) setOverdueOffset(lastOverdueOffset);` (compare: > -> >=)
+- `m03450` L1117: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={3} />` (intconst: 2 -> 3)
+- `m03451` L1117: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={1} />` (intconst: 2 -> 1)
+- `m03456` L1148: `{doeTag ?? `${femaleNounCap} #${doeId}`}` → `{doeTag || `${femaleNounCap} #${doeId}`}` (binop: ?? -> ||)
+- `m03457` L1151: `(doeTag ?? `${femaleNounCap} #${doeId}`)` → `(doeTag || `${femaleNounCap} #${doeId}`)` (binop: ?? -> ||)
+- `m03462` L1175: `id: requestedBreedingId ?? 0,` → `id: requestedBreedingId || 0,` (binop: ?? -> ||)
+- `m03463` L1175: `id: requestedBreedingId ?? 0,` → `id: requestedBreedingId ?? 1,` (intconst: 0 -> 1)
+- `m03465` L1179: `id: requestedBreedingId ?? 0,` → `id: requestedBreedingId || 0,` (binop: ?? -> ||)
+- `m03466` L1179: `id: requestedBreedingId ?? 0,` → `id: requestedBreedingId ?? 1,` (intconst: 0 -> 1)
+- `m03467` L1183: `id: requestedBreedingId ?? 0,` → `id: requestedBreedingId || 0,` (binop: ?? -> ||)
+- `m03468` L1183: `id: requestedBreedingId ?? 0,` → `id: requestedBreedingId ?? 1,` (intconst: 0 -> 1)
+- `m03477` L1243: `{recordButton(r, true)}` → `{recordButton(r, false)}` (boolconst: -> false)
+- `m03479` L1267: `{r.doe_tag ?? `${femaleNounCap} #${r.doe_id}`}` → `{r.doe_tag || `${femaleNounCap} #${r.doe_id}`}` (binop: ?? -> ||)
+- `m03480` L1270: `r.doe_tag ?? `${femaleNounCap} #${r.doe_id}`` → `r.doe_tag || `${femaleNounCap} #${r.doe_id}`` (binop: ?? -> ||)
+- `m03487` L1341: `count: r.kid_count_detected ?? "—",` → `count: r.kid_count_detected || "—",` (binop: ?? -> ||)
+- `m03491` L1373: `{r.doe_tag ?? `${femaleNounCap} #${r.doe_id}`}` → `{r.doe_tag || `${femaleNounCap} #${r.doe_id}`}` (binop: ?? -> ||)
+- `m03492` L1376: `r.doe_tag ?? `${femaleNounCap} #${r.doe_id}`` → `r.doe_tag || `${femaleNounCap} #${r.doe_id}`` (binop: ?? -> ||)
+- `m03494` L1386: `<TableCell>{r.kid_count_detected ?? "—"}</TableCell>` → `<TableCell>{r.kid_count_detected || "—"}</TableCell>` (binop: ?? -> ||)
+- `m03499` L1434: `<StatusBadge status={k.ease}>{easeItems(language)[k.ease] ?? k.ease}</StatusBadge>` → `<StatusBadge status={k.ease}>{easeItems(language)[k.ease] || k.ease}</StatusBadge>` (binop: ?? -> ||)
+- `m03500` L1437: `{kiddingCareFacts(k, t) && (` → `{kiddingCareFacts(k, t) || (` (binop: && -> ||)
+- `m03501` L1444: `{k.notes && <p className="text-xs text-muted-foreground">{k.notes}</p>}` → `{k.notes || <p className="text-xs text-muted-foreground">{k.notes}</p>}` (binop: && -> ||)
+- `m03503` L1469: `{k.doe_tag ?? `${femaleNounCap} #${k.doe_id}`}` → `{k.doe_tag || `${femaleNounCap} #${k.doe_id}`}` (binop: ?? -> ||)
+- `m03504` L1472: `k.doe_tag ?? `${femaleNounCap} #${k.doe_id}`` → `k.doe_tag || `${femaleNounCap} #${k.doe_id}`` (binop: ?? -> ||)
+- `m03505` L1476: `<StatusBadge status={k.ease}>{easeItems(language)[k.ease] ?? k.ease}</StatusBadge>` → `<StatusBadge status={k.ease}>{easeItems(language)[k.ease] || k.ease}</StatusBadge>` (binop: ?? -> ||)
+- `m03506` L1477: `{kiddingCareFacts(k, t) && (` → `{kiddingCareFacts(k, t) || (` (binop: && -> ||)
+- `m03507` L1486: `<TableCell>{k.notes ?? ""}</TableCell>` → `<TableCell>{k.notes || ""}</TableCell>` (binop: ?? -> ||)
+- `m03510` L1535: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={3} />` (intconst: 2 -> 3)
+- `m03511` L1535: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={1} />` (intconst: 2 -> 1)
+- `m03512` L1544: `cards={2}` → `cards={3}` (intconst: 2 -> 3)
+- `m03513` L1544: `cards={2}` → `cards={1}` (intconst: 2 -> 1)
 
-### src/components/animal-picker.tsx (2)
+### src/app/(app)/loading.tsx (4)
 
-- `m07603` L103: `eligibilityKey ??` → `eligibilityKey ||` (binop: ?? -> ||)
-- `m07607` L109: `selectedAnimalId ?? 0,` → `selectedAnimalId || 0,` (binop: ?? -> ||)
+- `m03515` L16: `<PageSkeleton stats={4} cards={2} />` → `<PageSkeleton stats={5} cards={2} />` (intconst: 4 -> 5)
+- `m03516` L16: `<PageSkeleton stats={4} cards={2} />` → `<PageSkeleton stats={3} cards={2} />` (intconst: 4 -> 3)
+- `m03517` L16: `<PageSkeleton stats={4} cards={2} />` → `<PageSkeleton stats={4} cards={3} />` (intconst: 2 -> 3)
+- `m03518` L16: `<PageSkeleton stats={4} cards={2} />` → `<PageSkeleton stats={4} cards={1} />` (intconst: 2 -> 1)
+
+### src/app/(app)/ops-simulation/page.tsx (156)
+
+- `m03522` L183: `const colors = BUCKET_COLORS[bucket] ?? BUCKET_COLORS.FEED_STORE;` → `const colors = BUCKET_COLORS[bucket] || BUCKET_COLORS.FEED_STORE;` (binop: ?? -> ||)
+- `m03523` L195: `{shortKey ? t(shortKey) : bucket}` → `{shortKey ? bucket : t(shortKey)}` (ifexp: swap ternary branches)
+- `m03524` L231: `<BucketChip bucket={fromBucket ?? ""} />` → `<BucketChip bucket={fromBucket || ""} />` (binop: ?? -> ||)
+- `m03529` L240: `const MAX_START_HEAD = 500;` → `const MAX_START_HEAD = 501;` (intconst: 500 -> 501)
+- `m03530` L240: `const MAX_START_HEAD = 500;` → `const MAX_START_HEAD = 499;` (intconst: 500 -> 499)
+- `m03533` L244: `const MAX_DAYS_IN_BUCKET = 3650;` → `const MAX_DAYS_IN_BUCKET = 3651;` (intconst: 3650 -> 3651)
+- `m03534` L244: `const MAX_DAYS_IN_BUCKET = 3650;` → `const MAX_DAYS_IN_BUCKET = 3649;` (intconst: 3650 -> 3649)
+- `m03537` L259: `let herdRowSeq = 0;` → `let herdRowSeq = 1;` (intconst: 0 -> 1)
+- `m03538` L261: `herdRowSeq += 1;` → `herdRowSeq += 2;` (intconst: 1 -> 2)
+- `m03540` L271: `ageMonths: 18,` → `ageMonths: 19,` (intconst: 18 -> 19)
+- `m03541` L271: `ageMonths: 18,` → `ageMonths: 17,` (intconst: 18 -> 17)
+- `m03542` L272: `daysInBucket: 0,` → `daysInBucket: 1,` (intconst: 0 -> 1)
+- `m03549` L287: `makeRow({ tag: `D${i + 1}`, sex: "F", bucket: "BREEDING", ageMonths: 12 + i + 1 }),` → `makeRow({ tag: `D${i + 1}`, sex: "F", bucket: "BREEDING", ageMonths: 12 + i - 1 }),` (binop: + -> -)
+- `m03550` L287: `makeRow({ tag: `D${i + 1}`, sex: "F", bucket: "BREEDING", ageMonths: 12 + i + 1 }),` → `makeRow({ tag: `D${i + 1}`, sex: "F", bucket: "BREEDING", ageMonths: 12 - i + 1 }),` (binop: + -> -)
+- `m03551` L287: `makeRow({ tag: `D${i + 1}`, sex: "F", bucket: "BREEDING", ageMonths: 12 + i + 1 }),` → `makeRow({ tag: `D${i + 1}`, sex: "F", bucket: "BREEDING", ageMonths: 13 + i + 1 }),` (intconst: 12 -> 13)
+- `m03552` L287: `makeRow({ tag: `D${i + 1}`, sex: "F", bucket: "BREEDING", ageMonths: 12 + i + 1 }),` → `makeRow({ tag: `D${i + 1}`, sex: "F", bucket: "BREEDING", ageMonths: 11 + i + 1 }),` (intconst: 12 -> 11)
+- `m03553` L287: `makeRow({ tag: `D${i + 1}`, sex: "F", bucket: "BREEDING", ageMonths: 12 + i + 1 }),` → `makeRow({ tag: `D${i + 1}`, sex: "F", bucket: "BREEDING", ageMonths: 12 + i + 2 }),` (intconst: 1 -> 2)
+- `m03554` L287: `makeRow({ tag: `D${i + 1}`, sex: "F", bucket: "BREEDING", ageMonths: 12 + i + 1 }),` → `makeRow({ tag: `D${i + 1}`, sex: "F", bucket: "BREEDING", ageMonths: 12 + i + 0 }),` (intconst: 1 -> 0)
+- `m03555` L289: `makeRow({ tag: "B1", sex: "M", bucket: "BREEDING", ageMonths: 24 }),` → `makeRow({ tag: "B1", sex: "M", bucket: "BREEDING", ageMonths: 25 }),` (intconst: 24 -> 25)
+- `m03556` L289: `makeRow({ tag: "B1", sex: "M", bucket: "BREEDING", ageMonths: 24 }),` → `makeRow({ tag: "B1", sex: "M", bucket: "BREEDING", ageMonths: 23 }),` (intconst: 24 -> 23)
+- `m03557` L295: `...Array.from({ length: 6 }, (_, i) =>` → `...Array.from({ length: 7 }, (_, i) =>` (intconst: 6 -> 7)
+- `m03558` L295: `...Array.from({ length: 6 }, (_, i) =>` → `...Array.from({ length: 5 }, (_, i) =>` (intconst: 6 -> 5)
+- `m03559` L296: `makeRow({ tag: `D${i + 1}`, sex: "F", bucket: "BREEDING", ageMonths: 14 + i }),` → `makeRow({ tag: `D${i - 1}`, sex: "F", bucket: "BREEDING", ageMonths: 14 + i }),` (binop: + -> -)
+- `m03561` L296: `makeRow({ tag: `D${i + 1}`, sex: "F", bucket: "BREEDING", ageMonths: 14 + i }),` → `makeRow({ tag: `D${i + 0}`, sex: "F", bucket: "BREEDING", ageMonths: 14 + i }),` (intconst: 1 -> 0)
+- `m03562` L296: `makeRow({ tag: `D${i + 1}`, sex: "F", bucket: "BREEDING", ageMonths: 14 + i }),` → `makeRow({ tag: `D${i + 1}`, sex: "F", bucket: "BREEDING", ageMonths: 14 - i }),` (binop: + -> -)
+- `m03563` L296: `makeRow({ tag: `D${i + 1}`, sex: "F", bucket: "BREEDING", ageMonths: 14 + i }),` → `makeRow({ tag: `D${i + 1}`, sex: "F", bucket: "BREEDING", ageMonths: 15 + i }),` (intconst: 14 -> 15)
+- `m03564` L296: `makeRow({ tag: `D${i + 1}`, sex: "F", bucket: "BREEDING", ageMonths: 14 + i }),` → `makeRow({ tag: `D${i + 1}`, sex: "F", bucket: "BREEDING", ageMonths: 13 + i }),` (intconst: 14 -> 13)
+- `m03565` L298: `makeRow({ tag: "B1", sex: "M", bucket: "BREEDING", ageMonths: 24 }),` → `makeRow({ tag: "B1", sex: "M", bucket: "BREEDING", ageMonths: 25 }),` (intconst: 24 -> 25)
+- `m03566` L298: `makeRow({ tag: "B1", sex: "M", bucket: "BREEDING", ageMonths: 24 }),` → `makeRow({ tag: "B1", sex: "M", bucket: "BREEDING", ageMonths: 23 }),` (intconst: 24 -> 23)
+- `m03571` L307: `makeRow({ tag: "Q1", sex: "F", bucket: "QUARANTINE", ageMonths: 14, daysInBucket: 10 }),` → `makeRow({ tag: "Q1", sex: "F", bucket: "QUARANTINE", ageMonths: 15, daysInBucket: 10 }),` (intconst: 14 -> 15)
+- `m03572` L307: `makeRow({ tag: "Q1", sex: "F", bucket: "QUARANTINE", ageMonths: 14, daysInBucket: 10 }),` → `makeRow({ tag: "Q1", sex: "F", bucket: "QUARANTINE", ageMonths: 13, daysInBucket: 10 }),` (intconst: 14 -> 13)
+- `m03573` L307: `makeRow({ tag: "Q1", sex: "F", bucket: "QUARANTINE", ageMonths: 14, daysInBucket: 10 }),` → `makeRow({ tag: "Q1", sex: "F", bucket: "QUARANTINE", ageMonths: 14, daysInBucket: 11 }),` (intconst: 10 -> 11)
+- `m03574` L307: `makeRow({ tag: "Q1", sex: "F", bucket: "QUARANTINE", ageMonths: 14, daysInBucket: 10 }),` → `makeRow({ tag: "Q1", sex: "F", bucket: "QUARANTINE", ageMonths: 14, daysInBucket: 9 }),` (intconst: 10 -> 9)
+- `m03575` L308: `makeRow({ tag: "MK1", sex: "M", bucket: "MALE_KIDS", ageMonths: 7 }),` → `makeRow({ tag: "MK1", sex: "M", bucket: "MALE_KIDS", ageMonths: 8 }),` (intconst: 7 -> 8)
+- `m03576` L308: `makeRow({ tag: "MK1", sex: "M", bucket: "MALE_KIDS", ageMonths: 7 }),` → `makeRow({ tag: "MK1", sex: "M", bucket: "MALE_KIDS", ageMonths: 6 }),` (intconst: 7 -> 6)
+- `m03577` L309: `makeRow({ tag: "FK1", sex: "F", bucket: "FEMALE_KIDS", ageMonths: 9 }),` → `makeRow({ tag: "FK1", sex: "F", bucket: "FEMALE_KIDS", ageMonths: 10 }),` (intconst: 9 -> 10)
+- `m03578` L309: `makeRow({ tag: "FK1", sex: "F", bucket: "FEMALE_KIDS", ageMonths: 9 }),` → `makeRow({ tag: "FK1", sex: "F", bucket: "FEMALE_KIDS", ageMonths: 8 }),` (intconst: 9 -> 8)
+- `m03582` L321: `return Number.isFinite(value) ? value.toFixed(value % 1 === 0 ? 0 : 1) : "—";` → `return Number.isFinite(value) ? value.toFixed(value % 2 === 0 ? 0 : 1) : "—";` (intconst: 1 -> 2)
+- `m03583` L321: `return Number.isFinite(value) ? value.toFixed(value % 1 === 0 ? 0 : 1) : "—";` → `return Number.isFinite(value) ? value.toFixed(value % 0 === 0 ? 0 : 1) : "—";` (intconst: 1 -> 0)
+- `m03584` L321: `return Number.isFinite(value) ? value.toFixed(value % 1 === 0 ? 0 : 1) : "—";` → `return Number.isFinite(value) ? value.toFixed(value % 1 === 1 ? 0 : 1) : "—";` (intconst: 0 -> 1)
+- `m03585` L321: `return Number.isFinite(value) ? value.toFixed(value % 1 === 0 ? 0 : 1) : "—";` → `return Number.isFinite(value) ? value.toFixed(value % 1 === 0 ? 1 : 1) : "—";` (intconst: 0 -> 1)
+- `m03589` L334: `value={draft ?? String(inputProps.value ?? "")}` → `value={draft ?? String(inputProps.value || "")}` (binop: ?? -> ||)
+- `m03593` L355: `if ((day.moves?.length ?? 0) > 0) {` → `if ((day.moves?.length || 0) > 0) {` (binop: ?? -> ||)
+- `m03594` L355: `if ((day.moves?.length ?? 0) > 0) {` → `if ((day.moves?.length ?? 1) > 0) {` (intconst: 0 -> 1)
+- `m03596` L356: `parts.push(t("opsSim.badge.moves", { count: day.moves?.length ?? 0 }));` → `parts.push(t("opsSim.badge.moves", { count: day.moves?.length || 0 }));` (binop: ?? -> ||)
+- `m03597` L356: `parts.push(t("opsSim.badge.moves", { count: day.moves?.length ?? 0 }));` → `parts.push(t("opsSim.badge.moves", { count: day.moves?.length ?? 1 }));` (intconst: 0 -> 1)
+- `m03599` L358: `if ((day.births?.length ?? 0) > 0) {` → `if ((day.births?.length || 0) > 0) {` (binop: ?? -> ||)
+- `m03600` L358: `if ((day.births?.length ?? 0) > 0) {` → `if ((day.births?.length ?? 1) > 0) {` (intconst: 0 -> 1)
+- `m03602` L359: `parts.push(t("opsSim.badge.births", { count: day.births?.length ?? 0 }));` → `parts.push(t("opsSim.badge.births", { count: day.births?.length || 0 }));` (binop: ?? -> ||)
+- `m03603` L359: `parts.push(t("opsSim.badge.births", { count: day.births?.length ?? 0 }));` → `parts.push(t("opsSim.badge.births", { count: day.births?.length ?? 1 }));` (intconst: 0 -> 1)
+- `m03605` L361: `if ((day.exits?.length ?? 0) > 0) {` → `if ((day.exits?.length || 0) > 0) {` (binop: ?? -> ||)
+- `m03606` L361: `if ((day.exits?.length ?? 0) > 0) {` → `if ((day.exits?.length ?? 1) > 0) {` (intconst: 0 -> 1)
+- `m03608` L362: `parts.push(t("opsSim.badge.exits", { count: day.exits?.length ?? 0 }));` → `parts.push(t("opsSim.badge.exits", { count: day.exits?.length || 0 }));` (binop: ?? -> ||)
+- `m03609` L362: `parts.push(t("opsSim.badge.exits", { count: day.exits?.length ?? 0 }));` → `parts.push(t("opsSim.badge.exits", { count: day.exits?.length ?? 1 }));` (intconst: 0 -> 1)
+- `m03616` L388: `const [selectedDay, setSelectedDay] = useState(1);` → `const [selectedDay, setSelectedDay] = useState(2);` (intconst: 1 -> 2)
+- `m03617` L388: `const [selectedDay, setSelectedDay] = useState(1);` → `const [selectedDay, setSelectedDay] = useState(0);` (intconst: 1 -> 0)
+- `m03618` L390: `const [ledgerOpen, setLedgerOpen] = useState(false);` → `const [ledgerOpen, setLedgerOpen] = useState(true);` (boolconst: -> true)
+- `m03626` L402: `if (rows.length === 0) errors.push(t("opsSim.validation.needAnimal"));` → `if (rows.length === 1) errors.push(t("opsSim.validation.needAnimal"));` (intconst: 0 -> 1)
+- `m03627` L403: `if (rows.length > MAX_START_HEAD) {` → `if (rows.length >= MAX_START_HEAD) {` (compare: > -> >=)
+- `m03630` L408: `if (row.ageMonths < 0 || row.ageMonths > MAX_AGE_MONTHS) {` → `if (row.ageMonths <= 0 || row.ageMonths > MAX_AGE_MONTHS) {` (compare: < -> <=)
+- `m03631` L408: `if (row.ageMonths < 0 || row.ageMonths > MAX_AGE_MONTHS) {` → `if (row.ageMonths < 1 || row.ageMonths > MAX_AGE_MONTHS) {` (intconst: 0 -> 1)
+- `m03632` L408: `if (row.ageMonths < 0 || row.ageMonths > MAX_AGE_MONTHS) {` → `if (row.ageMonths < 0 || row.ageMonths >= MAX_AGE_MONTHS) {` (compare: > -> >=)
+- `m03633` L411: `if (row.daysInBucket < 0 || row.daysInBucket > MAX_DAYS_IN_BUCKET) {` → `if (row.daysInBucket < 0 && row.daysInBucket > MAX_DAYS_IN_BUCKET) {` (binop: || -> &&)
+- `m03636` L411: `if (row.daysInBucket < 0 || row.daysInBucket > MAX_DAYS_IN_BUCKET) {` → `if (row.daysInBucket < 0 || row.daysInBucket >= MAX_DAYS_IN_BUCKET) {` (compare: > -> >=)
+- `m03638` L416: `if (!Number.isInteger(bred) || bred < 0 || bred > MAX_BRED_DAYS) {` → `if (!Number.isInteger(bred) || bred < 0 && bred > MAX_BRED_DAYS) {` (binop: || -> &&)
+- `m03641` L416: `if (!Number.isInteger(bred) || bred < 0 || bred > MAX_BRED_DAYS) {` → `if (!Number.isInteger(bred) || bred <= 0 || bred > MAX_BRED_DAYS) {` (compare: < -> <=)
+- `m03642` L416: `if (!Number.isInteger(bred) || bred < 0 || bred > MAX_BRED_DAYS) {` → `if (!Number.isInteger(bred) || bred < 1 || bred > MAX_BRED_DAYS) {` (intconst: 0 -> 1)
+- `m03643` L416: `if (!Number.isInteger(bred) || bred < 0 || bred > MAX_BRED_DAYS) {` → `if (!Number.isInteger(bred) || bred < 0 || bred >= MAX_BRED_DAYS) {` (compare: > -> >=)
+- `m03648` L429: `row.bucket === "PREGNANCY_LATE" ||` → `row.bucket === "PREGNANCY_LATE" &&` (binop: || -> &&)
+- `m03649` L428: `(row.bucket === "PREGNANCY_EARLY" ||` → `(row.bucket === "PREGNANCY_EARLY" &&` (binop: || -> &&)
+- `m03655` L437: `row.bucket === "PREGNANCY_LATE" ||` → `row.bucket === "PREGNANCY_LATE" &&` (binop: || -> &&)
+- `m03656` L436: `(row.bucket === "PREGNANCY_EARLY" ||` → `(row.bucket === "PREGNANCY_EARLY" &&` (binop: || -> &&)
+- `m03662` L445: `if (row.bucket === "QUARANTINE" && row.daysInBucket > 44) {` → `if (row.bucket !== "QUARANTINE" && row.daysInBucket > 44) {` (compare: === -> !==)
+- `m03663` L445: `if (row.bucket === "QUARANTINE" && row.daysInBucket > 44) {` → `if (row.bucket === "QUARANTINE" && row.daysInBucket >= 44) {` (compare: > -> >=)
+- `m03664` L445: `if (row.bucket === "QUARANTINE" && row.daysInBucket > 44) {` → `if (row.bucket === "QUARANTINE" && row.daysInBucket > 45) {` (intconst: 44 -> 45)
+- `m03665` L445: `if (row.bucket === "QUARANTINE" && row.daysInBucket > 44) {` → `if (row.bucket === "QUARANTINE" && row.daysInBucket > 43) {` (intconst: 44 -> 43)
+- `m03669` L461: `result !== null && resultInputsSignature !== null && resultInputsSignature !== inputsSignature;` → `result !== null && resultInputsSignature !== null || resultInputsSignature !== inputsSignature;` (binop: && -> ||)
+- `m03670` L461: `result !== null && resultInputsSignature !== null && resultInputsSignature !== inputsSignature;` → `result !== null || resultInputsSignature !== null && resultInputsSignature !== inputsSignature;` (binop: && -> ||)
+- `m03671` L461: `result !== null && resultInputsSignature !== null && resultInputsSignature !== inputsSignature;` → `result === null && resultInputsSignature !== null && resultInputsSignature !== inputsSignature;` (compare: !== -> ===)
+- `m03672` L461: `result !== null && resultInputsSignature !== null && resultInputsSignature !== inputsSignature;` → `result !== null && resultInputsSignature === null && resultInputsSignature !== inputsSignature;` (compare: !== -> ===)
+- `m03673` L461: `result !== null && resultInputsSignature !== null && resultInputsSignature !== inputsSignature;` → `result !== null && resultInputsSignature !== null && resultInputsSignature === inputsSignature;` (compare: !== -> ===)
+- `m03680` L474: `if (!Number.isInteger(horizonDays) || horizonDays < MIN_HORIZON_DAYS || horizonDays > MAX_HORIZON_DAYS) {` → `if (!Number.isInteger(horizonDays) && horizonDays < MIN_HORIZON_DAYS || horizonDays > MAX_HORIZON_DAYS) {` (binop: || -> &&)
+- `m03682` L474: `if (!Number.isInteger(horizonDays) || horizonDays < MIN_HORIZON_DAYS || horizonDays > MAX_HORIZON_DAYS) {` → `if (!Number.isInteger(horizonDays) || horizonDays <= MIN_HORIZON_DAYS || horizonDays > MAX_HORIZON_DAYS) {` (compare: < -> <=)
+- `m03683` L474: `if (!Number.isInteger(horizonDays) || horizonDays < MIN_HORIZON_DAYS || horizonDays > MAX_HORIZON_DAYS) {` → `if (!Number.isInteger(horizonDays) || horizonDays < MIN_HORIZON_DAYS || horizonDays >= MAX_HORIZON_DAYS) {` (compare: > -> >=)
+- `m03686` L500: `age_months: Math.max(0, Math.round(row.ageMonths)),` → `age_months: Math.max(1, Math.round(row.ageMonths)),` (intconst: 0 -> 1)
+- `m03687` L501: `days_in_bucket: Math.max(0, Math.round(row.daysInBucket)),` → `days_in_bucket: Math.max(1, Math.round(row.daysInBucket)),` (intconst: 0 -> 1)
+- `m03689` L502: `...(bred !== null && Number.isFinite(bred) ? { bred_days_ago: Math.round(bred) } : {}),` → `...(bred !== null || Number.isFinite(bred) ? { bred_days_ago: Math.round(bred) } : {}),` (binop: && -> ||)
+- `m03695` L512: `setLedger(response.data.ledger ?? null);` → `setLedger(response.data.ledger || null);` (binop: ?? -> ||)
+- `m03699` L515: `window.scrollTo({ top: 0, behavior: "smooth" });` → `window.scrollTo({ top: 1, behavior: "smooth" });` (intconst: 0 -> 1)
+- `m03702` L529: `anchor.download = `ops-simulation-${result?.start_date ?? "run"}-seed-${result?.seed ?? 0}.md`;` → `anchor.download = `ops-simulation-${result?.start_date || "run"}-seed-${result?.seed ?? 0}.md`;` (binop: ?? -> ||)
+- `m03703` L529: `anchor.download = `ops-simulation-${result?.start_date ?? "run"}-seed-${result?.seed ?? 0}.md`;` → `anchor.download = `ops-simulation-${result?.start_date ?? "run"}-seed-${result?.seed || 0}.md`;` (binop: ?? -> ||)
+- `m03704` L529: `anchor.download = `ops-simulation-${result?.start_date ?? "run"}-seed-${result?.seed ?? 0}.md`;` → `anchor.download = `ops-simulation-${result?.start_date ?? "run"}-seed-${result?.seed ?? 1}.md`;` (intconst: 0 -> 1)
+- `m03706` L537: `const selectedRecord = result ? (result.days[selectedDay - 1] ?? null) : null;` → `const selectedRecord = result ? (result.days[selectedDay - 1] || null) : null;` (binop: ?? -> ||)
+- `m03711` L539: `? (result.days[result.days.length - 1]?.occupancy ?? []).reduce((sum, row) => sum + row.heads, 0)` → `? (result.days[result.days.length - 1]?.occupancy || []).reduce((sum, row) => sum + row.heads, 0)` (binop: ?? -> ||)
+- `m03717` L540: `: 0;` → `: 1;` (intconst: 0 -> 1)
+- `m03719` L542: `? Object.values(result.totals.feed_kg_by_recipe ?? {}).reduce((sum, kg) => sum + kg, 0)` → `? Object.values(result.totals.feed_kg_by_recipe || {}).reduce((sum, kg) => sum + kg, 0)` (binop: ?? -> ||)
+- `m03722` L543: `: 0;` → `: 1;` (intconst: 0 -> 1)
+- `m03723` L552: `{resultStale && (` → `{resultStale || (` (binop: && -> ||)
+- `m03725` L591: `recipes: Object.keys(result.totals.feed_kg_by_recipe ?? {}).length,` → `recipes: Object.keys(result.totals.feed_kg_by_recipe || {}).length,` (binop: ?? -> ||)
+- `m03726` L634: `variant={includeLedger ? "default" : "outline"}` → `variant={includeLedger ? "outline" : "default"}` (ifexp: swap ternary branches)
+- `m03728` L684: `row: index + 1,` → `row: index - 1,` (binop: + -> -)
+- `m03729` L684: `row: index + 1,` → `row: index + 2,` (intconst: 1 -> 2)
+- `m03730` L684: `row: index + 1,` → `row: index + 0,` (intconst: 1 -> 0)
+- `m03731` L686: `? t("opsSim.aria.tagSuffix", { tag: row.tag.trim() })` → `? ""t("opsSim.aria.tagSuffix", { tag: row.tag.trim() })` (ifexp: swap ternary branches)
+- `m03732` L692: `maxLength={50}` → `maxLength={51}` (intconst: 50 -> 51)
+- `m03733` L692: `maxLength={50}` → `maxLength={49}` (intconst: 50 -> 49)
+- `m03734` L699: `updateRow(row.key, { sex: value === "M" ? "M" : "F" })` → `updateRow(row.key, { sex: value === "M" ? "F" : "M" })` (ifexp: swap ternary branches)
+- `m03735` L699: `updateRow(row.key, { sex: value === "M" ? "M" : "F" })` → `updateRow(row.key, { sex: value !== "M" ? "M" : "F" })` (compare: === -> !==)
+- `m03736` L702: `<SelectTrigger aria-label={t("opsSim.aria.sexFor", { tag: row.tag || row.key })}>` → `<SelectTrigger aria-label={t("opsSim.aria.sexFor", { tag: row.tag && row.key })}>` (binop: || -> &&)
+- `m03737` L719: `aria-label={t("opsSim.aria.bucketFor", { tag: row.tag || row.key })}` → `aria-label={t("opsSim.aria.bucketFor", { tag: row.tag && row.key })}` (binop: || -> &&)
+- `m03739` L736: `min={0}` → `min={1}` (intconst: 0 -> 1)
+- `m03740` L737: `max={240}` → `max={241}` (intconst: 240 -> 241)
+- `m03741` L737: `max={240}` → `max={239}` (intconst: 240 -> 239)
+- `m03742` L744: `aria-label={t("opsSim.aria.daysFor", { tag: row.tag || row.key })}` → `aria-label={t("opsSim.aria.daysFor", { tag: row.tag && row.key })}` (binop: || -> &&)
+- `m03743` L746: `min={0}` → `min={1}` (intconst: 0 -> 1)
+- `m03745` L764: `updateRow(row.key, { dependentKid: checked === true })` → `updateRow(row.key, { dependentKid: checked !== true })` (compare: === -> !==)
+- `m03746` L764: `updateRow(row.key, { dependentKid: checked === true })` → `updateRow(row.key, { dependentKid: checked === false })` (boolconst: -> false)
+- `m03747` L766: `aria-label={t("opsSim.aria.creepFor", { tag: row.tag || row.key })}` → `aria-label={t("opsSim.aria.creepFor", { tag: row.tag && row.key })}` (binop: || -> &&)
+- `m03750` L787: `{rowErrors.length > 0 && (` → `{rowErrors.length > 0 || (` (binop: && -> ||)
+- `m03751` L787: `{rowErrors.length > 0 && (` → `{rowErrors.length >= 0 && (` (compare: > -> >=)
+- `m03752` L787: `{rowErrors.length > 0 && (` → `{rowErrors.length > 1 && (` (intconst: 0 -> 1)
+- `m03753` L788: `<p className="text-sm text-destructive">{rowErrors[0]}</p>` → `<p className="text-sm text-destructive">{rowErrors[1]}</p>` (intconst: 0 -> 1)
+- `m03754` L792: `<Button onClick={() => void onRun()} disabled={runMutation.isPending || runAction.pending}>` → `<Button onClick={() => void onRun()} disabled={runMutation.isPending && runAction.pending}>` (binop: || -> &&)
+- `m03761` L830: `variant={day.day === selectedDay ? "default" : "outline"}` → `variant={day.day === selectedDay ? "outline" : "default"}` (ifexp: swap ternary branches)
+- `m03762` L830: `variant={day.day === selectedDay ? "default" : "outline"}` → `variant={day.day !== selectedDay ? "default" : "outline"}` (compare: === -> !==)
+- `m03763` L834: `aria-pressed={day.day === selectedDay}` → `aria-pressed={day.day !== selectedDay}` (compare: === -> !==)
+- `m03765` L840: `title={badges || t("opsSim.dayRoutineTitle", { day: day.day })}` → `title={badges && t("opsSim.dayRoutineTitle", { day: day.day })}` (binop: || -> &&)
+- `m03766` L843: `{badges ? " •" : ""}` → `{badges ? "" : " •"}` (ifexp: swap ternary branches)
+- `m03767` L854: `? t("opsSim.dayBadgesSuffix", { badges })` → `? t("opsSim.routineDaySuffix")t("opsSim.dayBadgesSuffix", { badges })` (ifexp: swap ternary branches)
+- `m03768` L876: `{task.detail ? (` → `{task.detail ? null)` (ifexp: swap ternary branches)
+- `m03769` L883: `{task.building_name ?? buildingName(task.building, t)}` → `{task.building_name || buildingName(task.building, t)}` (binop: ?? -> ||)
+- `m03770` L947: `(BUCKET_COLORS[row.building] ?? BUCKET_COLORS.FEED_STORE).dot,` → `(BUCKET_COLORS[row.building] || BUCKET_COLORS.FEED_STORE).dot,` (binop: ?? -> ||)
+- `m03772` L962: `{(selectedRecord.moves?.length ?? 0) > 0 && (` → `{(selectedRecord.moves?.length ?? 0) >= 0 && (` (compare: > -> >=)
+- `m03773` L962: `{(selectedRecord.moves?.length ?? 0) > 0 && (` → `{(selectedRecord.moves?.length || 0) > 0 && (` (binop: ?? -> ||)
+- `m03774` L962: `{(selectedRecord.moves?.length ?? 0) > 0 && (` → `{(selectedRecord.moves?.length ?? 1) > 0 && (` (intconst: 0 -> 1)
+- `m03777` L994: `{((selectedRecord.births?.length ?? 0) > 0 ||` → `{((selectedRecord.births?.length ?? 0) > 0 &&` (binop: || -> &&)
+- `m03778` L994: `{((selectedRecord.births?.length ?? 0) > 0 ||` → `{((selectedRecord.births?.length ?? 0) >= 0 ||` (compare: > -> >=)
+- `m03779` L994: `{((selectedRecord.births?.length ?? 0) > 0 ||` → `{((selectedRecord.births?.length || 0) > 0 ||` (binop: ?? -> ||)
+- `m03780` L994: `{((selectedRecord.births?.length ?? 0) > 0 ||` → `{((selectedRecord.births?.length ?? 1) > 0 ||` (intconst: 0 -> 1)
+- `m03781` L994: `{((selectedRecord.births?.length ?? 0) > 0 ||` → `{((selectedRecord.births?.length ?? 0) > 1 ||` (intconst: 0 -> 1)
+- `m03782` L995: `(selectedRecord.exits?.length ?? 0) > 0) && (` → `(selectedRecord.exits?.length ?? 0) >= 0) && (` (compare: > -> >=)
+- `m03783` L995: `(selectedRecord.exits?.length ?? 0) > 0) && (` → `(selectedRecord.exits?.length || 0) > 0) && (` (binop: ?? -> ||)
+- `m03784` L995: `(selectedRecord.exits?.length ?? 0) > 0) && (` → `(selectedRecord.exits?.length ?? 1) > 0) && (` (intconst: 0 -> 1)
+- `m03785` L995: `(selectedRecord.exits?.length ?? 0) > 0) && (` → `(selectedRecord.exits?.length ?? 0) > 1) && (` (intconst: 0 -> 1)
+- `m03786` L1006: `.map((kid) => `${kid.tag} (${kid.sex}${kid.status === "ALIVE" ? "" : `, ${kid.status}`})`)` → `.map((kid) => `${kid.tag} (${kid.sex}${kid.status === "ALIVE" ? `, ${kid.status}` : ""})`)` (ifexp: swap ternary branches)
+- `m03787` L1006: `.map((kid) => `${kid.tag} (${kid.sex}${kid.status === "ALIVE" ? "" : `, ${kid.status}`})`)` → `.map((kid) => `${kid.tag} (${kid.sex}${kid.status !== "ALIVE" ? "" : `, ${kid.status}`})`)` (compare: === -> !==)
+- `m03788` L1074: `<TableCell>{journey.born_day ?? t("opsSim.startLabel")}</TableCell>` → `<TableCell>{journey.born_day || t("opsSim.startLabel")}</TableCell>` (binop: ?? -> ||)
+- `m03791` L1076: `{(journey.hops ?? []).length === 0 ? (` → `{(journey.hops || []).length === 0 ? (` (binop: ?? -> ||)
+- `m03793` L1083: `{(journey.hops ?? []).map((hop, index) => (` → `{(journey.hops || []).map((hop, index) => (` (binop: ?? -> ||)
+- `m03794` L1089: `from: buildingName(hop.from_bucket ?? "", t),` → `from: buildingName(hop.from_bucket || "", t),` (binop: ?? -> ||)
+- `m03795` L1097: `<BucketChip bucket={hop.from_bucket ?? ""} />` → `<BucketChip bucket={hop.from_bucket || ""} />` (binop: ?? -> ||)
+- `m03797` L1114: `BUCKET_COLORS[journey.final_bucket] ?? BUCKET_COLORS.FEED_STORE` → `BUCKET_COLORS[journey.final_bucket] || BUCKET_COLORS.FEED_STORE` (binop: ?? -> ||)
+- `m03798` L1124: `kind: journey.exit_kind ?? "—",` → `kind: journey.exit_kind || "—",` (binop: ?? -> ||)
+- `m03799` L1125: `day: journey.exit_day ?? "—",` → `day: journey.exit_day || "—",` (binop: ?? -> ||)
+- `m03804` L1208: `cards={2}` → `cards={3}` (intconst: 2 -> 3)
+- `m03805` L1208: `cards={2}` → `cards={1}` (intconst: 2 -> 1)
+
+### src/app/(app)/owner/page.tsx (44)
+
+- `m03806` L29: `const BENCHMARK_WINDOWS = [30, 90, 365] as const;` → `const BENCHMARK_WINDOWS = [31, 90, 365] as const;` (intconst: 30 -> 31)
+- `m03807` L29: `const BENCHMARK_WINDOWS = [30, 90, 365] as const;` → `const BENCHMARK_WINDOWS = [29, 90, 365] as const;` (intconst: 30 -> 29)
+- `m03808` L29: `const BENCHMARK_WINDOWS = [30, 90, 365] as const;` → `const BENCHMARK_WINDOWS = [30, 91, 365] as const;` (intconst: 90 -> 91)
+- `m03809` L29: `const BENCHMARK_WINDOWS = [30, 90, 365] as const;` → `const BENCHMARK_WINDOWS = [30, 89, 365] as const;` (intconst: 90 -> 89)
+- `m03812` L35: `const [windowDays, setWindowDays] = useState<number>(90);` → `const [windowDays, setWindowDays] = useState<number>(91);` (intconst: 90 -> 91)
+- `m03813` L35: `const [windowDays, setWindowDays] = useState<number>(90);` → `const [windowDays, setWindowDays] = useState<number>(89);` (intconst: 90 -> 89)
+- `m03824` L69: `const farmsRanked = [...(overview?.farms ?? [])].sort((a, b) => {` → `const farmsRanked = [...(overview?.farms || [])].sort((a, b) => {` (binop: ?? -> ||)
+- `m03825` L71: `f.overdue_duties * 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;` → `f.overdue_duties * 1000 + f.open_screening_flags * 100 - f.todays_duties_pending;` (binop: + -> -)
+- `m03826` L71: `f.overdue_duties * 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;` → `f.overdue_duties * 1000 - f.open_screening_flags * 100 + f.todays_duties_pending;` (binop: + -> -)
+- `m03827` L71: `f.overdue_duties * 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;` → `f.overdue_duties / 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;` (binop: * -> /)
+- `m03828` L71: `f.overdue_duties * 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;` → `f.overdue_duties * 1001 + f.open_screening_flags * 100 + f.todays_duties_pending;` (intconst: 1000 -> 1001)
+- `m03829` L71: `f.overdue_duties * 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;` → `f.overdue_duties * 999 + f.open_screening_flags * 100 + f.todays_duties_pending;` (intconst: 1000 -> 999)
+- `m03830` L71: `f.overdue_duties * 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;` → `f.overdue_duties * 1000 + f.open_screening_flags / 100 + f.todays_duties_pending;` (binop: * -> /)
+- `m03831` L71: `f.overdue_duties * 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;` → `f.overdue_duties * 1000 + f.open_screening_flags * 101 + f.todays_duties_pending;` (intconst: 100 -> 101)
+- `m03832` L71: `f.overdue_duties * 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;` → `f.overdue_duties * 1000 + f.open_screening_flags * 99 + f.todays_duties_pending;` (intconst: 100 -> 99)
+- `m03835` L91: `<TableSkeleton rows={4} columns={8} />` → `<TableSkeleton rows={5} columns={8} />` (intconst: 4 -> 5)
+- `m03836` L91: `<TableSkeleton rows={4} columns={8} />` → `<TableSkeleton rows={3} columns={8} />` (intconst: 4 -> 3)
+- `m03837` L91: `<TableSkeleton rows={4} columns={8} />` → `<TableSkeleton rows={4} columns={9} />` (intconst: 8 -> 9)
+- `m03838` L91: `<TableSkeleton rows={4} columns={8} />` → `<TableSkeleton rows={4} columns={7} />` (intconst: 8 -> 7)
+- `m03843` L107: `) : farmsRanked.length === 0 ? (` → `) : farmsRanked.length === 1 ? (` (intconst: 0 -> 1)
+- `m03845` L135: `{farm.overdue_duties > 0 ? (` → `{farm.overdue_duties >= 0 ? (` (compare: > -> >=)
+- `m03846` L135: `{farm.overdue_duties > 0 ? (` → `{farm.overdue_duties > 1 ? (` (intconst: 0 -> 1)
+- `m03847` L142: `{farm.todays_duties_done}/{farm.todays_duties_done + farm.todays_duties_pending}` → `{farm.todays_duties_done}/{farm.todays_duties_done - farm.todays_duties_pending}` (binop: + -> -)
+- `m03848` L144: `<td className="table-numeric text-right">{farm.kidding_watch > 0 ? farm.kidding_watch : "—"}</td>` → `<td className="table-numeric text-right">{farm.kidding_watch > 0 ? "—" : farm.kidding_watch}</td>` (ifexp: swap ternary branches)
+- `m03849` L144: `<td className="table-numeric text-right">{farm.kidding_watch > 0 ? farm.kidding_watch : "—"}</td>` → `<td className="table-numeric text-right">{farm.kidding_watch >= 0 ? farm.kidding_watch : "—"}</td>` (compare: > -> >=)
+- `m03850` L144: `<td className="table-numeric text-right">{farm.kidding_watch > 0 ? farm.kidding_watch : "—"}</td>` → `<td className="table-numeric text-right">{farm.kidding_watch > 1 ? farm.kidding_watch : "—"}</td>` (intconst: 0 -> 1)
+- `m03851` L145: `<td className="table-numeric text-right">{farm.movement_restricted > 0 ? farm.movement_restricted : "—"}</td>` → `<td className="table-numeric text-right">{farm.movement_restricted > 0 ? "—" : farm.movement_restricted}</td>` (ifexp: swap ternary branches)
+- `m03852` L145: `<td className="table-numeric text-right">{farm.movement_restricted > 0 ? farm.movement_restricted : "—"}</td>` → `<td className="table-numeric text-right">{farm.movement_restricted >= 0 ? farm.movement_restricted : "—"}</td>` (compare: > -> >=)
+- `m03853` L145: `<td className="table-numeric text-right">{farm.movement_restricted > 0 ? farm.movement_restricted : "—"}</td>` → `<td className="table-numeric text-right">{farm.movement_restricted > 1 ? farm.movement_restricted : "—"}</td>` (intconst: 0 -> 1)
+- `m03854` L147: `{farm.open_screening_flags > 0 ? (` → `{farm.open_screening_flags > 0 ? (
+                        "—"
+                      ))` (ifexp: swap ternary branches)
+- `m03855` L147: `{farm.open_screening_flags > 0 ? (` → `{farm.open_screening_flags >= 0 ? (` (compare: > -> >=)
+- `m03856` L147: `{farm.open_screening_flags > 0 ? (` → `{farm.open_screening_flags > 1 ? (` (intconst: 0 -> 1)
+- `m03857` L183: `variant={windowDays === days ? "default" : "outline"}` → `variant={windowDays === days ? "outline" : "default"}` (ifexp: swap ternary branches)
+- `m03858` L183: `variant={windowDays === days ? "default" : "outline"}` → `variant={windowDays !== days ? "default" : "outline"}` (compare: === -> !==)
+- `m03861` L196: `<TableSkeleton rows={3} columns={7} />` → `<TableSkeleton rows={4} columns={7} />` (intconst: 3 -> 4)
+- `m03862` L196: `<TableSkeleton rows={3} columns={7} />` → `<TableSkeleton rows={2} columns={7} />` (intconst: 3 -> 2)
+- `m03863` L196: `<TableSkeleton rows={3} columns={7} />` → `<TableSkeleton rows={3} columns={8} />` (intconst: 7 -> 8)
+- `m03864` L196: `<TableSkeleton rows={3} columns={7} />` → `<TableSkeleton rows={3} columns={6} />` (intconst: 7 -> 6)
+- `m03866` L198: `) : !benchmarks || benchmarks.farms.length === 0 ? (` → `) : !benchmarks && benchmarks.farms.length === 0 ? (` (binop: || -> &&)
+- `m03869` L198: `) : !benchmarks || benchmarks.farms.length === 0 ? (` → `) : !benchmarks || benchmarks.farms.length === 1 ? (` (intconst: 0 -> 1)
+- `m03878` L229: `? "—"` → `? formatMoney(farm.feed_cost_per_kg_gain)"—"` (ifexp: swap ternary branches)
+- `m03879` L228: `{farm.feed_cost_per_kg_gain === null` → `{farm.feed_cost_per_kg_gain !== null` (compare: === -> !==)
+- `m03880` L234: `? "—"` → `? formatMoney(farm.profit_per_animal_sold)"—"` (ifexp: swap ternary branches)
+- `m03881` L233: `{farm.profit_per_animal_sold === null` → `{farm.profit_per_animal_sold !== null` (compare: === -> !==)
+
+### src/app/(app)/planner/page.tsx (67)
+
+- `m03888` L141: `}).format(new Date(Date.UTC(year, month - 1, 1)));` → `}).format(new Date(Date.UTC(year, month + 1, 1)));` (binop: - -> +)
+- `m03889` L141: `}).format(new Date(Date.UTC(year, month - 1, 1)));` → `}).format(new Date(Date.UTC(year, month - 2, 1)));` (intconst: 1 -> 2)
+- `m03890` L141: `}).format(new Date(Date.UTC(year, month - 1, 1)));` → `}).format(new Date(Date.UTC(year, month - 0, 1)));` (intconst: 1 -> 0)
+- `m03891` L141: `}).format(new Date(Date.UTC(year, month - 1, 1)));` → `}).format(new Date(Date.UTC(year, month - 1, 2)));` (intconst: 1 -> 2)
+- `m03892` L141: `}).format(new Date(Date.UTC(year, month - 1, 1)));` → `}).format(new Date(Date.UTC(year, month - 1, 0)));` (intconst: 1 -> 0)
+- `m03924` L177: `return value === null || value === undefined || !Number.isFinite(value)` → `return value === null && value === undefined || !Number.isFinite(value)` (binop: || -> &&)
+- `m03932` L195: `? vocabulary.femaleAdult.charAt(0).toUpperCase() + vocabulary.femaleAdult.slice(1)` → `? t("simulation.token.doe")vocabulary.femaleAdult.charAt(0).toUpperCase() + vocabulary.femaleAdult.slice(1)` (ifexp: swap ternary branches)
+- `m03933` L194: `language === "en"` → `language !== "en"` (compare: === -> !==)
+- `m03938` L199: `? vocabulary.maleAdult.charAt(0).toUpperCase() + vocabulary.maleAdult.slice(1)` → `? t("simulation.token.buck")vocabulary.maleAdult.charAt(0).toUpperCase() + vocabulary.maleAdult.slice(1)` (ifexp: swap ternary branches)
+- `m03939` L198: `language === "en"` → `language !== "en"` (compare: === -> !==)
+- `m03944` L216: `return eventClassItems(vocabulary, t, language)[animalClass] ?? animalClass;` → `return eventClassItems(vocabulary, t, language)[animalClass] || animalClass;` (binop: ?? -> ||)
+- `m03947` L255: `value={draft ?? String(inputProps.value ?? "")}` → `value={draft ?? String(inputProps.value || "")}` (binop: ?? -> ||)
+- `m03956` L318: `acceptDefaultsRef.current = false;` → `acceptDefaultsRef.current = true;` (boolconst: -> true)
+- `m03963` L350: `acceptDefaultsRef.current = false;` → `acceptDefaultsRef.current = true;` (boolconst: -> true)
+- `m03971` L385: `if (!farmScope()) return;` → `if (farmScope()) return;` (not: drop !)
+- `m03972` L395: `acceptDefaultsRef.current = false;` → `acceptDefaultsRef.current = true;` (boolconst: -> true)
+- `m03979` L415: `if (!farmScope()) return;` → `if (farmScope()) return;` (not: drop !)
+- `m03980` L422: `const targetKeyCounter = useRef(0);` → `const targetKeyCounter = useRef(1);` (intconst: 0 -> 1)
+- `m04000` L464: `if (!Number.isFinite(target.count) || target.count <= 0 || target.count > 100_000)` → `if (!Number.isFinite(target.count) || target.count <= 1 || target.count > 100_000)` (intconst: 0 -> 1)
+- `m04009` L495: `if (!payload || targets.length === 0 || targetErrors.length > 0) return;` → `if (!payload || targets.length === 0 && targetErrors.length > 0) return;` (binop: || -> &&)
+- `m04010` L495: `if (!payload || targets.length === 0 || targetErrors.length > 0) return;` → `if (!payload && targets.length === 0 || targetErrors.length > 0) return;` (binop: || -> &&)
+- `m04015` L495: `if (!payload || targets.length === 0 || targetErrors.length > 0) return;` → `if (!payload || targets.length === 0 || targetErrors.length > 1) return;` (intconst: 0 -> 1)
+- `m04032` L556: `if (!payload || targets.length === 0 || targetErrors.length > 0) {` → `if (!payload || targets.length === 0 && targetErrors.length > 0) {` (binop: || -> &&)
+- `m04033` L556: `if (!payload || targets.length === 0 || targetErrors.length > 0) {` → `if (!payload && targets.length === 0 || targetErrors.length > 0) {` (binop: || -> &&)
+- `m04038` L556: `if (!payload || targets.length === 0 || targetErrors.length > 0) {` → `if (!payload || targets.length === 0 || targetErrors.length > 1) {` (intconst: 0 -> 1)
+- `m04046` L597: `if (!payload || targets.length === 0 || targetErrors.length > 0) {` → `if (!payload || targets.length === 0 && targetErrors.length > 0) {` (binop: || -> &&)
+- `m04047` L597: `if (!payload || targets.length === 0 || targetErrors.length > 0) {` → `if (!payload && targets.length === 0 || targetErrors.length > 0) {` (binop: || -> &&)
+- `m04052` L597: `if (!payload || targets.length === 0 || targetErrors.length > 0) {` → `if (!payload || targets.length === 0 || targetErrors.length > 1) {` (intconst: 0 -> 1)
+- `m04073` L671: `if (err instanceof ApiError && err.status === 409) {` → `if (err instanceof ApiError || err.status === 409) {` (binop: && -> ||)
+- `m04074` L671: `if (err instanceof ApiError && err.status === 409) {` → `if (err instanceof ApiError && err.status !== 409) {` (compare: === -> !==)
+- `m04075` L671: `if (err instanceof ApiError && err.status === 409) {` → `if (err instanceof ApiError && err.status === 410) {` (intconst: 409 -> 410)
+- `m04076` L671: `if (err instanceof ApiError && err.status === 409) {` → `if (err instanceof ApiError && err.status === 408) {` (intconst: 409 -> 408)
+- `m04086` L740: `const evaluation = report ? (report.plan.after ?? report.plan.before) : null;` → `const evaluation = report ? (report.plan.after || report.plan.before) : null;` (binop: ?? -> ||)
+- `m04092` L763: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
+- `m04093` L763: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
+- `m04134` L858: `min={addMonths(startMonth, 1)}` → `min={addMonths(startMonth, 2)}` (intconst: 1 -> 2)
+- `m04135` L858: `min={addMonths(startMonth, 1)}` → `min={addMonths(startMonth, 0)}` (intconst: 1 -> 0)
+- `m04136` L891: `min={1}` → `min={2}` (intconst: 1 -> 2)
+- `m04137` L891: `min={1}` → `min={0}` (intconst: 1 -> 0)
+- `m04138` L892: `max={100_000}` → `max={100001}` (intconst: 100000 -> 100001)
+- `m04139` L892: `max={100_000}` → `max={99999}` (intconst: 100000 -> 99999)
+- `m04140` L893: `step={1}` → `step={2}` (intconst: 1 -> 2)
+- `m04141` L893: `step={1}` → `step={0}` (intconst: 1 -> 0)
+- `m04142` L931: `min={addMonths(startMonth, 1)}` → `min={addMonths(startMonth, 2)}` (intconst: 1 -> 2)
+- `m04143` L931: `min={addMonths(startMonth, 1)}` → `min={addMonths(startMonth, 0)}` (intconst: 1 -> 0)
+- `m04144` L962: `min={1}` → `min={2}` (intconst: 1 -> 2)
+- `m04145` L962: `min={1}` → `min={0}` (intconst: 1 -> 0)
+- `m04146` L963: `max={100_000}` → `max={100001}` (intconst: 100000 -> 100001)
+- `m04147` L963: `max={100_000}` → `max={99999}` (intconst: 100000 -> 99999)
+- `m04148` L964: `step={1}` → `step={2}` (intconst: 1 -> 2)
+- `m04149` L964: `step={1}` → `step={0}` (intconst: 1 -> 0)
+- `m04172` L1150: `{echo ? formatYearMonth(echo.year_month) : fill.month}` → `{echo ? fill.month : formatYearMonth(echo.year_month)}` (ifexp: swap ternary branches)
+- `m04175` L1168: `{after ? `${after.met ? "✓" : "⚠"} ${formatPlanCount(after.filled)}` : "—"}` → `{after ? `${after.met ? "⚠" : "✓"} ${formatPlanCount(after.filled)}` : "—"}` (ifexp: swap ternary branches)
+- `m04189` L1237: `const missed = action.year_month < (report?.start_year_month ?? startMonth);` → `const missed = action.year_month < (report?.start_year_month || startMonth);` (binop: ?? -> ||)
+- `m04192` L1421: `const notes: string[] = report.notes ?? [];` → `const notes: string[] = report.notes || [];` (binop: ?? -> ||)
+- `m04200` L1477: `{(plan.targets ?? [])` → `{(plan.targets || [])` (binop: ?? -> ||)
+- `m04201` L1484: `{plan.notes && (` → `{plan.notes || (` (binop: && -> ||)
+- `m04203` L1507: `? t("planner.downloadingDpr")` → `? t("planner.downloadDpr")t("planner.downloadingDpr")` (ifexp: swap ternary branches)
+- `m04204` L1506: `{dprPendingId === plan.id` → `{dprPendingId !== plan.id` (compare: === -> !==)
+- `m04208` L1543: `{(plan.targets ?? [])` → `{(plan.targets || [])` (binop: ?? -> ||)
+- `m04210` L1564: `disabled={dprPendingId !== null}` → `disabled={dprPendingId === null}` (compare: !== -> ===)
+- `m04211` L1569: `? t("planner.downloadingDpr")` → `? t("planner.downloadDpr")t("planner.downloadingDpr")` (ifexp: swap ternary branches)
+- `m04212` L1568: `{dprPendingId === plan.id` → `{dprPendingId !== plan.id` (compare: === -> !==)
+- `m04213` L1576: `disabled={!canManage || deletePlanMutation.isPending}` → `disabled={!canManage && deletePlanMutation.isPending}` (binop: || -> &&)
+- `m04214` L1576: `disabled={!canManage || deletePlanMutation.isPending}` → `disabled={canManage || deletePlanMutation.isPending}` (not: drop !)
+- `m04223` L1657: `cards={2}` → `cards={3}` (intconst: 2 -> 3)
+- `m04224` L1657: `cards={2}` → `cards={1}` (intconst: 2 -> 1)
+
+### src/app/(app)/purchases/page.tsx (65)
+
+- `m04226` L79: `(v) => (v === "" || v === null || v === undefined ? undefined : Number(v)),` → `(v) => (v === "" || v === null && v === undefined ? undefined : Number(v)),` (binop: || -> &&)
+- `m04239` L108: `return (raw ?? "")` → `return (raw || "")` (binop: ?? -> ||)
+- `m04241` L111: `.filter((line) => line.length > 0);` → `.filter((line) => line.length > 1);` (intconst: 0 -> 1)
+- `m04244` L127: `date: z.string().min(1, t("purchases.validation.dateRequired")),` → `date: z.string().min(2, t("purchases.validation.dateRequired")),` (intconst: 1 -> 2)
+- `m04251` L129: `origin_market: z.string().max(120, t("purchases.validation.textMax", { max: 120 })).optional(),` → `origin_market: z.string().max(119, t("purchases.validation.textMax", { max: 120 })).optional(),` (intconst: 120 -> 119)
+- `m04252` L129: `origin_market: z.string().max(120, t("purchases.validation.textMax", { max: 120 })).optional(),` → `origin_market: z.string().max(120, t("purchases.validation.textMax", { max: 121 })).optional(),` (intconst: 120 -> 121)
+- `m04253` L129: `origin_market: z.string().max(120, t("purchases.validation.textMax", { max: 120 })).optional(),` → `origin_market: z.string().max(120, t("purchases.validation.textMax", { max: 119 })).optional(),` (intconst: 120 -> 119)
+- `m04254` L135: `.min(0, t("purchases.validation.nonnegative"))` → `.min(1, t("purchases.validation.nonnegative"))` (intconst: 0 -> 1)
+- `m04256` L141: `.max(4_000, t("purchases.validation.historyMax", { max: 4_000 }))` → `.max(3999, t("purchases.validation.historyMax", { max: 4_000 }))` (intconst: 4000 -> 3999)
+- `m04257` L141: `.max(4_000, t("purchases.validation.historyMax", { max: 4_000 }))` → `.max(4_000, t("purchases.validation.historyMax", { max: 4001 }))` (intconst: 4000 -> 4001)
+- `m04258` L141: `.max(4_000, t("purchases.validation.historyMax", { max: 4_000 }))` → `.max(4_000, t("purchases.validation.historyMax", { max: 3999 }))` (intconst: 4000 -> 3999)
+- `m04261` L150: `z.number().min(0, t("purchases.validation.nonnegative")).max(MAX_AGE_MONTHS, t("purchases.validation.ageMax", { max: MAX_AGE_MONTHS })),` → `z.number().min(1, t("purchases.validation.nonnegative")).max(MAX_AGE_MONTHS, t("purchases.validation.ageMax", { max: MAX_AGE_MONTHS })),` (intconst: 0 -> 1)
+- `m04262` L153: `z.number().min(0, t("purchases.validation.nonnegative")).max(maxWeightKg, t("purchases.validation.weightMax", { max: maxWeightKg })),` → `z.number().min(1, t("purchases.validation.nonnegative")).max(maxWeightKg, t("purchases.validation.weightMax", { max: maxWeightKg })),` (intconst: 0 -> 1)
+- `m04265` L161: `.max(1_000_000_000, t("purchases.validation.priceMax"))` → `.max(999999999, t("purchases.validation.priceMax"))` (intconst: 1000000000 -> 999999999)
+- `m04277` L193: `if (!Number.isFinite(weight) || weight < MIN_ARRIVAL_WEIGHT_KG || weight > maxWeightKg) {` → `if (!Number.isFinite(weight) || weight <= MIN_ARRIVAL_WEIGHT_KG || weight > maxWeightKg) {` (compare: < -> <=)
+- `m04278` L193: `if (!Number.isFinite(weight) || weight < MIN_ARRIVAL_WEIGHT_KG || weight > maxWeightKg) {` → `if (!Number.isFinite(weight) || weight < MIN_ARRIVAL_WEIGHT_KG || weight >= maxWeightKg) {` (compare: > -> >=)
+- `m04296` L238: `batchId ?? 0,` → `batchId || 0,` (binop: ?? -> ||)
+- `m04297` L238: `batchId ?? 0,` → `batchId ?? 1,` (intconst: 0 -> 1)
+- `m04303` L252: `const openTasks = (detail?.tasks ?? []).filter((t) => t.status === "PENDING");` → `const openTasks = (detail?.tasks || []).filter((t) => t.status === "PENDING");` (binop: ?? -> ||)
+- `m04312` L261: `<DialogTitle>{t("purchases.detail.title", { id: batchId ?? "—" })}</DialogTitle>` → `<DialogTitle>{t("purchases.detail.title", { id: batchId || "—" })}</DialogTitle>` (binop: ?? -> ||)
+- `m04329` L400: `const createAttempt = useRef(0);` → `const createAttempt = useRef(1);` (intconst: 0 -> 1)
+- `m04331` L412: `getUrlNumber("offset", 0, 0, MAX_PAGE_OFFSET),` → `getUrlNumber("offset", 0, 1, MAX_PAGE_OFFSET),` (intconst: 0 -> 1)
+- `m04335` L432: `setOffset(getUrlNumberRef.current("offset", 0, 0, MAX_PAGE_OFFSET));` → `setOffset(getUrlNumberRef.current("offset", 1, 0, MAX_PAGE_OFFSET));` (intconst: 0 -> 1)
+- `m04336` L432: `setOffset(getUrlNumberRef.current("offset", 0, 0, MAX_PAGE_OFFSET));` → `setOffset(getUrlNumberRef.current("offset", 0, 1, MAX_PAGE_OFFSET));` (intconst: 0 -> 1)
+- `m04337` L440: `if (qs !== null) lastWrittenParamsRef.current = qs;` → `if (qs === null) lastWrittenParamsRef.current = qs;` (compare: !== -> ===)
+- `m04343` L495: `count: 1,` → `count: 2,` (intconst: 1 -> 2)
+- `m04344` L495: `count: 1,` → `count: 0,` (intconst: 1 -> 0)
+- `m04345` L497: `create_animals: true,` → `create_animals: false,` (boolconst: -> false)
+- `m04348` L523: `transport_hours: values.transport_hours ?? null,` → `transport_hours: values.transport_hours || null,` (binop: ?? -> ||)
+- `m04350` L530: `avg_age_months: values.avg_age_months ?? null,` → `avg_age_months: values.avg_age_months || null,` (binop: ?? -> ||)
+- `m04351` L531: `avg_weight_kg: values.avg_weight_kg ?? null,` → `avg_weight_kg: values.avg_weight_kg || null,` (binop: ?? -> ||)
+- `m04354` L533: `weightLines(values.individual_weights).length > 0` → `weightLines(values.individual_weights).length > 1` (intconst: 0 -> 1)
+- `m04355` L536: `total_price: values.total_price ?? null,` → `total_price: values.total_price || null,` (binop: ?? -> ||)
+- `m04360` L553: `count: 1,` → `count: 2,` (intconst: 1 -> 2)
+- `m04361` L553: `count: 1,` → `count: 0,` (intconst: 1 -> 0)
+- `m04362` L555: `create_animals: true,` → `create_animals: false,` (boolconst: -> false)
+- `m04383` L666: `{b.supplier ?? t("purchases.list.noSupplier")} ·{" "}` → `{b.supplier || t("purchases.list.noSupplier")} ·{" "}` (binop: ?? -> ||)
+- `m04393` L680: `{(b.animals_created ?? 0) === 1` → `{(b.animals_created || 0) === 1` (binop: ?? -> ||)
+- `m04394` L680: `{(b.animals_created ?? 0) === 1` → `{(b.animals_created ?? 1) === 1` (intconst: 0 -> 1)
+- `m04401` L684: `count: b.animals_created ?? 0,` → `count: b.animals_created || 0,` (binop: ?? -> ||)
+- `m04402` L684: `count: b.animals_created ?? 0,` → `count: b.animals_created ?? 1,` (intconst: 0 -> 1)
+- `m04407` L689: `count: b.animals_created ?? 0,` → `count: b.animals_created || 0,` (binop: ?? -> ||)
+- `m04408` L689: `count: b.animals_created ?? 0,` → `count: b.animals_created ?? 1,` (intconst: 0 -> 1)
+- `m04409` L716: `<TableCell>{b.supplier ?? "—"}</TableCell>` → `<TableCell>{b.supplier || "—"}</TableCell>` (binop: ?? -> ||)
+- `m04414` L729: `<TableCell className="table-numeric text-right">{b.animals_created ?? 0}</TableCell>` → `<TableCell className="table-numeric text-right">{b.animals_created || 0}</TableCell>` (binop: ?? -> ||)
+- `m04417` L734: `(b.open_tasks ?? 0)` → `(b.open_tasks || 0)` (binop: ?? -> ||)
+- `m04420` L767: `key={detailId ?? "none"}` → `key={detailId || "none"}` (binop: ?? -> ||)
+- `m04422` L778: `if (!nextOpen) createAttempt.current += 1;` → `if (!nextOpen) createAttempt.current += 2;` (intconst: 1 -> 2)
+- `m04424` L781: `if (!nextOpen) setPendingBatch(null);` → `if (nextOpen) setPendingBatch(null);` (not: drop !)
+- `m04465` L1041: `? t("purchases.form.weightsHelp_one", { count: wCount ?? 1 })` → `? t("purchases.form.weightsHelp_many", { count: wCount ?? 1 })t("purchases.form.weightsHelp_one", { count: wCount ?? 1 })` (ifexp: swap ternary branches)
+- `m04466` L1040: `{(wCount ?? 1) === 1` → `{(wCount ?? 1) !== 1` (compare: === -> !==)
+- `m04467` L1040: `{(wCount ?? 1) === 1` → `{(wCount || 1) === 1` (binop: ?? -> ||)
+- `m04468` L1040: `{(wCount ?? 1) === 1` → `{(wCount ?? 2) === 1` (intconst: 1 -> 2)
+- `m04469` L1040: `{(wCount ?? 1) === 1` → `{(wCount ?? 0) === 1` (intconst: 1 -> 0)
+- `m04470` L1040: `{(wCount ?? 1) === 1` → `{(wCount ?? 1) === 2` (intconst: 1 -> 2)
+- `m04471` L1040: `{(wCount ?? 1) === 1` → `{(wCount ?? 1) === 0` (intconst: 1 -> 0)
+- `m04472` L1041: `? t("purchases.form.weightsHelp_one", { count: wCount ?? 1 })` → `? t("purchases.form.weightsHelp_one", { count: wCount || 1 })` (binop: ?? -> ||)
+- `m04473` L1041: `? t("purchases.form.weightsHelp_one", { count: wCount ?? 1 })` → `? t("purchases.form.weightsHelp_one", { count: wCount ?? 2 })` (intconst: 1 -> 2)
+- `m04474` L1041: `? t("purchases.form.weightsHelp_one", { count: wCount ?? 1 })` → `? t("purchases.form.weightsHelp_one", { count: wCount ?? 0 })` (intconst: 1 -> 0)
+- `m04475` L1042: `: t("purchases.form.weightsHelp_many", { count: wCount ?? 1 })}` → `: t("purchases.form.weightsHelp_many", { count: wCount || 1 })}` (binop: ?? -> ||)
+- `m04476` L1042: `: t("purchases.form.weightsHelp_many", { count: wCount ?? 1 })}` → `: t("purchases.form.weightsHelp_many", { count: wCount ?? 2 })}` (intconst: 1 -> 2)
+- `m04477` L1042: `: t("purchases.form.weightsHelp_many", { count: wCount ?? 1 })}` → `: t("purchases.form.weightsHelp_many", { count: wCount ?? 0 })}` (intconst: 1 -> 0)
+- `m04494` L1119: `<PageSkeleton cards={1} />` → `<PageSkeleton cards={2} />` (intconst: 1 -> 2)
+- `m04495` L1119: `<PageSkeleton cards={1} />` → `<PageSkeleton cards={0} />` (intconst: 1 -> 0)
+- `m04496` L1128: `cards={1}` → `cards={2}` (intconst: 1 -> 2)
+
+### src/app/(app)/reports/page.tsx (19)
+
+- `m04508` L80: `cards={2}` → `cards={3}` (intconst: 2 -> 3)
+- `m04509` L80: `cards={2}` → `cards={1}` (intconst: 2 -> 1)
+- `m04517` L121: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={3} />` (intconst: 2 -> 3)
+- `m04518` L121: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={1} />` (intconst: 2 -> 1)
+- `m04528` L146: `{query.isError && <StaleDataNotice onRetry={() => void query.refetch()} />}` → `{query.isError || <StaleDataNotice onRetry={() => void query.refetch()} />}` (binop: && -> ||)
+- `m04531` L159: `animalsWithheld ? t("reports.summary.title") : t("reports.summary.titleCount", { count: totalActive ?? 0 })` → `animalsWithheld ? t("reports.summary.title") : t("reports.summary.titleCount", { count: totalActive || 0 })` (binop: ?? -> ||)
+- `m04532` L159: `animalsWithheld ? t("reports.summary.title") : t("reports.summary.titleCount", { count: totalActive ?? 0 })` → `animalsWithheld ? t("reports.summary.title") : t("reports.summary.titleCount", { count: totalActive ?? 1 })` (intconst: 0 -> 1)
+- `m04534` L175: `{animalsWithheld || bucketRows === null ? (` → `{animalsWithheld && bucketRows === null ? (` (binop: || -> &&)
+- `m04536` L177: `<TableCell colSpan={3} className="text-muted-foreground">` → `<TableCell colSpan={4} className="text-muted-foreground">` (intconst: 3 -> 4)
+- `m04537` L177: `<TableCell colSpan={3} className="text-muted-foreground">` → `<TableCell colSpan={2} className="text-muted-foreground">` (intconst: 3 -> 2)
+- `m04546` L202: `!animalsWithheld && sexCounts !== null ? (sexCounts.F ?? 0) : <Withheld permission="animals" />` → `!animalsWithheld && sexCounts !== null ? (sexCounts.F || 0) : <Withheld permission="animals" />` (binop: ?? -> ||)
+- `m04547` L202: `!animalsWithheld && sexCounts !== null ? (sexCounts.F ?? 0) : <Withheld permission="animals" />` → `!animalsWithheld && sexCounts !== null ? (sexCounts.F ?? 1) : <Withheld permission="animals" />` (intconst: 0 -> 1)
+- `m04552` L208: `!animalsWithheld && sexCounts !== null ? (sexCounts.M ?? 0) : <Withheld permission="animals" />` → `!animalsWithheld && sexCounts !== null ? (sexCounts.M || 0) : <Withheld permission="animals" />` (binop: ?? -> ||)
+- `m04553` L208: `!animalsWithheld && sexCounts !== null ? (sexCounts.M ?? 0) : <Withheld permission="animals" />` → `!animalsWithheld && sexCounts !== null ? (sexCounts.M ?? 1) : <Withheld permission="animals" />` (intconst: 0 -> 1)
+- `m04562` L265: `? (breeding.kids_per_kidding ?? "—")` → `? (breeding.kids_per_kidding || "—")` (binop: ?? -> ||)
+- `m04575` L336: `value={mortality.total_deaths ?? <Withheld permission="health" />}` → `value={mortality.total_deaths || <Withheld permission="health" />}` (binop: ?? -> ||)
+- `m04576` L344: `value={mortality.stillborn ?? <Withheld permission="health" />}` → `value={mortality.stillborn || <Withheld permission="health" />}` (binop: ?? -> ||)
+- `m04582` L364: `<TableCell colSpan={2} className="text-muted-foreground">` → `<TableCell colSpan={3} className="text-muted-foreground">` (intconst: 2 -> 3)
+- `m04583` L364: `<TableCell colSpan={2} className="text-muted-foreground">` → `<TableCell colSpan={1} className="text-muted-foreground">` (intconst: 2 -> 1)
+
+### src/app/(app)/screening/page.tsx (111)
+
+- `m04586` L39: `const PAGE_LIMIT = 25;` → `const PAGE_LIMIT = 26;` (intconst: 25 -> 26)
+- `m04587` L39: `const PAGE_LIMIT = 25;` → `const PAGE_LIMIT = 24;` (intconst: 25 -> 24)
+- `m04591` L87: `return key ? t(key) : status;` → `return key ? status : t(key);` (ifexp: swap ternary branches)
+- `m04592` L94: `if (value === null || value === undefined) return "—";` → `if (value === null && value === undefined) return "—";` (binop: || -> &&)
+- `m04601` L105: `const offset = getNumber("offset", 0, 0, MAX_PAGE_OFFSET);` → `const offset = getNumber("offset", 1, 0, MAX_PAGE_OFFSET);` (intconst: 0 -> 1)
+- `m04602` L105: `const offset = getNumber("offset", 0, 0, MAX_PAGE_OFFSET);` → `const offset = getNumber("offset", 0, 1, MAX_PAGE_OFFSET);` (intconst: 0 -> 1)
+- `m04603` L108: `? (statusParam as StatusFilter)` → `? "ALL"(statusParam as StatusFilter)` (ifexp: swap ternary branches)
+- `m04604` L107: `const filter: StatusFilter = (STATUS_FILTERS as readonly string[]).includes(statusParam ?? "")` → `const filter: StatusFilter = (STATUS_FILTERS as readonly string[]).includes(statusParam || "")` (binop: ?? -> ||)
+- `m04607` L110: `const selectedImageId = getNumber("image_id", 0, 0, Number.MAX_SAFE_INTEGER) || null;` → `const selectedImageId = getNumber("image_id", 0, 1, Number.MAX_SAFE_INTEGER) || null;` (intconst: 0 -> 1)
+- `m04608` L116: `status: filter === "ALL" ? undefined : filter,` → `status: filter === "ALL" ? filter : undefined,` (ifexp: swap ternary branches)
+- `m04609` L116: `status: filter === "ALL" ? undefined : filter,` → `status: filter !== "ALL" ? undefined : filter,` (compare: === -> !==)
+- `m04610` L122: `refetchOnWindowFocus: true,` → `refetchOnWindowFocus: false,` (boolconst: -> false)
+- `m04615` L131: `{ days: 30 },` → `{ days: 31 },` (intconst: 30 -> 31)
+- `m04616` L131: `{ days: 30 },` → `{ days: 29 },` (intconst: 30 -> 29)
+- `m04617` L132: `{ query: { enabled: allowed, refetchOnWindowFocus: true } },` → `{ query: { enabled: allowed, refetchOnWindowFocus: false } },` (boolconst: -> false)
+- `m04624` L140: `setExporting(true);` → `setExporting(false);` (boolconst: -> false)
+- `m04628` L144: `const blob = new Blob([JSON.stringify(result.data, null, 2)], {` → `const blob = new Blob([JSON.stringify(result.data, null, 3)], {` (intconst: 2 -> 3)
+- `m04629` L144: `const blob = new Blob([JSON.stringify(result.data, null, 2)], {` → `const blob = new Blob([JSON.stringify(result.data, null, 1)], {` (intconst: 2 -> 1)
+- `m04630` L150: `anchor.download = `screening-dataset-${new Date().toISOString().slice(0, 10)}.json`;` → `anchor.download = `screening-dataset-${new Date().toISOString().slice(1, 10)}.json`;` (intconst: 0 -> 1)
+- `m04631` L150: `anchor.download = `screening-dataset-${new Date().toISOString().slice(0, 10)}.json`;` → `anchor.download = `screening-dataset-${new Date().toISOString().slice(0, 11)}.json`;` (intconst: 10 -> 11)
+- `m04632` L150: `anchor.download = `screening-dataset-${new Date().toISOString().slice(0, 10)}.json`;` → `anchor.download = `screening-dataset-${new Date().toISOString().slice(0, 9)}.json`;` (intconst: 10 -> 9)
+- `m04636` L156: `result.data.record_count === 1` → `result.data.record_count === 0` (intconst: 1 -> 0)
+- `m04637` L163: `setExporting(false);` → `setExporting(true);` (boolconst: -> true)
+- `m04638` L167: `const detailQuery = useGetImageApiScreeningImagesImageIdGet(selectedImageId ?? 0, {` → `const detailQuery = useGetImageApiScreeningImagesImageIdGet(selectedImageId || 0, {` (binop: ?? -> ||)
+- `m04639` L167: `const detailQuery = useGetImageApiScreeningImagesImageIdGet(selectedImageId ?? 0, {` → `const detailQuery = useGetImageApiScreeningImagesImageIdGet(selectedImageId ?? 1, {` (intconst: 0 -> 1)
+- `m04640` L168: `query: { enabled: allowed && selectedImageId !== null },` → `query: { enabled: allowed || selectedImageId !== null },` (binop: && -> ||)
+- `m04646` L172: `(detail?.crops ?? [])` → `(detail?.crops || [])` (binop: ?? -> ||)
+- `m04647` L173: `.filter((crop) => crop.id !== undefined && crop.crop_index !== undefined)` → `.filter((crop) => crop.id !== undefined || crop.crop_index !== undefined)` (binop: && -> ||)
+- `m04648` L173: `.filter((crop) => crop.id !== undefined && crop.crop_index !== undefined)` → `.filter((crop) => crop.id === undefined && crop.crop_index !== undefined)` (compare: !== -> ===)
+- `m04649` L173: `.filter((crop) => crop.id !== undefined && crop.crop_index !== undefined)` → `.filter((crop) => crop.id !== undefined && crop.crop_index === undefined)` (compare: !== -> ===)
+- `m04650` L194: `if (error instanceof ApiError && error.status === 409) {` → `if (error instanceof ApiError || error.status === 409) {` (binop: && -> ||)
+- `m04655` L212: `const rows = payload?.images ?? [];` → `const rows = payload?.images || [];` (binop: ?? -> ||)
+- `m04656` L221: `<Button size="sm" onClick={() => setCheckOpen(true)}>` → `<Button size="sm" onClick={() => setCheckOpen(false)}>` (boolconst: -> false)
+- `m04658` L246: `description={t("screening.stats.description", { days: 30 })}` → `description={t("screening.stats.description", { days: 31 })}` (intconst: 30 -> 31)
+- `m04659` L246: `description={t("screening.stats.description", { days: 30 })}` → `description={t("screening.stats.description", { days: 29 })}` (intconst: 30 -> 29)
+- `m04661` L250: `<TableSkeleton rows={2} columns={6} />` → `<TableSkeleton rows={3} columns={6} />` (intconst: 2 -> 3)
+- `m04662` L250: `<TableSkeleton rows={2} columns={6} />` → `<TableSkeleton rows={1} columns={6} />` (intconst: 2 -> 1)
+- `m04663` L250: `<TableSkeleton rows={2} columns={6} />` → `<TableSkeleton rows={2} columns={7} />` (intconst: 6 -> 7)
+- `m04664` L250: `<TableSkeleton rows={2} columns={6} />` → `<TableSkeleton rows={2} columns={5} />` (intconst: 6 -> 5)
+- `m04671` L272: `row.gate_runs > 0` → `row.gate_runs >= 0` (compare: > -> >=)
+- `m04672` L272: `row.gate_runs > 0` → `row.gate_runs > 1` (intconst: 0 -> 1)
+- `m04675` L273: `? `${Math.round((row.gate_flagged / row.gate_runs) * 100)}%`` → `? `${Math.round((row.gate_flagged / row.gate_runs) * 101)}%`` (intconst: 100 -> 101)
+- `m04676` L273: `? `${Math.round((row.gate_flagged / row.gate_runs) * 100)}%`` → `? `${Math.round((row.gate_flagged / row.gate_runs) * 99)}%`` (intconst: 100 -> 99)
+- `m04678` L276: `row.cross_checks > 0` → `row.cross_checks >= 0` (compare: > -> >=)
+- `m04679` L276: `row.cross_checks > 0` → `row.cross_checks > 1` (intconst: 0 -> 1)
+- `m04683` L277: `? `${Math.round((row.cross_check_agreements / row.cross_checks) * 100)}%`` → `? `${Math.round((row.cross_check_agreements / row.cross_checks) * 99)}%`` (intconst: 100 -> 99)
+- `m04687` L290: `: `${(row.avg_gate_latency_ms / 1000).toFixed(1)}s`}` → `: `${(row.avg_gate_latency_ms / 1001).toFixed(1)}s`}` (intconst: 1000 -> 1001)
+- `m04688` L290: `: `${(row.avg_gate_latency_ms / 1000).toFixed(1)}s`}` → `: `${(row.avg_gate_latency_ms / 999).toFixed(1)}s`}` (intconst: 1000 -> 999)
+- `m04693` L311: `onClick={() => setUrlState({ image_id: null, offset: offset > 0 ? offset : null })}` → `onClick={() => setUrlState({ image_id: null, offset: offset > 0 ? null : offset })}` (ifexp: swap ternary branches)
+- `m04694` L311: `onClick={() => setUrlState({ image_id: null, offset: offset > 0 ? offset : null })}` → `onClick={() => setUrlState({ image_id: null, offset: offset >= 0 ? offset : null })}` (compare: > -> >=)
+- `m04695` L311: `onClick={() => setUrlState({ image_id: null, offset: offset > 0 ? offset : null })}` → `onClick={() => setUrlState({ image_id: null, offset: offset > 1 ? offset : null })}` (intconst: 0 -> 1)
+- `m04697` L319: `<TableSkeleton rows={3} columns={3} />` → `<TableSkeleton rows={4} columns={3} />` (intconst: 3 -> 4)
+- `m04698` L319: `<TableSkeleton rows={3} columns={3} />` → `<TableSkeleton rows={2} columns={3} />` (intconst: 3 -> 2)
+- `m04699` L319: `<TableSkeleton rows={3} columns={3} />` → `<TableSkeleton rows={3} columns={4} />` (intconst: 3 -> 4)
+- `m04700` L319: `<TableSkeleton rows={3} columns={3} />` → `<TableSkeleton rows={3} columns={2} />` (intconst: 3 -> 2)
+- `m04704` L347: `{detail.image_url ? (` → `{detail.image_url ? (
+                  <p className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+                    {t("screening.detail.imageUnavailable")}
+                  </p>
+                ))` (ifexp: swap ternary branches)
+- `m04705` L373: `{(detail.crops ?? []).length === 0 ? (` → `{(detail.crops ?? []).length === 0 ? (
+                    <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {(detail.crops ?? []).map((crop) => (
+                        <li key={crop.id} className="space-y-1 rounded-lg border p-2 text-sm">
+                          {crop.image_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={crop.image_url}
+                              alt={`${t("screening.crops.goat")} ${crop.crop_index + 1}`}
+                              className="h-28 w-full rounded object-cover"
+                            />
+                          ) : null}
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="font-medium">
+                              {t("screening.crops.goat")} {crop.crop_index + 1}
+                            </span>
+                            <StatusBadge status={crop.status}>
+                              {imageStatusLabel(t, crop.status)}
+                            </StatusBadge>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  ))` (ifexp: swap ternary branches)
+- `m04706` L373: `{(detail.crops ?? []).length === 0 ? (` → `{(detail.crops ?? []).length !== 0 ? (` (compare: === -> !==)
+- `m04707` L373: `{(detail.crops ?? []).length === 0 ? (` → `{(detail.crops || []).length === 0 ? (` (binop: ?? -> ||)
+- `m04708` L373: `{(detail.crops ?? []).length === 0 ? (` → `{(detail.crops ?? []).length === 1 ? (` (intconst: 0 -> 1)
+- `m04709` L379: `{(detail.crops ?? []).map((crop) => (` → `{(detail.crops || []).map((crop) => (` (binop: ?? -> ||)
+- `m04710` L381: `{crop.image_url ? (` → `{crop.image_url ? null)` (ifexp: swap ternary branches)
+- `m04711` L385: `alt={`${t("screening.crops.goat")} ${crop.crop_index + 1}`}` → `alt={`${t("screening.crops.goat")} ${crop.crop_index - 1}`}` (binop: + -> -)
+- `m04712` L385: `alt={`${t("screening.crops.goat")} ${crop.crop_index + 1}`}` → `alt={`${t("screening.crops.goat")} ${crop.crop_index + 2}`}` (intconst: 1 -> 2)
+- `m04713` L385: `alt={`${t("screening.crops.goat")} ${crop.crop_index + 1}`}` → `alt={`${t("screening.crops.goat")} ${crop.crop_index + 0}`}` (intconst: 1 -> 0)
+- `m04714` L391: `{t("screening.crops.goat")} {crop.crop_index + 1}` → `{t("screening.crops.goat")} {crop.crop_index - 1}` (binop: + -> -)
+- `m04715` L391: `{t("screening.crops.goat")} {crop.crop_index + 1}` → `{t("screening.crops.goat")} {crop.crop_index + 2}` (intconst: 1 -> 2)
+- `m04716` L391: `{t("screening.crops.goat")} {crop.crop_index + 1}` → `{t("screening.crops.goat")} {crop.crop_index + 0}` (intconst: 1 -> 0)
+- `m04719` L404: `{(detail.findings ?? []).length === 0 ? (` → `{(detail.findings || []).length === 0 ? (` (binop: ?? -> ||)
+- `m04721` L410: `{(detail.findings ?? []).map((finding) => {` → `{(detail.findings || []).map((finding) => {` (binop: ?? -> ||)
+- `m04722` L412: `const cropId = finding.crop_id ?? null;` → `const cropId = finding.crop_id || null;` (binop: ?? -> ||)
+- `m04723` L414: `cropId === null ? undefined : cropIndexById.get(cropId);` → `cropId === null ? cropIndexById.get(cropId) : undefined;` (ifexp: swap ternary branches)
+- `m04724` L414: `cropId === null ? undefined : cropIndexById.get(cropId);` → `cropId !== null ? undefined : cropIndexById.get(cropId);` (compare: === -> !==)
+- `m04725` L421: `{goatIndex !== undefined ? (` → `{goatIndex !== undefined ? null)` (ifexp: swap ternary branches)
+- `m04726` L421: `{goatIndex !== undefined ? (` → `{goatIndex === undefined ? (` (compare: !== -> ===)
+- `m04727` L423: `{t("screening.crops.goat")} {goatIndex + 1}` → `{t("screening.crops.goat")} {goatIndex - 1}` (binop: + -> -)
+- `m04728` L423: `{t("screening.crops.goat")} {goatIndex + 1}` → `{t("screening.crops.goat")} {goatIndex + 2}` (intconst: 1 -> 2)
+- `m04729` L423: `{t("screening.crops.goat")} {goatIndex + 1}` → `{t("screening.crops.goat")} {goatIndex + 0}` (intconst: 1 -> 0)
+- `m04730` L426: `{finding.region ? (` → `{finding.region ? null)` (ifexp: swap ternary branches)
+- `m04732` L435: `{finding.note ? (` → `{finding.note ? null)` (ifexp: swap ternary branches)
+- `m04733` L438: `{finding.review_note ? (` → `{finding.review_note ? null)` (ifexp: swap ternary branches)
+- `m04735` L476: `{(detail.runs ?? []).map((run) => {` → `{(detail.runs || []).map((run) => {` (binop: ?? -> ||)
+- `m04736` L477: `const isCrossCheck = run.stage === "CROSS_CHECK";` → `const isCrossCheck = run.stage !== "CROSS_CHECK";` (compare: === -> !==)
+- `m04737` L478: `const agrees = isCrossCheck ? run.detail?.agrees === true : null;` → `const agrees = isCrossCheck ? null : run.detail?.agrees === true;` (ifexp: swap ternary branches)
+- `m04740` L482: `<StatusBadge status={run.run_status === "OK" ? "DONE" : "ERROR"}>` → `<StatusBadge status={run.run_status === "OK" ? "ERROR" : "DONE"}>` (ifexp: swap ternary branches)
+- `m04741` L482: `<StatusBadge status={run.run_status === "OK" ? "DONE" : "ERROR"}>` → `<StatusBadge status={run.run_status !== "OK" ? "DONE" : "ERROR"}>` (compare: === -> !==)
+- `m04742` L486: `{run.verdict ? <Badge variant="outline">{run.verdict}</Badge> : null}` → `{run.verdict ? null : <Badge variant="outline">{run.verdict}</Badge>}` (ifexp: swap ternary branches)
+- `m04743` L493: `{agrees !== null && run.run_status === "OK" ? (` → `{agrees !== null && run.run_status === "OK" ? null)` (ifexp: swap ternary branches)
+- `m04745` L493: `{agrees !== null && run.run_status === "OK" ? (` → `{agrees === null && run.run_status === "OK" ? (` (compare: !== -> ===)
+- `m04747` L494: `<Badge variant={agrees ? "default" : "destructive"}>` → `<Badge variant={agrees ? "destructive" : "default"}>` (ifexp: swap ternary branches)
+- `m04750` L518: `variant={filter === candidate ? "default" : "outline"}` → `variant={filter === candidate ? "outline" : "default"}` (ifexp: swap ternary branches)
+- `m04751` L518: `variant={filter === candidate ? "default" : "outline"}` → `variant={filter !== candidate ? "default" : "outline"}` (compare: === -> !==)
+- `m04752` L519: `aria-pressed={filter === candidate}` → `aria-pressed={filter !== candidate}` (compare: === -> !==)
+- `m04756` L536: `<TableSkeleton rows={8} columns={5} />` → `<TableSkeleton rows={9} columns={5} />` (intconst: 8 -> 9)
+- `m04757` L536: `<TableSkeleton rows={8} columns={5} />` → `<TableSkeleton rows={7} columns={5} />` (intconst: 8 -> 7)
+- `m04758` L536: `<TableSkeleton rows={8} columns={5} />` → `<TableSkeleton rows={8} columns={6} />` (intconst: 5 -> 6)
+- `m04759` L536: `<TableSkeleton rows={8} columns={5} />` → `<TableSkeleton rows={8} columns={4} />` (intconst: 5 -> 4)
+- `m04764` L554: `) : rows.length === 0 ? (` → `) : rows.length === 1 ? (` (intconst: 0 -> 1)
+- `m04766` L607: `{(row.pending_findings ?? 0) > 0 ? (` → `{(row.pending_findings ?? 0) >= 0 ? (` (compare: > -> >=)
+- `m04767` L607: `{(row.pending_findings ?? 0) > 0 ? (` → `{(row.pending_findings || 0) > 0 ? (` (binop: ?? -> ||)
+- `m04768` L607: `{(row.pending_findings ?? 0) > 0 ? (` → `{(row.pending_findings ?? 1) > 0 ? (` (intconst: 0 -> 1)
+- `m04769` L607: `{(row.pending_findings ?? 0) > 0 ? (` → `{(row.pending_findings ?? 0) > 1 ? (` (intconst: 0 -> 1)
+- `m04770` L608: `<Badge variant="destructive">{row.pending_findings ?? 0}</Badge>` → `<Badge variant="destructive">{row.pending_findings || 0}</Badge>` (binop: ?? -> ||)
+- `m04771` L608: `<Badge variant="destructive">{row.pending_findings ?? 0}</Badge>` → `<Badge variant="destructive">{row.pending_findings ?? 1}</Badge>` (intconst: 0 -> 1)
+- `m04773` L627: `onOffsetChange={(next) => setUrlState({ offset: next > 0 ? next : null })}` → `onOffsetChange={(next) => setUrlState({ offset: next > 0 ? null : next })}` (ifexp: swap ternary branches)
+- `m04774` L627: `onOffsetChange={(next) => setUrlState({ offset: next > 0 ? next : null })}` → `onOffsetChange={(next) => setUrlState({ offset: next >= 0 ? next : null })}` (compare: > -> >=)
+- `m04775` L627: `onOffsetChange={(next) => setUrlState({ offset: next > 0 ? next : null })}` → `onOffsetChange={(next) => setUrlState({ offset: next > 1 ? next : null })}` (intconst: 0 -> 1)
+- `m04776` L650: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={3} />` (intconst: 2 -> 3)
+- `m04777` L650: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={1} />` (intconst: 2 -> 1)
+- `m04778` L659: `cards={2}` → `cards={3}` (intconst: 2 -> 3)
+- `m04779` L659: `cards={2}` → `cards={1}` (intconst: 2 -> 1)
+
+### src/app/(app)/simulation/components/format-helpers.ts (3)
+
+- `m04784` L13: `if (value === null || value === undefined || !Number.isFinite(value)) return "—";` → `if (value === null && value === undefined || !Number.isFinite(value)) return "—";` (binop: || -> &&)
+- `m04790` L19: `return value === null || value === undefined || !Number.isFinite(value)` → `return value === null && value === undefined || !Number.isFinite(value)` (binop: || -> &&)
+- `m04801` L27: `return value === null || value === undefined || !Number.isFinite(value)` → `return value === null && value === undefined || !Number.isFinite(value)` (binop: || -> &&)
+
+### src/app/(app)/simulation/components/number-inputs.tsx (6)
+
+- `m04823` L113: `const message = next.error ?? null;` → `const message = next.error || null;` (binop: ?? -> ||)
+- `m04828` L135: `const next = validate(draft ?? (value === null ? "" : String(value)));` → `const next = validate(draft || (value === null ? "" : String(value)));` (binop: ?? -> ||)
+- `m04836` L141: `setError(next.error ?? null);` → `setError(next.error || null);` (binop: ?? -> ||)
+- `m04881` L251: `parsed.some((n, index) => index > 0 && n < parsed[index - 1])` → `parsed.some((n, index) => index >= 0 && n < parsed[index - 1])` (compare: > -> >=)
+- `m04882` L251: `parsed.some((n, index) => index > 0 && n < parsed[index - 1])` → `parsed.some((n, index) => index > 1 && n < parsed[index - 1])` (intconst: 0 -> 1)
+- `m04890` L290: `const next = validate(draft ?? value.join(", "));` → `const next = validate(draft || value.join(", "));` (binop: ?? -> ||)
+
+### src/app/(app)/simulation/components/results-visuals.tsx (14)
+
+- `m04907` L46: `const max = Math.max(...counts, 1);` → `const max = Math.max(...counts, 2);` (intconst: 1 -> 2)
+- `m04908` L46: `const max = Math.max(...counts, 1);` → `const max = Math.max(...counts, 0);` (intconst: 1 -> 0)
+- `m04912` L56: `domain={[edges[0], edges[edges.length - 1]]}` → `domain={[edges[1], edges[edges.length - 1]]}` (intconst: 0 -> 1)
+- `m04913` L56: `domain={[edges[0], edges[edges.length - 1]]}` → `domain={[edges[0], edges[edges.length + 1]]}` (binop: - -> +)
+- `m04914` L56: `domain={[edges[0], edges[edges.length - 1]]}` → `domain={[edges[0], edges[edges.length - 2]]}` (intconst: 1 -> 2)
+- `m04915` L56: `domain={[edges[0], edges[edges.length - 1]]}` → `domain={[edges[0], edges[edges.length - 0]]}` (intconst: 1 -> 0)
+- `m04918` L63: `strong: true,` → `strong: false,` (boolconst: -> false)
+- `m04944` L164: `if (objective === "balanced") return t("simulation.option.balanced");` → `if (objective !== "balanced") return t("simulation.option.balanced");` (compare: === -> !==)
+- `m04945` L165: `if (objective === "npv") return t("simulation.option.highestNpv");` → `if (objective !== "npv") return t("simulation.option.highestNpv");` (compare: === -> !==)
+- `m04952` L198: `for (const candidate of result.alternatives ?? []) {` → `for (const candidate of result.alternatives || []) {` (binop: ?? -> ||)
+- `m04953` L200: `if (seen.has(identity)) continue;` → `if (seen.has(identity)) break;` (loopjump: continue -> break)
+- `m04967` L302: `className={`text-right tabular-nums ${candidate.funding_gap > 0 ? "text-destructive" : ""}`}` → `className={`text-right tabular-nums ${candidate.funding_gap > 1 ? "text-destructive" : ""}`}` (intconst: 0 -> 1)
+- `m04970` L307: `{(candidate.constraint_violations ?? []).length > 0` → `{(candidate.constraint_violations || []).length > 0` (binop: ?? -> ||)
+- `m04971` L307: `{(candidate.constraint_violations ?? []).length > 0` → `{(candidate.constraint_violations ?? []).length > 1` (intconst: 0 -> 1)
+
+### src/app/(app)/simulation/page.tsx (273)
+
+- `m04984` L206: `"reproduction.lactation_months": { min: 1, max: 12 },` → `"reproduction.lactation_months": { min: 2, max: 12 },` (intconst: 1 -> 2)
+- `m04985` L206: `"reproduction.lactation_months": { min: 1, max: 12 },` → `"reproduction.lactation_months": { min: 0, max: 12 },` (intconst: 1 -> 0)
+- `m04986` L206: `"reproduction.lactation_months": { min: 1, max: 12 },` → `"reproduction.lactation_months": { min: 1, max: 13 },` (intconst: 12 -> 13)
+- `m04987` L206: `"reproduction.lactation_months": { min: 1, max: 12 },` → `"reproduction.lactation_months": { min: 1, max: 11 },` (intconst: 12 -> 11)
+- `m05002` L215: `"reproduction.sexed_semen_services": { min: 0, max: 6 },` → `"reproduction.sexed_semen_services": { min: 1, max: 6 },` (intconst: 0 -> 1)
+- `m05003` L215: `"reproduction.sexed_semen_services": { min: 0, max: 6 },` → `"reproduction.sexed_semen_services": { min: 0, max: 7 },` (intconst: 6 -> 7)
+- `m05004` L215: `"reproduction.sexed_semen_services": { min: 0, max: 6 },` → `"reproduction.sexed_semen_services": { min: 0, max: 5 },` (intconst: 6 -> 5)
+- `m05005` L216: `"reproduction.sexed_female_fraction": { min: 0.5, max: 1 },` → `"reproduction.sexed_female_fraction": { min: 1.5, max: 1 },` (intconst: 0.5 -> 1.5)
+- `m05006` L216: `"reproduction.sexed_female_fraction": { min: 0.5, max: 1 },` → `"reproduction.sexed_female_fraction": { min: -0.5, max: 1 },` (intconst: 0.5 -> -0.5)
+- `m05007` L216: `"reproduction.sexed_female_fraction": { min: 0.5, max: 1 },` → `"reproduction.sexed_female_fraction": { min: 0.5, max: 2 },` (intconst: 1 -> 2)
+- `m05008` L216: `"reproduction.sexed_female_fraction": { min: 0.5, max: 1 },` → `"reproduction.sexed_female_fraction": { min: 0.5, max: 0 },` (intconst: 1 -> 0)
+- `m05009` L217: `"reproduction.sexed_conception_multiplier": { exclusiveMin: 0, max: 1 },` → `"reproduction.sexed_conception_multiplier": { exclusiveMin: 1, max: 1 },` (intconst: 0 -> 1)
+- `m05010` L217: `"reproduction.sexed_conception_multiplier": { exclusiveMin: 0, max: 1 },` → `"reproduction.sexed_conception_multiplier": { exclusiveMin: 0, max: 2 },` (intconst: 1 -> 2)
+- `m05011` L217: `"reproduction.sexed_conception_multiplier": { exclusiveMin: 0, max: 1 },` → `"reproduction.sexed_conception_multiplier": { exclusiveMin: 0, max: 0 },` (intconst: 1 -> 0)
+- `m05012` L218: `"reproduction.max_services_before_cull": { min: 0, max: 12 },` → `"reproduction.max_services_before_cull": { min: 1, max: 12 },` (intconst: 0 -> 1)
+- `m05013` L218: `"reproduction.max_services_before_cull": { min: 0, max: 12 },` → `"reproduction.max_services_before_cull": { min: 0, max: 13 },` (intconst: 12 -> 13)
+- `m05014` L218: `"reproduction.max_services_before_cull": { min: 0, max: 12 },` → `"reproduction.max_services_before_cull": { min: 0, max: 11 },` (intconst: 12 -> 11)
+- `m05030` L223: `"growth.adult_weight_doe_kg": { exclusiveMin: 0, max: 1000 },` → `"growth.adult_weight_doe_kg": { exclusiveMin: 1, max: 1000 },` (intconst: 0 -> 1)
+- `m05033` L224: `"growth.adult_weight_buck_kg": { exclusiveMin: 0, max: 1000 },` → `"growth.adult_weight_buck_kg": { exclusiveMin: 1, max: 1000 },` (intconst: 0 -> 1)
+- `m05036` L225: `"growth.adult_weight_age_months": { min: 13, max: 120 },` → `"growth.adult_weight_age_months": { min: 14, max: 120 },` (intconst: 13 -> 14)
+- `m05037` L225: `"growth.adult_weight_age_months": { min: 13, max: 120 },` → `"growth.adult_weight_age_months": { min: 12, max: 120 },` (intconst: 13 -> 12)
+- `m05038` L225: `"growth.adult_weight_age_months": { min: 13, max: 120 },` → `"growth.adult_weight_age_months": { min: 13, max: 121 },` (intconst: 120 -> 121)
+- `m05039` L225: `"growth.adult_weight_age_months": { min: 13, max: 120 },` → `"growth.adult_weight_age_months": { min: 13, max: 119 },` (intconst: 120 -> 119)
+- `m05040` L226: `"growth.young_male_weight_premium": { min: 0, max: 0.5 },` → `"growth.young_male_weight_premium": { min: 1, max: 0.5 },` (intconst: 0 -> 1)
+- `m05041` L226: `"growth.young_male_weight_premium": { min: 0, max: 0.5 },` → `"growth.young_male_weight_premium": { min: 0, max: 1.5 },` (intconst: 0.5 -> 1.5)
+- `m05042` L226: `"growth.young_male_weight_premium": { min: 0, max: 0.5 },` → `"growth.young_male_weight_premium": { min: 0, max: -0.5 },` (intconst: 0.5 -> -0.5)
+- `m05050` L229: `"sales.festival_hold_months": { min: 0, max: 12 },` → `"sales.festival_hold_months": { min: 1, max: 12 },` (intconst: 0 -> 1)
+- `m05051` L229: `"sales.festival_hold_months": { min: 0, max: 12 },` → `"sales.festival_hold_months": { min: 0, max: 13 },` (intconst: 12 -> 13)
+- `m05052` L229: `"sales.festival_hold_months": { min: 0, max: 12 },` → `"sales.festival_hold_months": { min: 0, max: 11 },` (intconst: 12 -> 11)
+- `m05056` L231: `"sales.annual_livestock_price_growth_rate": { exclusiveMin: -1, max: 1 },` → `"sales.annual_livestock_price_growth_rate": { exclusiveMin: -2, max: 1 },` (intconst: 1 -> 2)
+- `m05066` L235: `"sales.milk_price_per_litre": { min: 0, max: 1e9 },` → `"sales.milk_price_per_litre": { min: 1, max: 1e9 },` (intconst: 0 -> 1)
+- `m05067` L235: `"sales.milk_price_per_litre": { min: 0, max: 1e9 },` → `"sales.milk_price_per_litre": { min: 0, max: 1000000001 },` (intconst: 1000000000 -> 1000000001)
+- `m05068` L235: `"sales.milk_price_per_litre": { min: 0, max: 1e9 },` → `"sales.milk_price_per_litre": { min: 0, max: 999999999 },` (intconst: 1000000000 -> 999999999)
+- `m05075` L241: `"feed.fodder_yield_t_dm_per_acre_year": { exclusiveMin: 0, max: 1000 },` → `"feed.fodder_yield_t_dm_per_acre_year": { exclusiveMin: 1, max: 1000 },` (intconst: 0 -> 1)
+- `m05078` L242: `"feed.annual_feed_price_growth_rate": { exclusiveMin: -1, max: 1 },` → `"feed.annual_feed_price_growth_rate": { exclusiveMin: -2, max: 1 },` (intconst: 1 -> 2)
+- `m05085` L245: `"feed.water_litres_kid_per_day": { min: 0, max: 50 },` → `"feed.water_litres_kid_per_day": { min: 1, max: 50 },` (intconst: 0 -> 1)
+- `m05086` L245: `"feed.water_litres_kid_per_day": { min: 0, max: 50 },` → `"feed.water_litres_kid_per_day": { min: 0, max: 51 },` (intconst: 50 -> 51)
+- `m05087` L245: `"feed.water_litres_kid_per_day": { min: 0, max: 50 },` → `"feed.water_litres_kid_per_day": { min: 0, max: 49 },` (intconst: 50 -> 49)
+- `m05088` L246: `"feed.water_litres_weaner_per_day": { min: 0, max: 50 },` → `"feed.water_litres_weaner_per_day": { min: 1, max: 50 },` (intconst: 0 -> 1)
+- `m05089` L246: `"feed.water_litres_weaner_per_day": { min: 0, max: 50 },` → `"feed.water_litres_weaner_per_day": { min: 0, max: 51 },` (intconst: 50 -> 51)
+- `m05090` L246: `"feed.water_litres_weaner_per_day": { min: 0, max: 50 },` → `"feed.water_litres_weaner_per_day": { min: 0, max: 49 },` (intconst: 50 -> 49)
+- `m05091` L247: `"feed.water_litres_grower_per_day": { min: 0, max: 50 },` → `"feed.water_litres_grower_per_day": { min: 1, max: 50 },` (intconst: 0 -> 1)
+- `m05092` L247: `"feed.water_litres_grower_per_day": { min: 0, max: 50 },` → `"feed.water_litres_grower_per_day": { min: 0, max: 51 },` (intconst: 50 -> 51)
+- `m05093` L247: `"feed.water_litres_grower_per_day": { min: 0, max: 50 },` → `"feed.water_litres_grower_per_day": { min: 0, max: 49 },` (intconst: 50 -> 49)
+- `m05094` L248: `"feed.water_litres_doe_per_day": { min: 0, max: 50 },` → `"feed.water_litres_doe_per_day": { min: 1, max: 50 },` (intconst: 0 -> 1)
+- `m05095` L248: `"feed.water_litres_doe_per_day": { min: 0, max: 50 },` → `"feed.water_litres_doe_per_day": { min: 0, max: 51 },` (intconst: 50 -> 51)
+- `m05096` L248: `"feed.water_litres_doe_per_day": { min: 0, max: 50 },` → `"feed.water_litres_doe_per_day": { min: 0, max: 49 },` (intconst: 50 -> 49)
+- `m05097` L249: `"feed.water_litres_lactating_doe_per_day": { min: 0, max: 50 },` → `"feed.water_litres_lactating_doe_per_day": { min: 1, max: 50 },` (intconst: 0 -> 1)
+- `m05098` L249: `"feed.water_litres_lactating_doe_per_day": { min: 0, max: 50 },` → `"feed.water_litres_lactating_doe_per_day": { min: 0, max: 51 },` (intconst: 50 -> 51)
+- `m05099` L249: `"feed.water_litres_lactating_doe_per_day": { min: 0, max: 50 },` → `"feed.water_litres_lactating_doe_per_day": { min: 0, max: 49 },` (intconst: 50 -> 49)
+- `m05100` L250: `"feed.water_litres_buck_per_day": { min: 0, max: 50 },` → `"feed.water_litres_buck_per_day": { min: 1, max: 50 },` (intconst: 0 -> 1)
+- `m05101` L250: `"feed.water_litres_buck_per_day": { min: 0, max: 50 },` → `"feed.water_litres_buck_per_day": { min: 0, max: 51 },` (intconst: 50 -> 51)
+- `m05102` L250: `"feed.water_litres_buck_per_day": { min: 0, max: 50 },` → `"feed.water_litres_buck_per_day": { min: 0, max: 49 },` (intconst: 50 -> 49)
+- `m05116` L258: `"costs.operating_cost_growth_rate_annual": { exclusiveMin: -1, max: 1 },` → `"costs.operating_cost_growth_rate_annual": { exclusiveMin: -2, max: 1 },` (intconst: 1 -> 2)
+- `m05329` L481: `section === "finance" &&` → `section === "finance" ||` (binop: && -> ||)
+- `m05345` L519: `key.includes("labour") ||` → `key.includes("labour") &&` (binop: || -> &&)
+- `m05346` L518: `key.includes("income") ||` → `key.includes("income") &&` (binop: || -> &&)
+- `m05349` L523: `else if (key.includes("weight") || key.includes("_kg")) rule.unit = t("simulation.unit.kg");` → `else if (key.includes("weight") && key.includes("_kg")) rule.unit = t("simulation.unit.kg");` (binop: || -> &&)
+- `m05350` L539: `return JSON.stringify({ ...assumptions, events: assumptions.events ?? [] });` → `return JSON.stringify({ ...assumptions, events: assumptions.events || [] });` (binop: ?? -> ||)
+- `m05365` L572: `? vocabulary.femaleAdult.charAt(0).toUpperCase() + vocabulary.femaleAdult.slice(1)` → `? t("simulation.token.doe")vocabulary.femaleAdult.charAt(0).toUpperCase() + vocabulary.femaleAdult.slice(1)` (ifexp: swap ternary branches)
+- `m05366` L571: `language === "en"` → `language !== "en"` (compare: === -> !==)
+- `m05371` L576: `? vocabulary.maleAdult.charAt(0).toUpperCase() + vocabulary.maleAdult.slice(1)` → `? t("simulation.token.buck")vocabulary.maleAdult.charAt(0).toUpperCase() + vocabulary.maleAdult.slice(1)` (ifexp: swap ternary branches)
+- `m05372` L575: `language === "en"` → `language !== "en"` (compare: === -> !==)
+- `m05391` L610: `if (!Number.isFinite(event.count) || event.count <= 0 || event.count > 100_000) {` → `if (!Number.isFinite(event.count) || event.count <= 1 || event.count > 100_000) {` (intconst: 0 -> 1)
+- `m05410` L656: `if (language === "en") return verdict;` → `if (language !== "en") return verdict;` (compare: === -> !==)
+- `m05428` L703: `if ("exactLength" in rule && rule.exactLength !== undefined)` → `if ("exactLength" in rule || rule.exactLength !== undefined)` (binop: && -> ||)
+- `m05430` L705: `if ("maxLength" in rule && rule.maxLength !== undefined)` → `if ("maxLength" in rule || rule.maxLength !== undefined)` (binop: && -> ||)
+- `m05433` L708: `if (bounds.length > 0)` → `if (bounds.length > 1)` (intconst: 0 -> 1)
+- `m05440` L718: `else if (typeof value === "string" && value.length > 0 && value.length <= 80)` → `else if (typeof value === "string" && value.length >= 0 && value.length <= 80)` (compare: > -> >=)
+- `m05441` L718: `else if (typeof value === "string" && value.length > 0 && value.length <= 80)` → `else if (typeof value === "string" && value.length > 1 && value.length <= 80)` (intconst: 0 -> 1)
+- `m05442` L718: `else if (typeof value === "string" && value.length > 0 && value.length <= 80)` → `else if (typeof value === "string" && value.length > 0 && value.length < 80)` (compare: <= -> <)
+- `m05444` L718: `else if (typeof value === "string" && value.length > 0 && value.length <= 80)` → `else if (typeof value === "string" && value.length > 0 && value.length <= 79)` (intconst: 80 -> 79)
+- `m05445` L721: `value: language === "te" ? (options?.[value] ?? value) : value,` → `value: language === "te" ? value : (options?.[value] ?? value),` (ifexp: swap ternary branches)
+- `m05446` L721: `value: language === "te" ? (options?.[value] ?? value) : value,` → `value: language !== "te" ? (options?.[value] ?? value) : value,` (compare: === -> !==)
+- `m05447` L721: `value: language === "te" ? (options?.[value] ?? value) : value,` → `value: language === "te" ? (options?.[value] || value) : value,` (binop: ?? -> ||)
+- `m05449` L726: `value: value.length <= 12 ? value.join(", ") : t("simulation.facts.valueCount", { count: value.length }),` → `value: value.length < 12 ? value.join(", ") : t("simulation.facts.valueCount", { count: value.length }),` (compare: <= -> <)
+- `m05451` L726: `value: value.length <= 12 ? value.join(", ") : t("simulation.facts.valueCount", { count: value.length }),` → `value: value.length <= 11 ? value.join(", ") : t("simulation.facts.valueCount", { count: value.length }),` (intconst: 12 -> 11)
+- `m05454` L791: `Math.round(value).toLocaleString(language === "te" ? "te-IN" : "en-IN");` → `Math.round(value).toLocaleString(language === "te" ? "en-IN" : "te-IN");` (ifexp: swap ternary branches)
+- `m05455` L791: `Math.round(value).toLocaleString(language === "te" ? "te-IN" : "en-IN");` → `Math.round(value).toLocaleString(language !== "te" ? "te-IN" : "en-IN");` (compare: === -> !==)
+- `m05470` L1079: `const editorEpochRef = useRef(0);` → `const editorEpochRef = useRef(1);` (intconst: 0 -> 1)
+- `m05471` L1084: `const editorContentEpochRef = useRef(0);` → `const editorContentEpochRef = useRef(1);` (intconst: 0 -> 1)
+- `m05472` L1086: `const [editorVersion, setEditorVersion] = useState(0);` → `const [editorVersion, setEditorVersion] = useState(1);` (intconst: 0 -> 1)
+- `m05473` L1087: `const [horizonInputVersion, setHorizonInputVersion] = useState(0);` → `const [horizonInputVersion, setHorizonInputVersion] = useState(1);` (intconst: 0 -> 1)
+- `m05474` L1090: `const eventKeyCounter = useRef(0);` → `const eventKeyCounter = useRef(1);` (intconst: 0 -> 1)
+- `m05486` L1115: `const calibrationParamsGeneration = useRef(0);` → `const calibrationParamsGeneration = useRef(1);` (intconst: 0 -> 1)
+- `m05491` L1135: `scenarioOffsetParam("scenarios", 0, 0, MAX_PAGE_OFFSET),` → `scenarioOffsetParam("scenarios", 0, 1, MAX_PAGE_OFFSET),` (intconst: 0 -> 1)
+- `m05492` L1148: `if (lastWrittenScenarioParamsRef.current === scenarioParamsKey) return;` → `if (lastWrittenScenarioParamsRef.current !== scenarioParamsKey) return;` (compare: === -> !==)
+- `m05493` L1151: `scenarioOffsetParamRef.current("scenarios", 0, 0, MAX_PAGE_OFFSET),` → `scenarioOffsetParamRef.current("scenarios", 1, 0, MAX_PAGE_OFFSET),` (intconst: 0 -> 1)
+- `m05494` L1151: `scenarioOffsetParamRef.current("scenarios", 0, 0, MAX_PAGE_OFFSET),` → `scenarioOffsetParamRef.current("scenarios", 0, 1, MAX_PAGE_OFFSET),` (intconst: 0 -> 1)
+- `m05497` L1162: `const qs = setScenarioParams({ scenarios: offset > 0 ? offset : null });` → `const qs = setScenarioParams({ scenarios: offset > 1 ? offset : null });` (intconst: 0 -> 1)
+- `m05498` L1163: `if (qs !== null) lastWrittenScenarioParamsRef.current = qs;` → `if (qs === null) lastWrittenScenarioParamsRef.current = qs;` (compare: !== -> ===)
+- `m05504` L1189: `const nextEvents = payload.events ?? [];` → `const nextEvents = payload.events || [];` (binop: ?? -> ||)
+- `m05505` L1195: `setEditorVersion((version) => version + 1);` → `setEditorVersion((version) => version - 1);` (binop: + -> -)
+- `m05506` L1195: `setEditorVersion((version) => version + 1);` → `setEditorVersion((version) => version + 2);` (intconst: 1 -> 2)
+- `m05508` L1199: `const [explicitDefaultsPending, setExplicitDefaultsPending] = useState(false);` → `const [explicitDefaultsPending, setExplicitDefaultsPending] = useState(true);` (boolconst: -> true)
+- `m05514` L1203: `setExplicitDefaultsPending(false);` → `setExplicitDefaultsPending(true);` (boolconst: -> true)
+- `m05521` L1233: `const scenarios = scenarioPage?.items ?? [];` → `const scenarios = scenarioPage?.items || [];` (binop: ?? -> ||)
+- `m05522` L1234: `const scenarioTotal = scenarioPage?.total ?? 0;` → `const scenarioTotal = scenarioPage?.total || 0;` (binop: ?? -> ||)
+- `m05523` L1234: `const scenarioTotal = scenarioPage?.total ?? 0;` → `const scenarioTotal = scenarioPage?.total ?? 1;` (intconst: 0 -> 1)
+- `m05541` L1264: `{ ids: compareIds ?? "" },` → `{ ids: compareIds || "" },` (binop: ?? -> ||)
+- `m05551` L1303: `editorEpochRef.current += 1;` → `editorEpochRef.current += 2;` (intconst: 1 -> 2)
+- `m05553` L1305: `const scenarioEvents = scenario.assumptions.events ?? [];` → `const scenarioEvents = scenario.assumptions.events || [];` (binop: ?? -> ||)
+- `m05554` L1313: `setEditorVersion((version) => version + 1);` → `setEditorVersion((version) => version - 1);` (binop: + -> -)
+- `m05555` L1313: `setEditorVersion((version) => version + 1);` → `setEditorVersion((version) => version + 2);` (intconst: 1 -> 2)
+- `m05557` L1320: `editorContentEpochRef.current += 1;` → `editorContentEpochRef.current += 2;` (intconst: 1 -> 2)
+- `m05558` L1320: `editorContentEpochRef.current += 1;` → `editorContentEpochRef.current += 0;` (intconst: 1 -> 0)
+- `m05563` L1340: `if (typeof group !== "object" || group === null) continue;` → `if (typeof group === "object" || group === null) continue;` (compare: !== -> ===)
+- `m05565` L1340: `if (typeof group !== "object" || group === null) continue;` → `if (typeof group !== "object" || group === null) break;` (loopjump: continue -> break)
+- `m05566` L1342: `if (typeof value !== "number" || !Number.isFinite(value)) continue;` → `if (typeof value !== "number" && !Number.isFinite(value)) continue;` (binop: || -> &&)
+- `m05567` L1342: `if (typeof value !== "number" || !Number.isFinite(value)) continue;` → `if (typeof value === "number" || !Number.isFinite(value)) continue;` (compare: !== -> ===)
+- `m05568` L1342: `if (typeof value !== "number" || !Number.isFinite(value)) continue;` → `if (typeof value !== "number" || Number.isFinite(value)) continue;` (not: drop !)
+- `m05569` L1342: `if (typeof value !== "number" || !Number.isFinite(value)) continue;` → `if (typeof value !== "number" || !Number.isFinite(value)) break;` (loopjump: continue -> break)
+- `m05570` L1344: `if (DAIRY_HIDDEN_FIELDS.has(path)) continue;` → `if (DAIRY_HIDDEN_FIELDS.has(path)) break;` (loopjump: continue -> break)
+- `m05571` L1346: `const below = rule.exclusiveMin !== undefined ? value <= rule.exclusiveMin : false;` → `const below = rule.exclusiveMin !== undefined ? false : value <= rule.exclusiveMin;` (ifexp: swap ternary branches)
+- `m05572` L1346: `const below = rule.exclusiveMin !== undefined ? value <= rule.exclusiveMin : false;` → `const below = rule.exclusiveMin === undefined ? value <= rule.exclusiveMin : false;` (compare: !== -> ===)
+- `m05573` L1346: `const below = rule.exclusiveMin !== undefined ? value <= rule.exclusiveMin : false;` → `const below = rule.exclusiveMin !== undefined ? value < rule.exclusiveMin : false;` (compare: <= -> <)
+- `m05575` L1347: `const under = rule.min !== undefined ? value < rule.min : false;` → `const under = rule.min !== undefined ? false : value < rule.min;` (ifexp: swap ternary branches)
+- `m05576` L1347: `const under = rule.min !== undefined ? value < rule.min : false;` → `const under = rule.min === undefined ? value < rule.min : false;` (compare: !== -> ===)
+- `m05579` L1348: `const over = rule.max !== undefined ? value > rule.max : false;` → `const over = rule.max !== undefined ? false : value > rule.max;` (ifexp: swap ternary branches)
+- `m05580` L1348: `const over = rule.max !== undefined ? value > rule.max : false;` → `const over = rule.max === undefined ? value > rule.max : false;` (compare: !== -> ===)
+- `m05583` L1349: `if (below || under || over) offenders.add(path);` → `if (below || under && over) offenders.add(path);` (binop: || -> &&)
+- `m05584` L1349: `if (below || under || over) offenders.add(path);` → `if (below && under || over) offenders.add(path);` (binop: || -> &&)
+- `m05586` L1374: `const alreadyValid = !previous.has(key);` → `const alreadyValid = previous.has(key);` (not: drop !)
+- `m05587` L1375: `if (alreadyValid === valid) return previous;` → `if (alreadyValid !== valid) return previous;` (compare: === -> !==)
+- `m05589` L1385: `editorContentEpochRef.current += 1;` → `editorContentEpochRef.current += 2;` (intconst: 1 -> 2)
+- `m05590` L1385: `editorContentEpochRef.current += 1;` → `editorContentEpochRef.current += 0;` (intconst: 1 -> 0)
+- `m05592` L1388: `const current = (prev as Record<string, SectionValues>)[section] ?? {};` → `const current = (prev as Record<string, SectionValues>)[section] || {};` (binop: ?? -> ||)
+- `m05600` L1393: `if (curve.length > 0) curve[0] = value;` → `if (curve.length > 1) curve[0] = value;` (intconst: 0 -> 1)
+- `m05608` L1411: `editorContentEpochRef.current += 1;` → `editorContentEpochRef.current += 2;` (intconst: 1 -> 2)
+- `m05609` L1411: `editorContentEpochRef.current += 1;` → `editorContentEpochRef.current += 0;` (intconst: 1 -> 0)
+- `m05611` L1414: `const current = (prev as Record<string, SectionValues>)[section] ?? {};` → `const current = (prev as Record<string, SectionValues>)[section] || {};` (binop: ?? -> ||)
+- `m05612` L1415: `const nested = (current[key] as SectionValues | undefined) ?? {};` → `const nested = (current[key] as SectionValues | undefined) || {};` (binop: ?? -> ||)
+- `m05613` L1424: `const horizonMonths = assumptions?.meta?.horizon_months ?? 240;` → `const horizonMonths = assumptions?.meta?.horizon_months || 240;` (binop: ?? -> ||)
+- `m05614` L1424: `const horizonMonths = assumptions?.meta?.horizon_months ?? 240;` → `const horizonMonths = assumptions?.meta?.horizon_months ?? 241;` (intconst: 240 -> 241)
+- `m05615` L1424: `const horizonMonths = assumptions?.meta?.horizon_months ?? 240;` → `const horizonMonths = assumptions?.meta?.horizon_months ?? 239;` (intconst: 240 -> 239)
+- `m05665` L1468: `(costs.planned_capacity_head ?? 0) <= 0` → `(costs.planned_capacity_head || 0) <= 0` (binop: ?? -> ||)
+- `m05666` L1468: `(costs.planned_capacity_head ?? 0) <= 0` → `(costs.planned_capacity_head ?? 1) <= 0` (intconst: 0 -> 1)
+- `m05668` L1472: `const festivalMonths = assumptions.sales?.festival_sale_months ?? [];` → `const festivalMonths = assumptions.sales?.festival_sale_months || [];` (binop: ?? -> ||)
+- `m05686` L1504: `if (weightCurve?.some((weight, i) => i > 0 && weight < weightCurve[i - 1]))` → `if (weightCurve?.some((weight, i) => i >= 0 && weight < weightCurve[i - 1]))` (compare: > -> >=)
+- `m05693` L1507: `? Math.max(...weightCurve.slice(0, 13))` → `? Math.max(...weightCurve.slice(1, 13))` (intconst: 0 -> 1)
+- `m05733` L1549: `invalidFields.size > 0 || assumptionErrors.length > 0 || eventErrors.length > 0;` → `invalidFields.size > 0 || assumptionErrors.length > 0 || eventErrors.length > 1;` (intconst: 0 -> 1)
+- `m05747` L1572: `(liveFingerprint(result) ?? result.fingerprint) !== result.fingerprint);` → `(liveFingerprint(result) || result.fingerprint) !== result.fingerprint);` (binop: ?? -> ||)
+- `m05749` L1576: `editorContentEpochRef.current += 1;` → `editorContentEpochRef.current += 2;` (intconst: 1 -> 2)
+- `m05750` L1576: `editorContentEpochRef.current += 1;` → `editorContentEpochRef.current += 0;` (intconst: 1 -> 0)
+- `m05756` L1592: `editorContentEpochRef.current += 1;` → `editorContentEpochRef.current += 2;` (intconst: 1 -> 2)
+- `m05757` L1592: `editorContentEpochRef.current += 1;` → `editorContentEpochRef.current += 0;` (intconst: 1 -> 0)
+- `m05761` L1600: `editorContentEpochRef.current += 1;` → `editorContentEpochRef.current += 2;` (intconst: 1 -> 2)
+- `m05762` L1600: `editorContentEpochRef.current += 1;` → `editorContentEpochRef.current += 0;` (intconst: 1 -> 0)
+- `m05769` L1625: `const safeRepeat = Math.max(1, Math.min(120, Math.floor(repeat)));` → `const safeRepeat = Math.max(2, Math.min(120, Math.floor(repeat)));` (intconst: 1 -> 2)
+- `m05770` L1625: `const safeRepeat = Math.max(1, Math.min(120, Math.floor(repeat)));` → `const safeRepeat = Math.max(0, Math.min(120, Math.floor(repeat)));` (intconst: 1 -> 0)
+- `m05771` L1625: `const safeRepeat = Math.max(1, Math.min(120, Math.floor(repeat)));` → `const safeRepeat = Math.max(1, Math.min(121, Math.floor(repeat)));` (intconst: 120 -> 121)
+- `m05774` L1626: `const safeEvery = Math.max(1, Math.min(120, Math.floor(every)));` → `const safeEvery = Math.max(0, Math.min(120, Math.floor(every)));` (intconst: 1 -> 0)
+- `m05775` L1626: `const safeEvery = Math.max(1, Math.min(120, Math.floor(every)));` → `const safeEvery = Math.max(1, Math.min(121, Math.floor(every)));` (intconst: 120 -> 121)
+- `m05776` L1626: `const safeEvery = Math.max(1, Math.min(120, Math.floor(every)));` → `const safeEvery = Math.max(1, Math.min(119, Math.floor(every)));` (intconst: 120 -> 119)
+- `m05781` L1630: `if (m > horizonMonths) break;` → `if (m >= horizonMonths) break;` (compare: > -> >=)
+- `m05782` L1630: `if (m > horizonMonths) break;` → `if (m > horizonMonths) continue;` (loopjump: break -> continue)
+- `m05784` L1633: `if (rows.length === 0) {` → `if (rows.length === 1) {` (intconst: 0 -> 1)
+- `m05786` L1637: `if (events.length + rows.length > 500) {` → `if (events.length - rows.length > 500) {` (binop: + -> -)
+- `m05787` L1637: `if (events.length + rows.length > 500) {` → `if (events.length + rows.length > 501) {` (intconst: 500 -> 501)
+- `m05789` L1641: `remaining: 500 - events.length,` → `remaining: 500 + events.length,` (binop: - -> +)
+- `m05790` L1641: `remaining: 500 - events.length,` → `remaining: 501 - events.length,` (intconst: 500 -> 501)
+- `m05791` L1641: `remaining: 500 - events.length,` → `remaining: 499 - events.length,` (intconst: 500 -> 499)
+- `m05792` L1646: `acceptDefaultsRef.current = false;` → `acceptDefaultsRef.current = true;` (boolconst: -> true)
+- `m05793` L1647: `editorContentEpochRef.current += 1;` → `editorContentEpochRef.current += 2;` (intconst: 1 -> 2)
+- `m05794` L1647: `editorContentEpochRef.current += 1;` → `editorContentEpochRef.current += 0;` (intconst: 1 -> 0)
+- `m05806` L1708: `setEditorVersion((version) => version + 1);` → `setEditorVersion((version) => version - 1);` (binop: + -> -)
+- `m05807` L1708: `setEditorVersion((version) => version + 1);` → `setEditorVersion((version) => version + 2);` (intconst: 1 -> 2)
+- `m05810` L1712: `if (!farmScope()) return;` → `if (farmScope()) return;` (not: drop !)
+- `m05820` L1742: `const nextEvents = calibrated.assumptions.events ?? [];` → `const nextEvents = calibrated.assumptions.events || [];` (binop: ?? -> ||)
+- `m05821` L1749: `setEditorVersion((version) => version + 1);` → `setEditorVersion((version) => version - 1);` (binop: + -> -)
+- `m05822` L1749: `setEditorVersion((version) => version + 1);` → `setEditorVersion((version) => version + 2);` (intconst: 1 -> 2)
+- `m05826` L1762: `if (!payload || hasEditorErrors) return;` → `if (!payload && hasEditorErrors) return;` (binop: || -> &&)
+- `m05834` L1801: `if (res.status === 200 && farmScope())` → `if (res.status === 200 || farmScope())` (binop: && -> ||)
+- `m05840` L1833: `document.getElementById("sim-scenarios")?.focus({ preventScroll: true });` → `document.getElementById("sim-scenarios")?.focus({ preventScroll: false });` (boolconst: -> false)
+- `m05846` L1845: `const remainingTotal = Math.max(0, scenarioTotal - 1);` → `const remainingTotal = Math.max(1, scenarioTotal - 1);` (intconst: 0 -> 1)
+- `m05848` L1845: `const remainingTotal = Math.max(0, scenarioTotal - 1);` → `const remainingTotal = Math.max(0, scenarioTotal - 2);` (intconst: 1 -> 2)
+- `m05851` L1846: `if (scenarioOffset > 0 && scenarioOffset >= remainingTotal) {` → `if (scenarioOffset >= 0 && scenarioOffset >= remainingTotal) {` (compare: > -> >=)
+- `m05852` L1846: `if (scenarioOffset > 0 && scenarioOffset >= remainingTotal) {` → `if (scenarioOffset > 1 && scenarioOffset >= remainingTotal) {` (intconst: 0 -> 1)
+- `m05856` L1848: `remainingTotal === 0` → `remainingTotal === 1` (intconst: 0 -> 1)
+- `m05857` L1849: `? 0` → `? 1` (intconst: 0 -> 1)
+- `m05861` L1850: `: Math.floor((remainingTotal - 1) / SCENARIO_PAGE_SIZE) *` → `: Math.floor((remainingTotal - 2) / SCENARIO_PAGE_SIZE) *` (intconst: 1 -> 2)
+- `m05864` L1867: `selectedUsableIds.length < 2 ||` → `selectedUsableIds.length < 2 &&` (binop: || -> &&)
+- `m05867` L1867: `selectedUsableIds.length < 2 ||` → `selectedUsableIds.length < 1 ||` (intconst: 2 -> 1)
+- `m05869` L1880: `{ query: { staleTime: 0 } },` → `{ query: { staleTime: 1 } },` (intconst: 0 -> 1)
+- `m05870` L1892: `if (!payload || !saveName.trim()) return;` → `if (!payload && !saveName.trim()) return;` (binop: || -> &&)
+- `m05887` L1930: `if (!payload || !loadedScenario) return;` → `if (!payload && !loadedScenario) return;` (binop: || -> &&)
+- `m05890` L1931: `if (hasEditorErrors || !scenarioUsable(loadedScenario)) return;` → `if (hasEditorErrors && !scenarioUsable(loadedScenario)) return;` (binop: || -> &&)
+- `m05903` L1958: `{ query: { staleTime: 0 } },` → `{ query: { staleTime: 1 } },` (intconst: 0 -> 1)
+- `m05915` L2005: `? (entry?.label ?? fieldLabelFor(subKey ?? key))` → `? (entry?.label || fieldLabelFor(subKey ?? key))` (binop: ?? -> ||)
+- `m05916` L2005: `? (entry?.label ?? fieldLabelFor(subKey ?? key))` → `? (entry?.label ?? fieldLabelFor(subKey || key))` (binop: ?? -> ||)
+- `m05917` L2006: `: fieldLabelFor(subKey ?? key);` → `: fieldLabelFor(subKey || key);` (binop: ?? -> ||)
+- `m05918` L2009: `body: entry?.help.body ?? null,` → `body: entry?.help.body || null,` (binop: ?? -> ||)
+- `m05928` L2120: `section === "meta" && key === "horizon_months"` → `section === "meta" || key === "horizon_months"` (binop: && -> ||)
+- `m05964` L2321: `(r as { annual_water_litres?: number[] | null }).annual_water_litres ?? [];` → `(r as { annual_water_litres?: number[] | null }).annual_water_litres || [];` (binop: ?? -> ||)
+- `m05967` L2328: `(r.metric_explanations ?? []).map((entry) => [entry.key, entry]),` → `(r.metric_explanations || []).map((entry) => [entry.key, entry]),` (binop: ?? -> ||)
+- `m06021` L2508: `{annualWater.length > 0 && (` → `{annualWater.length >= 0 && (` (compare: > -> >=)
+- `m06043` L2567: `{capacityShortfall > 0 && (` → `{capacityShortfall > 1 && (` (intconst: 0 -> 1)
+- `m06100` L2933: `{sortedSensitivity && sortedSensitivity.length > 0 && (` → `{sortedSensitivity && sortedSensitivity.length > 1 && (` (intconst: 0 -> 1)
+- `m06137` L3092: `calibration ? (["sim-calibration", t("simulation.nav.calibration")]) : null,` → `calibration ? null : (["sim-calibration", t("simulation.nav.calibration")]),` (ifexp: swap ternary branches)
+- `m06139` L3110: `target?.focus({ preventScroll: true });` → `target?.focus({ preventScroll: false });` (boolconst: -> false)
+- `m06151` L3167: `<Card id="sim-setup" tabIndex={-1} className="scroll-mt-28 focus:outline-none">` → `<Card id="sim-setup" tabIndex={-2} className="scroll-mt-28 focus:outline-none">` (intconst: 1 -> 2)
+- `m06152` L3167: `<Card id="sim-setup" tabIndex={-1} className="scroll-mt-28 focus:outline-none">` → `<Card id="sim-setup" tabIndex={-0} className="scroll-mt-28 focus:outline-none">` (intconst: 1 -> 0)
+- `m06153` L3181: `calibrationParamsGeneration.current += 1;` → `calibrationParamsGeneration.current += 2;` (intconst: 1 -> 2)
+- `m06154` L3181: `calibrationParamsGeneration.current += 1;` → `calibrationParamsGeneration.current += 0;` (intconst: 1 -> 0)
+- `m06155` L3185: `(breeds?.breeds ?? [breed]).map((b) => [b, humanize(b)]),` → `(breeds?.breeds || [breed]).map((b) => [b, humanize(b)]),` (binop: ?? -> ||)
+- `m06156` L3192: `{(breeds?.breeds ?? [breed]).map((b) => (` → `{(breeds?.breeds || [breed]).map((b) => (` (binop: ?? -> ||)
+- `m06157` L3205: `calibrationParamsGeneration.current += 1;` → `calibrationParamsGeneration.current += 2;` (intconst: 1 -> 2)
+- `m06158` L3205: `calibrationParamsGeneration.current += 1;` → `calibrationParamsGeneration.current += 0;` (intconst: 1 -> 0)
+- `m06159` L3209: `(breeds?.systems ?? [system]).map((s) => [s, localizedFieldLabel(s, t, language)]),` → `(breeds?.systems || [system]).map((s) => [s, localizedFieldLabel(s, t, language)]),` (binop: ?? -> ||)
+- `m06160` L3216: `{(breeds?.systems ?? [system]).map((s) => (` → `{(breeds?.systems || [system]).map((s) => (` (binop: ?? -> ||)
+- `m06161` L3230: `editorEpochRef.current += 1;` → `editorEpochRef.current += 2;` (intconst: 1 -> 2)
+- `m06162` L3230: `editorEpochRef.current += 1;` → `editorEpochRef.current += 0;` (intconst: 1 -> 0)
+- `m06169` L3241: `if (result.data?.status === 200 && acceptDefaultsRef.current) {` → `if (result.data?.status !== 200 && acceptDefaultsRef.current) {` (compare: === -> !==)
+- `m06170` L3241: `if (result.data?.status === 200 && acceptDefaultsRef.current) {` → `if (result.data?.status === 201 && acceptDefaultsRef.current) {` (intconst: 200 -> 201)
+- `m06171` L3241: `if (result.data?.status === 200 && acceptDefaultsRef.current) {` → `if (result.data?.status === 199 && acceptDefaultsRef.current) {` (intconst: 200 -> 199)
+- `m06172` L3242: `acceptDefaultsRef.current = false;` → `acceptDefaultsRef.current = true;` (boolconst: -> true)
+- `m06179` L3276: `calibrationParamsGeneration.current += 1;` → `calibrationParamsGeneration.current += 2;` (intconst: 1 -> 2)
+- `m06180` L3276: `calibrationParamsGeneration.current += 1;` → `calibrationParamsGeneration.current += 0;` (intconst: 1 -> 0)
+- `m06204` L3330: `tabIndex={-1}` → `tabIndex={-2}` (intconst: 1 -> 2)
+- `m06205` L3330: `tabIndex={-1}` → `tabIndex={-0}` (intconst: 1 -> 0)
+- `m06213` L3412: `<Card id="sim-assumptions" tabIndex={-1} className="scroll-mt-28 focus:outline-none">` → `<Card id="sim-assumptions" tabIndex={-2} className="scroll-mt-28 focus:outline-none">` (intconst: 1 -> 2)
+- `m06214` L3412: `<Card id="sim-assumptions" tabIndex={-1} className="scroll-mt-28 focus:outline-none">` → `<Card id="sim-assumptions" tabIndex={-0} className="scroll-mt-28 focus:outline-none">` (intconst: 1 -> 0)
+- `m06220` L3435: `setFieldValidity("field:sim-meta-horizon_months", true);` → `setFieldValidity("field:sim-meta-horizon_months", false);` (boolconst: -> false)
+- `m06221` L3436: `setHorizonInputVersion((version) => version + 1);` → `setHorizonInputVersion((version) => version - 1);` (binop: + -> -)
+- `m06222` L3436: `setHorizonInputVersion((version) => version + 1);` → `setHorizonInputVersion((version) => version + 2);` (intconst: 1 -> 2)
+- `m06231` L3463: `body: SIMULATION_SECTION_HELP[section]?.(simVocabulary) ?? null,` → `body: SIMULATION_SECTION_HELP[section]?.(simVocabulary) || null,` (binop: ?? -> ||)
+- `m06240` L3497: `tabIndex={-1}` → `tabIndex={-2}` (intconst: 1 -> 2)
+- `m06241` L3497: `tabIndex={-1}` → `tabIndex={-0}` (intconst: 1 -> 0)
+- `m06247` L3506: `disabled={!assumptions || events.length >= 500}` → `disabled={!assumptions || events.length >= 499}` (intconst: 500 -> 499)
+- `m06252` L3520: `disabled={!assumptions || events.length >= 500}` → `disabled={!assumptions || events.length >= 499}` (intconst: 500 -> 499)
+- `m06256` L3549: `const eventKey = eventKeys[index] ?? `event-fallback-${index}`;` → `const eventKey = eventKeys[index] || `event-fallback-${index}`;` (binop: ?? -> ||)
+- `m06260` L3616: `max={100_000}` → `max={100001}` (intconst: 100000 -> 100001)
+- `m06263` L3630: `max={1_000_000_000}` → `max={1000000001}` (intconst: 1000000000 -> 1000000001)
+- `m06264` L3630: `max={1_000_000_000}` → `max={999999999}` (intconst: 1000000000 -> 999999999)
+- `m06265` L3634: `value={event.price_per_head ?? null}` → `value={event.price_per_head || null}` (binop: ?? -> ||)
+- `m06266` L3677: `min={1}` → `min={2}` (intconst: 1 -> 2)
+- `m06267` L3677: `min={1}` → `min={0}` (intconst: 1 -> 0)
+- `m06268` L3691: `exclusiveMin={0}` → `exclusiveMin={1}` (intconst: 0 -> 1)
+- `m06269` L3692: `max={100_000}` → `max={100001}` (intconst: 100000 -> 100001)
+- `m06270` L3692: `max={100_000}` → `max={99999}` (intconst: 100000 -> 99999)
+- `m06272` L3704: `min={1}` → `min={0}` (intconst: 1 -> 0)
+- `m06273` L3705: `max={120}` → `max={121}` (intconst: 120 -> 121)
+- `m06274` L3705: `max={120}` → `max={119}` (intconst: 120 -> 119)
+- `m06275` L3718: `min={1}` → `min={2}` (intconst: 1 -> 2)
+- `m06276` L3718: `min={1}` → `min={0}` (intconst: 1 -> 0)
+- `m06277` L3719: `max={120}` → `max={121}` (intconst: 120 -> 121)
+- `m06281` L3785: `<Button onClick={applyRecurrence} disabled={recurrenceInvalid.size > 0}>` → `<Button onClick={applyRecurrence} disabled={recurrenceInvalid.size > 1}>` (intconst: 0 -> 1)
+- `m06291` L3842: `<h2 id="sim-results" tabIndex={-1} className="scroll-mt-28 font-heading text-lg font-semibold focus:outline-none">` → `<h2 id="sim-results" tabIndex={-2} className="scroll-mt-28 font-heading text-lg font-semibold focus:outline-none">` (intconst: 1 -> 2)
+- `m06292` L3842: `<h2 id="sim-results" tabIndex={-1} className="scroll-mt-28 font-heading text-lg font-semibold focus:outline-none">` → `<h2 id="sim-results" tabIndex={-0} className="scroll-mt-28 font-heading text-lg font-semibold focus:outline-none">` (intconst: 1 -> 0)
+- `m06301` L3879: `tabIndex={-1}` → `tabIndex={-2}` (intconst: 1 -> 2)
+- `m06302` L3879: `tabIndex={-1}` → `tabIndex={-0}` (intconst: 1 -> 0)
+- `m06305` L3892: `<TableSkeleton rows={4} columns={4} />` → `<TableSkeleton rows={5} columns={4} />` (intconst: 4 -> 5)
+- `m06306` L3892: `<TableSkeleton rows={4} columns={4} />` → `<TableSkeleton rows={3} columns={4} />` (intconst: 4 -> 3)
+- `m06307` L3892: `<TableSkeleton rows={4} columns={4} />` → `<TableSkeleton rows={4} columns={5} />` (intconst: 4 -> 5)
+- `m06308` L3892: `<TableSkeleton rows={4} columns={4} />` → `<TableSkeleton rows={4} columns={3} />` (intconst: 4 -> 3)
+- `m06315` L3905: `{selectedIds.length > 0 && (` → `{selectedIds.length > 0 || (` (binop: && -> ||)
+- `m06316` L3905: `{selectedIds.length > 0 && (` → `{selectedIds.length >= 0 && (` (compare: > -> >=)
+- `m06317` L3905: `{selectedIds.length > 0 && (` → `{selectedIds.length > 1 && (` (intconst: 0 -> 1)
+- `m06321` L3932: `setSelectedIds((prev) => prev.filter((keep) => keep !== id));` → `setSelectedIds((prev) => prev.filter((keep) => keep === id));` (compare: !== -> ===)
+- `m06336` L3979: `return prev.includes(scenario.id) ||` → `return prev.includes(scenario.id) &&` (binop: || -> &&)
+- `m06337` L3980: `usableCount >= MAX_COMPARE_SCENARIOS` → `usableCount > MAX_COMPARE_SCENARIOS` (compare: >= -> >)
+- `m06349` L4046: `limit={scenarioPage?.limit ?? SCENARIO_PAGE_SIZE}` → `limit={scenarioPage?.limit || SCENARIO_PAGE_SIZE}` (binop: ?? -> ||)
+- `m06350` L4047: `offset={scenarioPage?.offset ?? scenarioOffset}` → `offset={scenarioPage?.offset || scenarioOffset}` (binop: ?? -> ||)
+- `m06355` L4058: `{comparePayload && comparePayload.results.length > 0 && (` → `{comparePayload && comparePayload.results.length > 1 && (` (intconst: 0 -> 1)
+- `m06356` L4075: `<TableCell key={`${comparePayload.scenarios[i]?.id ?? "result"}-${i}`}>` → `<TableCell key={`${comparePayload.scenarios[i]?.id || "result"}-${i}`}>` (binop: ?? -> ||)
+- `m06359` L4093: `if (!nextOpen) setSaveError(null);` → `if (nextOpen) setSaveError(null);` (not: drop !)
+- `m06361` L4111: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
+- `m06362` L4111: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
+- `m06363` L4121: `maxLength={2000}` → `maxLength={2001}` (intconst: 2000 -> 2001)
+- `m06364` L4121: `maxLength={2000}` → `maxLength={1999}` (intconst: 2000 -> 1999)
+- `m06370` L4146: `if (!next) setPendingDelete(null);` → `if (next) setPendingDelete(null);` (not: drop !)
+- `m06381` L4239: `cards={2}` → `cards={3}` (intconst: 2 -> 3)
+- `m06382` L4239: `cards={2}` → `cards={1}` (intconst: 2 -> 1)
+
+### src/app/(app)/tasks/page.tsx (43)
+
+- `m06384` L88: `return value && value !== NONE ? Number(value) : null;` → `return value || value !== NONE ? Number(value) : null;` (binop: && -> ||)
+- `m06402` L177: `if (offset > 0) params.set(key, String(offset));` → `if (offset > 1) params.set(key, String(offset));` (intconst: 0 -> 1)
+- `m06406` L185: `if (total <= 0 || limit <= 0) return 0;` → `if (total <= 1 || limit <= 0) return 0;` (intconst: 0 -> 1)
+- `m06408` L185: `if (total <= 0 || limit <= 0) return 0;` → `if (total <= 0 || limit <= 1) return 0;` (intconst: 0 -> 1)
+- `m06414` L186: `return Math.floor((total - 1) / limit) * limit;` → `return Math.floor((total - 0) / limit) * limit;` (intconst: 1 -> 0)
+- `m06436` L269: `const showFinishedAt = completedTab && finishedAt;` → `const showFinishedAt = completedTab || finishedAt;` (binop: && -> ||)
+- `m06443` L299: `data-done={task.status !== "PENDING" || undefined}` → `data-done={task.status !== "PENDING" && undefined}` (binop: || -> &&)
+- `m06444` L299: `data-done={task.status !== "PENDING" || undefined}` → `data-done={task.status === "PENDING" || undefined}` (compare: !== -> ===)
+- `m06445` L302: `? "font-medium"` → `? "font-medium text-muted-foreground line-through""font-medium"` (ifexp: swap ternary branches)
+- `m06446` L301: `task.status === "PENDING"` → `task.status !== "PENDING"` (compare: === -> !==)
+- `m06456` L332: `: (task.assigned_role_name ?? "—")}` → `: (task.assigned_role_name || "—")}` (binop: ?? -> ||)
+- `m06484` L406: `className={t2.status === "PENDING" ? undefined : "text-muted-foreground line-through"}` → `className={t2.status === "PENDING" ? "text-muted-foreground line-through" : undefined}` (ifexp: swap ternary branches)
+- `m06485` L406: `className={t2.status === "PENDING" ? undefined : "text-muted-foreground line-through"}` → `className={t2.status !== "PENDING" ? undefined : "text-muted-foreground line-through"}` (compare: === -> !==)
+- `m06497` L451: `t2.assigned_role_name ?? "—"` → `t2.assigned_role_name || "—"` (binop: ?? -> ||)
+- `m06509` L514: `.min(1, t("tasks.form.titleRequired"))` → `.min(2, t("tasks.form.titleRequired"))` (intconst: 1 -> 2)
+- `m06511` L518: `.min(1, t("tasks.form.dueRequired"))` → `.min(2, t("tasks.form.dueRequired"))` (intconst: 1 -> 2)
+- `m06535` L548: `if (!Number.isInteger(recurrenceDays) || recurrenceDays < 1 || recurrenceDays > MAX_RECUR_DAYS) {` → `if (!Number.isInteger(recurrenceDays) && recurrenceDays < 1 || recurrenceDays > MAX_RECUR_DAYS) {` (binop: || -> &&)
+- `m06539` L548: `if (!Number.isInteger(recurrenceDays) || recurrenceDays < 1 || recurrenceDays > MAX_RECUR_DAYS) {` → `if (!Number.isInteger(recurrenceDays) || recurrenceDays < 0 || recurrenceDays > MAX_RECUR_DAYS) {` (intconst: 1 -> 0)
+- `m06545` L619: `const tab = activeNavigationOverride?.tab ?? paramsTab;` → `const tab = activeNavigationOverride?.tab || paramsTab;` (binop: ?? -> ||)
+- `m06546` L620: `const offsets = activeNavigationOverride?.offsets ?? paramsOffsets;` → `const offsets = activeNavigationOverride?.offsets || paramsOffsets;` (binop: ?? -> ||)
+- `m06548` L643: `refetchOnWindowFocus: true,` → `refetchOnWindowFocus: false,` (boolconst: -> false)
+- `m06560` L704: `}, 0);` → `}, 1);` (intconst: 0 -> 1)
+- `m06561` L715: `if (!payload) return;` → `if (payload) return;` (not: drop !)
+- `m06569` L732: `const completedRows = payload?.completed ?? [];` → `const completedRows = payload?.completed || [];` (binop: ?? -> ||)
+- `m06579` L741: `).map((m) => [m.user_id, m.name ?? m.email]),` → `).map((m) => [m.user_id, m.name || m.email]),` (binop: ?? -> ||)
+- `m06582` L746: `id === null ? null : (memberNames.get(id) ?? null);` → `id === null ? null : (memberNames.get(id) || null);` (binop: ?? -> ||)
+- `m06587` L753: `...Object.fromEntries((team?.roles ?? []).map((r) => [String(r.id), r.name])),` → `...Object.fromEntries((team?.roles || []).map((r) => [String(r.id), r.name])),` (binop: ?? -> ||)
+- `m06588` L759: `(team?.memberships ?? [])` → `(team?.memberships || [])` (binop: ?? -> ||)
+- `m06589` L763: ``${m.name ?? m.email} (${m.role_name ?? t("tasks.form.workerFallback")})`,` → ``${m.name || m.email} (${m.role_name ?? t("tasks.form.workerFallback")})`,` (binop: ?? -> ||)
+- `m06590` L763: ``${m.name ?? m.email} (${m.role_name ?? t("tasks.form.workerFallback")})`,` → ``${m.name ?? m.email} (${m.role_name || t("tasks.form.workerFallback")})`,` (binop: ?? -> ||)
+- `m06591` L774: `const roleSelectOptions = team?.roles ?? [];` → `const roleSelectOptions = team?.roles || [];` (binop: ?? -> ||)
+- `m06592` L776: `const workerSelectOptions = (team?.memberships ?? []).filter((m) => m.is_active);` → `const workerSelectOptions = (team?.memberships || []).filter((m) => m.is_active);` (binop: ?? -> ||)
+- `m06607` L871: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={3} />` (intconst: 2 -> 3)
+- `m06608` L871: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={1} />` (intconst: 2 -> 1)
+- `m06615` L997: `currentUserId={user?.id ?? null}` → `currentUserId={user?.id || null}` (binop: ?? -> ||)
+- `m06620` L1023: `if (!nextOpen) setCreateError(null);` → `if (nextOpen) setCreateError(null);` (not: drop !)
+- `m06628` L1078: `setValue("category", v as DutyValues["category"], { shouldValidate: true })` → `setValue("category", v as DutyValues["category"], { shouldValidate: false })` (boolconst: -> false)
+- `m06645` L1206: `{m.name ?? m.email} (` → `{m.name || m.email} (` (binop: ?? -> ||)
+- `m06646` L1207: `{m.role_name ?? t("tasks.form.workerFallback")})` → `{m.role_name || t("tasks.form.workerFallback")})` (binop: ?? -> ||)
+- `m06656` L1265: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={3} />` (intconst: 2 -> 3)
+- `m06657` L1265: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={1} />` (intconst: 2 -> 1)
+- `m06658` L1274: `cards={2}` → `cards={3}` (intconst: 2 -> 3)
+- `m06659` L1274: `cards={2}` → `cards={1}` (intconst: 2 -> 1)
+
+### src/app/(app)/team/page.tsx (108)
+
+- `m06664` L113: `role_id: z.string().min(1, t("team.validation.pickRole")),` → `role_id: z.string().min(2, t("team.validation.pickRole")),` (intconst: 1 -> 2)
+- `m06667` L116: `.min(12, t("team.validation.passwordMin"))` → `.min(11, t("team.validation.passwordMin"))` (intconst: 12 -> 11)
+- `m06669` L117: `.max(128, t("team.validation.passwordMax")),` → `.max(127, t("team.validation.passwordMax")),` (intconst: 128 -> 127)
+- `m06671` L125: `password: z.string().min(12, t("team.validation.passwordMin")).max(128),` → `password: z.string().min(11, t("team.validation.passwordMin")).max(128),` (intconst: 12 -> 11)
+- `m06672` L125: `password: z.string().min(12, t("team.validation.passwordMin")).max(128),` → `password: z.string().min(12, t("team.validation.passwordMin")).max(129),` (intconst: 128 -> 129)
+- `m06673` L125: `password: z.string().min(12, t("team.validation.passwordMin")).max(128),` → `password: z.string().min(12, t("team.validation.passwordMin")).max(127),` (intconst: 128 -> 127)
+- `m06674` L159: `name: z.string().trim().min(1, t("team.validation.nameRequired")).max(80),` → `name: z.string().trim().min(2, t("team.validation.nameRequired")).max(80),` (intconst: 1 -> 2)
+- `m06676` L159: `name: z.string().trim().min(1, t("team.validation.nameRequired")).max(80),` → `name: z.string().trim().min(1, t("team.validation.nameRequired")).max(81),` (intconst: 80 -> 81)
+- `m06677` L159: `name: z.string().trim().min(1, t("team.validation.nameRequired")).max(80),` → `name: z.string().trim().min(1, t("team.validation.nameRequired")).max(79),` (intconst: 80 -> 79)
+- `m06686` L244: `roleMutation.isPending ||` → `roleMutation.isPending &&` (binop: || -> &&)
+- `m06687` L243: `actionSettling ||` → `actionSettling &&` (binop: || -> &&)
+- `m06693` L257: `setActionSettling(true);` → `setActionSettling(false);` (boolconst: -> false)
+- `m06705` L286: `setActionSettling(true);` → `setActionSettling(false);` (boolconst: -> false)
+- `m06711` L311: `if (!m.can_reset_password || !authority.canStart() || actionLock.current !== null)` → `if (!m.can_reset_password && !authority.canStart() || actionLock.current !== null)` (binop: || -> &&)
+- `m06718` L342: `{(m.name ?? m.email).trim().charAt(0).toUpperCase()}` → `{(m.name || m.email).trim().charAt(0).toUpperCase()}` (binop: ?? -> ||)
+- `m06720` L344: `<span>{m.name ?? "—"}</span>` → `<span>{m.name || "—"}</span>` (binop: ?? -> ||)
+- `m06726` L376: `aria-label={t("team.workers.roleFieldAria", { name: m.name ?? m.email })}` → `aria-label={t("team.workers.roleFieldAria", { name: m.name || m.email })}` (binop: ?? -> ||)
+- `m06754` L511: `if (!nextOpen && actionLock.current === "status") return;` → `if (!nextOpen || actionLock.current === "status") return;` (binop: && -> ||)
+- `m06755` L511: `if (!nextOpen && actionLock.current === "status") return;` → `if (nextOpen && actionLock.current === "status") return;` (not: drop !)
+- `m06756` L511: `if (!nextOpen && actionLock.current === "status") return;` → `if (!nextOpen && actionLock.current !== "status") return;` (compare: === -> !==)
+- `m06757` L517: `<DialogTitle>{t("team.deactivate.title", { name: m.name ?? m.email })}</DialogTitle>` → `<DialogTitle>{t("team.deactivate.title", { name: m.name || m.email })}</DialogTitle>` (binop: ?? -> ||)
+- `m06764` L555: `void setWorkerActive(actionError.desiredActive ?? !m.is_active, false)` → `void setWorkerActive(actionError.desiredActive || !m.is_active, false)` (binop: ?? -> ||)
+- `m06765` L555: `void setWorkerActive(actionError.desiredActive ?? !m.is_active, false)` → `void setWorkerActive(actionError.desiredActive ?? m.is_active, false)` (not: drop !)
+- `m06778` L707: `onOpenChange(true);` → `onOpenChange(false);` (boolconst: -> false)
+- `m06779` L722: `disabled={authority.blocked || isSubmitting || createFlight.pending}` → `disabled={authority.blocked || isSubmitting && createFlight.pending}` (binop: || -> &&)
+- `m06785` L739: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
+- `m06786` L739: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
+- `m06790` L756: `maxLength={254}` → `maxLength={255}` (intconst: 254 -> 255)
+- `m06791` L756: `maxLength={254}` → `maxLength={253}` (intconst: 254 -> 253)
+- `m06795` L774: `maxLength={128}` → `maxLength={129}` (intconst: 128 -> 129)
+- `m06796` L774: `maxLength={128}` → `maxLength={127}` (intconst: 128 -> 127)
+- `m06805` L816: `disabled={isSubmitting || createFlight.pending}` → `disabled={isSubmitting && createFlight.pending}` (binop: || -> &&)
+- `m06807` L827: `isSubmitting ||` → `isSubmitting &&` (binop: || -> &&)
+- `m06823` L900: `<DialogTitle>{t("team.resetForm.title", { name: membership.name ?? membership.email })}</DialogTitle>` → `<DialogTitle>{t("team.resetForm.title", { name: membership.name || membership.email })}</DialogTitle>` (binop: ?? -> ||)
+- `m06824` L904: `disabled={authority.blocked || isSubmitting || resetFlight.pending}` → `disabled={authority.blocked || isSubmitting && resetFlight.pending}` (binop: || -> &&)
+- `m06827` L917: `maxLength={128}` → `maxLength={129}` (intconst: 128 -> 129)
+- `m06828` L917: `maxLength={128}` → `maxLength={127}` (intconst: 128 -> 127)
+- `m06832` L934: `disabled={isSubmitting || resetFlight.pending}` → `disabled={isSubmitting && resetFlight.pending}` (binop: || -> &&)
+- `m06833` L941: `disabled={authority.blocked || isSubmitting || resetFlight.pending}` → `disabled={authority.blocked || isSubmitting && resetFlight.pending}` (binop: || -> &&)
+- `m06838` L977: `const name = membership.name ?? membership.email;` → `const name = membership.name || membership.email;` (binop: ?? -> ||)
+- `m06839` L981: `<Dialog open onOpenChange={(open) => !open && onClose()}>` → `<Dialog open onOpenChange={(open) => !open || onClose()}>` (binop: && -> ||)
+- `m06840` L981: `<Dialog open onOpenChange={(open) => !open && onClose()}>` → `<Dialog open onOpenChange={(open) => open && onClose()}>` (not: drop !)
+- `m06841` L996: `<Dialog open onOpenChange={(open) => !open && onClose()}>` → `<Dialog open onOpenChange={(open) => !open || onClose()}>` (binop: && -> ||)
+- `m06842` L996: `<Dialog open onOpenChange={(open) => !open && onClose()}>` → `<Dialog open onOpenChange={(open) => open && onClose()}>` (not: drop !)
+- `m06847` L1045: `const name = membership.name ?? membership.email;` → `const name = membership.name || membership.email;` (binop: ?? -> ||)
+- `m06849` L1074: `phone: prefs?.phone ?? "",` → `phone: prefs?.phone || "",` (binop: ?? -> ||)
+- `m06850` L1075: `daily_digest: prefs?.daily_digest ?? false,` → `daily_digest: prefs?.daily_digest || false,` (binop: ?? -> ||)
+- `m06852` L1076: `screening_flags: prefs?.screening_flags ?? false,` → `screening_flags: prefs?.screening_flags || false,` (binop: ?? -> ||)
+- `m06854` L1077: `kidding_watch: prefs?.kidding_watch ?? false,` → `kidding_watch: prefs?.kidding_watch || false,` (binop: ?? -> ||)
+- `m06856` L1078: `overdue_critical: prefs?.overdue_critical ?? false,` → `overdue_critical: prefs?.overdue_critical || false,` (binop: ?? -> ||)
+- `m06858` L1079: `feed_reorder: prefs?.feed_reorder ?? false,` → `feed_reorder: prefs?.feed_reorder || false,` (binop: ?? -> ||)
+- `m06860` L1080: `movement_restriction: prefs?.movement_restriction ?? false,` → `movement_restriction: prefs?.movement_restriction || false,` (binop: ?? -> ||)
+- `m06862` L1081: `verified: prefs?.verified ?? false,` → `verified: prefs?.verified || false,` (binop: ?? -> ||)
+- `m06867` L1123: `const busy = isSubmitting || saveFlight.pending;` → `const busy = isSubmitting && saveFlight.pending;` (binop: || -> &&)
+- `m06868` L1128: `onOpenChange={(open) => !open && !busy && onClose()}` → `onOpenChange={(open) => !open && !busy || onClose()}` (binop: && -> ||)
+- `m06869` L1128: `onOpenChange={(open) => !open && !busy && onClose()}` → `onOpenChange={(open) => !open || !busy && onClose()}` (binop: && -> ||)
+- `m06870` L1128: `onOpenChange={(open) => !open && !busy && onClose()}` → `onOpenChange={(open) => open && !busy && onClose()}` (not: drop !)
+- `m06871` L1128: `onOpenChange={(open) => !open && !busy && onClose()}` → `onOpenChange={(open) => !open && busy && onClose()}` (not: drop !)
+- `m06873` L1139: `data-readonly={readOnly || undefined}` → `data-readonly={readOnly && undefined}` (binop: || -> &&)
+- `m06878` L1162: `maxLength={20}` → `maxLength={21}` (intconst: 20 -> 21)
+- `m06879` L1162: `maxLength={20}` → `maxLength={19}` (intconst: 20 -> 19)
+- `m06880` L1165: `aria-invalid={Boolean(errors.phone) || undefined}` → `aria-invalid={Boolean(errors.phone) && undefined}` (binop: || -> &&)
+- `m06881` L1166: `aria-describedby={errors.phone ? "notification-phone-error" : undefined}` → `aria-describedby={errors.phone ? undefined : "notification-phone-error"}` (ifexp: swap ternary branches)
+- `m06883` L1189: `checked={values[alertClass.field] ?? false}` → `checked={values[alertClass.field] || false}` (binop: ?? -> ||)
+- `m06884` L1189: `checked={values[alertClass.field] ?? false}` → `checked={values[alertClass.field] ?? true}` (boolconst: -> true)
+- `m06887` L1208: `checked={values.verified ?? false}` → `checked={values.verified || false}` (binop: ?? -> ||)
+- `m06888` L1208: `checked={values.verified ?? false}` → `checked={values.verified ?? true}` (boolconst: -> true)
+- `m06889` L1210: `onCheckedChange={(checked) => setValue("verified", checked === true)}` → `onCheckedChange={(checked) => setValue("verified", checked !== true)}` (compare: === -> !==)
+- `m06890` L1210: `onCheckedChange={(checked) => setValue("verified", checked === true)}` → `onCheckedChange={(checked) => setValue("verified", checked === false)}` (boolconst: -> false)
+- `m06898` L1271: `const initial = new Set(role?.permissions ?? []);` → `const initial = new Set(role?.permissions || []);` (binop: ?? -> ||)
+- `m06900` L1290: `defaultValues: { name: role?.name ?? "", description: role?.description ?? "" },` → `defaultValues: { name: role?.name || "", description: role?.description ?? "" },` (binop: ?? -> ||)
+- `m06901` L1290: `defaultValues: { name: role?.name ?? "", description: role?.description ?? "" },` → `defaultValues: { name: role?.name ?? "", description: role?.description || "" },` (binop: ?? -> ||)
+- `m06902` L1299: `if (dependency && canGrant(dependency)) next.add(dependency);` → `if (dependency || canGrant(dependency)) next.add(dependency);` (binop: && -> ||)
+- `m06919` L1359: `disabled={authority.blocked || isSubmitting || saveFlight.pending}` → `disabled={authority.blocked || isSubmitting && saveFlight.pending}` (binop: || -> &&)
+- `m06922` L1371: `maxLength={80}` → `maxLength={81}` (intconst: 80 -> 81)
+- `m06923` L1371: `maxLength={80}` → `maxLength={79}` (intconst: 80 -> 79)
+- `m06927` L1388: `maxLength={255}` → `maxLength={256}` (intconst: 255 -> 256)
+- `m06928` L1388: `maxLength={255}` → `maxLength={254}` (intconst: 255 -> 254)
+- `m06950` L1443: `{team.permission_labels[code] ?? code}` → `{team.permission_labels[code] || code}` (binop: ?? -> ||)
+- `m06959` L1450: `{held && code === "team.manage"` → `{held || code === "team.manage"` (binop: && -> ||)
+- `m06962` L1458: `label: team.permission_labels[dependency] ?? dependency,` → `label: team.permission_labels[dependency] || dependency,` (binop: ?? -> ||)
+- `m06966` L1466: `.map((action) => team.permission_labels[action] ?? action)` → `.map((action) => team.permission_labels[action] || action)` (binop: ?? -> ||)
+- `m06967` L1483: `disabled={isSubmitting || saveFlight.pending}` → `disabled={isSubmitting && saveFlight.pending}` (binop: || -> &&)
+- `m06968` L1490: `disabled={authority.blocked || isSubmitting || saveFlight.pending}` → `disabled={authority.blocked || isSubmitting && saveFlight.pending}` (binop: || -> &&)
+- `m06978` L1531: `const memberCount = role.member_count ?? 0;` → `const memberCount = role.member_count || 0;` (binop: ?? -> ||)
+- `m06979` L1531: `const memberCount = role.member_count ?? 0;` → `const memberCount = role.member_count ?? 1;` (intconst: 0 -> 1)
+- `m06983` L1538: `const deleteHint = scopeHint ?? (role.code` → `const deleteHint = scopeHint || (role.code` (binop: ?? -> ||)
+- `m06989` L1545: `if (!authority.canStart() || deleteLock.current || deleteHint !== undefined) return;` → `if (!authority.canStart() && deleteLock.current || deleteHint !== undefined) return;` (binop: || -> &&)
+- `m06992` L1546: `deleteLock.current = true;` → `deleteLock.current = false;` (boolconst: -> false)
+- `m06993` L1547: `setDeleteSettling(true);` → `setDeleteSettling(false);` (boolconst: -> false)
+- `m06998` L1574: `deleteSettling ||` → `deleteSettling &&` (binop: || -> &&)
+- `m06999` L1573: `deleteLock.current ||` → `deleteLock.current &&` (binop: || -> &&)
+- `m07000` L1572: `!authority.canStart() ||` → `!authority.canStart() &&` (binop: || -> &&)
+- `m07003` L1591: `<div className="text-sm text-muted-foreground">{role.description ?? "—"}</div>` → `<div className="text-sm text-muted-foreground">{role.description || "—"}</div>` (binop: ?? -> ||)
+- `m07009` L1606: `deleteSettling ||` → `deleteSettling &&` (binop: || -> &&)
+- `m07013` L1620: `deleteSettling ||` → `deleteSettling &&` (binop: || -> &&)
+- `m07018` L1633: `if (!nextOpen && (deleteLock.current || deleteMutation.isPending)) return;` → `if (!nextOpen || (deleteLock.current || deleteMutation.isPending)) return;` (binop: && -> ||)
+- `m07019` L1633: `if (!nextOpen && (deleteLock.current || deleteMutation.isPending)) return;` → `if (nextOpen && (deleteLock.current || deleteMutation.isPending)) return;` (not: drop !)
+- `m07020` L1633: `if (!nextOpen && (deleteLock.current || deleteMutation.isPending)) return;` → `if (!nextOpen && (deleteLock.current && deleteMutation.isPending)) return;` (binop: || -> &&)
+- `m07024` L1670: `disabled={authority.blocked || deleteSettling || deleteMutation.isPending}` → `disabled={authority.blocked || deleteSettling && deleteMutation.isPending}` (binop: || -> &&)
+- `m07029` L1683: `{team.permission_labels[code] ?? code}` → `{team.permission_labels[code] || code}` (binop: ?? -> ||)
+- `m07043` L1747: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={3} />` (intconst: 2 -> 3)
+- `m07044` L1747: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={1} />` (intconst: 2 -> 1)
+- `m07064` L1839: `if (!authority.canStart()) return;` → `if (authority.canStart()) return;` (not: drop !)
+- `m07065` L1840: `setWorkerOpen(true);` → `setWorkerOpen(false);` (boolconst: -> false)
+- `m07082` L2001: `role={currentDialogRole ?? null}` → `role={currentDialogRole || null}` (binop: ?? -> ||)
+- `m07083` L2022: `cards={2}` → `cards={3}` (intconst: 2 -> 3)
+- `m07084` L2022: `cards={2}` → `cards={1}` (intconst: 2 -> 1)
+
+### src/app/farm-select/page.tsx (12)
+
+- `m07085` L48: `.min(1, t("farmSelect.errors.nameRequired"))` → `.min(2, t("farmSelect.errors.nameRequired"))` (intconst: 1 -> 2)
+- `m07091` L58: `.min(1, t("farmSelect.errors.timezoneRequired"))` → `.min(2, t("farmSelect.errors.timezoneRequired"))` (intconst: 1 -> 2)
+- `m07098` L80: `const mounted = useRef(true);` → `const mounted = useRef(false);` (boolconst: -> false)
+- `m07105` L123: `router.push(requestedPath ?? firstPermittedPathFromList(permissions.permissions));` → `router.push(requestedPath || firstPermittedPathFromList(permissions.permissions));` (binop: ?? -> ||)
+- `m07136` L257: `{farm.location ?? "—"} · {farm.role ?? t("farmSelect.ownerRole")}` → `{farm.location || "—"} · {farm.role ?? t("farmSelect.ownerRole")}` (binop: ?? -> ||)
+- `m07137` L257: `{farm.location ?? "—"} · {farm.role ?? t("farmSelect.ownerRole")}` → `{farm.location ?? "—"} · {farm.role || t("farmSelect.ownerRole")}` (binop: ?? -> ||)
+- `m07139` L292: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
+- `m07140` L292: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
+- `m07144` L308: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
+- `m07145` L308: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
+- `m07149` L329: `maxLength={64}` → `maxLength={65}` (intconst: 64 -> 65)
+- `m07150` L329: `maxLength={64}` → `maxLength={63}` (intconst: 64 -> 63)
+
+### src/app/layout.tsx (1)
+
+- `m07159` L51: `const nonce = (await headers()).get("x-nonce") ?? undefined;` → `const nonce = (await headers()).get("x-nonce") || undefined;` (binop: ?? -> ||)
+
+### src/app/login/page.tsx (14)
+
+- `m07167` L74: `const mounted = useRef(true);` → `const mounted = useRef(false);` (boolconst: -> false)
+- `m07176` L124: `router.push(requested ?? firstPermittedPathFromList(permissions.permissions));` → `router.push(requested || firstPermittedPathFromList(permissions.permissions));` (binop: ?? -> ||)
+- `m07180` L144: `body: JSON.stringify({ mfa_token: mfaToken, code: values.totp ?? "" }),` → `body: JSON.stringify({ mfa_token: mfaToken, code: values.totp || "" }),` (binop: ?? -> ||)
+- `m07183` L170: `if (!body.access_token || !body.user) {` → `if (!body.access_token && !body.user) {` (binop: || -> &&)
+- `m07197` L234: `maxLength={254}` → `maxLength={255}` (intconst: 254 -> 255)
+- `m07203` L251: `maxLength={128}` → `maxLength={129}` (intconst: 128 -> 129)
+- `m07211` L271: `maxLength={11}` → `maxLength={12}` (intconst: 11 -> 12)
+- `m07212` L271: `maxLength={11}` → `maxLength={10}` (intconst: 11 -> 10)
+- `m07213` L272: `spellCheck={false}` → `spellCheck={true}` (boolconst: -> true)
+- `m07214` L273: `aria-invalid={!!errors.totp}` → `aria-invalid={!errors.totp}` (not: drop !)
+- `m07215` L273: `aria-invalid={!!errors.totp}` → `aria-invalid={!errors.totp}` (not: drop !)
+- `m07216` L274: `aria-describedby={errors.totp ? "totp-error" : undefined}` → `aria-describedby={errors.totp ? undefined : "totp-error"}` (ifexp: swap ternary branches)
+- `m07226` L306: `disabled={isSubmitting || submission.pending}` → `disabled={isSubmitting && submission.pending}` (binop: || -> &&)
+- `m07227` L315: `setValue("totp", undefined, { shouldValidate: false });` → `setValue("totp", undefined, { shouldValidate: true });` (boolconst: -> true)
+
+### src/app/register/page.tsx (5)
+
+- `m07248` L46: `const mounted = useRef(true);` → `const mounted = useRef(false);` (boolconst: -> false)
+- `m07256` L129: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
+- `m07257` L129: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
+- `m07261` L146: `maxLength={254}` → `maxLength={255}` (intconst: 254 -> 255)
+- `m07266` L163: `maxLength={128}` → `maxLength={129}` (intconst: 128 -> 129)
+
+### src/app/worker/layout.tsx (21)
+
+- `m07276` L44: `const raw = safeStorage("local")?.getItem(TABLET_FARM_STORAGE_KEY) ?? null;` → `const raw = safeStorage("local")?.getItem(TABLET_FARM_STORAGE_KEY) || null;` (binop: ?? -> ||)
+- `m07280` L47: `return Number.isSafeInteger(value) && value > 0 ? value : null;` → `return Number.isSafeInteger(value) && value >= 0 ? value : null;` (compare: > -> >=)
+- `m07281` L47: `return Number.isSafeInteger(value) && value > 0 ? value : null;` → `return Number.isSafeInteger(value) && value > 1 ? value : null;` (intconst: 0 -> 1)
+- `m07282` L71: `const [online, setOnline] = useState(true);` → `const [online, setOnline] = useState(false);` (boolconst: -> false)
+- `m07283` L72: `const [depth, setDepth] = useState(0);` → `const [depth, setDepth] = useState(1);` (intconst: 0 -> 1)
+- `m07287` L128: `if (user === null || farmId === null) return;` → `if (user === null && farmId === null) return;` (binop: || -> &&)
+- `m07291` L130: `user !== null && farmId !== null` → `user !== null || farmId !== null` (binop: && -> ||)
+- `m07294` L140: `rejected === 1 ? "worker.offlineRejected_one" : "worker.offlineRejected_many",` → `rejected === 1 ? "worker.offlineRejected_many" : "worker.offlineRejected_one",` (ifexp: swap ternary branches)
+- `m07295` L140: `rejected === 1 ? "worker.offlineRejected_one" : "worker.offlineRejected_many",` → `rejected !== 1 ? "worker.offlineRejected_one" : "worker.offlineRejected_many",` (compare: === -> !==)
+- `m07296` L140: `rejected === 1 ? "worker.offlineRejected_one" : "worker.offlineRejected_many",` → `rejected === 2 ? "worker.offlineRejected_one" : "worker.offlineRejected_many",` (intconst: 1 -> 2)
+- `m07297` L140: `rejected === 1 ? "worker.offlineRejected_one" : "worker.offlineRejected_many",` → `rejected === 0 ? "worker.offlineRejected_one" : "worker.offlineRejected_many",` (intconst: 1 -> 0)
+- `m07298` L145: `const tick = window.setInterval(() => setDepth(offlineQueueDepth()), 1500);` → `const tick = window.setInterval(() => setDepth(offlineQueueDepth()), 1501);` (intconst: 1500 -> 1501)
+- `m07299` L145: `const tick = window.setInterval(() => setDepth(offlineQueueDepth()), 1500);` → `const tick = window.setInterval(() => setDepth(offlineQueueDepth()), 1499);` (intconst: 1500 -> 1499)
+- `m07306` L204: `<p className="text-xs text-muted-foreground">{farm?.name ?? t("worker.title")}</p>` → `<p className="text-xs text-muted-foreground">{farm?.name || t("worker.title")}</p>` (binop: ?? -> ||)
+- `m07307` L206: `{user.name ?? user.email}` → `{user.name || user.email}` (binop: ?? -> ||)
+- `m07311` L215: `{depth > 0 && (` → `{depth >= 0 && (` (compare: > -> >=)
+- `m07312` L215: `{depth > 0 && (` → `{depth > 1 && (` (intconst: 0 -> 1)
+- `m07316` L240: `{!perms.loading && perms.isError && (` → `{!perms.loading && perms.isError || (` (binop: && -> ||)
+- `m07320` L252: `if (!nextOpen) setEndShiftPendingCount(null);` → `if (nextOpen) setEndShiftPendingCount(null);` (not: drop !)
+- `m07325` L263: `{ count: endShiftPendingCount ?? 0 },` → `{ count: endShiftPendingCount || 0 },` (binop: ?? -> ||)
+- `m07326` L263: `{ count: endShiftPendingCount ?? 0 },` → `{ count: endShiftPendingCount ?? 1 },` (intconst: 0 -> 1)
+
+### src/app/worker/login/page.tsx (39)
+
+- `m07328` L61: `const setupRef = useRef(false);` → `const setupRef = useRef(true);` (boolconst: -> true)
+- `m07330` L71: `setupRef.current = false;` → `setupRef.current = true;` (boolconst: -> true)
+- `m07331` L83: `{ farm_id: tabletFarmId ?? 0 },` → `{ farm_id: tabletFarmId || 0 },` (binop: ?? -> ||)
+- `m07332` L83: `{ farm_id: tabletFarmId ?? 0 },` → `{ farm_id: tabletFarmId ?? 1 },` (intconst: 0 -> 1)
+- `m07338` L94: `tabletFarmId !== null &&` → `tabletFarmId !== null ||` (binop: && -> ||)
+- `m07339` L93: `farmId !== null &&` → `farmId !== null ||` (binop: && -> ||)
+- `m07340` L92: `!setupRef.current &&` → `!setupRef.current ||` (binop: && -> ||)
+- `m07341` L92: `!setupRef.current &&` → `setupRef.current &&` (not: drop !)
+- `m07342` L93: `farmId !== null &&` → `farmId === null &&` (compare: !== -> ===)
+- `m07343` L94: `tabletFarmId !== null &&` → `tabletFarmId === null &&` (compare: !== -> ===)
+- `m07344` L95: `farmId === tabletFarmId` → `farmId !== tabletFarmId` (compare: === -> !==)
+- `m07345` L102: `if (selected === null || tabletFarmId === null || busy) return;` → `if (selected === null || tabletFarmId === null && busy) return;` (binop: || -> &&)
+- `m07346` L102: `if (selected === null || tabletFarmId === null || busy) return;` → `if (selected === null && tabletFarmId === null || busy) return;` (binop: || -> &&)
+- `m07349` L103: `setBusy(true);` → `setBusy(false);` (boolconst: -> false)
+- `m07356` L148: `setBusy(false);` → `setBusy(true);` (boolconst: -> true)
+- `m07357` L154: `setBusy(true);` → `setBusy(false);` (boolconst: -> false)
+- `m07358` L166: `if (!body.access_token || !body.user) {` → `if (!body.access_token && !body.user) {` (binop: || -> &&)
+- `m07364` L189: `if (busy || mfaToken === null) return;` → `if (busy && mfaToken === null) return;` (binop: || -> &&)
+- `m07366` L190: `setBusy(true);` → `setBusy(false);` (boolconst: -> false)
+- `m07367` L197: `setupRef.current = true;` → `setupRef.current = false;` (boolconst: -> false)
+- `m07368` L207: `? t("worker.setup.failed")` → `? t("worker.login.networkError")t("worker.setup.failed")` (ifexp: swap ternary branches)
+- `m07369` L211: `setBusy(false);` → `setBusy(true);` (boolconst: -> true)
+- `m07370` L226: `setupRef.current = false;` → `setupRef.current = true;` (boolconst: -> true)
+- `m07371` L234: `setupRef.current = false;` → `setupRef.current = true;` (boolconst: -> true)
+- `m07372` L254: `setUnpinOpen(false);` → `setUnpinOpen(true);` (boolconst: -> true)
+- `m07375` L260: `const next = (pin + digit).slice(0, 12);` → `const next = (pin + digit).slice(0, 13);` (intconst: 12 -> 13)
+- `m07376` L260: `const next = (pin + digit).slice(0, 12);` → `const next = (pin + digit).slice(0, 11);` (intconst: 12 -> 11)
+- `m07383` L325: `{error && (` → `{error || (` (binop: && -> ||)
+- `m07384` L330: `<Button type="submit" className="h-14 w-full text-lg" disabled={busy || code.length < 6}>` → `<Button type="submit" className="h-14 w-full text-lg" disabled={busy && code.length < 6}>` (binop: || -> &&)
+- `m07387` L330: `<Button type="submit" className="h-14 w-full text-lg" disabled={busy || code.length < 6}>` → `<Button type="submit" className="h-14 w-full text-lg" disabled={busy || code.length < 5}>` (intconst: 6 -> 5)
+- `m07389` L382: `{error && (` → `{error || (` (binop: && -> ||)
+- `m07396` L444: `) : roster.items.length === 0 ? (` → `) : roster.items.length === 1 ? (` (intconst: 0 -> 1)
+- `m07399` L509: `{"•".repeat(pin.length) || "—"}` → `{"•".repeat(pin.length) && "—"}` (binop: || -> &&)
+- `m07400` L511: `{error && (` → `{error || (` (binop: && -> ||)
+- `m07401` L534: `onClick={() => setPin(pin.slice(0, -1))}` → `onClick={() => setPin(pin.slice(1, -1))}` (intconst: 0 -> 1)
+- `m07402` L534: `onClick={() => setPin(pin.slice(0, -1))}` → `onClick={() => setPin(pin.slice(0, -2))}` (intconst: 1 -> 2)
+- `m07403` L534: `onClick={() => setPin(pin.slice(0, -1))}` → `onClick={() => setPin(pin.slice(0, -0))}` (intconst: 1 -> 0)
+- `m07404` L549: `disabled={busy || pin.length < 4}` → `disabled={busy && pin.length < 4}` (binop: || -> &&)
+- `m07407` L549: `disabled={busy || pin.length < 4}` → `disabled={busy || pin.length < 3}` (intconst: 4 -> 3)
+
+### src/app/worker/page.tsx (42)
+
+- `m07412` L87: `{canComplete && task.status === "PENDING" ? (` → `{canComplete || task.status === "PENDING" ? (` (binop: && -> ||)
+- `m07417` L138: `active_limit: 200,` → `active_limit: 201,` (intconst: 200 -> 201)
+- `m07418` L138: `active_limit: 200,` → `active_limit: 199,` (intconst: 200 -> 199)
+- `m07419` L139: `today_offset: 0,` → `today_offset: 1,` (intconst: 0 -> 1)
+- `m07420` L140: `overdue_offset: 0,` → `overdue_offset: 1,` (intconst: 0 -> 1)
+- `m07421` L141: `upcoming_offset: 0,` → `upcoming_offset: 1,` (intconst: 0 -> 1)
+- `m07422` L142: `awaiting_offset: 0,` → `awaiting_offset: 1,` (intconst: 0 -> 1)
+- `m07423` L143: `completed_limit: 10,` → `completed_limit: 11,` (intconst: 10 -> 11)
+- `m07424` L143: `completed_limit: 10,` → `completed_limit: 9,` (intconst: 10 -> 9)
+- `m07425` L144: `completed_offset: 0,` → `completed_offset: 1,` (intconst: 0 -> 1)
+- `m07426` L146: `{ query: { enabled: allowed, refetchOnWindowFocus: true } },` → `{ query: { enabled: allowed, refetchOnWindowFocus: false } },` (boolconst: -> false)
+- `m07432` L166: `if (user === null || farmId === null) return;` → `if (user === null && farmId === null) return;` (binop: || -> &&)
+- `m07437` L177: `kind === "complete" ? { status: "DONE" } : { status: "SKIPPED" },` → `kind === "complete" ? { status: "SKIPPED" } : { status: "DONE" },` (ifexp: swap ternary branches)
+- `m07438` L177: `kind === "complete" ? { status: "DONE" } : { status: "SKIPPED" },` → `kind !== "complete" ? { status: "DONE" } : { status: "SKIPPED" },` (compare: === -> !==)
+- `m07439` L186: `if (kind === "complete") toast.success(t("worker.completedToast"));` → `if (kind !== "complete") toast.success(t("worker.completedToast"));` (compare: === -> !==)
+- `m07441` L224: `? mapServerError(t, error.detail, error.status, error.code)` → `? t("worker.genericError")mapServerError(t, error.detail, error.status, error.code)` (ifexp: swap ternary branches)
+- `m07442` L233: `const overdue = payload?.overdue ?? [];` → `const overdue = payload?.overdue || [];` (binop: ?? -> ||)
+- `m07443` L234: `const today = payload?.today ?? [];` → `const today = payload?.today || [];` (binop: ?? -> ||)
+- `m07444` L238: `Math.max(0, (payload?.overdue_total ?? 0) - overdue.length) +` → `Math.max(0, (payload?.overdue_total ?? 0) - overdue.length) -` (binop: + -> -)
+- `m07445` L238: `Math.max(0, (payload?.overdue_total ?? 0) - overdue.length) +` → `Math.max(1, (payload?.overdue_total ?? 0) - overdue.length) +` (intconst: 0 -> 1)
+- `m07446` L238: `Math.max(0, (payload?.overdue_total ?? 0) - overdue.length) +` → `Math.max(0, (payload?.overdue_total ?? 0) + overdue.length) +` (binop: - -> +)
+- `m07447` L238: `Math.max(0, (payload?.overdue_total ?? 0) - overdue.length) +` → `Math.max(0, (payload?.overdue_total || 0) - overdue.length) +` (binop: ?? -> ||)
+- `m07448` L238: `Math.max(0, (payload?.overdue_total ?? 0) - overdue.length) +` → `Math.max(0, (payload?.overdue_total ?? 1) - overdue.length) +` (intconst: 0 -> 1)
+- `m07449` L239: `Math.max(0, (payload?.today_total ?? 0) - today.length);` → `Math.max(1, (payload?.today_total ?? 0) - today.length);` (intconst: 0 -> 1)
+- `m07450` L239: `Math.max(0, (payload?.today_total ?? 0) - today.length);` → `Math.max(0, (payload?.today_total ?? 0) + today.length);` (binop: - -> +)
+- `m07451` L239: `Math.max(0, (payload?.today_total ?? 0) - today.length);` → `Math.max(0, (payload?.today_total || 0) - today.length);` (binop: ?? -> ||)
+- `m07452` L239: `Math.max(0, (payload?.today_total ?? 0) - today.length);` → `Math.max(0, (payload?.today_total ?? 1) - today.length);` (intconst: 0 -> 1)
+- `m07461` L266: `{overdue.length > 0 && (` → `{overdue.length >= 0 && (` (compare: > -> >=)
+- `m07463` L277: `busy={busyId === task.id}` → `busy={busyId !== task.id}` (compare: === -> !==)
+- `m07465` L285: `{today.length > 0 && (` → `{today.length >= 0 && (` (compare: > -> >=)
+- `m07468` L304: `{hiddenDuties > 0 && (` → `{hiddenDuties > 0 || (` (binop: && -> ||)
+- `m07469` L304: `{hiddenDuties > 0 && (` → `{hiddenDuties >= 0 && (` (compare: > -> >=)
+- `m07470` L304: `{hiddenDuties > 0 && (` → `{hiddenDuties > 1 && (` (intconst: 0 -> 1)
+- `m07471` L307: `hiddenDuties === 1 ? "worker.moreDuties_one" : "worker.moreDuties_many",` → `hiddenDuties === 1 ? "worker.moreDuties_many" : "worker.moreDuties_one",` (ifexp: swap ternary branches)
+- `m07472` L307: `hiddenDuties === 1 ? "worker.moreDuties_one" : "worker.moreDuties_many",` → `hiddenDuties !== 1 ? "worker.moreDuties_one" : "worker.moreDuties_many",` (compare: === -> !==)
+- `m07473` L307: `hiddenDuties === 1 ? "worker.moreDuties_one" : "worker.moreDuties_many",` → `hiddenDuties === 2 ? "worker.moreDuties_one" : "worker.moreDuties_many",` (intconst: 1 -> 2)
+- `m07474` L307: `hiddenDuties === 1 ? "worker.moreDuties_one" : "worker.moreDuties_many",` → `hiddenDuties === 0 ? "worker.moreDuties_one" : "worker.moreDuties_many",` (intconst: 1 -> 0)
+- `m07475` L327: `if (user === null || farmId === null) router.replace("/worker/login");` → `if (user === null && farmId === null) router.replace("/worker/login");` (binop: || -> &&)
+- `m07476` L327: `if (user === null || farmId === null) router.replace("/worker/login");` → `if (user !== null || farmId === null) router.replace("/worker/login");` (compare: === -> !==)
+- `m07477` L327: `if (user === null || farmId === null) router.replace("/worker/login");` → `if (user === null || farmId !== null) router.replace("/worker/login");` (compare: === -> !==)
+- `m07479` L329: `if (!loading && (user === null || farmId === null)) return null;` → `if (loading && (user === null || farmId === null)) return null;` (not: drop !)
+- `m07480` L329: `if (!loading && (user === null || farmId === null)) return null;` → `if (!loading && (user === null && farmId === null)) return null;` (binop: || -> &&)
+
+### src/components/account-dialog.tsx (8)
+
+- `m07499` L72: `const [codesCopied, setCodesCopied] = useState(false);` → `const [codesCopied, setCodesCopied] = useState(true);` (boolconst: -> true)
+- `m07500` L77: `const dialogEpoch = useRef(0);` → `const dialogEpoch = useRef(1);` (intconst: 0 -> 1)
+- `m07501` L79: `const mounted = useRef(true);` → `const mounted = useRef(false);` (boolconst: -> false)
+- `m07503` L102: `mounted.current = false;` → `mounted.current = true;` (boolconst: -> true)
+- `m07504` L106: `dialogEpoch.current += 1;` → `dialogEpoch.current += 2;` (intconst: 1 -> 2)
+- `m07505` L106: `dialogEpoch.current += 1;` → `dialogEpoch.current += 0;` (intconst: 1 -> 0)
+- `m07510` L134: `dialogEpoch.current += 1;` → `dialogEpoch.current += 2;` (intconst: 1 -> 2)
+- `m07514` L147: `setCodesCopied(false);` → `setCodesCopied(true);` (boolconst: -> true)
+
+### src/components/animal-picker.tsx (1)
+
+- `m07702` L111: `selectedAnimalId ?? 0,` → `selectedAnimalId || 0,` (binop: ?? -> ||)
 
 ### src/components/charts.tsx (4)
 
-- `m07700` L180: `const slot = finiteBins.length > 0 ? (width - pad * 2) / finiteBins.length : width;` → `const slot = finiteBins.length >= 0 ? (width - pad * 2) / finiteBins.length : width;` (compare: > -> >=)
-- `m07730` L188: `const markerLines = (markers ?? []).flatMap((marker, i) => {` → `const markerLines = (markers || []).flatMap((marker, i) => {` (binop: ?? -> ||)
-- `m07744` L203: `<title>{`${marker.label}: ${marker.display ?? marker.value}`}</title>` → `<title>{`${marker.label}: ${marker.display || marker.value}`}</title>` (binop: ?? -> ||)
-- `m07745` L215: `ariaLabel ??` → `ariaLabel ||` (binop: ?? -> ||)
+- `m07797` L182: `const slot = finiteBins.length > 0 ? (width - pad * 2) / finiteBins.length : width;` → `const slot = finiteBins.length >= 0 ? (width - pad * 2) / finiteBins.length : width;` (compare: > -> >=)
+- `m07827` L190: `const markerLines = (markers ?? []).flatMap((marker, i) => {` → `const markerLines = (markers || []).flatMap((marker, i) => {` (binop: ?? -> ||)
+- `m07841` L205: `<title>{`${marker.label}: ${marker.display ?? marker.value}`}</title>` → `<title>{`${marker.label}: ${marker.display || marker.value}`}</title>` (binop: ?? -> ||)
+- `m07842` L217: `ariaLabel ??` → `ariaLabel ||` (binop: ?? -> ||)
 
 ### src/components/data-table-card.tsx (4)
 
-- `m07773` L41: `const hasTitle = Boolean(title) || title === 0;` → `const hasTitle = Boolean(title) || title !== 0;` (compare: === -> !==) ⚠capped-sample
-- `m07774` L41: `const hasTitle = Boolean(title) || title === 0;` → `const hasTitle = Boolean(title) || title === 1;` (intconst: 0 -> 1) ⚠capped-sample
-- `m07779` L43: `const hasActions = Boolean(actions) || actions === 0;` → `const hasActions = Boolean(actions) || actions !== 0;` (compare: === -> !==) ⚠capped-sample
-- `m07780` L43: `const hasActions = Boolean(actions) || actions === 0;` → `const hasActions = Boolean(actions) || actions === 1;` (intconst: 0 -> 1) ⚠capped-sample
+- `m07870` L41: `const hasTitle = Boolean(title) || title === 0;` → `const hasTitle = Boolean(title) || title !== 0;` (compare: === -> !==) ⚠capped-sample
+- `m07871` L41: `const hasTitle = Boolean(title) || title === 0;` → `const hasTitle = Boolean(title) || title === 1;` (intconst: 0 -> 1) ⚠capped-sample
+- `m07876` L43: `const hasActions = Boolean(actions) || actions === 0;` → `const hasActions = Boolean(actions) || actions !== 0;` (compare: === -> !==) ⚠capped-sample
+- `m07877` L43: `const hasActions = Boolean(actions) || actions === 0;` → `const hasActions = Boolean(actions) || actions === 1;` (intconst: 0 -> 1) ⚠capped-sample
 
 ### src/components/empty-state.tsx (2)
 
-- `m07792` L21: `const hasChildren = Boolean(children) || children === 0;` → `const hasChildren = Boolean(children) || children !== 0;` (compare: === -> !==) ⚠capped-sample
-- `m07793` L21: `const hasChildren = Boolean(children) || children === 0;` → `const hasChildren = Boolean(children) || children === 1;` (intconst: 0 -> 1) ⚠capped-sample
+- `m07889` L21: `const hasChildren = Boolean(children) || children === 0;` → `const hasChildren = Boolean(children) || children !== 0;` (compare: === -> !==) ⚠capped-sample
+- `m07890` L21: `const hasChildren = Boolean(children) || children === 0;` → `const hasChildren = Boolean(children) || children === 1;` (intconst: 0 -> 1) ⚠capped-sample
 
 ### src/components/page-header.tsx (2)
 
-- `m07873` L17: `const hasActions = Boolean(actions) || actions === 0;` → `const hasActions = Boolean(actions) || actions !== 0;` (compare: === -> !==) ⚠capped-sample
-- `m07874` L17: `const hasActions = Boolean(actions) || actions === 0;` → `const hasActions = Boolean(actions) || actions === 1;` (intconst: 0 -> 1) ⚠capped-sample
+- `m07966` L17: `const hasActions = Boolean(actions) || actions === 0;` → `const hasActions = Boolean(actions) || actions !== 0;` (compare: === -> !==) ⚠capped-sample
+- `m07967` L17: `const hasActions = Boolean(actions) || actions === 0;` → `const hasActions = Boolean(actions) || actions === 1;` (intconst: 0 -> 1) ⚠capped-sample
 
 ### src/components/pagination-controls.tsx (6)
 
-- `m07884` L30: `if (!Number.isFinite(total) || total <= 0) return null;` → `if (!Number.isFinite(total) || total <= 1) return null;` (intconst: 0 -> 1) ⚠capped-sample
-- `m07886` L36: `Number.isFinite(limit) && limit > 0 ? Math.max(1, Math.trunc(limit)) : 1;` → `Number.isFinite(limit) || limit > 0 ? Math.max(1, Math.trunc(limit)) : 1;` (binop: && -> ||) ⚠capped-sample
-- `m07887` L36: `Number.isFinite(limit) && limit > 0 ? Math.max(1, Math.trunc(limit)) : 1;` → `Number.isFinite(limit) && limit >= 0 ? Math.max(1, Math.trunc(limit)) : 1;` (compare: > -> >=) ⚠capped-sample
-- `m07888` L36: `Number.isFinite(limit) && limit > 0 ? Math.max(1, Math.trunc(limit)) : 1;` → `Number.isFinite(limit) && limit > 1 ? Math.max(1, Math.trunc(limit)) : 1;` (intconst: 0 -> 1) ⚠capped-sample
-- `m07889` L36: `Number.isFinite(limit) && limit > 0 ? Math.max(1, Math.trunc(limit)) : 1;` → `Number.isFinite(limit) && limit > 0 ? Math.max(2, Math.trunc(limit)) : 1;` (intconst: 1 -> 2) ⚠capped-sample
-- `m07890` L36: `Number.isFinite(limit) && limit > 0 ? Math.max(1, Math.trunc(limit)) : 1;` → `Number.isFinite(limit) && limit > 0 ? Math.max(0, Math.trunc(limit)) : 1;` (intconst: 1 -> 0) ⚠capped-sample
+- `m07979` L43: `Number.isFinite(limit) && limit > 0 ? Math.max(1, Math.trunc(limit)) : 1;` → `Number.isFinite(limit) || limit > 0 ? Math.max(1, Math.trunc(limit)) : 1;` (binop: && -> ||) ⚠capped-sample
+- `m07980` L43: `Number.isFinite(limit) && limit > 0 ? Math.max(1, Math.trunc(limit)) : 1;` → `Number.isFinite(limit) && limit >= 0 ? Math.max(1, Math.trunc(limit)) : 1;` (compare: > -> >=) ⚠capped-sample
+- `m07981` L43: `Number.isFinite(limit) && limit > 0 ? Math.max(1, Math.trunc(limit)) : 1;` → `Number.isFinite(limit) && limit > 1 ? Math.max(1, Math.trunc(limit)) : 1;` (intconst: 0 -> 1) ⚠capped-sample
+- `m07982` L43: `Number.isFinite(limit) && limit > 0 ? Math.max(1, Math.trunc(limit)) : 1;` → `Number.isFinite(limit) && limit > 0 ? Math.max(2, Math.trunc(limit)) : 1;` (intconst: 1 -> 2) ⚠capped-sample
+- `m07983` L43: `Number.isFinite(limit) && limit > 0 ? Math.max(1, Math.trunc(limit)) : 1;` → `Number.isFinite(limit) && limit > 0 ? Math.max(0, Math.trunc(limit)) : 1;` (intconst: 1 -> 0) ⚠capped-sample
+- `m07990` L51: `const recordNoun = label ?? t("pagination.records");` → `const recordNoun = label || t("pagination.records");` (binop: ?? -> ||) ⚠capped-sample
 
 ### src/components/permission-gate.tsx (2)
 
-- `m07917` L105: `title={noAccessTitle ?? "You don't have access to this page."}` → `title={noAccessTitle || "You don't have access to this page."}` (binop: ?? -> ||) ⚠capped-sample
-- `m07918` L112: `{noAccessMessage ?? "You don't have access to this page."}` → `{noAccessMessage || "You don't have access to this page."}` (binop: ?? -> ||) ⚠capped-sample
+- `m08011` L107: `title={noAccessTitle ?? t("common.noAccess")}` → `title={noAccessTitle || t("common.noAccess")}` (binop: ?? -> ||) ⚠capped-sample
+- `m08012` L114: `{noAccessMessage ?? t("common.noAccess")}` → `{noAccessMessage || t("common.noAccess")}` (binop: ?? -> ||) ⚠capped-sample
 
 ### src/components/remote-picker.tsx (15)
 
-- `m07928` L72: `const SEARCH_DEBOUNCE_MS = 300;` → `const SEARCH_DEBOUNCE_MS = 301;` (intconst: 300 -> 301) ⚠capped-sample
-- `m07929` L72: `const SEARCH_DEBOUNCE_MS = 300;` → `const SEARCH_DEBOUNCE_MS = 299;` (intconst: 300 -> 299) ⚠capped-sample
-- `m07939` L119: `}, 0);` → `}, 1);` (intconst: 0 -> 1) ⚠capped-sample
-- `m07941` L124: `(chosenOption?.value === value ? chosenOption : null) ??` → `(chosenOption?.value === value ? chosenOption : null) ||` (binop: ?? -> ||) ⚠capped-sample
-- `m07951` L136: `if (!disabled || !nextOpen) setOpen(nextOpen);` → `if (!disabled || nextOpen) setOpen(nextOpen);` (not: drop !) ⚠capped-sample
-- `m07958` L160: `{currentOption?.label ?? (value ? `Selected item ${value}` : placeholder)}` → `{currentOption?.label || (value ? `Selected item ${value}` : placeholder)}` (binop: ?? -> ||) ⚠capped-sample
-- `m07963` L249: `if (debounceTimer.current === handle) debounceTimer.current = null;` → `if (debounceTimer.current !== handle) debounceTimer.current = null;` (compare: === -> !==) ⚠capped-sample
-- `m07970` L278: `for (const page of results.data?.pages ?? []) {` → `for (const page of results.data?.pages || []) {` (binop: ?? -> ||) ⚠capped-sample
-- `m07977` L303: `const checkedCount = lastPage?.nextOffset ?? 0;` → `const checkedCount = lastPage?.nextOffset || 0;` (binop: ?? -> ||) ⚠capped-sample
-- `m07978` L303: `const checkedCount = lastPage?.nextOffset ?? 0;` → `const checkedCount = lastPage?.nextOffset ?? 1;` (intconst: 0 -> 1) ⚠capped-sample
-- `m07979` L304: `const total = lastPage?.total ?? 0;` → `const total = lastPage?.total || 0;` (binop: ?? -> ||) ⚠capped-sample
-- `m07980` L304: `const total = lastPage?.total ?? 0;` → `const total = lastPage?.total ?? 1;` (intconst: 0 -> 1) ⚠capped-sample
-- `m07985` L316: `const tabbableOptionIndex = selectedDisplayedIndex >= 0 ? selectedDisplayedIndex : 0;` → `const tabbableOptionIndex = selectedDisplayedIndex > 0 ? selectedDisplayedIndex : 0;` (compare: >= -> >) ⚠capped-sample
-- `m07986` L316: `const tabbableOptionIndex = selectedDisplayedIndex >= 0 ? selectedDisplayedIndex : 0;` → `const tabbableOptionIndex = selectedDisplayedIndex >= 1 ? selectedDisplayedIndex : 0;` (intconst: 0 -> 1) ⚠capped-sample
-- `m08020` L361: `{dialogDescription ?? "Search the farm records, then choose one option."}` → `{dialogDescription || "Search the farm records, then choose one option."}` (binop: ?? -> ||) ⚠capped-sample
+- `m08022` L74: `const SEARCH_DEBOUNCE_MS = 300;` → `const SEARCH_DEBOUNCE_MS = 301;` (intconst: 300 -> 301) ⚠capped-sample
+- `m08023` L74: `const SEARCH_DEBOUNCE_MS = 300;` → `const SEARCH_DEBOUNCE_MS = 299;` (intconst: 300 -> 299) ⚠capped-sample
+- `m08033` L123: `}, 0);` → `}, 1);` (intconst: 0 -> 1) ⚠capped-sample
+- `m08035` L128: `(chosenOption?.value === value ? chosenOption : null) ??` → `(chosenOption?.value === value ? chosenOption : null) ||` (binop: ?? -> ||) ⚠capped-sample
+- `m08045` L140: `if (!disabled || !nextOpen) setOpen(nextOpen);` → `if (!disabled || nextOpen) setOpen(nextOpen);` (not: drop !)
+- `m08052` L165: `{currentOption?.label ?? (value ? t("picker.remote.selectedItem", { value }) : placeholder)}` → `{currentOption?.label || (value ? t("picker.remote.selectedItem", { value }) : placeholder)}` (binop: ?? -> ||) ⚠capped-sample
+- `m08057` L255: `if (debounceTimer.current === handle) debounceTimer.current = null;` → `if (debounceTimer.current !== handle) debounceTimer.current = null;` (compare: === -> !==)
+- `m08064` L284: `for (const page of results.data?.pages ?? []) {` → `for (const page of results.data?.pages || []) {` (binop: ?? -> ||)
+- `m08071` L309: `const checkedCount = lastPage?.nextOffset ?? 0;` → `const checkedCount = lastPage?.nextOffset || 0;` (binop: ?? -> ||)
+- `m08072` L309: `const checkedCount = lastPage?.nextOffset ?? 0;` → `const checkedCount = lastPage?.nextOffset ?? 1;` (intconst: 0 -> 1)
+- `m08073` L310: `const total = lastPage?.total ?? 0;` → `const total = lastPage?.total || 0;` (binop: ?? -> ||)
+- `m08074` L310: `const total = lastPage?.total ?? 0;` → `const total = lastPage?.total ?? 1;` (intconst: 0 -> 1)
+- `m08079` L322: `const tabbableOptionIndex = selectedDisplayedIndex >= 0 ? selectedDisplayedIndex : 0;` → `const tabbableOptionIndex = selectedDisplayedIndex > 0 ? selectedDisplayedIndex : 0;` (compare: >= -> >)
+- `m08080` L322: `const tabbableOptionIndex = selectedDisplayedIndex >= 0 ? selectedDisplayedIndex : 0;` → `const tabbableOptionIndex = selectedDisplayedIndex >= 1 ? selectedDisplayedIndex : 0;` (intconst: 0 -> 1)
+- `m08114` L367: `{dialogDescription ?? t("picker.remote.dialogDescription")}` → `{dialogDescription || t("picker.remote.dialogDescription")}` (binop: ?? -> ||)
 
 ### src/components/screening-check-dialog.tsx (12)
 
-- `m08082` L66: `const [uploading, setUploading] = useState(false);` → `const [uploading, setUploading] = useState(true);` (boolconst: -> true)
-- `m08083` L75: `const walkthroughEpoch = useRef(0);` → `const walkthroughEpoch = useRef(1);` (intconst: 0 -> 1)
-- `m08084` L85: `walkthroughEpoch.current += 1;` → `walkthroughEpoch.current += 2;` (intconst: 1 -> 2)
-- `m08086` L86: `if (!open) return;` → `if (open) return;` (not: drop !)
-- `m08102` L139: `if (!pendingFile || !selectedBucket) return;` → `if (!pendingFile && !selectedBucket) return;` (binop: || -> &&)
-- `m08118` L173: `method: result.data.upload_method ?? "POST",` → `method: result.data.upload_method || "POST",` (binop: ?? -> ||)
-- `m08124` L190: `[selectedBucket]: (counts[selectedBucket] ?? 0) + 1,` → `[selectedBucket]: (counts[selectedBucket] || 0) + 1,` (binop: ?? -> ||)
-- `m08136` L214: `const total = Object.values(uploadedByBucket).reduce((sum, count) => sum + count, 0);` → `const total = Object.values(uploadedByBucket).reduce((sum, count) => sum - count, 0);` (binop: + -> -)
-- `m08137` L214: `const total = Object.values(uploadedByBucket).reduce((sum, count) => sum + count, 0);` → `const total = Object.values(uploadedByBucket).reduce((sum, count) => sum + count, 1);` (intconst: 0 -> 1)
-- `m08150` L255: `{(buckets ?? []).map((row) => (` → `{(buckets || []).map((row) => (` (binop: ?? -> ||)
-- `m08151` L267: `count: uploadedByBucket[row.bucket] ?? 0,` → `count: uploadedByBucket[row.bucket] || 0,` (binop: ?? -> ||)
-- `m08154` L306: `onFileChosen(event.target.files?.[0] ?? null);` → `onFileChosen(event.target.files?.[0] || null);` (binop: ?? -> ||)
+- `m08176` L66: `const [uploading, setUploading] = useState(false);` → `const [uploading, setUploading] = useState(true);` (boolconst: -> true)
+- `m08177` L75: `const walkthroughEpoch = useRef(0);` → `const walkthroughEpoch = useRef(1);` (intconst: 0 -> 1)
+- `m08178` L85: `walkthroughEpoch.current += 1;` → `walkthroughEpoch.current += 2;` (intconst: 1 -> 2)
+- `m08180` L86: `if (!open) return;` → `if (open) return;` (not: drop !)
+- `m08196` L139: `if (!pendingFile || !selectedBucket) return;` → `if (!pendingFile && !selectedBucket) return;` (binop: || -> &&)
+- `m08212` L173: `method: result.data.upload_method ?? "POST",` → `method: result.data.upload_method || "POST",` (binop: ?? -> ||)
+- `m08218` L190: `[selectedBucket]: (counts[selectedBucket] ?? 0) + 1,` → `[selectedBucket]: (counts[selectedBucket] || 0) + 1,` (binop: ?? -> ||)
+- `m08230` L217: `const total = Object.values(uploadedByBucket).reduce((sum, count) => sum + count, 0);` → `const total = Object.values(uploadedByBucket).reduce((sum, count) => sum - count, 0);` (binop: + -> -)
+- `m08231` L217: `const total = Object.values(uploadedByBucket).reduce((sum, count) => sum + count, 0);` → `const total = Object.values(uploadedByBucket).reduce((sum, count) => sum + count, 1);` (intconst: 0 -> 1)
+- `m08244` L258: `{(buckets ?? []).map((row) => (` → `{(buckets || []).map((row) => (` (binop: ?? -> ||)
+- `m08245` L270: `count: uploadedByBucket[row.bucket] ?? 0,` → `count: uploadedByBucket[row.bucket] || 0,` (binop: ?? -> ||)
+- `m08248` L309: `onFileChosen(event.target.files?.[0] ?? null);` → `onFileChosen(event.target.files?.[0] || null);` (binop: ?? -> ||)
 
 ### src/components/skeletons.tsx (2)
 
-- `m08180` L95: `style={{ width: c === 0 ? "22%" : `${Math.max(8, 18 - c * 2)}%` }}` → `style={{ width: c === 0 ? "22%" : `${Math.max(7, 18 - c * 2)}%` }}` (intconst: 8 -> 7) ⚠capped-sample
-- `m08208` L159: `{children ?? t("common.loading")}` → `{children || t("common.loading")}` (binop: ?? -> ||) ⚠capped-sample
+- `m08278` L95: `style={{ width: c === 0 ? "22%" : `${Math.max(8, 18 - c * 2)}%` }}` → `style={{ width: c === 0 ? "22%" : `${Math.max(7, 18 - c * 2)}%` }}` (intconst: 8 -> 7) ⚠capped-sample
+- `m08306` L159: `{children ?? t("common.loading")}` → `{children || t("common.loading")}` (binop: ?? -> ||) ⚠capped-sample
+
+### src/components/stale-data-notice.tsx (1)
+
+- `m08307` L24: `<span>{message ?? t("staleNotice.message")}</span>` → `<span>{message || t("staleNotice.message")}</span>` (binop: ?? -> ||)
 
 ### src/components/stat-card.tsx (1)
 
-- `m08219` L83: `trendToneClasses[trend.tone ?? "neutral"],` → `trendToneClasses[trend.tone || "neutral"],` (binop: ?? -> ||) ⚠capped-sample
+- `m08318` L83: `trendToneClasses[trend.tone ?? "neutral"],` → `trendToneClasses[trend.tone || "neutral"],` (binop: ?? -> ||) ⚠capped-sample
 
 ### src/components/status-badge.tsx (3)
 
-- `m08220` L81: `return STATUS_TONES[normalize(status)] ?? null;` → `return STATUS_TONES[normalize(status)] || null;` (binop: ?? -> ||) ⚠capped-sample
-- `m08224` L108: `variant={tone ?? "secondary"}` → `variant={tone || "secondary"}` (binop: ?? -> ||) ⚠capped-sample
-- `m08225` L116: `{children ?? humanize(status)}` → `{children || humanize(status)}` (binop: ?? -> ||) ⚠capped-sample
+- `m08319` L81: `return STATUS_TONES[normalize(status)] ?? null;` → `return STATUS_TONES[normalize(status)] || null;` (binop: ?? -> ||) ⚠capped-sample
+- `m08323` L108: `variant={tone ?? "secondary"}` → `variant={tone || "secondary"}` (binop: ?? -> ||) ⚠capped-sample
+- `m08324` L116: `{children ?? humanize(status)}` → `{children || humanize(status)}` (binop: ?? -> ||) ⚠capped-sample
 
-### src/components/task-row-actions.tsx (16)
+### src/components/task-row-actions.tsx (12)
 
-- `m08229` L82: `const [rejectMissing, setRejectMissing] = useState(false);` → `const [rejectMissing, setRejectMissing] = useState(true);` (boolconst: -> true)
-- `m08259` L262: `size={touch ? "default" : "sm"}` → `size={touch ? "sm" : "default"}` (ifexp: swap ternary branches)
-- `m08268` L281: `size={touch ? "default" : "sm"}` → `size={touch ? "sm" : "default"}` (ifexp: swap ternary branches)
-- `m08289` L362: `days: task.recur_days ?? 0,` → `days: task.recur_days || 0,` (binop: ?? -> ||)
-- `m08290` L362: `days: task.recur_days ?? 0,` → `days: task.recur_days ?? 1,` (intconst: 0 -> 1)
-- `m08291` L370: `task.due_date > farmToday() ? task.due_date : farmToday(),` → `task.due_date > farmToday() ? farmToday() : task.due_date,` (ifexp: swap ternary branches)
-- `m08292` L370: `task.due_date > farmToday() ? task.due_date : farmToday(),` → `task.due_date >= farmToday() ? task.due_date : farmToday(),` (compare: > -> >=)
-- `m08293` L371: `task.recur_days ?? 0,` → `task.recur_days || 0,` (binop: ?? -> ||)
-- `m08294` L371: `task.recur_days ?? 0,` → `task.recur_days ?? 1,` (intconst: 0 -> 1)
-- `m08300` L411: `size={touch ? "default" : "sm"}` → `size={touch ? "sm" : "default"}` (ifexp: swap ternary branches)
-- `m08303` L424: `size={touch ? "default" : "sm"}` → `size={touch ? "sm" : "default"}` (ifexp: swap ternary branches)
-- `m08309` L442: `if (!nextOpen && actionFlight.pending) return;` → `if (nextOpen && actionFlight.pending) return;` (not: drop !)
-- `m08314` L463: `maxLength={255}` → `maxLength={256}` (intconst: 255 -> 256)
-- `m08315` L463: `maxLength={255}` → `maxLength={254}` (intconst: 255 -> 254)
-- `m08316` L464: `rows={3}` → `rows={4}` (intconst: 3 -> 4)
-- `m08317` L464: `rows={3}` → `rows={2}` (intconst: 3 -> 2)
+- `m08328` L82: `const [rejectMissing, setRejectMissing] = useState(false);` → `const [rejectMissing, setRejectMissing] = useState(true);` (boolconst: -> true)
+- `m08359` L266: `size={touch ? "default" : "sm"}` → `size={touch ? "sm" : "default"}` (ifexp: swap ternary branches)
+- `m08368` L285: `size={touch ? "default" : "sm"}` → `size={touch ? "sm" : "default"}` (ifexp: swap ternary branches)
+- `m08389` L366: `days: task.recur_days ?? 0,` → `days: task.recur_days || 0,` (binop: ?? -> ||)
+- `m08390` L366: `days: task.recur_days ?? 0,` → `days: task.recur_days ?? 1,` (intconst: 0 -> 1)
+- `m08391` L374: `task.due_date > farmToday() ? task.due_date : farmToday(),` → `task.due_date > farmToday() ? farmToday() : task.due_date,` (ifexp: swap ternary branches)
+- `m08392` L374: `task.due_date > farmToday() ? task.due_date : farmToday(),` → `task.due_date >= farmToday() ? task.due_date : farmToday(),` (compare: > -> >=)
+- `m08393` L375: `task.recur_days ?? 0,` → `task.recur_days || 0,` (binop: ?? -> ||)
+- `m08394` L375: `task.recur_days ?? 0,` → `task.recur_days ?? 1,` (intconst: 0 -> 1)
+- `m08400` L415: `size={touch ? "default" : "sm"}` → `size={touch ? "sm" : "default"}` (ifexp: swap ternary branches)
+- `m08403` L428: `size={touch ? "default" : "sm"}` → `size={touch ? "sm" : "default"}` (ifexp: swap ternary branches)
+- `m08409` L446: `if (!nextOpen && actionFlight.pending) return;` → `if (nextOpen && actionFlight.pending) return;` (not: drop !)
 
 ### src/components/theme-toggle.tsx (1)
 
-- `m08330` L36: `const current = pendingTheme.current ?? (isDark ? "dark" : "light");` → `const current = pendingTheme.current || (isDark ? "dark" : "light");` (binop: ?? -> ||)
-
-### src/components/ui/checkbox.tsx (1)
-
-- `m08336` L26: `{indeterminate ? <MinusIcon /> : <CheckIcon />}` → `{indeterminate ? <CheckIcon /> : <MinusIcon />}` (ifexp: swap ternary branches) ⚠capped-sample
+- `m08430` L40: `const current = pendingTheme.current ?? (isDark ? "dark" : "light");` → `const current = pendingTheme.current || (isDark ? "dark" : "light");` (binop: ?? -> ||)
 
 ### src/components/ui/select.tsx (1)
 
-- `m08341` L22: `onValueChange={(value, eventDetails) => onValueChange?.(value ?? "", eventDetails)}` → `onValueChange={(value, eventDetails) => onValueChange?.(value || "", eventDetails)}` (binop: ?? -> ||) ⚠capped-sample
+- `m08441` L22: `onValueChange={(value, eventDetails) => onValueChange?.(value ?? "", eventDetails)}` → `onValueChange={(value, eventDetails) => onValueChange?.(value || "", eventDetails)}` (binop: ?? -> ||) ⚠capped-sample
 
-### src/lib/api-client.ts (30)
+### src/lib/api-client.ts (31)
 
-- `m08420` L17: `let authSessionEpoch = 0;` → `let authSessionEpoch = 1;` (intconst: 0 -> 1)
-- `m08421` L19: `let farmScopeEpoch = 0;` → `let farmScopeEpoch = 1;` (intconst: 0 -> 1)
-- `m08480` L108: `authFailureRegistrations.length = 0;` → `authFailureRegistrations.length = 1;` (intconst: 0 -> 1)
-- `m08486` L122: `onAuthFailure = authFailureRegistrations.at(-1)?.handler ?? null;` → `onAuthFailure = authFailureRegistrations.at(-1)?.handler || null;` (binop: ?? -> ||)
-- `m08511` L290: `const contentType = (resp.headers.get("content-type") ?? "").toLowerCase();` → `const contentType = (resp.headers.get("content-type") || "").toLowerCase();` (binop: ?? -> ||)
-- `m08520` L311: `const refreshedActorScope = tokenScope ?? userScope;` → `const refreshedActorScope = tokenScope || userScope;` (binop: ?? -> ||)
-- `m08528` L373: `}, 0);` → `}, 1);` (intconst: 0 -> 1)
-- `m08537` L437: `if (typeof code === "string" && code.length > 0) return code;` → `if (typeof code === "string" && code.length > 1) return code;` (intconst: 0 -> 1)
-- `m08560` L503: `const root = path[0] ?? "";` → `const root = path[0] || "";` (binop: ?? -> ||)
-- `m08566` L533: `const rawPathname = path.split(/[?#]/, 1)[0];` → `const rawPathname = path.split(/[?#]/, 2)[0];` (intconst: 1 -> 2)
-- `m08571` L539: `(path.startsWith("/api/") && parsed.pathname.startsWith("/api/")) ||` → `(path.startsWith("/api/") || parsed.pathname.startsWith("/api/")) ||` (binop: && -> ||)
-- `m08602` L645: `const requestPath = path.split(/[?#]/, 1)[0];` → `const requestPath = path.split(/[?#]/, 2)[0];` (intconst: 1 -> 2)
-- `m08607` L647: `requestPath.length > 1 && requestPath.endsWith("/")` → `requestPath.length >= 1 && requestPath.endsWith("/")` (compare: > -> >=)
-- `m08608` L647: `requestPath.length > 1 && requestPath.endsWith("/")` → `requestPath.length > 2 && requestPath.endsWith("/")` (intconst: 1 -> 2)
-- `m08609` L647: `requestPath.length > 1 && requestPath.endsWith("/")` → `requestPath.length > 0 && requestPath.endsWith("/")` (intconst: 1 -> 0)
-- `m08613` L650: `const verb = (method ?? "GET").toUpperCase();` → `const verb = (method || "GET").toUpperCase();` (binop: ?? -> ||)
-- `m08620` L658: `const requestPath = path.split(/[?#]/, 1)[0];` → `const requestPath = path.split(/[?#]/, 2)[0];` (intconst: 1 -> 2)
-- `m08625` L660: `const route = requestPath.length > 1 && requestPath.endsWith("/") ? requestPath.slice(0, -1) : requestPath;` → `const route = requestPath.length >= 1 && requestPath.endsWith("/") ? requestPath.slice(0, -1) : requestPath;` (compare: > -> >=)
-- `m08626` L660: `const route = requestPath.length > 1 && requestPath.endsWith("/") ? requestPath.slice(0, -1) : requestPath;` → `const route = requestPath.length > 2 && requestPath.endsWith("/") ? requestPath.slice(0, -1) : requestPath;` (intconst: 1 -> 2)
-- `m08627` L660: `const route = requestPath.length > 1 && requestPath.endsWith("/") ? requestPath.slice(0, -1) : requestPath;` → `const route = requestPath.length > 0 && requestPath.endsWith("/") ? requestPath.slice(0, -1) : requestPath;` (intconst: 1 -> 0)
-- `m08633` L663: `return (method ?? "GET").toUpperCase() === "POST" && route === "/api/auth/logout";` → `return (method || "GET").toUpperCase() === "POST" && route === "/api/auth/logout";` (binop: ?? -> ||)
-- `m08638` L688: `if (cookieMutation && authSessionEpoch !== sessionScope) {` → `if (cookieMutation || authSessionEpoch !== sessionScope) {` (binop: && -> ||)
-- `m08650` L704: `const requestPathname = path.split(/[?#]/, 1)[0];` → `const requestPathname = path.split(/[?#]/, 2)[0];` (intconst: 1 -> 2)
-- `m08661` L796: `const requestPath = path.split("?", 1)[0];` → `const requestPath = path.split("?", 2)[0];` (intconst: 1 -> 2)
-- `m08666` L798: `requestPath.length > 1 && requestPath.endsWith("/")` → `requestPath.length >= 1 && requestPath.endsWith("/")` (compare: > -> >=)
-- `m08667` L798: `requestPath.length > 1 && requestPath.endsWith("/")` → `requestPath.length > 2 && requestPath.endsWith("/")` (intconst: 1 -> 2)
-- `m08668` L798: `requestPath.length > 1 && requestPath.endsWith("/")` → `requestPath.length > 0 && requestPath.endsWith("/")` (intconst: 1 -> 0)
-- `m08692` L864: `path.split("?", 1)[0] === "/api/auth/farms" ? null : currentFarmId;` → `path.split("?", 2)[0] === "/api/auth/farms" ? null : currentFarmId;` (intconst: 1 -> 2)
-- `m08693` L864: `path.split("?", 1)[0] === "/api/auth/farms" ? null : currentFarmId;` → `path.split("?", 0)[0] === "/api/auth/farms" ? null : currentFarmId;` (intconst: 1 -> 0)
-- `m08694` L864: `path.split("?", 1)[0] === "/api/auth/farms" ? null : currentFarmId;` → `path.split("?", 1)[1] === "/api/auth/farms" ? null : currentFarmId;` (intconst: 0 -> 1)
+- `m08520` L17: `let authSessionEpoch = 0;` → `let authSessionEpoch = 1;` (intconst: 0 -> 1) ⚠capped-sample
+- `m08521` L19: `let farmScopeEpoch = 0;` → `let farmScopeEpoch = 1;` (intconst: 0 -> 1) ⚠capped-sample
+- `m08580` L108: `authFailureRegistrations.length = 0;` → `authFailureRegistrations.length = 1;` (intconst: 0 -> 1) ⚠capped-sample
+- `m08586` L122: `onAuthFailure = authFailureRegistrations.at(-1)?.handler ?? null;` → `onAuthFailure = authFailureRegistrations.at(-1)?.handler || null;` (binop: ?? -> ||) ⚠capped-sample
+- `m08611` L290: `const contentType = (resp.headers.get("content-type") ?? "").toLowerCase();` → `const contentType = (resp.headers.get("content-type") || "").toLowerCase();` (binop: ?? -> ||) ⚠capped-sample
+- `m08620` L311: `const refreshedActorScope = tokenScope ?? userScope;` → `const refreshedActorScope = tokenScope || userScope;` (binop: ?? -> ||) ⚠capped-sample
+- `m08628` L373: `}, 0);` → `}, 1);` (intconst: 0 -> 1) ⚠capped-sample
+- `m08631` L411: `if (value === null) return null;` → `if (value !== null) return null;` (compare: === -> !==) ⚠capped-sample
+- `m08644` L453: `if (typeof code === "string" && code.length > 0) return code;` → `if (typeof code === "string" && code.length > 1) return code;` (intconst: 0 -> 1) ⚠capped-sample
+- `m08667` L519: `const root = path[0] ?? "";` → `const root = path[0] || "";` (binop: ?? -> ||)
+- `m08673` L549: `const rawPathname = path.split(/[?#]/, 1)[0];` → `const rawPathname = path.split(/[?#]/, 2)[0];` (intconst: 1 -> 2) ⚠capped-sample
+- `m08678` L555: `(path.startsWith("/api/") && parsed.pathname.startsWith("/api/")) ||` → `(path.startsWith("/api/") || parsed.pathname.startsWith("/api/")) ||` (binop: && -> ||) ⚠capped-sample
+- `m08709` L664: `const requestPath = path.split(/[?#]/, 1)[0];` → `const requestPath = path.split(/[?#]/, 2)[0];` (intconst: 1 -> 2) ⚠capped-sample
+- `m08714` L666: `requestPath.length > 1 && requestPath.endsWith("/")` → `requestPath.length >= 1 && requestPath.endsWith("/")` (compare: > -> >=) ⚠capped-sample
+- `m08715` L666: `requestPath.length > 1 && requestPath.endsWith("/")` → `requestPath.length > 2 && requestPath.endsWith("/")` (intconst: 1 -> 2) ⚠capped-sample
+- `m08716` L666: `requestPath.length > 1 && requestPath.endsWith("/")` → `requestPath.length > 0 && requestPath.endsWith("/")` (intconst: 1 -> 0) ⚠capped-sample
+- `m08720` L669: `const verb = (method ?? "GET").toUpperCase();` → `const verb = (method || "GET").toUpperCase();` (binop: ?? -> ||) ⚠capped-sample
+- `m08727` L677: `const requestPath = path.split(/[?#]/, 1)[0];` → `const requestPath = path.split(/[?#]/, 2)[0];` (intconst: 1 -> 2)
+- `m08732` L679: `const route = requestPath.length > 1 && requestPath.endsWith("/") ? requestPath.slice(0, -1) : requestPath;` → `const route = requestPath.length >= 1 && requestPath.endsWith("/") ? requestPath.slice(0, -1) : requestPath;` (compare: > -> >=)
+- `m08733` L679: `const route = requestPath.length > 1 && requestPath.endsWith("/") ? requestPath.slice(0, -1) : requestPath;` → `const route = requestPath.length > 2 && requestPath.endsWith("/") ? requestPath.slice(0, -1) : requestPath;` (intconst: 1 -> 2)
+- `m08734` L679: `const route = requestPath.length > 1 && requestPath.endsWith("/") ? requestPath.slice(0, -1) : requestPath;` → `const route = requestPath.length > 0 && requestPath.endsWith("/") ? requestPath.slice(0, -1) : requestPath;` (intconst: 1 -> 0)
+- `m08740` L682: `return (method ?? "GET").toUpperCase() === "POST" && route === "/api/auth/logout";` → `return (method || "GET").toUpperCase() === "POST" && route === "/api/auth/logout";` (binop: ?? -> ||)
+- `m08745` L707: `if (cookieMutation && authSessionEpoch !== sessionScope) {` → `if (cookieMutation || authSessionEpoch !== sessionScope) {` (binop: && -> ||) ⚠capped-sample
+- `m08757` L723: `const requestPathname = path.split(/[?#]/, 1)[0];` → `const requestPathname = path.split(/[?#]/, 2)[0];` (intconst: 1 -> 2) ⚠capped-sample
+- `m08768` L821: `const requestPath = path.split("?", 1)[0];` → `const requestPath = path.split("?", 2)[0];` (intconst: 1 -> 2) ⚠capped-sample
+- `m08773` L823: `requestPath.length > 1 && requestPath.endsWith("/")` → `requestPath.length >= 1 && requestPath.endsWith("/")` (compare: > -> >=) ⚠capped-sample
+- `m08774` L823: `requestPath.length > 1 && requestPath.endsWith("/")` → `requestPath.length > 2 && requestPath.endsWith("/")` (intconst: 1 -> 2) ⚠capped-sample
+- `m08775` L823: `requestPath.length > 1 && requestPath.endsWith("/")` → `requestPath.length > 0 && requestPath.endsWith("/")` (intconst: 1 -> 0) ⚠capped-sample
+- `m08799` L890: `path.split("?", 1)[0] === "/api/auth/farms" ? null : currentFarmId;` → `path.split("?", 2)[0] === "/api/auth/farms" ? null : currentFarmId;` (intconst: 1 -> 2) ⚠capped-sample
+- `m08800` L890: `path.split("?", 1)[0] === "/api/auth/farms" ? null : currentFarmId;` → `path.split("?", 0)[0] === "/api/auth/farms" ? null : currentFarmId;` (intconst: 1 -> 0) ⚠capped-sample
+- `m08801` L890: `path.split("?", 1)[0] === "/api/auth/farms" ? null : currentFarmId;` → `path.split("?", 1)[1] === "/api/auth/farms" ? null : currentFarmId;` (intconst: 0 -> 1) ⚠capped-sample
 
-### src/lib/auth-context.tsx (66)
+### src/lib/auth-context.tsx (42)
 
-- `m08707` L127: `if (value === null || !value.startsWith(FARM_STORAGE_REVOKED_PREFIX)) {` → `if (value === null && !value.startsWith(FARM_STORAGE_REVOKED_PREFIX)) {` (binop: || -> &&) ⚠capped-sample
-- `m08711` L131: `return Number.isSafeInteger(stored) && stored > 0 ? stored : null;` → `return Number.isSafeInteger(stored) || stored > 0 ? stored : null;` (binop: && -> ||)
-- `m08712` L131: `return Number.isSafeInteger(stored) && stored > 0 ? stored : null;` → `return Number.isSafeInteger(stored) && stored >= 0 ? stored : null;` (compare: > -> >=)
-- `m08724` L187: `const mounted = useRef(true);` → `const mounted = useRef(false);` (boolconst: -> false) ⚠capped-sample
-- `m08725` L190: `const farmRefreshGeneration = useRef(0);` → `const farmRefreshGeneration = useRef(1);` (intconst: 0 -> 1) ⚠capped-sample
-- `m08726` L194: `const sessionEstablishmentGeneration = useRef(0);` → `const sessionEstablishmentGeneration = useRef(1);` (intconst: 0 -> 1) ⚠capped-sample
-- `m08727` L199: `const appliedFarmGeneration = useRef(0);` → `const appliedFarmGeneration = useRef(1);` (intconst: 0 -> 1) ⚠capped-sample
-- `m08730` L217: `farmRefreshGeneration.current += 1;` → `farmRefreshGeneration.current += 2;` (intconst: 1 -> 2) ⚠capped-sample
-- `m08731` L217: `farmRefreshGeneration.current += 1;` → `farmRefreshGeneration.current += 0;` (intconst: 1 -> 0) ⚠capped-sample
-- `m08732` L219: `sessionEstablishmentGeneration.current += 1;` → `sessionEstablishmentGeneration.current += 2;` (intconst: 1 -> 2) ⚠capped-sample
-- `m08733` L219: `sessionEstablishmentGeneration.current += 1;` → `sessionEstablishmentGeneration.current += 0;` (intconst: 1 -> 0) ⚠capped-sample
-- `m08735` L238: `const selected = farmsRef.current.find((farm) => farm.id === id);` → `const selected = farmsRef.current.find((farm) => farm.id !== id);` (compare: === -> !==) ⚠capped-sample
-- `m08736` L239: `setActiveFarmTimezone(timezone ?? selected?.timezone);` → `setActiveFarmTimezone(timezone || selected?.timezone);` (binop: ?? -> ||) ⚠capped-sample
-- `m08737` L249: `farmRefreshGeneration.current += 1;` → `farmRefreshGeneration.current += 2;` (intconst: 1 -> 2) ⚠capped-sample
-- `m08738` L249: `farmRefreshGeneration.current += 1;` → `farmRefreshGeneration.current += 0;` (intconst: 1 -> 0) ⚠capped-sample
-- `m08739` L251: `sessionEstablishmentGeneration.current += 1;` → `sessionEstablishmentGeneration.current += 2;` (intconst: 1 -> 2) ⚠capped-sample
-- `m08740` L251: `sessionEstablishmentGeneration.current += 1;` → `sessionEstablishmentGeneration.current += 0;` (intconst: 1 -> 0) ⚠capped-sample
-- `m08743` L278: `existingFlight.teardownEpoch === authSessionEpochValue()` → `existingFlight.teardownEpoch !== authSessionEpochValue()` (compare: === -> !==) ⚠capped-sample
-- `m08744` L284: `forcedLogout.current = true;` → `forcedLogout.current = false;` (boolconst: -> false) ⚠capped-sample
-- `m08745` L299: `if (signOutFlight.current === flight) signOutFlight.current = null;` → `if (signOutFlight.current !== flight) signOutFlight.current = null;` (compare: === -> !==) ⚠capped-sample
-- `m08747` L309: `const preferred = farmIdRef.current ?? readStoredFarmId();` → `const preferred = farmIdRef.current || readStoredFarmId();` (binop: ?? -> ||) ⚠capped-sample
-- `m08758` L366: `if (!mounted.current || generation !== farmRefreshGeneration.current) return;` → `if (!mounted.current && generation !== farmRefreshGeneration.current) return;` (binop: || -> &&) ⚠capped-sample
-- `m08759` L366: `if (!mounted.current || generation !== farmRefreshGeneration.current) return;` → `if (mounted.current || generation !== farmRefreshGeneration.current) return;` (not: drop !) ⚠capped-sample
-- `m08760` L366: `if (!mounted.current || generation !== farmRefreshGeneration.current) return;` → `if (!mounted.current || generation === farmRefreshGeneration.current) return;` (compare: !== -> ===) ⚠capped-sample
-- `m08761` L369: `if (!mounted.current || generation !== farmRefreshGeneration.current) return;` → `if (!mounted.current && generation !== farmRefreshGeneration.current) return;` (binop: || -> &&) ⚠capped-sample
-- `m08765` L403: `isAuthSessionChangedError(retryable) ||` → `isAuthSessionChangedError(retryable) &&` (binop: || -> &&) ⚠capped-sample
-- `m08766` L402: `establishmentGeneration !== sessionEstablishmentGeneration.current ||` → `establishmentGeneration !== sessionEstablishmentGeneration.current &&` (binop: || -> &&) ⚠capped-sample
-- `m08767` L401: `!mounted.current ||` → `!mounted.current &&` (binop: || -> &&) ⚠capped-sample
-- `m08768` L401: `!mounted.current ||` → `mounted.current ||` (not: drop !) ⚠capped-sample
-- `m08769` L402: `establishmentGeneration !== sessionEstablishmentGeneration.current ||` → `establishmentGeneration === sessionEstablishmentGeneration.current ||` (compare: !== -> ===) ⚠capped-sample
-- `m08770` L404: `authSessionEpochValue() !== ownedEpoch` → `authSessionEpochValue() === ownedEpoch` (compare: !== -> ===) ⚠capped-sample
-- `m08771` L408: `await new Promise((resolve) => setTimeout(resolve, 750));` → `await new Promise((resolve) => setTimeout(resolve, 751));` (intconst: 750 -> 751) ⚠capped-sample
-- `m08772` L408: `await new Promise((resolve) => setTimeout(resolve, 750));` → `await new Promise((resolve) => setTimeout(resolve, 749));` (intconst: 750 -> 749) ⚠capped-sample
-- `m08776` L420: `farmGeneration !== farmRefreshGeneration.current &&` → `farmGeneration === farmRefreshGeneration.current &&` (compare: !== -> ===) ⚠capped-sample
-- `m08777` L422: `appliedFarmGeneration.current > farmGeneration` → `appliedFarmGeneration.current >= farmGeneration` (compare: > -> >=) ⚠capped-sample
-- `m08778` L430: `isAuthSessionChangedError(error) ||` → `isAuthSessionChangedError(error) &&` (binop: || -> &&) ⚠capped-sample
-- `m08779` L429: `establishmentGeneration !== sessionEstablishmentGeneration.current ||` → `establishmentGeneration !== sessionEstablishmentGeneration.current &&` (binop: || -> &&) ⚠capped-sample
-- `m08780` L428: `!mounted.current ||` → `!mounted.current &&` (binop: || -> &&) ⚠capped-sample
-- `m08787` L485: `forcedLogout.current = true;` → `forcedLogout.current = false;` (boolconst: -> false) ⚠capped-sample
-- `m08791` L505: `forcedLogout.current = true;` → `forcedLogout.current = false;` (boolconst: -> false) ⚠capped-sample
-- `m08796` L536: `stored !== farmIdRef.current &&` → `stored !== farmIdRef.current ||` (binop: && -> ||) ⚠capped-sample
-- `m08797` L535: `stored > 0 &&` → `stored > 0 ||` (binop: && -> ||) ⚠capped-sample
-- `m08798` L534: `Number.isSafeInteger(stored) &&` → `Number.isSafeInteger(stored) ||` (binop: && -> ||) ⚠capped-sample
-- `m08799` L535: `stored > 0 &&` → `stored >= 0 &&` (compare: > -> >=) ⚠capped-sample
-- `m08800` L535: `stored > 0 &&` → `stored > 1 &&` (intconst: 0 -> 1) ⚠capped-sample
-- `m08802` L537: `farmsRef.current.some((farm) => farm.id === stored)` → `farmsRef.current.some((farm) => farm.id !== stored)` (compare: === -> !==) ⚠capped-sample
-- `m08803` L548: `initialRefreshStarted.current = true;` → `initialRefreshStarted.current = false;` (boolconst: -> false) ⚠capped-sample
-- `m08804` L558: `for (let attempt = 0; attempt < BOOTSTRAP_REFRESH_ATTEMPTS; attempt += 1) {` → `for (let attempt = 1; attempt < BOOTSTRAP_REFRESH_ATTEMPTS; attempt += 1) {` (intconst: 0 -> 1) ⚠capped-sample
-- `m08805` L558: `for (let attempt = 0; attempt < BOOTSTRAP_REFRESH_ATTEMPTS; attempt += 1) {` → `for (let attempt = 0; attempt <= BOOTSTRAP_REFRESH_ATTEMPTS; attempt += 1) {` (compare: < -> <=) ⚠capped-sample
-- `m08806` L558: `for (let attempt = 0; attempt < BOOTSTRAP_REFRESH_ATTEMPTS; attempt += 1) {` → `for (let attempt = 0; attempt < BOOTSTRAP_REFRESH_ATTEMPTS; attempt += 2) {` (intconst: 1 -> 2) ⚠capped-sample
-- `m08807` L558: `for (let attempt = 0; attempt < BOOTSTRAP_REFRESH_ATTEMPTS; attempt += 1) {` → `for (let attempt = 0; attempt < BOOTSTRAP_REFRESH_ATTEMPTS; attempt += 0) {` (intconst: 1 -> 0) ⚠capped-sample
-- `m08809` L562: `break;` → `continue;` (loopjump: break -> continue) ⚠capped-sample
-- `m08811` L564: `if (outcome.kind === "rejected") break;` → `if (outcome.kind === "rejected") continue;` (loopjump: break -> continue) ⚠capped-sample
-- `m08812` L565: `if (attempt < BOOTSTRAP_REFRESH_ATTEMPTS - 1) {` → `if (attempt <= BOOTSTRAP_REFRESH_ATTEMPTS - 1) {` (compare: < -> <=) ⚠capped-sample
-- `m08813` L565: `if (attempt < BOOTSTRAP_REFRESH_ATTEMPTS - 1) {` → `if (attempt < BOOTSTRAP_REFRESH_ATTEMPTS + 1) {` (binop: - -> +) ⚠capped-sample
-- `m08814` L565: `if (attempt < BOOTSTRAP_REFRESH_ATTEMPTS - 1) {` → `if (attempt < BOOTSTRAP_REFRESH_ATTEMPTS - 2) {` (intconst: 1 -> 2) ⚠capped-sample
-- `m08815` L565: `if (attempt < BOOTSTRAP_REFRESH_ATTEMPTS - 1) {` → `if (attempt < BOOTSTRAP_REFRESH_ATTEMPTS - 0) {` (intconst: 1 -> 0) ⚠capped-sample
-- `m08816` L566: `await new Promise((resolve) => window.setTimeout(resolve, 750));` → `await new Promise((resolve) => window.setTimeout(resolve, 751));` (intconst: 750 -> 751) ⚠capped-sample
-- `m08817` L566: `await new Promise((resolve) => window.setTimeout(resolve, 750));` → `await new Promise((resolve) => window.setTimeout(resolve, 749));` (intconst: 750 -> 749) ⚠capped-sample
-- `m08818` L570: `if (body && mounted.current) {` → `if (body || mounted.current) {` (binop: && -> ||) ⚠capped-sample
-- `m08829` L599: `if (!loading && !user && forcedLogout.current && PUBLIC_PATHS.includes(pathname)) {` → `if (!loading && !user && forcedLogout.current || PUBLIC_PATHS.includes(pathname)) {` (binop: && -> ||) ⚠capped-sample
-- `m08830` L599: `if (!loading && !user && forcedLogout.current && PUBLIC_PATHS.includes(pathname)) {` → `if (!loading && !user || forcedLogout.current && PUBLIC_PATHS.includes(pathname)) {` (binop: && -> ||) ⚠capped-sample
-- `m08831` L599: `if (!loading && !user && forcedLogout.current && PUBLIC_PATHS.includes(pathname)) {` → `if (!loading || !user && forcedLogout.current && PUBLIC_PATHS.includes(pathname)) {` (binop: && -> ||) ⚠capped-sample
-- `m08832` L599: `if (!loading && !user && forcedLogout.current && PUBLIC_PATHS.includes(pathname)) {` → `if (loading && !user && forcedLogout.current && PUBLIC_PATHS.includes(pathname)) {` (not: drop !) ⚠capped-sample
-- `m08833` L599: `if (!loading && !user && forcedLogout.current && PUBLIC_PATHS.includes(pathname)) {` → `if (!loading && user && forcedLogout.current && PUBLIC_PATHS.includes(pathname)) {` (not: drop !) ⚠capped-sample
-- `m08834` L600: `forcedLogout.current = false;` → `forcedLogout.current = true;` (boolconst: -> true) ⚠capped-sample
+- `m08809` L89: `const raw = safeStorage("local")?.getItem(FARM_STORAGE_KEY) ?? null;` → `const raw = safeStorage("local")?.getItem(FARM_STORAGE_KEY) || null;` (binop: ?? -> ||) ⚠capped-sample
+- `m08815` L138: `if (value === null || !value.startsWith(FARM_STORAGE_REVOKED_PREFIX)) {` → `if (value === null && !value.startsWith(FARM_STORAGE_REVOKED_PREFIX)) {` (binop: || -> &&) ⚠capped-sample
+- `m08819` L142: `return Number.isSafeInteger(stored) && stored > 0 ? stored : null;` → `return Number.isSafeInteger(stored) || stored > 0 ? stored : null;` (binop: && -> ||)
+- `m08822` L150: `safeStorage("local")?.getItem(FARM_STORAGE_KEY) ?? null,` → `safeStorage("local")?.getItem(FARM_STORAGE_KEY) || null,` (binop: ?? -> ||) ⚠capped-sample
+- `m08833` L200: `const farmRefreshGeneration = useRef(0);` → `const farmRefreshGeneration = useRef(1);` (intconst: 0 -> 1) ⚠capped-sample
+- `m08834` L204: `const sessionEstablishmentGeneration = useRef(0);` → `const sessionEstablishmentGeneration = useRef(1);` (intconst: 0 -> 1) ⚠capped-sample
+- `m08835` L209: `const appliedFarmGeneration = useRef(0);` → `const appliedFarmGeneration = useRef(1);` (intconst: 0 -> 1) ⚠capped-sample
+- `m08838` L227: `farmRefreshGeneration.current += 1;` → `farmRefreshGeneration.current += 2;` (intconst: 1 -> 2) ⚠capped-sample
+- `m08839` L227: `farmRefreshGeneration.current += 1;` → `farmRefreshGeneration.current += 0;` (intconst: 1 -> 0) ⚠capped-sample
+- `m08840` L229: `sessionEstablishmentGeneration.current += 1;` → `sessionEstablishmentGeneration.current += 2;` (intconst: 1 -> 2) ⚠capped-sample
+- `m08841` L229: `sessionEstablishmentGeneration.current += 1;` → `sessionEstablishmentGeneration.current += 0;` (intconst: 1 -> 0) ⚠capped-sample
+- `m08844` L249: `setActiveFarmTimezone(timezone ?? selected?.timezone);` → `setActiveFarmTimezone(timezone || selected?.timezone);` (binop: ?? -> ||) ⚠capped-sample
+- `m08845` L259: `farmRefreshGeneration.current += 1;` → `farmRefreshGeneration.current += 2;` (intconst: 1 -> 2) ⚠capped-sample
+- `m08846` L259: `farmRefreshGeneration.current += 1;` → `farmRefreshGeneration.current += 0;` (intconst: 1 -> 0) ⚠capped-sample
+- `m08847` L261: `sessionEstablishmentGeneration.current += 1;` → `sessionEstablishmentGeneration.current += 2;` (intconst: 1 -> 2) ⚠capped-sample
+- `m08848` L261: `sessionEstablishmentGeneration.current += 1;` → `sessionEstablishmentGeneration.current += 0;` (intconst: 1 -> 0) ⚠capped-sample
+- `m08855` L322: `const preferred = farmIdRef.current ?? readStoredFarmId();` → `const preferred = farmIdRef.current || readStoredFarmId();` (binop: ?? -> ||) ⚠capped-sample
+- `m08873` L416: `isAuthSessionChangedError(retryable) ||` → `isAuthSessionChangedError(retryable) &&` (binop: || -> &&) ⚠capped-sample
+- `m08876` L414: `!mounted.current ||` → `mounted.current ||` (not: drop !) ⚠capped-sample
+- `m08878` L417: `authSessionEpochValue() !== ownedEpoch` → `authSessionEpochValue() === ownedEpoch` (compare: !== -> ===) ⚠capped-sample
+- `m08879` L421: `await new Promise((resolve) => setTimeout(resolve, 750));` → `await new Promise((resolve) => setTimeout(resolve, 751));` (intconst: 750 -> 751) ⚠capped-sample
+- `m08880` L421: `await new Promise((resolve) => setTimeout(resolve, 750));` → `await new Promise((resolve) => setTimeout(resolve, 749));` (intconst: 750 -> 749) ⚠capped-sample
+- `m08885` L435: `appliedFarmGeneration.current > farmGeneration` → `appliedFarmGeneration.current >= farmGeneration` (compare: > -> >=) ⚠capped-sample
+- `m08899` L521: `forcedLogout.current = true;` → `forcedLogout.current = false;` (boolconst: -> false) ⚠capped-sample
+- `m08904` L552: `stored !== farmIdRef.current &&` → `stored !== farmIdRef.current ||` (binop: && -> ||) ⚠capped-sample
+- `m08905` L551: `stored > 0 &&` → `stored > 0 ||` (binop: && -> ||) ⚠capped-sample
+- `m08906` L550: `Number.isSafeInteger(stored) &&` → `Number.isSafeInteger(stored) ||` (binop: && -> ||) ⚠capped-sample
+- `m08907` L551: `stored > 0 &&` → `stored >= 0 &&` (compare: > -> >=) ⚠capped-sample
+- `m08908` L551: `stored > 0 &&` → `stored > 1 &&` (intconst: 0 -> 1) ⚠capped-sample
+- `m08910` L553: `farmsRef.current.some((farm) => farm.id === stored)` → `farmsRef.current.some((farm) => farm.id !== stored)` (compare: === -> !==) ⚠capped-sample
+- `m08913` L574: `for (let attempt = 0; attempt < BOOTSTRAP_REFRESH_ATTEMPTS; attempt += 1) {` → `for (let attempt = 0; attempt <= BOOTSTRAP_REFRESH_ATTEMPTS; attempt += 1) {` (compare: < -> <=) ⚠capped-sample
+- `m08917` L578: `break;` → `continue;` (loopjump: break -> continue) ⚠capped-sample
+- `m08919` L580: `if (outcome.kind === "rejected") break;` → `if (outcome.kind === "rejected") continue;` (loopjump: break -> continue) ⚠capped-sample
+- `m08920` L581: `if (attempt < BOOTSTRAP_REFRESH_ATTEMPTS - 1) {` → `if (attempt <= BOOTSTRAP_REFRESH_ATTEMPTS - 1) {` (compare: < -> <=) ⚠capped-sample
+- `m08921` L581: `if (attempt < BOOTSTRAP_REFRESH_ATTEMPTS - 1) {` → `if (attempt < BOOTSTRAP_REFRESH_ATTEMPTS + 1) {` (binop: - -> +) ⚠capped-sample
+- `m08923` L581: `if (attempt < BOOTSTRAP_REFRESH_ATTEMPTS - 1) {` → `if (attempt < BOOTSTRAP_REFRESH_ATTEMPTS - 0) {` (intconst: 1 -> 0) ⚠capped-sample
+- `m08924` L582: `await new Promise((resolve) => window.setTimeout(resolve, 750));` → `await new Promise((resolve) => window.setTimeout(resolve, 751));` (intconst: 750 -> 751) ⚠capped-sample
+- `m08925` L582: `await new Promise((resolve) => window.setTimeout(resolve, 750));` → `await new Promise((resolve) => window.setTimeout(resolve, 749));` (intconst: 750 -> 749) ⚠capped-sample
+- `m08926` L586: `if (body && mounted.current) {` → `if (body || mounted.current) {` (binop: && -> ||) ⚠capped-sample
+- `m08940` L615: `if (!loading && !user && forcedLogout.current && PUBLIC_PATHS.includes(pathname)) {` → `if (loading && !user && forcedLogout.current && PUBLIC_PATHS.includes(pathname)) {` (not: drop !) ⚠capped-sample
+- `m08941` L615: `if (!loading && !user && forcedLogout.current && PUBLIC_PATHS.includes(pathname)) {` → `if (!loading && user && forcedLogout.current && PUBLIC_PATHS.includes(pathname)) {` (not: drop !) ⚠capped-sample
+- `m08942` L616: `forcedLogout.current = false;` → `forcedLogout.current = true;` (boolconst: -> true) ⚠capped-sample
+
+### src/lib/bucket-sex.ts (1)
+
+- `m08983` L16: `(BUCKET_REQUIRED_SEX[bucket] ?? sex) === sex;` → `(BUCKET_REQUIRED_SEX[bucket] || sex) === sex;` (binop: ?? -> ||)
 
 ### src/lib/csp.ts (3)
 
-- `m08901` L49: `if (!Number.isInteger(port) || port <= 0 || port > 65535) return null;` → `if (!Number.isInteger(port) || port <= 0 || port > 65536) return null;` (intconst: 65535 -> 65536)
-- `m08908` L104: `const imgOrigins = options.imgOrigins ?? [];` → `const imgOrigins = options.imgOrigins || [];` (binop: ?? -> ||)
-- `m08909` L105: `const connectOrigins = options.connectOrigins ?? [];` → `const connectOrigins = options.connectOrigins || [];` (binop: ?? -> ||)
+- `m09011` L49: `if (!Number.isInteger(port) || port <= 0 || port > 65535) return null;` → `if (!Number.isInteger(port) || port <= 0 || port > 65536) return null;` (intconst: 65535 -> 65536)
+- `m09018` L104: `const imgOrigins = options.imgOrigins ?? [];` → `const imgOrigins = options.imgOrigins || [];` (binop: ?? -> ||)
+- `m09019` L105: `const connectOrigins = options.connectOrigins ?? [];` → `const connectOrigins = options.connectOrigins || [];` (binop: ?? -> ||)
 
 ### src/lib/enum-labels.ts (3)
 
-- `m08923` L335: `const language = lang ?? getActiveLanguage();` → `const language = lang || getActiveLanguage();` (binop: ?? -> ||) ⚠capped-sample
-- `m08925` L337: `const telugu = TE_LABELS[kind]?.[value] ?? TE_LABELS[kind]?.[value.toUpperCase()];` → `const telugu = TE_LABELS[kind]?.[value] || TE_LABELS[kind]?.[value.toUpperCase()];` (binop: ?? -> ||) ⚠capped-sample
-- `m08927` L341: `return BUCKET_LABELS[value] ?? titleCase(value);` → `return BUCKET_LABELS[value] || titleCase(value);` (binop: ?? -> ||) ⚠capped-sample
+- `m09033` L337: `const language = lang ?? getActiveLanguage();` → `const language = lang || getActiveLanguage();` (binop: ?? -> ||) ⚠capped-sample
+- `m09035` L339: `const telugu = TE_LABELS[kind]?.[value] ?? TE_LABELS[kind]?.[value.toUpperCase()];` → `const telugu = TE_LABELS[kind]?.[value] || TE_LABELS[kind]?.[value.toUpperCase()];` (binop: ?? -> ||) ⚠capped-sample
+- `m09037` L343: `return BUCKET_LABELS[value] ?? titleCase(value);` → `return BUCKET_LABELS[value] || titleCase(value);` (binop: ?? -> ||) ⚠capped-sample
 
-### src/lib/format.ts (17)
+### src/lib/format.ts (19)
 
-- `m08964` L7: `if (value === null || value === undefined || !Number.isFinite(value)) return "—";` → `if (value === null && value === undefined || !Number.isFinite(value)) return "—";` (binop: || -> &&)
-- `m08969` L12: `if (Math.abs(value) >= 1e21) {` → `if (Math.abs(value) >= 1e+21) {` (intconst: 1e+21 -> 1e+21) ⚠capped-sample
-- `m08970` L12: `if (Math.abs(value) >= 1e21) {` → `if (Math.abs(value) >= 1e+21) {` (intconst: 1e+21 -> 1e+21) ⚠capped-sample
-- `m08971` L14: `maximumFractionDigits: 0,` → `maximumFractionDigits: 1,` (intconst: 0 -> 1)
-- `m08974` L17: `return `${value < 0 ? "-" : ""}₹${grouped}`;` → `return `${value <= 0 ? "-" : ""}₹${grouped}`;` (compare: < -> <=)
-- `m08975` L17: `return `${value < 0 ? "-" : ""}₹${grouped}`;` → `return `${value < 1 ? "-" : ""}₹${grouped}`;` (intconst: 0 -> 1)
-- `m08979` L22: `const negative = value < 0 && (intPart !== "0" || fracPart !== "00");` → `const negative = value <= 0 && (intPart !== "0" || fracPart !== "00");` (compare: < -> <=)
-- `m09030` L112: `!Number.isInteger(month) ||` → `!Number.isInteger(month) &&` (binop: || -> &&)
-- `m09031` L111: `!Number.isInteger(year) ||` → `!Number.isInteger(year) &&` (binop: || -> &&)
-- `m09038` L121: `const date = new Date(0);` → `const date = new Date(1);` (intconst: 0 -> 1)
-- `m09042` L126: `date.getUTCMonth() !== month - 1 ||` → `date.getUTCMonth() !== month - 1 &&` (binop: || -> &&)
-- `m09043` L125: `date.getUTCFullYear() !== year ||` → `date.getUTCFullYear() !== year &&` (binop: || -> &&)
-- `m09044` L124: `Number.isNaN(date.getTime()) ||` → `Number.isNaN(date.getTime()) &&` (binop: || -> &&)
-- `m09080` L203: `return Math.round((toDate.getTime() - fromDate.getTime()) / 86400000);` → `return Math.round((toDate.getTime() - fromDate.getTime()) / 86400001);` (intconst: 86400000 -> 86400001)
-- `m09081` L203: `return Math.round((toDate.getTime() - fromDate.getTime()) / 86400000);` → `return Math.round((toDate.getTime() - fromDate.getTime()) / 86399999);` (intconst: 86400000 -> 86399999)
-- `m09086` L224: `const [y, m, d] = match.slice(1, 4).map(Number);` → `const [y, m, d] = match.slice(1, 5).map(Number);` (intconst: 4 -> 5)
-- `m09098` L232: `if ((lang ?? getActiveLanguage()) === "te") {` → `if ((lang || getActiveLanguage()) === "te") {` (binop: ?? -> ||) ⚠capped-sample
+- `m09074` L7: `if (value === null || value === undefined || !Number.isFinite(value)) return "—";` → `if (value === null && value === undefined || !Number.isFinite(value)) return "—";` (binop: || -> &&) ⚠capped-sample
+- `m09079` L12: `if (Math.abs(value) >= 1e21) {` → `if (Math.abs(value) >= 1e+21) {` (intconst: 1e+21 -> 1e+21) ⚠capped-sample
+- `m09080` L12: `if (Math.abs(value) >= 1e21) {` → `if (Math.abs(value) >= 1e+21) {` (intconst: 1e+21 -> 1e+21) ⚠capped-sample
+- `m09081` L14: `maximumFractionDigits: 0,` → `maximumFractionDigits: 1,` (intconst: 0 -> 1) ⚠capped-sample
+- `m09084` L17: `return `${value < 0 ? "-" : ""}₹${grouped}`;` → `return `${value <= 0 ? "-" : ""}₹${grouped}`;` (compare: < -> <=) ⚠capped-sample
+- `m09085` L17: `return `${value < 0 ? "-" : ""}₹${grouped}`;` → `return `${value < 1 ? "-" : ""}₹${grouped}`;` (intconst: 0 -> 1) ⚠capped-sample
+- `m09089` L22: `const negative = value < 0 && (intPart !== "0" || fracPart !== "00");` → `const negative = value <= 0 && (intPart !== "0" || fracPart !== "00");` (compare: < -> <=) ⚠capped-sample
+- `m09130` L56: `return value.toLocaleString(getActiveLanguage() === "te" ? "te-IN" : "en-IN", options);` → `return value.toLocaleString(getActiveLanguage() === "te" ? "en-IN" : "te-IN", options);` (ifexp: swap ternary branches)
+- `m09131` L56: `return value.toLocaleString(getActiveLanguage() === "te" ? "te-IN" : "en-IN", options);` → `return value.toLocaleString(getActiveLanguage() !== "te" ? "te-IN" : "en-IN", options);` (compare: === -> !==)
+- `m09139` L117: `!Number.isInteger(month) ||` → `!Number.isInteger(month) &&` (binop: || -> &&) ⚠capped-sample
+- `m09140` L116: `!Number.isInteger(year) ||` → `!Number.isInteger(year) &&` (binop: || -> &&) ⚠capped-sample
+- `m09147` L126: `const date = new Date(0);` → `const date = new Date(1);` (intconst: 0 -> 1) ⚠capped-sample
+- `m09151` L131: `date.getUTCMonth() !== month - 1 ||` → `date.getUTCMonth() !== month - 1 &&` (binop: || -> &&) ⚠capped-sample
+- `m09152` L130: `date.getUTCFullYear() !== year ||` → `date.getUTCFullYear() !== year &&` (binop: || -> &&) ⚠capped-sample
+- `m09153` L129: `Number.isNaN(date.getTime()) ||` → `Number.isNaN(date.getTime()) &&` (binop: || -> &&) ⚠capped-sample
+- `m09189` L208: `return Math.round((toDate.getTime() - fromDate.getTime()) / 86400000);` → `return Math.round((toDate.getTime() - fromDate.getTime()) / 86400001);` (intconst: 86400000 -> 86400001)
+- `m09190` L208: `return Math.round((toDate.getTime() - fromDate.getTime()) / 86400000);` → `return Math.round((toDate.getTime() - fromDate.getTime()) / 86399999);` (intconst: 86400000 -> 86399999)
+- `m09195` L229: `const [y, m, d] = match.slice(1, 4).map(Number);` → `const [y, m, d] = match.slice(1, 5).map(Number);` (intconst: 4 -> 5) ⚠capped-sample
+- `m09207` L237: `if ((lang ?? getActiveLanguage()) === "te") {` → `if ((lang || getActiveLanguage()) === "te") {` (binop: ?? -> ||) ⚠capped-sample
 
 ### src/lib/i18n/index.tsx (2)
 
-- `m09106` L52: `const template = language === "te" ? (te[key] ?? en[key]) : en[key];` → `const template = language === "te" ? (te[key] || en[key]) : en[key];` (binop: ?? -> ||) ⚠capped-sample
-- `m09107` L53: `return interpolate(template ?? key, vars);` → `return interpolate(template || key, vars);` (binop: ?? -> ||) ⚠capped-sample
+- `m09215` L53: `const template = language === "te" ? (te[key] ?? en[key]) : en[key];` → `const template = language === "te" ? (te[key] || en[key]) : en[key];` (binop: ?? -> ||) ⚠capped-sample
+- `m09216` L54: `return interpolate(template ?? key, vars);` → `return interpolate(template || key, vars);` (binop: ?? -> ||) ⚠capped-sample
 
 ### src/lib/idempotent-request.ts (24)
 
-- `m09138` L99: `if (typeof candidate !== "object" || candidate === null) continue;` → `if (typeof candidate !== "object" || candidate === null) break;` (loopjump: continue -> break)
-- `m09142` L108: `typeof record.expiresAt !== "number" ||` → `typeof record.expiresAt !== "number" &&` (binop: || -> &&)
-- `m09163` L134: `return readPersistedRecords(storage, now).find((record) => record.digest === digest)?.key ?? null;` → `return readPersistedRecords(storage, now).find((record) => record.digest === digest)?.key || null;` (binop: ?? -> ||)
-- `m09171` L161: `(count, record) => count + (liveDigests.has(record.digest) ? 1 : 0),` → `(count, record) => count + (liveDigests.has(record.digest) ? 2 : 0),` (intconst: 1 -> 2)
-- `m09181` L167: `.sort((left, right) => right.expiresAt - left.expiresAt)` → `.sort((left, right) => right.expiresAt + left.expiresAt)` (binop: - -> +)
-- `m09186` L185: `...bounded.slice(0, Math.max(MAX_LOGICAL_REQUESTS - 1, 0)),` → `...bounded.slice(0, Math.max(MAX_LOGICAL_REQUESTS + 1, 0)),` (binop: - -> +)
-- `m09188` L185: `...bounded.slice(0, Math.max(MAX_LOGICAL_REQUESTS - 1, 0)),` → `...bounded.slice(0, Math.max(MAX_LOGICAL_REQUESTS - 0, 0)),` (intconst: 1 -> 0)
-- `m09189` L185: `...bounded.slice(0, Math.max(MAX_LOGICAL_REQUESTS - 1, 0)),` → `...bounded.slice(0, Math.max(MAX_LOGICAL_REQUESTS - 1, 1)),` (intconst: 0 -> 1)
-- `m09193` L207: `if (!subtle || typeof TextEncoder === "undefined") return null;` → `if (!subtle && typeof TextEncoder === "undefined") return null;` (binop: || -> &&)
-- `m09200` L225: `return url.split(/[?#]/, 1)[0];` → `return url.split(/[?#]/, 2)[0];` (intconst: 1 -> 2)
-- `m09201` L225: `return url.split(/[?#]/, 1)[0];` → `return url.split(/[?#]/, 0)[0];` (intconst: 1 -> 0)
-- `m09202` L225: `return url.split(/[?#]/, 1)[0];` → `return url.split(/[?#]/, 1)[1];` (intconst: 0 -> 1)
-- `m09204` L233: `if ((method ?? "GET").toUpperCase() !== "POST") return false;` → `if ((method || "GET").toUpperCase() !== "POST") return false;` (binop: ?? -> ||)
-- `m09247` L289: `bytes[6] = (bytes[6] & 0x0f) | 0x40;` → `bytes[6] = (bytes[6] & 14) | 0x40;` (intconst: 15 -> 14)
-- `m09257` L290: `bytes[8] = (bytes[8] & 0x3f) | 0x80;` → `bytes[8] = (bytes[8] & 62) | 0x80;` (intconst: 63 -> 62)
-- `m09286` L327: `(init.method ?? "GET").toUpperCase(),` → `(init.method || "GET").toUpperCase(),` (binop: ?? -> ||)
-- `m09287` L329: `farmScope ?? "",` → `farmScope || "",` (binop: ?? -> ||)
-- `m09288` L334: `callerKey ?? "",` → `callerKey || "",` (binop: ?? -> ||)
-- `m09289` L353: `(init.method ?? "GET").toUpperCase(),` → `(init.method || "GET").toUpperCase(),` (binop: ?? -> ||)
-- `m09290` L356: `farmScope ?? "",` → `farmScope || "",` (binop: ?? -> ||)
-- `m09334` L461: `const signal = init.signal ?? null;` → `const signal = init.signal || null;` (binop: ?? -> ||)
-- `m09343` L497: `(callerKey ?? "")` → `(callerKey || "")` (binop: ?? -> ||)
-- `m09344` L498: `: (persistedDigest ? loadPersistedKey(persistedDigest, now) : null) ??` → `: (persistedDigest ? loadPersistedKey(persistedDigest, now) : null) ||` (binop: ?? -> ||)
-- `m09346` L501: `expiresAt: now + RETRY_KEY_TTL_MS,` → `expiresAt: now - RETRY_KEY_TTL_MS,` (binop: + -> -)
+- `m09245` L90: `if (typeof candidate !== "object" || candidate === null) continue;` → `if (typeof candidate !== "object" || candidate === null) break;` (loopjump: continue -> break) ⚠capped-sample
+- `m09249` L99: `typeof record.expiresAt !== "number" ||` → `typeof record.expiresAt !== "number" &&` (binop: || -> &&) ⚠capped-sample
+- `m09270` L125: `return readPersistedRecords(storage, now).find((record) => record.digest === digest)?.key ?? null;` → `return readPersistedRecords(storage, now).find((record) => record.digest === digest)?.key || null;` (binop: ?? -> ||) ⚠capped-sample
+- `m09278` L152: `(count, record) => count + (liveDigests.has(record.digest) ? 1 : 0),` → `(count, record) => count + (liveDigests.has(record.digest) ? 2 : 0),` (intconst: 1 -> 2) ⚠capped-sample
+- `m09288` L158: `.sort((left, right) => right.expiresAt - left.expiresAt)` → `.sort((left, right) => right.expiresAt + left.expiresAt)` (binop: - -> +) ⚠capped-sample
+- `m09293` L176: `...bounded.slice(0, Math.max(MAX_LOGICAL_REQUESTS - 1, 0)),` → `...bounded.slice(0, Math.max(MAX_LOGICAL_REQUESTS + 1, 0)),` (binop: - -> +) ⚠capped-sample
+- `m09295` L176: `...bounded.slice(0, Math.max(MAX_LOGICAL_REQUESTS - 1, 0)),` → `...bounded.slice(0, Math.max(MAX_LOGICAL_REQUESTS - 0, 0)),` (intconst: 1 -> 0) ⚠capped-sample
+- `m09296` L176: `...bounded.slice(0, Math.max(MAX_LOGICAL_REQUESTS - 1, 0)),` → `...bounded.slice(0, Math.max(MAX_LOGICAL_REQUESTS - 1, 1)),` (intconst: 0 -> 1) ⚠capped-sample
+- `m09300` L198: `if (!subtle || typeof TextEncoder === "undefined") return null;` → `if (!subtle && typeof TextEncoder === "undefined") return null;` (binop: || -> &&) ⚠capped-sample
+- `m09307` L216: `return url.split(/[?#]/, 1)[0];` → `return url.split(/[?#]/, 2)[0];` (intconst: 1 -> 2) ⚠capped-sample
+- `m09308` L216: `return url.split(/[?#]/, 1)[0];` → `return url.split(/[?#]/, 0)[0];` (intconst: 1 -> 0) ⚠capped-sample
+- `m09309` L216: `return url.split(/[?#]/, 1)[0];` → `return url.split(/[?#]/, 1)[1];` (intconst: 0 -> 1) ⚠capped-sample
+- `m09311` L224: `if ((method ?? "GET").toUpperCase() !== "POST") return false;` → `if ((method || "GET").toUpperCase() !== "POST") return false;` (binop: ?? -> ||) ⚠capped-sample
+- `m09367` L330: `bytes[6] = (bytes[6] & 0x0f) | 0x40;` → `bytes[6] = (bytes[6] & 14) | 0x40;` (intconst: 15 -> 14)
+- `m09377` L331: `bytes[8] = (bytes[8] & 0x3f) | 0x80;` → `bytes[8] = (bytes[8] & 62) | 0x80;` (intconst: 63 -> 62)
+- `m09406` L368: `(init.method ?? "GET").toUpperCase(),` → `(init.method || "GET").toUpperCase(),` (binop: ?? -> ||) ⚠capped-sample
+- `m09407` L370: `farmScope ?? "",` → `farmScope || "",` (binop: ?? -> ||) ⚠capped-sample
+- `m09408` L375: `callerKey ?? "",` → `callerKey || "",` (binop: ?? -> ||) ⚠capped-sample
+- `m09409` L394: `(init.method ?? "GET").toUpperCase(),` → `(init.method || "GET").toUpperCase(),` (binop: ?? -> ||) ⚠capped-sample
+- `m09410` L397: `farmScope ?? "",` → `farmScope || "",` (binop: ?? -> ||) ⚠capped-sample
+- `m09454` L502: `const signal = init.signal ?? null;` → `const signal = init.signal || null;` (binop: ?? -> ||) ⚠capped-sample
+- `m09465` L545: `(callerKey ?? "")` → `(callerKey || "")` (binop: ?? -> ||) ⚠capped-sample
+- `m09466` L546: `: (persistedDigest ? loadPersistedKey(persistedDigest, now) : null) ??` → `: (persistedDigest ? loadPersistedKey(persistedDigest, now) : null) ||` (binop: ?? -> ||) ⚠capped-sample
+- `m09468` L549: `expiresAt: now + RETRY_KEY_TTL_MS,` → `expiresAt: now - RETRY_KEY_TTL_MS,` (binop: + -> -) ⚠capped-sample
 
-### src/lib/image-deps-guard.ts (10)
+### src/lib/image-deps-guard.ts (8)
 
-- `m09356` L49: `for (let index = 0; index < length; index += 1) {` → `for (let index = 0; index <= length; index += 1) {` (compare: < -> <=)
-- `m09360` L50: `const delta = (left[index] ?? 0) - (right[index] ?? 0);` → `const delta = (left[index] || 0) - (right[index] ?? 0);` (binop: ?? -> ||)
-- `m09362` L50: `const delta = (left[index] ?? 0) - (right[index] ?? 0);` → `const delta = (left[index] ?? 0) - (right[index] || 0);` (binop: ?? -> ||)
-- `m09373` L73: ``(next ${nextVersion ?? "unknown"} does not disable HEIF decoding itself).`,` → ``(next ${nextVersion || "unknown"} does not disable HEIF decoding itself).`,` (binop: ?? -> ||)
-- `m09384` L88: ``next ${nextVersion ?? "unknown"} decodes HEIF/AVIF input again — upgrading ` +` → ``next ${nextVersion || "unknown"} decodes HEIF/AVIF input again — upgrading ` +` (binop: ?? -> ||)
-- `m09385` L102: `return sharp.versions ?? {};` → `return sharp.versions || {};` (binop: ?? -> ||)
-- `m09386` L120: `const sharpProbe = deps.sharpProbe ?? defaultSharpProbe();` → `const sharpProbe = deps.sharpProbe || defaultSharpProbe();` (binop: ?? -> ||)
-- `m09388` L123: `const manifest = join(deps.rootDir ?? process.cwd(), "node_modules", "next", "package.json");` → `const manifest = join(deps.rootDir || process.cwd(), "node_modules", "next", "package.json");` (binop: ?? -> ||)
-- `m09391` L161: `process.env.NEXT_PHASE === "phase-production-build" ? "enforce" : "warn";` → `process.env.NEXT_PHASE === "phase-production-build" ? "warn" : "enforce";` (ifexp: swap ternary branches)
-- `m09392` L161: `process.env.NEXT_PHASE === "phase-production-build" ? "enforce" : "warn";` → `process.env.NEXT_PHASE !== "phase-production-build" ? "enforce" : "warn";` (compare: === -> !==)
+- `m09478` L49: `for (let index = 0; index < length; index += 1) {` → `for (let index = 0; index <= length; index += 1) {` (compare: < -> <=)
+- `m09482` L50: `const delta = (left[index] ?? 0) - (right[index] ?? 0);` → `const delta = (left[index] || 0) - (right[index] ?? 0);` (binop: ?? -> ||)
+- `m09484` L50: `const delta = (left[index] ?? 0) - (right[index] ?? 0);` → `const delta = (left[index] ?? 0) - (right[index] || 0);` (binop: ?? -> ||)
+- `m09495` L73: ``(next ${nextVersion ?? "unknown"} does not disable HEIF decoding itself).`,` → ``(next ${nextVersion || "unknown"} does not disable HEIF decoding itself).`,` (binop: ?? -> ||)
+- `m09506` L88: ``next ${nextVersion ?? "unknown"} decodes HEIF/AVIF input again — upgrading ` +` → ``next ${nextVersion || "unknown"} decodes HEIF/AVIF input again — upgrading ` +` (binop: ?? -> ||)
+- `m09507` L102: `return sharp.versions ?? {};` → `return sharp.versions || {};` (binop: ?? -> ||)
+- `m09508` L120: `const sharpProbe = deps.sharpProbe ?? defaultSharpProbe();` → `const sharpProbe = deps.sharpProbe || defaultSharpProbe();` (binop: ?? -> ||)
+- `m09510` L123: `const manifest = join(deps.rootDir ?? process.cwd(), "node_modules", "next", "package.json");` → `const manifest = join(deps.rootDir || process.cwd(), "node_modules", "next", "package.json");` (binop: ?? -> ||)
 
-### src/lib/offline-queue.ts (24)
+### src/lib/offline-queue.ts (11)
 
-- `m09437` L80: `length: 0,` → `length: 1,` (intconst: 0 -> 1)
-- `m09438` L88: `export function readOfflineQueue(storage: Storage = availableLocalStorage() ?? NULL_STORAGE): QueuedMutation[] {` → `export function readOfflineQueue(storage: Storage = availableLocalStorage() || NULL_STORAGE): QueuedMutation[] {` (binop: ?? -> ||)
-- `m09448` L140: `body: init.body ?? null,` → `body: init.body || null,` (binop: ?? -> ||)
-- `m09449` L141: `headers: { ...(init.headers ?? {}) },` → `headers: { ...(init.headers || {}) },` (binop: ?? -> ||)
-- `m09451` L150: `while (next.length > 0 && JSON.stringify(next).length > MAX_STORAGE_BYTES) {` → `while (next.length >= 0 && JSON.stringify(next).length > MAX_STORAGE_BYTES) {` (compare: > -> >=)
-- `m09459` L161: `if ((method ?? "GET").toUpperCase() !== "POST") return false;` → `if ((method || "GET").toUpperCase() !== "POST") return false;` (binop: ?? -> ||)
-- `m09471` L174: `if (typeof navigator !== "undefined" && navigator.onLine === false) return true;` → `if (typeof navigator !== "undefined" || navigator.onLine === false) return true;` (binop: && -> ||)
-- `m09476` L178: `"name" in error &&` → `"name" in error ||` (binop: && -> ||)
-- `m09477` L177: `error !== null &&` → `error !== null ||` (binop: && -> ||)
-- `m09478` L176: `typeof error === "object" &&` → `typeof error === "object" ||` (binop: && -> ||)
-- `m09486` L213: `if (storage === null) return { replayed: 0, remaining: 0 };` → `if (storage === null) return { replayed: 1, remaining: 0 };` (intconst: 0 -> 1)
-- `m09487` L213: `if (storage === null) return { replayed: 0, remaining: 0 };` → `if (storage === null) return { replayed: 0, remaining: 1 };` (intconst: 0 -> 1)
-- `m09496` L230: `if (stopped) continue;` → `if (stopped) break;` (loopjump: continue -> break)
-- `m09497` L234: `body: record.body ?? undefined,` → `body: record.body || undefined,` (binop: ?? -> ||)
-- `m09519` L270: `let workersRunning = false;` → `let workersRunning = true;` (boolconst: -> true)
-- `m09520` L276: `workersRunning = true;` → `workersRunning = false;` (boolconst: -> false)
-- `m09521` L279: `if (scopes === null) return;` → `if (scopes !== null) return;` (compare: === -> !==)
-- `m09522` L280: `if (typeof navigator !== "undefined" && navigator.onLine === false) return;` → `if (typeof navigator !== "undefined" || navigator.onLine === false) return;` (binop: && -> ||)
-- `m09523` L280: `if (typeof navigator !== "undefined" && navigator.onLine === false) return;` → `if (typeof navigator === "undefined" && navigator.onLine === false) return;` (compare: !== -> ===)
-- `m09524` L280: `if (typeof navigator !== "undefined" && navigator.onLine === false) return;` → `if (typeof navigator !== "undefined" && navigator.onLine !== false) return;` (compare: === -> !==)
-- `m09525` L280: `if (typeof navigator !== "undefined" && navigator.onLine === false) return;` → `if (typeof navigator !== "undefined" && navigator.onLine === true) return;` (boolconst: -> true)
-- `m09526` L285: `const timer = window.setInterval(drainIfScoped, 30_000);` → `const timer = window.setInterval(drainIfScoped, 30001);` (intconst: 30000 -> 30001)
-- `m09527` L285: `const timer = window.setInterval(drainIfScoped, 30_000);` → `const timer = window.setInterval(drainIfScoped, 29999);` (intconst: 30000 -> 29999)
-- `m09528` L287: `workersRunning = false;` → `workersRunning = true;` (boolconst: -> true)
+- `m09572` L86: `length: 0,` → `length: 1,` (intconst: 0 -> 1) ⚠capped-sample
+- `m09588` L159: `headers: { ...(init.headers ?? {}) },` → `headers: { ...(init.headers || {}) },` (binop: ?? -> ||)
+- `m09590` L168: `while (next.length > 0 && JSON.stringify(next).length > MAX_STORAGE_BYTES) {` → `while (next.length >= 0 && JSON.stringify(next).length > MAX_STORAGE_BYTES) {` (compare: > -> >=)
+- `m09598` L179: `if ((method ?? "GET").toUpperCase() !== "POST") return false;` → `if ((method || "GET").toUpperCase() !== "POST") return false;` (binop: ?? -> ||)
+- `m09624` L248: `let nextDrainAfterMs = 0;` → `let nextDrainAfterMs = 1;` (intconst: 0 -> 1) ⚠capped-sample
+- `m09643` L288: `if (stopped) continue;` → `if (stopped) break;` (loopjump: continue -> break)
+- `m09664` L318: `if (status === 429 && typeof retryAfter === "number" && retryAfter > 0) {` → `if (status === 429 && typeof retryAfter === "number" || retryAfter > 0) {` (binop: && -> ||)
+- `m09665` L318: `if (status === 429 && typeof retryAfter === "number" && retryAfter > 0) {` → `if (status === 429 || typeof retryAfter === "number" && retryAfter > 0) {` (binop: && -> ||)
+- `m09670` L318: `if (status === 429 && typeof retryAfter === "number" && retryAfter > 0) {` → `if (status === 429 && typeof retryAfter === "number" && retryAfter >= 0) {` (compare: > -> >=)
+- `m09677` L322: `continue;` → `break;` (loopjump: continue -> break)
+- `m09693` L350: `let workersRunning = false;` → `let workersRunning = true;` (boolconst: -> true) ⚠capped-sample
 
 ### src/lib/permission-navigation.ts (6)
 
-- `m09532` L29: `PERMISSION_LANDING_ROUTES.find(({ permission }) => can(permission))?.href ?? "/no-access"` → `PERMISSION_LANDING_ROUTES.find(({ permission }) => can(permission))?.href || "/no-access"` (binop: ?? -> ||)
-- `m09534` L105: `const rawPath = safe.split(/[?#]/, 1)[0];` → `const rawPath = safe.split(/[?#]/, 2)[0];` (intconst: 1 -> 2)
-- `m09537` L107: `if (rawPath.includes("%") || rawPath.includes("\\")) return null;` → `if (rawPath.includes("%") && rawPath.includes("\\")) return null;` (binop: || -> &&)
-- `m09552` L162: `resolved.path.length > 1 && resolved.path.endsWith("/")` → `resolved.path.length >= 1 && resolved.path.endsWith("/")` (compare: > -> >=)
-- `m09553` L162: `resolved.path.length > 1 && resolved.path.endsWith("/")` → `resolved.path.length > 2 && resolved.path.endsWith("/")` (intconst: 1 -> 2)
-- `m09554` L162: `resolved.path.length > 1 && resolved.path.endsWith("/")` → `resolved.path.length > 0 && resolved.path.endsWith("/")` (intconst: 1 -> 0)
+- `m09708` L29: `PERMISSION_LANDING_ROUTES.find(({ permission }) => can(permission))?.href ?? "/no-access"` → `PERMISSION_LANDING_ROUTES.find(({ permission }) => can(permission))?.href || "/no-access"` (binop: ?? -> ||)
+- `m09710` L105: `const rawPath = safe.split(/[?#]/, 1)[0];` → `const rawPath = safe.split(/[?#]/, 2)[0];` (intconst: 1 -> 2)
+- `m09713` L107: `if (rawPath.includes("%") || rawPath.includes("\\")) return null;` → `if (rawPath.includes("%") && rawPath.includes("\\")) return null;` (binop: || -> &&)
+- `m09728` L162: `resolved.path.length > 1 && resolved.path.endsWith("/")` → `resolved.path.length >= 1 && resolved.path.endsWith("/")` (compare: > -> >=)
+- `m09729` L162: `resolved.path.length > 1 && resolved.path.endsWith("/")` → `resolved.path.length > 2 && resolved.path.endsWith("/")` (intconst: 1 -> 2)
+- `m09730` L162: `resolved.path.length > 1 && resolved.path.endsWith("/")` → `resolved.path.length > 0 && resolved.path.endsWith("/")` (intconst: 1 -> 0)
 
 ### src/lib/server-error-phrases.ts (3)
 
-- `m09588` L51: `{ status: 403, test: /owner|role|permission|not allow/i, key: "serverErrors.permissionDenied" },` → `{ status: 404, test: /owner|role|permission|not allow/i, key: "serverErrors.permissionDenied" },` (intconst: 403 -> 404) ⚠capped-sample
-- `m09589` L51: `{ status: 403, test: /owner|role|permission|not allow/i, key: "serverErrors.permissionDenied" },` → `{ status: 402, test: /owner|role|permission|not allow/i, key: "serverErrors.permissionDenied" },` (intconst: 403 -> 402) ⚠capped-sample
-- `m09592` L62: `if (code !== undefined && code !== null) {` → `if (code !== undefined || code !== null) {` (binop: && -> ||) ⚠capped-sample
+- `m09767` L66: `{ status: 403, test: /owner|role|permission|not allow/i, key: "serverErrors.permissionDenied" },` → `{ status: 404, test: /owner|role|permission|not allow/i, key: "serverErrors.permissionDenied" },` (intconst: 403 -> 404) ⚠capped-sample
+- `m09768` L66: `{ status: 403, test: /owner|role|permission|not allow/i, key: "serverErrors.permissionDenied" },` → `{ status: 402, test: /owner|role|permission|not allow/i, key: "serverErrors.permissionDenied" },` (intconst: 403 -> 402) ⚠capped-sample
+- `m09774` L86: `if (code !== undefined && code !== null) {` → `if (code !== undefined || code !== null) {` (binop: && -> ||) ⚠capped-sample
 
 ### src/lib/simulation-field-help.ts (2)
 
-- `m09603` L582: `const variableLabel = RISK_VARIABLE_LABELS[key]?.(v) ?? key.replace(/_/g, " ");` → `const variableLabel = RISK_VARIABLE_LABELS[key]?.(v) || key.replace(/_/g, " ");` (binop: ?? -> ||)
-- `m09608` L591: `const variableLabel = RISK_VARIABLE_LABELS[key]?.(v) ?? key.replace(/_/g, " ");` → `const variableLabel = RISK_VARIABLE_LABELS[key]?.(v) || key.replace(/_/g, " ");` (binop: ?? -> ||)
+- `m09784` L577: `const variableLabel = RISK_VARIABLE_LABELS[key]?.(v) ?? key.replace(/_/g, " ");` → `const variableLabel = RISK_VARIABLE_LABELS[key]?.(v) || key.replace(/_/g, " ");` (binop: ?? -> ||)
+- `m09789` L586: `const variableLabel = RISK_VARIABLE_LABELS[key]?.(v) ?? key.replace(/_/g, " ");` → `const variableLabel = RISK_VARIABLE_LABELS[key]?.(v) || key.replace(/_/g, " ");` (binop: ?? -> ||)
 
-### src/lib/task-title.ts (6)
+### src/lib/task-title.ts (5)
 
-- `m09688` L70: `if ((name === "date" || name.endsWith("_date")) && typeof value === "string" && ISO_DATE.test(value)) {` → `if ((name !== "date" || name.endsWith("_date")) && typeof value === "string" && ISO_DATE.test(value)) {` (compare: === -> !==)
-- `m09690` L73: `return typeof value === "number" && Number.isFinite(value) ? value : String(value);` → `return typeof value === "number" && Number.isFinite(value) ? String(value) : value;` (ifexp: swap ternary branches)
-- `m09691` L73: `return typeof value === "number" && Number.isFinite(value) ? value : String(value);` → `return typeof value === "number" || Number.isFinite(value) ? value : String(value);` (binop: && -> ||)
-- `m09692` L73: `return typeof value === "number" && Number.isFinite(value) ? value : String(value);` → `return typeof value !== "number" && Number.isFinite(value) ? value : String(value);` (compare: === -> !==)
-- `m09701` L85: `for (const [name, value] of Object.entries(task.title_args ?? {})) {` → `for (const [name, value] of Object.entries(task.title_args || {})) {` (binop: ?? -> ||)
-- `m09702` L86: `if (value === null || value === undefined) continue;` → `if (value === null && value === undefined) continue;` (binop: || -> &&)
+- `m09869` L70: `if ((name === "date" || name.endsWith("_date")) && typeof value === "string" && ISO_DATE.test(value)) {` → `if ((name !== "date" || name.endsWith("_date")) && typeof value === "string" && ISO_DATE.test(value)) {` (compare: === -> !==)
+- `m09871` L73: `return typeof value === "number" && Number.isFinite(value) ? value : String(value);` → `return typeof value === "number" && Number.isFinite(value) ? String(value) : value;` (ifexp: swap ternary branches)
+- `m09872` L73: `return typeof value === "number" && Number.isFinite(value) ? value : String(value);` → `return typeof value === "number" || Number.isFinite(value) ? value : String(value);` (binop: && -> ||)
+- `m09873` L73: `return typeof value === "number" && Number.isFinite(value) ? value : String(value);` → `return typeof value !== "number" && Number.isFinite(value) ? value : String(value);` (compare: === -> !==)
+- `m09882` L85: `for (const [name, value] of Object.entries(task.title_args ?? {})) {` → `for (const [name, value] of Object.entries(task.title_args || {})) {` (binop: ?? -> ||)
 
 ### src/lib/use-permissions.ts (2)
 
-- `m09713` L40: `const perms = new Set(payload?.permissions ?? []);` → `const perms = new Set(payload?.permissions || []);` (binop: ?? -> ||) ⚠capped-sample
-- `m09716` L50: `isOwner: payload?.is_owner ?? false,` → `isOwner: payload?.is_owner || false,` (binop: ?? -> ||) ⚠capped-sample
+- `m09894` L40: `const perms = new Set(payload?.permissions ?? []);` → `const perms = new Set(payload?.permissions || []);` (binop: ?? -> ||) ⚠capped-sample
+- `m09897` L50: `isOwner: payload?.is_owner ?? false,` → `isOwner: payload?.is_owner || false,` (binop: ?? -> ||) ⚠capped-sample
 
 ### src/lib/use-single-flight.ts (1)
 
-- `m09719` L13: `const mounted = useRef(true);` → `const mounted = useRef(false);` (boolconst: -> false) ⚠capped-sample
+- `m09900` L13: `const mounted = useRef(true);` → `const mounted = useRef(false);` (boolconst: -> false) ⚠capped-sample
 
 ### src/lib/use-url-state.ts (1)
 
-- `m09731` L47: `(key: string, fallback: string | null = null) => searchParams.get(key) ?? fallback,` → `(key: string, fallback: string | null = null) => searchParams.get(key) || fallback,` (binop: ?? -> ||) ⚠capped-sample
+- `m09912` L47: `(key: string, fallback: string | null = null) => searchParams.get(key) ?? fallback,` → `(key: string, fallback: string | null = null) => searchParams.get(key) || fallback,` (binop: ?? -> ||) ⚠capped-sample
 
 ### src/lib/utils.ts (2)
 
-- `m09755` L17: `if (!raw.startsWith("/") || raw.startsWith("//")) return null` → `if (!raw.startsWith("/") && raw.startsWith("//")) return null` (binop: || -> &&)
-- `m09757` L26: `const rawPathname = raw.split(/[?#]/, 1)[0]` → `const rawPathname = raw.split(/[?#]/, 2)[0]` (intconst: 1 -> 2)
+- `m09936` L17: `if (!raw.startsWith("/") || raw.startsWith("//")) return null` → `if (!raw.startsWith("/") && raw.startsWith("//")) return null` (binop: || -> &&)
+- `m09938` L26: `const rawPathname = raw.split(/[?#]/, 1)[0]` → `const rawPathname = raw.split(/[?#]/, 2)[0]` (intconst: 1 -> 2)

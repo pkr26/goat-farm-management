@@ -1,105 +1,148 @@
-# Frontend Mutation Testing Campaign — 2026-09-23
+# Frontend Mutation Testing Campaign — 2026-10-01
 
-Deep mutation testing of the Next.js frontend (`frontend/src`), mirroring the
+Deep mutation testing of the Next.js frontend (`frontend/src`), run
+completely fresh: prior artifacts deleted, manifest regenerated from current
+source, coverage map rebuilt file-by-file (293 test files, zero failures),
+every one of the 9,944 mutants executed with escalating test selections, a
+fix cycle that added 11 new test files (35 tests, 93 verified mutant kills),
+and Phase B full-selection re-verification of every survivor. Mirrors the
 backend campaign's method (see ../MUTATION_TESTING_REPORT.md).
+
+## Headline
+
+| Metric | Value |
+|---|---|
+| Mutants (fresh manifest) | 9,944 over 126 source files |
+| Executed | 9,944 (100%; zero runner errors) |
+| Killed by tests | 7,869 |
+| Killed by timeout (confirmed hang) | 2 (api-client 10 s abort budget; image-deps comparator loop) |
+| Survived (Phase B re-verified) | 1,995 (lib 166, components 77, api 3, app pages 1,749) |
+| Not covered by any test | 78 |
+| **Mutation score (covered code)** | **79.8%** |
+
+Operator scores: compare 91.2%, not 94.2%, ifexp 93.0%, boolconst 80.8%,
+binop 74.4% (??-equivalents), intconst 68.6% (skeleton/card-count and DOM
+caps), loopjump 31.3%.
+
+Baseline suite: 4,965 tests in 293 files, green after fixing seven
+pre-existing test bugs found by the fresh run (below); closing suite 5,000
+tests in 304 files (11 new gap-test files, all green together).
+
+## Fresh-start incidents (kept for the record)
+
+1. The first wipe deleted the old artifacts at the wrong directory level —
+   the stale `results.jsonl` (10,940 verdicts against the OLD 9,763-mutant
+   manifest) survived and made the first campaign skip 9,763 ids with
+   meaningless verdicts. Caught by the "0 already done/skipped" invariant;
+   results deleted, campaign restarted.
+2. A `--only` merge feature added to `mutate_cover.mjs` during the map
+   rebuild corrupted covering sets via `set.add(...array)` — JS `Set.add`
+   takes ONE argument, so all-but-one coverer was silently dropped per line
+   (e.g. account-dialog lines lost 5 of their 10 covering files). Detected
+   when hardened zod-bound mutants "survived"; map rebuilt in one clean
+   pass. The merge path now adds per-element.
 
 ## Method
 
-1. **Baseline**: full vitest suite green (4,699 tests, 271 files) after
-   fixing one pre-existing broken test (`image-deps-guard.test.tsx` asserted
-   a toast spy AFTER `mockRestore()`, which wipes the call history).
-2. **Mutant generation** (`mutate_gen.mjs`): TypeScript-compiler-API AST
-   walk, one mutation per site, same operator set as the backend (compare
+1. **Baseline**: full vitest suite; seven date/budget test bugs fixed
+   first (all test-side, no product change):
+   - Planner tests computed "current month" in the BROWSER timezone while
+     the page anchors to the farm timezone (Asia/Kolkata) — on the last day
+     of a month the two disagree for hours (observed 2026-09-30, MST
+     evening vs IST October). Five planner test files now derive the month
+     via `farmToday()` like the page.
+   - One planner test hardcoded `2026-10` as a valid 10–12 band month; it
+     became the plan-start month itself on the IST boundary. Now uses next
+     year's October (always strictly after the start).
+   - The two heaviest simulation tests (501-row and 500-event jsdom
+     renders) carried inline budgets sized for idle machines; under
+     coverage instrumentation on a loaded machine they time out. Budgets
+     raised to 240 s / 420 s (patience only — no assertion weakened).
+2. **Manifest** (`mutate_gen.mjs`): TypeScript-compiler-API AST walk, one
+   mutation per site, same operator set as the backend campaign (compare
    swaps, `&&`↔`||`, `??`→`||`, `!`-drop, arithmetic swaps, `true`↔`false`,
-   numeric ±1, ternary swap, `break`↔`continue`). String literals, type
-   positions, generated API code and test scaffolding excluded.
-   **9,763 mutants over 125 source files.**
-3. **Coverage map** (`mutate_cover.mjs`): vitest 4 has no per-test coverage,
-   so each of the 271 test files ran once with coverage; the map records
-   which source LINES each test file executes. 128 source files touched,
-   36,546 covered lines, **only 104 mutants sit on lines no test covers**.
-4. **Execution** (`mutate_run.mjs`): each mutant is applied IN-MEMORY by a
-   vite transform plugin (`mutate_transform.mjs`, env-selected by
-   `MUTANT_ID`) — no file on disk is ever modified, so N vitest processes
-   run mutants in parallel on one tree. Test selection escalates
-   dedicated-file → 8 → 25 (spread, dedicated first), mirroring the backend
-   15→60 scheme. Wall-clock kill at 240 s + 20 s/file. Resumable
-   (results.jsonl); smoke-checked (transform applies, deterministic, no
-   cross-run cache).
-5. **Fix loop**: every survivor of a completed file was triaged; genuine gaps
-   got killing tests (re-verified mutant-by-mutant with `--redo --files`),
-   documented equivalents got logged in EQUIVALENTS.md.
+   numeric ±1, ternary swap, `break`↔`continue`); strings, type positions,
+   generated API code and test scaffolding excluded. **9,944 mutants.**
+3. **Coverage map** (`mutate_cover.mjs`): each of the 293 test files ran
+   once with v8 coverage; the map records which source LINES each file
+   executes (40,217 covered lines over 130 source files).
+4. **Execution** (`mutate_run.mjs`): every mutant applied IN-MEMORY by a
+   vite transform plugin (no file on disk is mutated, so N vitest
+   processes share one tree). Selection escalates dedicated-file → 8-file
+   spread → full/capped set; wall-clock kill budget 420 s + 25 s/file;
+   resumable via `results.jsonl`; a watchdog restarted the runner across
+   two OOM/load-spike kills. Zero runner errors at close.
+5. **Fix cycle** (concurrent with the campaign): every FINAL survivor of
+   the lib/components segment triaged against source (not copied from the
+   2026-09-23 log — ids shifted, code moved). Genuine gaps got killing
+   tests; each kill verified by running the mutant directly against the
+   new file. 11 new test files, 35 tests, **93 verified kills**. The
+   equivalent classes are documented in EQUIVALENTS.md with instances.
+6. **Phase B** (`mutate_reverify.mjs`, new): every SURVIVED verdict re-run
+   against its complete covering selection (dedicated files first) with
+   the gap-test files force-included. For ubiquitously-imported modules
+   (api-client is covered by 200+ test files) a literal full run costs
+   hours per mutant, so the selection there is every DEDICATED file plus a
+   25-file spread — stronger than the campaign's sampled rounds. TIMEOUT
+   verdicts re-checked separately.
 
-## Headline (campaign in progress — regenerate with `node mutation/mutate_report.mjs`)
+## What the fix cycle killed (93 mutants, all verified mutant-by-mutant)
 
-See `report.md` for the live numbers and the full per-file table /
-survivor list. At the time of writing: ~4,400 of 9,763 mutants executed
-(3,349 killed, ~960 survivors incl. capped samples pending Phase B, 57 on
-uncovered lines), **mutation score ≈ 87%** on covered code, zero runner
-errors. The campaign continues in the background (resumable); re-run
-`node mutation/mutate_report.mjs` at any time for current numbers.
+| New test file | Kills | What was unpinned |
+|---|---|---|
+| `components/account-dialog.aria.test.tsx` | 12 | TOTP error-field wiring: aria-invalid + per-mode aria-describedby, wired and unwired, all four modes |
+| `components/animal-picker.falsy-props.test.tsx` | 3 | `eligibilityKey: ""` is its own query-cache key; placeholder/dialogTitle `""` stay empty |
+| `api/custom-instance.query.test.ts` | 1 (+1 pin) | the null-strip slice skips exactly the "?" — first query key survives |
+| `lib/offline-queue.boundaries.test.ts` | 14 | exact 72 h TTL expiry; exactly-256 KiB keep/refuse; empty-string body round-trip; null-storage drain counts; Retry-After gate arithmetic (clear-to-zero at clock zero, expiry boundary, retryAfter=1, ×1000, ±1 ms) |
+| `lib/task-title.nulls.test.ts` | 1 | a null template arg is skipped — never rendered as "null" |
+| `components/health-target-pickers.falsy.test.tsx` | 4 | placeholder/dialogTitle `""` stay empty, both pickers |
+| `app/(app)/tasks/reject-dialog.attrs.test.tsx` | 4 | reject-reason textarea maxLength 255 / rows 3 |
+| `lib/image-deps-guard.equals.test.ts` | 1 | equal-version comparison terminates (the `<`→`<=` loop bound hangs on equal inputs) |
+| `app/(app)/finance/insurance/page.aria.test.tsx` | 16 | create + renew dialog error wiring for all nine fields (incl. the 4 000-char notes cap) |
+| `app/(app)/animals/[id]/page.aria2.test.tsx` | 20 | sale weight/price-per-kg error wiring (incl. the disabled-rate refine path), necropsy findings wiring + caps, dialog notes caps |
+| `app/(app)/purchases/page.aria.test.tsx` | 26 | origin/transport/weights/history error wiring + every DOM cap in the new-batch dialog |
 
-## What the campaign found and fixed
+## Harness hardening (kept for future campaigns)
 
-**One real product bug (source-fixed + regression-tested):**
-- `account-dialog.tsx` — a TOTP request settling after the dialog closed
-  left `totpBusy` stuck true: every TOTP control in the reopened dialog
-  stayed disabled until remount. The epoch fence now guards only the
-  result/error writes; busy always clears.
-- `account-dialog.tsx` — an empty-string display name rendered blank
-  trigger/avatar instead of falling back to the email (`??` → `||`).
+- `mutate_cover.mjs`: `--only <files>` re-runs selected test files and
+  MERGES into an existing map (per-element set adds), with
+  `--testTimeout=240000` and a 600 s wall kill so heavy files survive a
+  loaded machine.
+- `mutate_run.mjs`: budgets 420 s + 25 s/file; escalation is always
+  dedicated → 8 → full (jumping straight to full for medium covering sets
+  made the simulation tail spend 15–40 min per survivor); auto-run guarded
+  so `mutate_reverify.mjs` can import `runVitest` without starting a
+  campaign.
+- `vitest.mutation.config.ts`: local test/hook timeout 60 s (15 s proved
+  too tight for heavy jsdom renders on a loaded machine).
+- New `mutate_reverify.mjs` (Phase B full-selection re-verification,
+  prefix/extra-files filters).
 
-**One pre-existing broken test fixed** (see baseline above).
-
-**~500 survivors killed with new tests** across 20 modules, concentrated in:
-
-| Module | What was unpinned |
-|---|---|
-| `lib/api-client.ts` | refresh-payload guard arms; actor-scope preservation; auth-failure registration stack; 499/500 transient boundary; single-flight dedup; exact 10 s / 60 s / 300 s / 62 s budgets; root-path allowlist; ApiError.code |
-| `lib/auth-context.tsx` | bootstrap retry budget of exactly 3; stored-farm-id strict parse; tombstone `revoked:0` |
-| `lib/offline-queue.ts` | per-field wellFormed battery; exact 256 KiB read+write ceiling; failure classification edges; multi-record drain paths |
-| `lib/idempotent-request.ts` | UUID v4 fallback generator; 128-record retention bound |
-| `lib/format.ts` | money sign rule on rounded parts; addDays month/year edges; daysBetween exactness; timestamped formatDate |
-| `components/screening-check-dialog.tsx` | exact 25 MiB ceiling; 1-byte floor; per-bucket counts; .png/.jpg names; 409 split; stale fences; finish flow |
-| `components/account-dialog.tsx` | zod 1/12/128 bounds; DOM maxLength caps; TOTP epoch fences both sides; busy wiring; recovery-copy cycle |
-| `components/charts.tsx` | Donut total>0 gate; 148 px default; maxCount floor; 2 px bar floor; marker styling |
-| `components/*pickers` | cull-candidate suffix (does only); 60-char search caps |
-| app pages (animals/[id], insurance, simulation, tasks) | sale money/weight schema caps; mortality/necropsy caps; aria-describedby wiring; skip-reason 255; event-count 100,000; recurring-anchor future leg (equivalent — locked UI) |
-
-## Equivalent-mutant classes (EQUIVALENTS.md has every decision)
-
-The dominant classes: `a ?? b` → `a || b` where `a`'s type has no
-falsy-but-defined value; opaque epoch/version tokens; initial state a mount
-effect immediately overwrites; defense-in-depth guards behind already
-disabled buttons; dead arms for wire-legal inputs; jsdom-invisible layout
-(button size classes); documented `// Stryker disable` annotations from the
-tree's earlier hardening era.
-
-## Reproduce / resume
+## Reproduce
 
 ```bash
 cd frontend
-node mutation/mutate_gen.mjs                  # manifest (9,763 mutants)
-node mutation/mutate_cover.mjs                # line → test-file map (~7 min)
-MUT_WORKERS=10 node mutation/mutate_run.mjs   # campaign (resumable)
-node mutation/mutate_report.mjs               # report.md + survivors.json
-node mutation/mutate_triage.mjs [filter]      # survivor triage view
+node mutation/mutate_gen.mjs                    # manifest (9,944 mutants)
+node mutation/mutate_cover.mjs                  # line → test-file map
+MUT_WORKERS=10 node mutation/mutate_run.mjs     # campaign (resumable)
+node mutation/mutate_report.mjs                 # report.md + survivors.json
+node mutation/mutate_reverify.mjs --status SURVIVED --write   # Phase B
+node mutation/mutate_triage.mjs [filter]        # survivor triage view
 # single-mutant debugging:
 MUTANT_ID=m09754 ./node_modules/.bin/vitest run --config \
   vitest.mutation.config.ts src/lib/utils.test.ts
 ```
 
-Phase B (after the campaign drains): regenerate the manifest + coverage map
-(picks up the new tests and the account-dialog source fixes), then re-run
-every remaining SURVIVED and TIMEOUT mutant with `--full` for final
-verdicts; `mutate_report.mjs` then prints the closing numbers.
+Artifacts: `mutation/{manifest.json, coverage-map.json, results.jsonl,
+report.md, survivors.json}` (committed).
 
 ## Caveats
 
-- Covering sets > 25 test files are judged by a 25-file spread (dedicated
-  files always included); capped survivors are flagged in survivors.json and
-  settle in Phase B.
-- TIMEOUT counts as killed (provisional; re-verified in Phase B).
-- The full suite stays green with every added test (4,806 at last run); one
-  planner test flakes only under the campaign's 12-worker CPU saturation
-  (passes solo with its normal budget).
+- Survivor verdicts for ubiquitously-imported modules use
+  dedicated-plus-spread selections (see method step 6); everything else was
+  re-verified against its complete covering set.
+- The two heavy simulation tests' raised budgets change local-run patience
+  only; CI budgets are unchanged.
+- The machine shared CPU with an unrelated workload throughout; two runner
+  kills (OOM/load spikes) were absorbed by the watchdog + resume design
+  with zero lost verdicts.

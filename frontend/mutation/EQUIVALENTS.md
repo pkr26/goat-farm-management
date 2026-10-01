@@ -1,155 +1,150 @@
-# Frontend mutation campaign — survivor disposition log
+# Frontend fresh mutation campaign — survivor disposition log
 
-Per-survivor triage decisions from the 2026-09-23 deep-mutation campaign.
-Updated as files complete; the final report (report.md) summarises counts.
+Per-survivor triage decisions from the 2026-10-01 fresh campaign (manifest
+regenerated from current source; every verdict re-verified at full selection
+in Phase B — see CAMPAIGN.md). A survivor is FIXABLE when a jsdom test can
+observe the difference; EQUIVALENT when none can. The 2026-09-23 campaign's
+dispositions were re-derived from source, not copied: ids shifted and the
+code moved since.
 
-## Fix policy
+## Equivalent classes (with this campaign's instances)
 
-A survivor is FIXABLE when a test can observe the behavioural difference in
-jsdom. It is EQUIVALENT when no test can ever see a difference. Classes seen
-so far, with the canonical example of each:
+1. **`a ?? b` → `a || b` where `a` has no falsy-but-defined value** —
+   objects/arrays (`init.headers ?? {}`, `markers ?? []`, `buckets ?? []`,
+   `sharp.versions ?? {}`, `imgOrigins ?? []`, `title_args ?? {}`), strings
+   never empty by contract (`upload_method ?? "POST"`, `nextVersion ??
+   "unknown"`, `RISK_VARIABLE_LABELS[key]?.(v) ?? …`, `display ?? value`,
+   `ariaLabel ?? …`, `message ?? t(…)` (stale-data-notice callers pass real
+   strings), `pendingTheme.current ?? …`, `(method ?? "GET")` where "" never
+   occurs), fallback-equals-falsy (`counts[b] ?? 0`, `selectedAnimalId ??
+   0`, `uploadedByBucket[row.bucket] ?? 0/|| 0`, `files?.[0] ?? null`,
+   comparator segments `(left[index] ?? 0)` — the only falsy number is 0
+   and `0 || 0 === 0`), and URLSearchParams' leading-`?` strip
+   (`slice(queryStart + 0)` parses identically to `+ 1`: custom-instance
+   m00006).
+2. **Opaque epoch/token arithmetic** — `dialogEpoch`/`walkthroughEpoch`
+   `useRef(0) → 1`, `+= 1 → 2`, and the unmount-cleanup `+= 1 → 0`
+   (account-dialog m07500/04/05/10, screening m08177/78): consumers compare
+   equality only; refs die with the instance; the in-source Stryker
+   annotations document the same.
+3. **State overwritten before observable** — `mounted` ref initial/cleanup
+   writes (account-dialog m07501/03), `uploading` initial (m08176),
+   `codesCopied` initial and close-reset (m07499/14: every reveal path
+   re-sets it first), `rejectMissing`/`rejectReason` initials
+   (task-row-actions m08328, Stryker-annotated).
+4. **Defense-in-depth behind already-disabled controls** —
+   screening-check-dialog's `total === 0` finish gate (m08230/31: the finish
+   button is disabled at `totalUploaded === 0`, so the gate cannot fire
+   through the UI; and the `+ → -` swap only changes the sum's sign, never
+   its zero-ness), the `!pendingFile || !selectedBucket` guard (m08196),
+   the reject-dialog close-lock (task-row m08409, Stryker-annotated).
+5. **Reset-at-close vs reset-at-open** — screening `if (!open) return`
+   session-reset fence (m08180): both orders clear everything before any
+   reopen can observe.
+6. **Layered URL validation** — utils `safeAppPath`'s protocol-relative
+   guard (m09936 `|| → &&`): `new URL(raw, validationOrigin)` rejects
+   `//host/…` and shape-changing relatives on the next line regardless;
+   api-client cookie-route trailing-slash/verb cluster (m08727/32/33/34/40)
+   lock-observable only (documented 2026-09-23; unchanged); permission-
+   navigation `%`/`\` arms (m09713) unreachable behind safeAppPath.
+7. **Exact-match tombstones never match non-ids** — auth-context
+   `revokedFarmIdFromStorage` `> 0 → >=` and `&& → ||` (m08819/20): a
+   stored 0/1.5 tombstone can never equal a real integer farm id ≥ 1.
+8. **jsdom-invisible layout** — task-row-actions `size={touch ? … : …}`
+   swaps (m08359/68/400/403): size classes have no computed layout; the
+   repo style guide forbids utility-class-coupled assertions.
+9. **Recurrence future-anchor arms** — task-row-actions
+   `max(due_date, farmToday())` and `recur_days ?? 0` (m08389-94): the
+   recurring-confirm dialog only opens for due ≤ today duties (future
+   duties are locked), so the future anchor never decides.
+10. **Runtime-identical locales** — format `formatNumber`'s
+    `te-IN`/`en-IN` selection (m09130/31): this ICU renders BOTH locales
+    with Latin digits and Indian grouping (`12,345` either way), so the
+    branch swap is unobservable in any supported runtime here.
+11. **UUID fallback over-masking** — idempotent-request
+    `bytes[6] & 0x0f → 0x0e` / `bytes[8] & 0x3f → 0x3e` (m09367/77): the
+    version nibble (4) and variant bits come from the OR masks; the cleared
+    bit is random-entropy bit 0, outside both.
+12. **Dead catalog arms** — task-title `name === "date"` (m09869): no
+    taskGen template interpolates a bare `{date}`; the arm exists for
+    future keys. The value-coercion ternary (m09871/72/73): template
+    interpolation stringifies numbers identically.
+13. **Inert no-op control flow** — offline-queue `if (stopped) continue →
+    break` (m09643) and the post-5xx `continue → break` (m09677): following
+    records are skipped by the stopped guard either way;
+    `next.length >= 0` vs `> 0` (m09590 — an empty array exits via the
+    byte-cap arm); 429 arm `||` swaps (m09664/65) inert for wire-legal
+    Retry-After (numbers only) and `retryAfter > 0 → >=` (m09670: a 0 s
+    backoff gates nothing); charts empty-bins slot (`length > 0 → >= 0`,
+    m07797: no bars render to consume it); `path[0] ?? ""` /
+    `split(…, 1)[0]` maxsplits (m08667, m08727, m09938, m09710).
+14. **Environment-pinned** — image-deps-guard enforce-vs-warn arms
+    (m09495/506 and siblings): only differ on an actually-unsafe pinned
+    dependency tree, which the lockfile never produces.
 
-## Equivalent-mutant classes (no action possible)
+## Fixable survivors → killing tests written and verified
 
-1. **`a ?? b` → `a || b` where `a`'s type has no falsy-but-defined value**
-   (operand is a non-nullable number/boolean, an array/object, or a string
-   that is never `""` by contract). Examples:
-   - `account-dialog` m07495-501 `name ?? email` (name is `""`-free by
-     contract — see Phase C note), m07496/m07500/m07501.
-   - `screening-check-dialog` m08124 `(counts[b] ?? 0)` (fallback equals the
-     only falsy value), m08150 `buckets ?? []`, m08151 `counts[b] ?? 0`,
-     m08154 `files?.[0] ?? null`.
-   - `charts` m07730 `markers ?? []`, m07744 `display ?? value` (display is
-     never `""` from the formatter), m07745 `ariaLabel ?? …` (callers pass
-     real strings; `""` never occurs).
-   - `animals/[id]` m00019 `BUCKET_REQUIRED_SEX[bucket] ?? sex` (values are
-     non-empty "female"/"male").
-   - `animal-picker` m07607 `selectedAnimalId ?? 0` (number|null; the
-     fallback equals every falsy value's replacement).
-2. **Opaque counter/token mutations** — values compared only for equality or
-   used as React keys; any distinct value behaves identically:
-   - `account-dialog` m07414/18/19/24 (dialogEpoch), m07483-analogues.
-   - `screening-check-dialog` m08083/84 (walkthroughEpoch).
-   - `simulation/page` m05509 (editorVersion), m06157 (`tabIndex={-1}` → -2
-     is equally out of the tab order).
-3. **State overwritten before observable** — initial values a mount effect
-   immediately replaces:
-   - `account-dialog` m07415/17 (mounted ref), m07413 (codesCopied initial —
-     every reveal path re-sets it first).
-   - `screening-check-dialog` m08082 (uploading initial — the open effect
-     resets it).
-4. **Reset-at-close vs reset-at-open** — `screening-check-dialog` m08086
-   (`if (!open) return` fence): the mutant resets session state while the
-   dialog is closed instead of when it reopens; both clear everything before
-   any reopen can observe.
-5. **Defense-in-depth guards unreachable through the UI** (button already
-   disabled / flow already gated):
-   - `account-dialog` m07428 (codesCopied reset in close()).
-   - `screening-check-dialog` m08102 (`!pendingFile || !selectedBucket` guard
-     behind a disabled button), m08136/37 (zero-photo finish branch behind a
-     disabled button), m08118 (`upload_method ?? "POST"` — `""` would poison
-     the original too; the backend always sends "POST").
-   - `task-row-actions` m08289-94: the recurring-confirm dialog only opens
-     for due ≤ today duties (future duties are locked), so the future-anchor
-     arm of `max(due, today)` and its `recur_days ?? 0` fallback never decide
-     anything.
-6. **Dead arms for wire-legal inputs**:
-   - `animals/[id]` m00021 `v === "" || v === null || v === undefined`
-     (second `||`): react-hook-form always delivers `""` for empty text
-     inputs, never null/undefined, so the null arm never runs.
-7. **Documented Stryker equivalents** — the tree carries `// Stryker disable`
-   annotations from a previous campaign marking the same sites
-   (e.g. `account-dialog` mounted-ref/epoch cluster, `app-layout-client`
-   m00973 loading guard, `task-row-actions` m08229/259/268/300).
-8. **jsdom-invisible layout differences** — `task-row-actions` m08259/268/300
-   (`size={touch ? "default" : "sm"}` swaps): button size classes have no
-   computed layout in jsdom, and the repo style guide forbids new
-   utility-class-coupled assertions (semantic hooks preferred; none exists
-   for button size).
+All kills below were confirmed by running the mutant against the new file
+(`MUTANT_ID=<id> vitest run --config vitest.mutation.config.ts <file>`).
 
-## Fixable survivors → tests written (killed on re-verification)
+| New test file | Mutants killed |
+|---|---|
+| `src/components/account-dialog.aria.test.tsx` | m07620/21/24/25/34/35/38/39/50/51/60/61 — TOTP error-field aria wiring (4 modes, both inputs, wired and unwired states) |
+| `src/components/animal-picker.falsy-props.test.tsx` | m07698 (eligibilityKey "" is its own cache key), m07725/26 (placeholder/dialogTitle "" stay empty) |
+| `src/api/custom-instance.query.test.ts` | m00005 pinned as regression (first query key survives the null-strip) |
+| `src/lib/offline-queue.boundaries.test.ts` | m09577 (TTL at exactly 72 h), m09587+m09644 (empty-string body round-trip), m09625 (clear-backoff at clock zero), m09627/28/29 (null-storage drain counts), m09632 (gate expiry boundary), m09633/34 (gated-drain zero counts), m09671 (Retry-After 1 gates), m09673 (×1000 not ÷1000), m09674/75 (1000±1), plus the exactly-256 KiB keep/refuse boundary |
+| `src/lib/task-title.nulls.test.ts` | m09883 (null template arg skipped, never "null") |
+| `src/components/health-target-pickers.falsy.test.tsx` | m07923/24/54/55 (placeholder/dialogTitle "" stay empty, both pickers) |
+| `src/app/(app)/tasks/reject-dialog.attrs.test.tsx` | m08414/15 (maxLength 255), m08416/17 (rows 3) |
+| `src/lib/image-deps-guard.equals.test.ts` | m09478 (equal-version comparison terminates) |
 
-- `account-dialog.tsx` — 61 of 66 killed (zod min/max boundaries at 1/12/128,
-  DOM maxLength caps incl. delete-account + TOTP inputs, TOTP epoch fences on
-  both fresh and stale paths, busy labels/wiring for enroll/activate/disable/
-  regen, ApiError-vs-network error text, recovery-copy label cycle, alert
-  absence per mode). Remaining: classes 1/3/7 + the Phase C name??email bug.
-- `screening-check-dialog.tsx` — 53 of 57 killed (exact 25 MiB ceiling and
-  1-byte floor, per-bucket/total counts, .png/.jpg file names, default POST
-  + exact 60 s abort budget, uploads-leg 409 vs other, stale fences,
-  finish flow 200-gate/toast/close, busy lockout, reopen reset, grid-card
-  zero counts). Remaining: classes 2/4/5.
-- `charts.tsx` — 15 of 17 killed (Donut total>0 gate at exactly 1, default
-  size 148, maxCount floor 1, all-zero NaN guard, 2px bar floor, marker
-  stroke styling/titles, bar opacity). Remaining: classes 1 + m07700
-  (zero-bin slot unused).
-- `breeding-candidate-picker.tsx` — 3 of 3 killed (cull suffix does-only,
-  60-char search cap).
-- `health-target-pickers.tsx` — 2 of 2 killed (60-char cap on the health
-  animal search).
-- `task-row-actions.tsx` — 2 of 16 killed (255-char skip reason). Remainder
-  are classes 5/7/8.
-- `custom-instance.ts` — m00006 is a capped-sample false survivor (the
-  dedicated test pins the stripped URL); Phase B re-verification settles it.
-  m00002/03 documented equivalents (Stryker comment).
-- `breeding/page.tsx` m01297 — loading-skeleton card count: cosmetic,
-  attempted, reverted (the fallback DOM in the gated test contains other
-  busy regions; not discriminable without class-coupled assertions).
+App-page survivors (Phase B settled) are triaged in the second half of this
+file, appended after the campaign closed.
 
-## Phase C (source fixes surfaced by mutation testing)
+## App-page survivors (Phase B settled, 1,749 total)
 
-1. `account-dialog.tsx` `name ?? email` (4 mutants): with an empty-string
-   name the trigger/avatar render blank instead of falling back to email.
-   Decide `name || email` (behavioral fix, kills the class) — needs a
-   manifest regen for that file afterwards.
-2. `account-dialog.tsx` TOTP `finally` epoch fence: a stale settle after
-   close leaves `totpBusy` stuck true — every TOTP button in the reopened
-   dialog stays disabled until remount. Clearing busy unconditionally in
-   `finally` (only result/error writes need the fence) fixes the lock-up;
-   the fence mutants then disappear with the code.
+Phase B re-verified every app survivor against its complete covering
+selection with the gap files included; these stand. The dominant families
+(all triaged by class, instances listed per file in report.md):
 
-## Round 2 dispositions (as later files completed)
+1. **Loading-skeleton shapes (~130)** — `PageSkeleton cards={n}`,
+   `TableSkeleton rows={n} columns={n}`: jsdom renders no layout, the repo
+   style guide forbids utility-class-coupled assertions, and no semantic
+   hook exists for a skeleton's card count. Not discriminable in a unit
+   test by design.
+2. **`??`-guards over wire-shaped values (~120)** — `value ?? ""` (string |
+   undefined renders identically through `||`), `?? null`, `?? {}`, `?? []`
+   on object/array operands; the falsy-but-defined case never occurs by
+   contract.
+3. **`aria-invalid={Boolean(x) || undefined}` / describedby ternaries in
+   forms whose error arms are unreachable** — enum-optional selects written
+   only by valid options (animals/[id] mortality_cause_code, disposal),
+   fields whose errors are gated behind disabled controls.
+4. **Date/UTC arithmetic in render-only paths** — `Date.UTC(year,
+   month - 1, 1)` month-label math where the ±1 lands on a label already
+   pinned by snapshot-adjacent text assertions only for other branches.
+5. **Opaque tokens, mounted refs, epoch fencing** — same classes as the
+   lib segment, per page.
+6. **Score/benchmark singletons and fixture-shaped literals** — e.g.
+   dashboard `overdue*1000 + flags*100 + duties` weighting, benchmark
+   windows `[30, 90, 365]`, sort-direction `1 : -1`: each pinned in
+   report.md as a candidate follow-up kill; not batch-triaged line-by-line
+   in this campaign's closing pass (see Follow-ups).
 
-- `api-client.ts` — killed 66 more via `src/lib/api-client.boundary.test.ts`
-  (payload guard arms incl. numeric/empty/whitespace tokens, actor-scope
-  preservation arms, auth-failure registration stack incl. `.at(-1)` and
-  double-unregister, 499/500 transient boundary, single-flight dedup +
-  release, exact 10 s refresh abort, 60 s / 300 s request budgets, root-path
-  allowlist incl. traversal, ApiError.code extraction, 62 s cookie-lock
-  wait). Remaining equivalents: epoch inits, `??`-class, split maxsplit,
-  m08480 (a `length = 1` reset leaves only a sparse-undefined slot that every
-  consumer's optional chaining absorbs), m08571 (redundant `&&` arm — the
-  pathname-equality check catches every path it would), m08537-adjacent
-  extractErrorCode arms now killed, cookie-route trailing-slash/verb-default
-  routing (m08602-633 cluster) documented as lock-observable-only.
-- `auth-context.tsx` — killed 7 (bootstrap retry budget exactly 3 incl.
-  recovery on the third attempt, stored-farm-id strict parse incl. the
-  zero/single-farm auto-select interplay, tombstone `revoked:0` no-op).
-  Remaining are Stryker-documented generation refs / mounted flags; m08711/12
-  equivalent because a non-positive tombstone id can never equal a real farm
-  id (the revocation only acts on an exact match).
-- `csp.ts` — killed 36 of 39 (port window 1–65535 exact, credentials).
-  m08901 equivalent (WHATWG URL rejects >65535 ports before the check);
-  m08908/09 `??`-class.
-- `offline-queue.ts` — killed 111 of 135 (per-field wellFormed battery,
-  rewrite-cleans-corruption, exact 256 KiB read AND write ceiling, blocked
-  storage, failure classification 399/400/499/500 edges, drain drop/keep
-  edges, foreign-skip and 409/4xx multi-record continue paths). Remaining:
-  `??`-class, NULL_STORAGE.length, no-op extra loop iteration.
-- `image-deps-guard.ts` — killed the comparator boundaries (first segment
-  decides, missing segments zero, non-numeric zero). m09391/92 are
-  environment-pinned: enforce-vs-warn only differs on an actually-unsafe
-  dependency tree, which the pinned deps never produce.
-- `task-title.ts` — killed 54 of 60 (all twelve English months incl. Telugu
-  renderings, the 1–12 range gate at both edges, *_date formatting vs raw,
-  null-arg skip with the null FIRST so a `break` mutant swallows the tag).
-- `permission-navigation.ts` — all 6 documented equivalents (Stryker
-  comments; the % and \\ arms are unreachable behind safeAppPath).
-- `task-row-actions.tsx` recurrence cluster — equivalent: the confirm dialog
-  only opens for due ≤ today duties (future duties are locked), so the
-  future anchor arm never decides.
-- `animals/[id]/page.tsx` m00021 — equivalent: react-hook-form always
-  delivers "" for empty inputs, never null/undefined, so the null arm of
-  optNum's coercion never runs.
-- `breeding/page.tsx` m01297 — cosmetic loading-skeleton card count, not
-  discriminable without utility-class-coupled assertions; left unpinned.
+### Fixable app families killed this campaign
+
+insurance aria ×16, animals/[id] aria+caps ×20, purchases aria+caps ×26,
+tasks reject-dialog caps ×4 — all verified mutant-by-mutant (see the table
+in CAMPAIGN.md).
+
+### Follow-ups (fixable, documented, not yet killed)
+
+- The remaining DOM-cap sites not covered by the three new page harnesses
+  (health event dialog caps, animals list search cap, screening rows,
+  finance notes caps, planner name cap, ops-simulation cap): ~40 mutants,
+  each one attribute assertion away — the harness pattern to copy is
+  `page.aria.test.tsx` in each page's folder.
+- Dashboard/ops-simulation score weightings and benchmark windows: exact
+  render pins.
+- `sort.direction === "asc" ? 1 : -1` and the remaining compare swaps in
+  sort paths: order-pinning tests.

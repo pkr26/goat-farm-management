@@ -48,7 +48,37 @@ async function main() {
   const testFiles = listTestFiles();
   console.log(`test files: ${testFiles.length}`);
 
-  const files = {}; // rel src path -> { line -> Set(testIdx) }
+  // --only <substr,substr>: (re)run just the named test files and MERGE the
+  // result into an existing coverage-map.json (testFiles union, line sets
+  // intersected per file so dropped coverage is preserved by other runs).
+  const onlyIdx = process.argv.indexOf("--only");
+  const onlyPats =
+    onlyIdx !== -1 && process.argv[onlyIdx + 1]
+      ? process.argv[onlyIdx + 1].split(",").map((s) => s.trim())
+      : null;
+
+  // line -> Set(testIdx) keyed by test FILE PATH when merging (index space of
+  // the old map must not be reused); converted to indices at the end.
+  const files = {}; // rel src path -> { line -> Set<string testFile> }
+  const knownTestFiles = []; // final ordered union
+  const existing = path.join(FRONTEND, "mutation", "coverage-map.json");
+  if (onlyPats && existsSync(existing)) {
+    const old = JSON.parse(readFileSync(existing, "utf8"));
+    knownTestFiles.push(...old.testFiles);
+    for (const [f, lines] of Object.entries(old.files)) {
+      const entry = (files[f] ??= {});
+      for (const [l, idxs] of Object.entries(lines)) {
+        const set = (entry[l] ??= new Set());
+        // NB: Set.add is single-argument — a spread call silently keeps only
+        // the first coverer and corrupts every selection built from the map.
+        for (const i of idxs) set.add(old.testFiles[i]);
+      }
+    }
+  }
+  const selected = onlyPats
+    ? testFiles.filter((tf) => onlyPats.some((p) => tf.includes(p)))
+    : testFiles;
+  console.log(`running: ${selected.length} test files`);
   let done = 0;
   let failures = 0;
 
@@ -59,6 +89,8 @@ async function main() {
       "run",
       "--config",
       "vitest.mutation.config.ts",
+      "--testTimeout=240000",
+      "--hookTimeout=240000",
       "--coverage.enabled",
       "--coverage.reporter=json",
       `--coverage.reportsDirectory=${reportDir}`,
@@ -77,14 +109,14 @@ async function main() {
       let out = "";
       p.stdout.on("data", (d) => (out += d));
       p.stderr.on("data", (d) => (out += d));
-      const killer = setTimeout(() => p.kill("SIGKILL"), 240_000);
+      const killer = setTimeout(() => p.kill("SIGKILL"), 600_000);
       p.on("close", (code) => {
         clearTimeout(killer);
         resolve({ code, out });
       });
     });
     done += 1;
-    if (done % 25 === 0) console.log(`  ${done}/${testFiles.length}`);
+    if (done % 25 === 0) console.log(`  ${done}/${selected.length}`);
 
     const jsonPath = path.join(reportDir, "coverage-final.json");
     if (res.code !== 0 || !existsSync(jsonPath)) {
@@ -93,6 +125,7 @@ async function main() {
       return;
     }
     const cov = JSON.parse(readFileSync(jsonPath, "utf8"));
+    if (!knownTestFiles.includes(tf)) knownTestFiles.push(tf);
     for (const [absFile, data] of Object.entries(cov)) {
       const rel = path.relative(FRONTEND, absFile);
       if (!rel.startsWith("src/")) continue;
@@ -103,14 +136,14 @@ async function main() {
         if (!loc) continue;
         // attribute the whole statement range line-wise (start line .. end line)
         for (let l = loc.start.line; l <= loc.end.line; l++) {
-          (entry[l] ??= new Set()).add(idx);
+          (entry[l] ??= new Set()).add(tf);
         }
       }
     }
     rmSync(reportDir, { recursive: true, force: true });
   };
 
-  const queue = testFiles.map((tf, idx) => [idx, tf]);
+  const queue = selected.map((tf, idx) => [idx, tf]);
   const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
     while (queue.length) {
       const next = queue.shift();
@@ -120,14 +153,20 @@ async function main() {
   });
   await Promise.all(workers);
 
+  const index = new Map(knownTestFiles.map((tf, i) => [tf, i]));
   const serialized = {};
   for (const [f, lines] of Object.entries(files)) {
     serialized[f] = {};
-    for (const [l, set] of Object.entries(lines)) serialized[f][l] = [...set].sort((a, b) => a - b);
+    for (const [l, set] of Object.entries(lines)) {
+      serialized[f][l] = [...set]
+        .map((tf) => index.get(tf))
+        .filter((i) => i !== undefined)
+        .sort((a, b) => a - b);
+    }
   }
   writeFileSync(
     path.join(FRONTEND, "mutation", "coverage-map.json"),
-    JSON.stringify({ testFiles, files: serialized }),
+    JSON.stringify({ testFiles: knownTestFiles, files: serialized }),
   );
   rmSync(scratch, { recursive: true, force: true });
   const totalLines = Object.values(serialized).reduce((a, f) => a + Object.keys(f).length, 0);

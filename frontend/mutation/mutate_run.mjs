@@ -81,7 +81,7 @@ function withDedicatedFirst(mutant, chosen, covering) {
   return [...dedChosen, ...rest];
 }
 
-function runVitest(mutantId, testFiles, timeoutMs) {
+async function runVitest(mutantId, testFiles, timeoutMs) {
   const args = [
     path.join(FRONTEND, "node_modules", "vitest", "vitest.mjs"),
     "run",
@@ -129,10 +129,12 @@ function runVitest(mutantId, testFiles, timeoutMs) {
   });
 }
 
+export { runVitest, coveringTests, loadDone };
+
 async function judge(mutant, forceFull = false, filesOverride = null) {
   if (filesOverride) {
-    let res = await runVitest(mutant.id, filesOverride, 240_000 + 20_000 * filesOverride.length);
-    if (res.verdict === "ERROR") res = await runVitest(mutant.id, filesOverride, 240_000 + 20_000 * filesOverride.length);
+    let res = await runVitest(mutant.id, filesOverride, 420_000 + 25_000 * filesOverride.length);
+    if (res.verdict === "ERROR") res = await runVitest(mutant.id, filesOverride, 420_000 + 25_000 * filesOverride.length);
     return {
       id: mutant.id,
       verdict: res.verdict,
@@ -148,7 +150,7 @@ async function judge(mutant, forceFull = false, filesOverride = null) {
   if (tests.length === 0) {
     return { id: mutant.id, verdict: "NO_COVERAGE", tests: 0, ms: 0, capped: false };
   }
-  const budget = (tests) => 240_000 + 20_000 * tests.length;
+  const budget = (tests) => 420_000 + 25_000 * tests.length;
   const run = async (files) => {
     let res = await runVitest(mutant.id, files, budget(files));
     if (res.verdict === "ERROR") res = await runVitest(mutant.id, files, budget(files));
@@ -174,12 +176,10 @@ async function judge(mutant, forceFull = false, filesOverride = null) {
   let ms = 0;
   let capped = tests.length > FULL_CAP;
   let lastFiles = [];
-  // Small covering sets (typical page modules, <= FULL_CAP+few): a middle
-  // 8-file round adds little — jump from the dedicated file to the whole set.
-  const rounds =
-    tests.length <= FULL_CAP + 8
-      ? [1, Math.min(FULL_CAP, tests.length)]
-      : ROUND_SIZES;
+  // Always escalate dedicated → 8-file spread → full/capped set: jumping
+  // straight to the full set for medium-sized covering sets made the
+  // simulation-page tail spend 15-40 min per survivor (2026-10-01).
+  const rounds = [1, 8, Math.min(FULL_CAP, tests.length)];
   for (let round = 0; round < rounds.length; round++) {
     const size = rounds[round];
     // Round 1: best dedicated file alone. Later rounds: spread over the
@@ -399,7 +399,12 @@ async function main() {
   console.log("campaign complete:", JSON.stringify(counts));
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+// Only auto-run when invoked directly (node mutation/mutate_run.mjs …);
+// mutate_reverify.mjs imports runVitest from here without starting a campaign.
+import { pathToFileURL } from "node:url";
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}

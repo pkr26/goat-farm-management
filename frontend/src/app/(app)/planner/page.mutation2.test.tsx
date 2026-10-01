@@ -57,6 +57,7 @@ import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { farmToday } from "@/lib/format";
 import { permissionsHandler, server, TEST_FARMS } from "@/test/msw-server";
 import { createTestQueryClient, renderWithProviders } from "@/test/render";
 
@@ -93,8 +94,9 @@ const GOAT_DEFAULTS = {
 };
 
 function currentYearMonth(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  // Farm-timezone "now" to mirror the page (last-day-of-month divergence
+  // between browser and IST otherwise flakes the expectations).
+  return farmToday().slice(0, 7);
 }
 
 function addMonths(yearMonth: string, months: number): string {
@@ -506,8 +508,13 @@ describe("PlannerPage mutation round 2: month parsing and number formatting", ()
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Jan 12026/ })).toBeNull();
 
-    // A real month in the 10-12 band is valid (no validation alert).
-    fireEvent.change(saleMonthInput(), { target: { value: "2026-10" } });
+    // A real month in the 10-12 band is valid (no validation alert). Next
+    // year's October keeps the double-digit month AND stays strictly after
+    // the plan start once "now" (farm timezone) reaches October 2026 — the
+    // fixed "2026-10" became the start month itself on the IST boundary.
+    fireEvent.change(saleMonthInput(), {
+      target: { value: `${Number(currentYearMonth().slice(0, 4)) + 1}-10` },
+    });
     expect(screen.queryAllByRole("alert")).toHaveLength(0);
     expect(screen.getByRole("button", { name: "Plan" })).toBeEnabled();
   });

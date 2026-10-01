@@ -36,9 +36,11 @@ export default defineConfig({
     include: ["src/**/*.test.{ts,tsx}"],
     // Some single-file runs still bundle sizeable page suites; give them
     // room beyond the 5 s local budget without unbounded waits. The runner
-    // enforces its own wall-clock timeout on top.
-    testTimeout: process.env.CI ? 20_000 : 15_000,
-    hookTimeout: process.env.CI ? 30_000 : 20_000,
+    // enforces its own wall-clock timeout on top. 2026-09-30: 15 s proved
+    // too tight for heavy jsdom renders (50/500-row editors) on a machine
+    // loaded by unrelated work — patience only, no assertion weakened.
+    testTimeout: process.env.CI ? 20_000 : 60_000,
+    hookTimeout: process.env.CI ? 30_000 : 60_000,
     coverage: { enabled: false },
   },
 });

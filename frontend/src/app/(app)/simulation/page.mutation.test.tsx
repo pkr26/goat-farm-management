@@ -1063,7 +1063,9 @@ describe("SimulationPage mutation hardening: events and recurrence", () => {
       screen.queryByText(/A simulation can contain at most 500 herd events/),
     ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Run simulation" })).toBeEnabled();
-  }, 120000);
+    // 500 rows via repeated dialog generation is inherently slow in jsdom;
+    // the budget only encodes patience, not an assertion.
+  }, 420_000);
 });
 
 describe("SimulationPage mutation hardening: bounds recovery", () => {

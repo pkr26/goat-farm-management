@@ -12,6 +12,7 @@ import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
 
+import { farmToday } from "@/lib/format";
 import { server, TEST_FARMS } from "@/test/msw-server";
 import { createTestQueryClient, renderWithProviders } from "@/test/render";
 
@@ -46,8 +47,11 @@ const GOAT_DEFAULTS = {
 };
 
 function currentYearMonth(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  // The page anchors "now" to the FARM timezone (farmToday), not the
+  // browser's: on the last day of a month the two can disagree for hours
+  // (observed 2026-09-30 MST evening vs IST October). Mirror the page's
+  // semantics so the expectation never diverges from the saved value.
+  return farmToday().slice(0, 7);
 }
 
 function addMonths(yearMonth: string, months: number): string {

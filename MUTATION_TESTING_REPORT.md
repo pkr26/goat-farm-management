@@ -1,4 +1,28 @@
-# Backend Mutation Testing Report — 2026-09-30
+# Mutation Testing Reports
+
+## Frontend — 2026-10-01 (latest)
+
+Deep mutation testing of the Next.js frontend (`frontend/src`), run
+completely fresh: artifacts wiped, manifest regenerated (9,944 mutants over
+126 files), coverage map rebuilt per test file (293 files, zero failures),
+every mutant executed with escalating selections, a fix cycle that added 11
+test files (35 tests, 93 verified kills), and Phase B full-selection
+re-verification of every survivor. Full detail: `frontend/mutation/CAMPAIGN.md`
+(per-mutant survivors: `frontend/mutation/report.md`).
+
+| Metric | Value |
+|---|---|
+| Mutants | 9,944 (100% of manifest) |
+| Killed | 7,869 + 2 confirmed hangs |
+| Survived (Phase B re-verified) | 1,995 (of which app pages 1,749) |
+| Not covered by any test | 78 |
+| **Mutation score (covered code)** | **79.8%** |
+
+Baseline suite: 4,965 tests / 293 files, green after fixing seven
+pre-existing test bugs (five planner date/timezone flakes, two heavy-test
+budgets). Closing suite: 5,000 tests / 304 files.
+
+## Backend — 2026-09-30
 
 Deep mutation testing of the FastAPI backend (`backend/app`), run completely
 fresh: recreated venv, regenerated manifest from current source, full-suite
@@ -6,7 +30,7 @@ coverage-contexts baseline, 6,565-mutant campaign, full-selection
 re-verification, and a gap-fix cycle that added 68 tests across 15 new test files — then
 re-measured every non-killed mutant against the strengthened suite.
 
-## Headline
+### Headline
 
 | Metric | Campaign (fresh) | After gap fixes |
 |---|---|---|

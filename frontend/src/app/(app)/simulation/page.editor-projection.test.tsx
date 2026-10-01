@@ -491,7 +491,9 @@ describe("SimulationPage stored assumption validation", () => {
   });
 
   // Rendering 501 event rows is the only way to reach this gate, so this
-  // test carries its own (generous) budget.
+  // test carries its own (generous) budget — sized for a loaded machine
+  // under coverage instrumentation, since the mutation cover step runs it
+  // instrumented too.
   it("caps a stored event list at the backend maximum", async () => {
     await renderLoaded({
       defaults: {
@@ -507,7 +509,7 @@ describe("SimulationPage stored assumption validation", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add event" })).toBeDisabled();
     expect(runButton()).toBeDisabled();
-  }, 45_000);
+  }, 240_000);
 
   it("labels every event kind and animal class in the closed row controls", async () => {
     const classes = [
