@@ -107,6 +107,10 @@ describe("InsurancePage error-field wiring", () => {
     await user.click(screen.getByRole("button", { name: /register policy/i }));
     const dialog = await screen.findByRole("dialog");
 
+    // DOM caps the schema enforces alongside the wiring.
+    expect(within(dialog).getByLabelText(/policy number/i)).toHaveAttribute("maxlength", "60");
+    expect(within(dialog).getByLabelText(/insurer/i)).toHaveAttribute("maxlength", "120");
+    expect(within(dialog).getByLabelText(/^notes/i)).toHaveAttribute("rows", "2");
     for (const id of ["policy_number", "insurer", "sum_insured", "premium", "start_date", "renewal_date"]) {
       notWired(
         id,

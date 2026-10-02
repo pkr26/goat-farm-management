@@ -137,14 +137,35 @@ insurance aria ×16, animals/[id] aria+caps ×20, purchases aria+caps ×26,
 tasks reject-dialog caps ×4 — all verified mutant-by-mutant (see the table
 in CAMPAIGN.md).
 
-### Follow-ups (fixable, documented, not yet killed)
+### Follow-up round (2026-10-01, same day): 103 more verified kills
 
-- The remaining DOM-cap sites not covered by the three new page harnesses
-  (health event dialog caps, animals list search cap, screening rows,
-  finance notes caps, planner name cap, ops-simulation cap): ~40 mutants,
-  each one attribute assertion away — the harness pattern to copy is
-  `page.aria.test.tsx` in each page's folder.
-- Dashboard/ops-simulation score weightings and benchmark windows: exact
-  render pins.
-- `sort.direction === "asc" ? 1 : -1` and the remaining compare swaps in
-  sort paths: order-pinning tests.
+Every fixable follow-up named above was killed, each verified by running
+the mutant against the new file:
+
+| New test file | Kills | What was pinned |
+|---|---|---|
+| `app/(app)/health/page.dom-caps.test.tsx` | 22 | every cap in the event dialog: product/disease/vet/template/authority/lot/administered/certificate 120, dose 60, official tag 80, notes rows 2 |
+| `app/(app)/team/page.dom-caps.test.tsx` | 14 | worker invite (120/254/128), reset password 128, notification phone 20, role name 80 / description 255 |
+| `app/auth-pages.dom-caps.test.tsx` | 14 | login email 254 / password 128 / TOTP 11 (challenge driven), register 120/254/128, farm-select name/location 120 + timezone 64 |
+| `app/(app)/animals/page.dom-caps.test.tsx` | 10 | create dialog breed 60, seller 120, import reason rows 2 × 255, notes rows 2 |
+| `app/(app)/finance/insurance/page.aria.test.tsx` (extended) | 6 | policy number 60, insurer 120, notes rows 2 |
+| `app/(app)/animals/[id]/page.aria2.test.tsx` (extended) | 4 | suspected disease 120 (statutory checkbox arm), clearance reference 255 |
+| `app/(app)/breeding/page.dom-caps.test.tsx` | 4 | pregnancy-loss notes 4 000, kidding notes rows 2 |
+| `app/(app)/finance/page.dom-caps.test.tsx` | 6 | correction notes/reason 255, new-transaction notes 255 |
+| `app/misc-pages.dom-caps.test.tsx` | 7 | planner plan name 120, ops-sim row tags 50, scenario name 120 + notes 2 000 |
+| `app/(app)/owner/page.dom-caps.test.tsx` | 12 | attention weights 1 000 : 100 : 1 (six boundary fixtures, each flips under exactly one weight mutation) + the 30/90/365-day window set |
+| `app/(app)/ops-simulation/page.format-kg.test.tsx` | 4 | whole-kg shares print 0 decimals, fractional exactly 1 |
+
+New equivalents documented in this round:
+
+- **Sort-direction multipliers** — `dir = asc ? 1 : -1` → `2`/`-2` in
+  animals and finance sort comparators (m00886/88/2404/2406): `dir` is
+  only ever a sign multiplier (`x * dir`), and any nonzero multiplier
+  preserves a comparator's sign; the in-source Stryker annotations say
+  the same.
+- **Redundant guard arms** — simulation `"maxLength" in rule &&
+  rule.maxLength !== undefined` (m05430): each arm implies the other's
+  outcome for every zod rule shape.
+- **Dead-UI arms** — breeding `semen_sire_name` (maxLength 120): the AI
+  radios are deliberately not offered (the goat protocol 409s the write),
+  so the input cannot render for this product.

@@ -1,4 +1,4 @@
-# Frontend Mutation Testing Report — 2026-10-01
+# Frontend Mutation Testing Report — 2026-10-02
 
 Manifest: 9944 mutants over 126 files
 (compare ==/!=/</<=/>/>=; boolop &&/||/??; not-drop; binop +-*/&|; boolconst true/false; intconst +-1; ifexp swap; loopjump break/continue).
@@ -8,15 +8,15 @@ Manifest: 9944 mutants over 126 files
 | Metric | Value |
 |---|---|
 | Mutants executed | 9866 |
-| Killed by tests | 7869 |
+| Killed by tests | 7972 |
 | Killed by timeout | 2 |
-| **Survived** | **1995** |
+| **Survived** | **1892** |
 | On lines no test covers | 78 |
 | Runner errors | 0 |
 | Not yet run | 0 |
-| **Mutation score (covered code)** | **79.8%** |
+| **Mutation score (covered code)** | **80.8%** |
 
-Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%, not 94.2%, ifexp 93.0%, loopjump 31.3%
+Per-operator scores: compare 91.2%, intconst 72.0%, binop 74.6%, boolconst 80.8%, not 94.2%, ifexp 93.0%, loopjump 31.3%
 
 ## Per-file scores (covered mutants only)
 
@@ -27,62 +27,61 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 | src/components/stale-data-notice.tsx | 1 | 0 | 1 | 0 | 0.0% |
 | src/components/ui/select.tsx | 5 | 0 | 1 | 4 | 0.0% |
 | src/app/(app)/breeding/[id]/ultrasound/page.tsx | 5 | 1 | 2 | 2 | 33.3% |
-| src/app/(app)/owner/page.tsx | 76 | 32 | 44 | 0 | 42.1% |
 | src/app/(app)/screening/page.tsx | 194 | 83 | 111 | 0 | 42.8% |
 | src/app/worker/page.tsx | 75 | 33 | 42 | 0 | 44.0% |
-| src/app/(app)/ops-simulation/page.tsx | 285 | 129 | 156 | 0 | 45.3% |
+| src/app/(app)/ops-simulation/page.tsx | 285 | 135 | 150 | 0 | 47.4% |
 | src/components/status-badge.tsx | 6 | 3 | 3 | 0 | 50.0% |
 | src/lib/bucket-sex.ts | 2 | 1 | 1 | 0 | 50.0% |
 | src/app/worker/login/page.tsx | 81 | 42 | 39 | 0 | 51.9% |
+| src/app/(app)/owner/page.tsx | 76 | 44 | 32 | 0 | 57.9% |
 | src/app/worker/layout.tsx | 51 | 30 | 21 | 0 | 58.8% |
-| src/app/(app)/finance/insurance/page.tsx | 187 | 117 | 70 | 0 | 62.6% |
 | src/app/(app)/dashboard/page.tsx | 293 | 184 | 109 | 0 | 62.8% |
 | src/app/(app)/feeding/recipes/page.tsx | 17 | 11 | 6 | 0 | 64.7% |
+| src/app/(app)/finance/insurance/page.tsx | 187 | 123 | 64 | 0 | 65.8% |
 | src/app/(app)/health/schedule/[animalId]/page.tsx | 35 | 24 | 11 | 0 | 68.6% |
 | src/lib/auth-context.tsx | 139 | 97 | 42 | 0 | 69.8% |
 | src/components/permission-gate.tsx | 12 | 5 | 2 | 5 | 71.4% |
-| src/app/(app)/team/page.tsx | 425 | 315 | 108 | 2 | 74.5% |
 | src/components/data-table-card.tsx | 16 | 12 | 4 | 0 | 75.0% |
 | src/components/empty-state.tsx | 8 | 6 | 2 | 0 | 75.0% |
 | src/components/page-header.tsx | 8 | 6 | 2 | 0 | 75.0% |
-| src/app/(app)/finance/page.tsx | 270 | 205 | 65 | 0 | 75.9% |
 | src/app/(app)/purchases/page.tsx | 273 | 208 | 65 | 0 | 76.2% |
 | src/api/custom-instance.ts | 13 | 10 | 3 | 0 | 76.9% |
+| src/app/(app)/team/page.tsx | 425 | 329 | 94 | 2 | 77.8% |
 | src/lib/i18n/index.tsx | 9 | 7 | 2 | 0 | 77.8% |
+| src/app/(app)/finance/page.tsx | 270 | 211 | 59 | 0 | 78.1% |
 | src/app/(app)/reports/page.tsx | 88 | 69 | 19 | 0 | 78.4% |
 | src/app/(app)/buckets/page.tsx | 37 | 29 | 8 | 0 | 78.4% |
 | src/lib/permission-navigation.ts | 28 | 22 | 6 | 0 | 78.6% |
 | src/app/(app)/simulation/components/results-visuals.tsx | 67 | 52 | 14 | 1 | 78.8% |
-| src/app/(app)/kidding/page.tsx | 321 | 255 | 65 | 1 | 79.7% |
-| src/app/login/page.tsx | 70 | 56 | 14 | 0 | 80.0% |
 | src/lib/image-deps-guard.ts | 42 | 32 | 8 | 2 | 80.0% |
 | src/components/pagination-controls.tsx | 31 | 24 | 6 | 1 | 80.0% |
 | src/lib/simulation-field-help.ts | 10 | 8 | 2 | 0 | 80.0% |
-| src/app/(app)/planner/page.tsx | 343 | 276 | 67 | 0 | 80.5% |
-| src/app/(app)/simulation/page.tsx | 1411 | 1135 | 273 | 3 | 80.6% |
+| src/app/(app)/kidding/page.tsx | 321 | 257 | 63 | 1 | 80.3% |
+| src/app/(app)/simulation/page.tsx | 1411 | 1138 | 270 | 3 | 80.8% |
+| src/app/(app)/planner/page.tsx | 343 | 278 | 65 | 0 | 81.0% |
 | src/app/(app)/feeding/page.tsx | 261 | 212 | 49 | 0 | 81.2% |
 | src/lib/server-error-phrases.ts | 16 | 13 | 3 | 0 | 81.3% |
 | src/lib/utils.ts | 11 | 9 | 2 | 0 | 81.8% |
-| src/app/(app)/breeding/page.tsx | 299 | 245 | 53 | 1 | 82.2% |
-| src/app/(app)/animals/page.tsx | 430 | 356 | 73 | 1 | 83.0% |
-| src/app/farm-select/page.tsx | 72 | 60 | 12 | 0 | 83.3% |
+| src/app/(app)/breeding/page.tsx | 299 | 247 | 51 | 1 | 82.9% |
 | src/lib/use-permissions.ts | 12 | 10 | 2 | 0 | 83.3% |
 | src/app/(app)/tasks/page.tsx | 277 | 234 | 43 | 0 | 84.5% |
-| src/app/(app)/health/page.tsx | 614 | 522 | 90 | 2 | 85.3% |
-| src/app/(app)/animals/[id]/page.tsx | 524 | 447 | 77 | 0 | 85.3% |
+| src/app/(app)/animals/page.tsx | 430 | 366 | 63 | 1 | 85.3% |
 | src/app/(app)/feeding/inventory/page.tsx | 148 | 126 | 21 | 1 | 85.7% |
-| src/app/register/page.tsx | 36 | 31 | 5 | 0 | 86.1% |
+| src/app/login/page.tsx | 70 | 60 | 10 | 0 | 85.7% |
+| src/app/(app)/animals/[id]/page.tsx | 524 | 451 | 73 | 0 | 86.1% |
 | src/lib/format.ts | 138 | 119 | 19 | 0 | 86.2% |
 | src/lib/enum-labels.ts | 22 | 19 | 3 | 0 | 86.4% |
 | src/components/screening-check-dialog.tsx | 94 | 82 | 12 | 0 | 87.2% |
 | src/app/(app)/simulation/components/format-helpers.ts | 26 | 21 | 3 | 2 | 87.5% |
 | src/components/task-row-actions.tsx | 100 | 87 | 12 | 1 | 87.9% |
+| src/app/(app)/health/page.tsx | 614 | 544 | 68 | 2 | 88.9% |
 | src/lib/api-client.ts | 286 | 249 | 31 | 6 | 88.9% |
 | src/components/remote-picker.tsx | 146 | 128 | 15 | 3 | 89.5% |
 | src/lib/idempotent-request.ts | 253 | 229 | 24 | 0 | 90.5% |
 | src/components/stat-card.tsx | 11 | 10 | 1 | 0 | 90.9% |
 | src/components/theme-toggle.tsx | 11 | 10 | 1 | 0 | 90.9% |
 | src/lib/use-single-flight.ts | 11 | 10 | 1 | 0 | 90.9% |
+| src/app/farm-select/page.tsx | 72 | 66 | 6 | 0 | 91.7% |
 | src/lib/task-title.ts | 60 | 55 | 5 | 0 | 91.7% |
 | src/lib/csp.ts | 39 | 36 | 3 | 0 | 92.3% |
 | src/app/(app)/app-layout-client.tsx | 43 | 40 | 3 | 0 | 93.0% |
@@ -92,6 +91,7 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 | src/lib/use-url-state.ts | 23 | 22 | 1 | 0 | 95.7% |
 | src/components/account-dialog.tsx | 199 | 191 | 8 | 0 | 96.0% |
 | src/components/charts.tsx | 117 | 108 | 4 | 5 | 96.4% |
+| src/app/register/page.tsx | 36 | 35 | 1 | 0 | 97.2% |
 | src/components/animal-picker.tsx | 48 | 47 | 1 | 0 | 97.9% |
 | src/app/(app)/animals/new/page.tsx | 3 | 3 | 0 | 0 | 100.0% |
 | src/app/(app)/health/new/page.tsx | 2 | 2 | 0 | 0 | 100.0% |
@@ -128,7 +128,7 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 | src/lib/task-optimistic.ts | 7 | 7 | 0 | 0 | 100.0% |
 | src/proxy.ts | 1 | 1 | 0 | 0 | 100.0% |
 
-## Survivors (1995)
+## Survivors (1892)
 
 ### src/api/custom-instance.ts (3)
 
@@ -136,7 +136,7 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m00003` L34: `if (queryStart === -1) return url;` → `if (queryStart === -0) return url;` (intconst: 1 -> 0) ⚠capped-sample
 - `m00006` L35: `const params = new URLSearchParams(url.slice(queryStart + 1));` → `const params = new URLSearchParams(url.slice(queryStart + 0));` (intconst: 1 -> 0) ⚠capped-sample
 
-### src/app/(app)/animals/[id]/page.tsx (77)
+### src/app/(app)/animals/[id]/page.tsx (73)
 
 - `m00019` L129: `(v) => (v === "" || v === null || v === undefined ? undefined : Number(v)),` → `(v) => (v === "" || v === null && v === undefined ? undefined : Number(v)),` (binop: || -> &&)
 - `m00033` L168: `notes: z.string().max(255, t("animalDetail.validation.notesTooLong")).optional(),` → `notes: z.string().max(254, t("animalDetail.validation.notesTooLong")).optional(),` (intconst: 255 -> 254)
@@ -177,13 +177,9 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m00266` L1207: `aria-invalid={Boolean(errors.disposal_method) || undefined}` → `aria-invalid={Boolean(errors.disposal_method) && undefined}` (binop: || -> &&)
 - `m00267` L1209: `errors.disposal_method ? "disposal-method-error" : undefined` → `errors.disposal_method ? undefined : "disposal-method-error"` (ifexp: swap ternary branches)
 - `m00274` L1257: `if (!selected) {` → `if (selected) {` (not: drop !)
-- `m00287` L1321: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
-- `m00288` L1321: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
 - `m00302` L1372: `disabled={isSubmitting || actionFlight.pending || profileSettling}` → `disabled={isSubmitting || actionFlight.pending && profileSettling}` (binop: || -> &&)
 - `m00308` L1406: `if (actionFlight.pending || profileSettling || awaitingEpisodeRefresh) return;` → `if (actionFlight.pending || profileSettling && awaitingEpisodeRefresh) return;` (binop: || -> &&)
 - `m00309` L1406: `if (actionFlight.pending || profileSettling || awaitingEpisodeRefresh) return;` → `if (actionFlight.pending && profileSettling || awaitingEpisodeRefresh) return;` (binop: || -> &&)
-- `m00325` L1488: `maxLength={255}` → `maxLength={256}` (intconst: 255 -> 256)
-- `m00326` L1488: `maxLength={255}` → `maxLength={254}` (intconst: 255 -> 254)
 - `m00345` L1570: `? mapServerError(t, query.error.detail, query.error.status, query.error.code)` → `? t("animalDetail.pnl.loadFailed")mapServerError(t, query.error.detail, query.error.status, query.error.code)` (ifexp: swap ternary branches)
 - `m00347` L1610: `pnl.net < 0 ? "text-destructive" : "text-success",` → `pnl.net < 0 ? "text-success" : "text-destructive",` (ifexp: swap ternary branches)
 - `m00348` L1610: `pnl.net < 0 ? "text-destructive" : "text-success",` → `pnl.net <= 0 ? "text-destructive" : "text-success",` (compare: < -> <=)
@@ -216,7 +212,7 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m00536` L2406: `cards={3}` → `cards={4}` (intconst: 3 -> 4)
 - `m00537` L2406: `cards={3}` → `cards={2}` (intconst: 3 -> 2)
 
-### src/app/(app)/animals/page.tsx (73)
+### src/app/(app)/animals/page.tsx (63)
 
 - `m00588` L246: `.max(1_000_000_000, t("animals.validation.purchasePriceMax"))` → `.max(999999999, t("animals.validation.purchasePriceMax"))` (intconst: 1000000000 -> 999999999)
 - `m00590` L249: `seller_name: z.string().max(120).optional(),` → `seller_name: z.string().max(119).optional(),` (intconst: 120 -> 119)
@@ -235,19 +231,9 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m00683` L597: `const cancelBusy = isSubmitting || createFlight.pending;` → `const cancelBusy = isSubmitting && createFlight.pending;` (binop: || -> &&)
 - `m00710` L755: `? vocabulary.breedingEntry.male.minMonths` → `? vocabulary.breedingEntry.female.minMonthsvocabulary.breedingEntry.male.minMonths` (ifexp: swap ternary branches)
 - `m00711` L754: `sex === AnimalCreateInSex.M` → `sex !== AnimalCreateInSex.M` (compare: === -> !==)
-- `m00714` L770: `maxLength={60}` → `maxLength={61}` (intconst: 60 -> 61)
-- `m00715` L770: `maxLength={60}` → `maxLength={59}` (intconst: 60 -> 59)
 - `m00719` L790: `value={field.value ?? ""}` → `value={field.value || ""}` (binop: ?? -> ||)
 - `m00720` L816: `value={field.value ?? ""}` → `value={field.value || ""}` (binop: ?? -> ||)
-- `m00727` L868: `rows={2}` → `rows={3}` (intconst: 2 -> 3)
-- `m00728` L868: `rows={2}` → `rows={1}` (intconst: 2 -> 1)
-- `m00729` L869: `maxLength={255}` → `maxLength={256}` (intconst: 255 -> 256)
-- `m00730` L869: `maxLength={255}` → `maxLength={254}` (intconst: 255 -> 254)
 - `m00733` L887: `value={field.value ?? ""}` → `value={field.value || ""}` (binop: ?? -> ||)
-- `m00745` L982: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
-- `m00746` L982: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
-- `m00750` L1000: `rows={2}` → `rows={3}` (intconst: 2 -> 3)
-- `m00751` L1000: `rows={2}` → `rows={1}` (intconst: 2 -> 1)
 - `m00757` L1024: `disabled={isSubmitting || createFlight.pending || (!canManagePurchases && !isOwner)}` → `disabled={isSubmitting || createFlight.pending || (!canManagePurchases || !isOwner)}` (binop: && -> ||)
 - `m00762` L1064: `const [q, setQ] = useState(clampSearch(searchParams.get("q") ?? ""));` → `const [q, setQ] = useState(clampSearch(searchParams.get("q") || ""));` (binop: ?? -> ||)
 - `m00764` L1067: `const navigationSeq = useRef(0);` → `const navigationSeq = useRef(1);` (intconst: 0 -> 1)
@@ -303,7 +289,7 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m01015` L47: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={3} />` (intconst: 2 -> 3)
 - `m01016` L47: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={1} />` (intconst: 2 -> 1)
 
-### src/app/(app)/breeding/page.tsx (53)
+### src/app/(app)/breeding/page.tsx (51)
 
 - `m01039` L199: `const eligibleBuckCount = candidateAvailability?.eligible_buck_count ?? null;` → `const eligibleBuckCount = candidateAvailability?.eligible_buck_count || null;` (binop: ?? -> ||)
 - `m01048` L235: `const semenSirePayload = values.method !== "NATURAL" ? { method: values.method, semen_sire_name: values.semen_sire_name?.trim() || null } : {};` → `const semenSirePayload = values.method !== "NATURAL" ? { method: values.method, semen_sire_name: values.semen_sire_name?.trim() && null } : {};` (binop: || -> &&)
@@ -322,8 +308,6 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m01153` L737: `const earliestLossDate = record.ultrasound_result_date && record.ultrasound_result_date > record.breeding_date ? record.ultrasound_result_date : record.breeding_date;` → `const earliestLossDate = record.ultrasound_result_date && record.ultrasound_result_date >= record.breeding_date ? record.ultrasound_result_date : record.breeding_date;` (compare: > -> >=)
 - `m01166` L752: `const saving = mutation.isPending || saveFlight.pending;` → `const saving = mutation.isPending && saveFlight.pending;` (binop: || -> &&)
 - `m01175` L794: `doeTag: record.doe_tag ?? `#${record.doe_id}`,` → `doeTag: record.doe_tag || `#${record.doe_id}`,` (binop: ?? -> ||)
-- `m01180` L858: `maxLength={4_000}` → `maxLength={4001}` (intconst: 4000 -> 4001)
-- `m01181` L858: `maxLength={4_000}` → `maxLength={3999}` (intconst: 4000 -> 3999)
 - `m01197` L933: `const candidateAvailability = payload?.candidate_availability ?? null;` → `const candidateAvailability = payload?.candidate_availability || null;` (binop: ?? -> ||)
 - `m01199` L938: `requestedUltrasoundId ?? 0,` → `requestedUltrasoundId || 0,` (binop: ?? -> ||)
 - `m01200` L938: `requestedUltrasoundId ?? 0,` → `requestedUltrasoundId ?? 1,` (intconst: 0 -> 1)
@@ -579,7 +563,7 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m02068` L90: `{query.isError && <StaleDataNotice onRetry={() => void query.refetch()} />}` → `{query.isError || <StaleDataNotice onRetry={() => void query.refetch()} />}` (binop: && -> ||)
 - `m02073` L129: `{(recipe.lines ?? []).map((line) => (` → `{(recipe.lines || []).map((line) => (` (binop: ?? -> ||)
 
-### src/app/(app)/finance/insurance/page.tsx (70)
+### src/app/(app)/finance/insurance/page.tsx (64)
 
 - `m02074` L78: `const MAX_AMOUNT = 1_000_000_000;` → `const MAX_AMOUNT = 1000000001;` (intconst: 1000000000 -> 1000000001)
 - `m02075` L78: `const MAX_AMOUNT = 1_000_000_000;` → `const MAX_AMOUNT = 999999999;` (intconst: 1000000000 -> 999999999)
@@ -605,10 +589,6 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m02106` L209: `if (!farmScope()) return;` → `if (farmScope()) return;` (not: drop !)
 - `m02107` L226: `if (!nextOpen) reset(policyDefaults());` → `if (nextOpen) reset(policyDefaults());` (not: drop !)
 - `m02108` L239: `{formError && (` → `{formError || (` (binop: && -> ||)
-- `m02109` L249: `maxLength={60}` → `maxLength={61}` (intconst: 60 -> 61)
-- `m02110` L249: `maxLength={60}` → `maxLength={59}` (intconst: 60 -> 59)
-- `m02114` L264: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
-- `m02115` L264: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
 - `m02131` L346: `{canViewAnimals ? (` → `{canViewAnimals ? (
                   <>
                     <p className="text-sm font-medium">{t("insurance.form.animalOptional")}</p>
@@ -618,8 +598,6 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
                   </>
                 ))` (ifexp: swap ternary branches)
 - `m02132` L351: `value={animalId || NONE}` → `value={animalId && NONE}` (binop: || -> &&)
-- `m02133` L374: `rows={2}` → `rows={3}` (intconst: 2 -> 3)
-- `m02134` L374: `rows={2}` → `rows={1}` (intconst: 2 -> 1)
 - `m02140` L409: `renewal_date: z.string().min(1, t("insurance.validation.newRenewalDateRequired")),` → `renewal_date: z.string().min(2, t("insurance.validation.newRenewalDateRequired")),` (intconst: 1 -> 2)
 - `m02141` L409: `renewal_date: z.string().min(1, t("insurance.validation.newRenewalDateRequired")),` → `renewal_date: z.string().min(0, t("insurance.validation.newRenewalDateRequired")),` (intconst: 1 -> 0)
 - `m02143` L414: `value === "" || value === null || value === undefined ? undefined : Number(value),` → `value === "" || value === null && value === undefined ? undefined : Number(value),` (binop: || -> &&)
@@ -659,7 +637,7 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m02259` L1077: `cards={1}` → `cards={2}` (intconst: 1 -> 2)
 - `m02260` L1077: `cards={1}` → `cards={0}` (intconst: 1 -> 0)
 
-### src/app/(app)/finance/page.tsx (65)
+### src/app/(app)/finance/page.tsx (59)
 
 - `m02268` L146: `.min(1, t("finance.validation.dateRequired"))` → `.min(2, t("finance.validation.dateRequired"))` (intconst: 1 -> 2)
 - `m02287` L234: `value === "" || value === null || value === undefined` → `value === "" || value === null && value === undefined` (binop: || -> &&)
@@ -674,10 +652,6 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m02317` L335: `...(isFeedPurchase && values.feed_quantity_kg !== undefined` → `...(isFeedPurchase || values.feed_quantity_kg !== undefined` (binop: && -> ||)
 - `m02340` L507: `transaction.animal_tag ??` → `transaction.animal_tag ||` (binop: ?? -> ||)
 - `m02343` L524: `? (transaction.animal_tag ??` → `? (transaction.animal_tag ||` (binop: ?? -> ||)
-- `m02344` L536: `<Input id={`correction-notes-${transaction.id}`} maxLength={255} {...register("notes")} />` → `<Input id={`correction-notes-${transaction.id}`} maxLength={256} {...register("notes")} />` (intconst: 255 -> 256)
-- `m02345` L536: `<Input id={`correction-notes-${transaction.id}`} maxLength={255} {...register("notes")} />` → `<Input id={`correction-notes-${transaction.id}`} maxLength={254} {...register("notes")} />` (intconst: 255 -> 254)
-- `m02346` L544: `maxLength={255}` → `maxLength={256}` (intconst: 255 -> 256)
-- `m02347` L544: `maxLength={255}` → `maxLength={254}` (intconst: 255 -> 254)
 - `m02360` L637: `const [offset, setOffset] = useState(0);` → `const [offset, setOffset] = useState(1);` (intconst: 0 -> 1)
 - `m02361` L638: `const limit = 50;` → `const limit = 51;` (intconst: 50 -> 51)
 - `m02362` L638: `const limit = 50;` → `const limit = 49;` (intconst: 50 -> 49)
@@ -711,8 +685,6 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m02496` L1296: `addAttempt.current += 1;` → `addAttempt.current += 2;` (intconst: 1 -> 2)
 - `m02503` L1336: `setValue("type", v as TxnInput["type"], { shouldValidate: true })` → `setValue("type", v as TxnInput["type"], { shouldValidate: false })` (boolconst: -> false)
 - `m02504` L1358: `setValue("category", v as TxnInput["category"], { shouldValidate: true })` → `setValue("category", v as TxnInput["category"], { shouldValidate: false })` (boolconst: -> false)
-- `m02510` L1417: `maxLength={255}` → `maxLength={256}` (intconst: 255 -> 256)
-- `m02511` L1417: `maxLength={255}` → `maxLength={254}` (intconst: 255 -> 254)
 - `m02515` L1432: `disabled={isSubmitting || addFlight.pending}` → `disabled={isSubmitting && addFlight.pending}` (binop: || -> &&)
 - `m02516` L1437: `addAttempt.current += 1;` → `addAttempt.current += 2;` (intconst: 1 -> 2)
 - `m02517` L1437: `addAttempt.current += 1;` → `addAttempt.current += 0;` (intconst: 1 -> 0)
@@ -727,7 +699,7 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m02529` L1484: `cards={2}` → `cards={3}` (intconst: 2 -> 3)
 - `m02530` L1484: `cards={2}` → `cards={1}` (intconst: 2 -> 1)
 
-### src/app/(app)/health/page.tsx (90)
+### src/app/(app)/health/page.tsx (68)
 
 - `m02543` L139: `return Number.isSafeInteger(parsed) && parsed > 0 ? String(parsed) : null;` → `return Number.isSafeInteger(parsed) && parsed > 1 ? String(parsed) : null;` (intconst: 0 -> 1)
 - `m02557` L206: `product_name: z.string().max(120).optional(),` → `product_name: z.string().max(119).optional(),` (intconst: 120 -> 119)
@@ -791,30 +763,8 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m02948` L1359: `<TableCell>{e.dose ?? "—"}</TableCell>` → `<TableCell>{e.dose || "—"}</TableCell>` (binop: ?? -> ||)
 - `m02949` L1360: `<TableCell>{e.route ?? "—"}</TableCell>` → `<TableCell>{e.route || "—"}</TableCell>` (binop: ?? -> ||)
 - `m03034` L1670: `setValue("type", v as EventValues["type"], { shouldValidate: true });` → `setValue("type", v as EventValues["type"], { shouldValidate: false });` (boolconst: -> false)
-- `m03035` L1690: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
-- `m03036` L1690: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
-- `m03039` L1702: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
-- `m03040` L1702: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
-- `m03043` L1713: `maxLength={60}` → `maxLength={61}` (intconst: 60 -> 61)
-- `m03044` L1713: `maxLength={60}` → `maxLength={59}` (intconst: 60 -> 59)
-- `m03048` L1745: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
-- `m03049` L1745: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
 - `m03073` L1870: `value={field.value ?? ""}` → `value={field.value || ""}` (binop: ?? -> ||)
 - `m03078` L1887: `? `${template.name} — ${template.timing_note}`` → `? template.name`${template.name} — ${template.timing_note}`` (ifexp: swap ternary branches)
-- `m03079` L1898: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
-- `m03080` L1898: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
-- `m03086` L1917: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
-- `m03087` L1917: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
-- `m03091` L1931: `<Input id="product_lot" maxLength={120} {...register("product_lot")} />` → `<Input id="product_lot" maxLength={121} {...register("product_lot")} />` (intconst: 120 -> 121)
-- `m03092` L1931: `<Input id="product_lot" maxLength={120} {...register("product_lot")} />` → `<Input id="product_lot" maxLength={119} {...register("product_lot")} />` (intconst: 120 -> 119)
-- `m03093` L1935: `<Input id="administered_by" maxLength={120} {...register("administered_by")} />` → `<Input id="administered_by" maxLength={121} {...register("administered_by")} />` (intconst: 120 -> 121)
-- `m03094` L1935: `<Input id="administered_by" maxLength={120} {...register("administered_by")} />` → `<Input id="administered_by" maxLength={119} {...register("administered_by")} />` (intconst: 120 -> 119)
-- `m03107` L2000: `<Input id="certificate_number" maxLength={120} {...register("certificate_number")} />` → `<Input id="certificate_number" maxLength={121} {...register("certificate_number")} />` (intconst: 120 -> 121)
-- `m03108` L2000: `<Input id="certificate_number" maxLength={120} {...register("certificate_number")} />` → `<Input id="certificate_number" maxLength={119} {...register("certificate_number")} />` (intconst: 120 -> 119)
-- `m03109` L2004: `<Input id="official_tag_number" maxLength={80} {...register("official_tag_number")} />` → `<Input id="official_tag_number" maxLength={81} {...register("official_tag_number")} />` (intconst: 80 -> 81)
-- `m03110` L2004: `<Input id="official_tag_number" maxLength={80} {...register("official_tag_number")} />` → `<Input id="official_tag_number" maxLength={79} {...register("official_tag_number")} />` (intconst: 80 -> 79)
-- `m03121` L2075: `rows={2}` → `rows={3}` (intconst: 2 -> 3)
-- `m03122` L2075: `rows={2}` → `rows={1}` (intconst: 2 -> 1)
 - `m03143` L2138: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={3} />` (intconst: 2 -> 3)
 - `m03144` L2138: `<PageSkeleton cards={2} />` → `<PageSkeleton cards={1} />` (intconst: 2 -> 1)
 - `m03145` L2147: `cards={2}` → `cards={3}` (intconst: 2 -> 3)
@@ -834,7 +784,7 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m03179` L281: `<PageSkeleton cards={1} />` → `<PageSkeleton cards={0} />` (intconst: 1 -> 0)
 - `m03180` L290: `cards={1}` → `cards={2}` (intconst: 1 -> 2)
 
-### src/app/(app)/kidding/page.tsx (65)
+### src/app/(app)/kidding/page.tsx (63)
 
 - `m03199` L76: `return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;` → `return Number.isSafeInteger(parsed) && parsed > 1 ? parsed : null;` (intconst: 0 -> 1)
 - `m03200` L103: `const KIDDING_HISTORY_LIMIT = 50;` → `const KIDDING_HISTORY_LIMIT = 51;` (intconst: 50 -> 51)
@@ -851,8 +801,6 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m03252` L458: `doeTag: breeding.doe_tag ?? `#${breeding.doe_id}`,` → `doeTag: breeding.doe_tag || `#${breeding.doe_id}`,` (binop: ?? -> ||)
 - `m03260` L527: `disabled={isSubmitting || createFlight.pending}` → `disabled={isSubmitting && createFlight.pending}` (binop: || -> &&)
 - `m03261` L554: `disabled={isSubmitting || createFlight.pending}` → `disabled={isSubmitting && createFlight.pending}` (binop: || -> &&)
-- `m03265` L568: `rows={2}` → `rows={3}` (intconst: 2 -> 3)
-- `m03266` L568: `rows={2}` → `rows={1}` (intconst: 2 -> 1)
 - `m03298` L711: `if (v === "STILLBORN") {` → `if (v !== "STILLBORN") {` (compare: === -> !==)
 - `m03341` L919: `const kids = kidding.kids ?? [];` → `const kids = kidding.kids || [];` (binop: ?? -> ||)
 - `m03349` L928: `{kid.tag ?? t("kidding.noun.young")}` → `{kid.tag || t("kidding.noun.young")}` (binop: ?? -> ||)
@@ -909,7 +857,7 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m03517` L16: `<PageSkeleton stats={4} cards={2} />` → `<PageSkeleton stats={4} cards={3} />` (intconst: 2 -> 3)
 - `m03518` L16: `<PageSkeleton stats={4} cards={2} />` → `<PageSkeleton stats={4} cards={1} />` (intconst: 2 -> 1)
 
-### src/app/(app)/ops-simulation/page.tsx (156)
+### src/app/(app)/ops-simulation/page.tsx (150)
 
 - `m03522` L183: `const colors = BUCKET_COLORS[bucket] ?? BUCKET_COLORS.FEED_STORE;` → `const colors = BUCKET_COLORS[bucket] || BUCKET_COLORS.FEED_STORE;` (binop: ?? -> ||)
 - `m03523` L195: `{shortKey ? t(shortKey) : bucket}` → `{shortKey ? bucket : t(shortKey)}` (ifexp: swap ternary branches)
@@ -948,10 +896,6 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m03576` L308: `makeRow({ tag: "MK1", sex: "M", bucket: "MALE_KIDS", ageMonths: 7 }),` → `makeRow({ tag: "MK1", sex: "M", bucket: "MALE_KIDS", ageMonths: 6 }),` (intconst: 7 -> 6)
 - `m03577` L309: `makeRow({ tag: "FK1", sex: "F", bucket: "FEMALE_KIDS", ageMonths: 9 }),` → `makeRow({ tag: "FK1", sex: "F", bucket: "FEMALE_KIDS", ageMonths: 10 }),` (intconst: 9 -> 10)
 - `m03578` L309: `makeRow({ tag: "FK1", sex: "F", bucket: "FEMALE_KIDS", ageMonths: 9 }),` → `makeRow({ tag: "FK1", sex: "F", bucket: "FEMALE_KIDS", ageMonths: 8 }),` (intconst: 9 -> 8)
-- `m03582` L321: `return Number.isFinite(value) ? value.toFixed(value % 1 === 0 ? 0 : 1) : "—";` → `return Number.isFinite(value) ? value.toFixed(value % 2 === 0 ? 0 : 1) : "—";` (intconst: 1 -> 2)
-- `m03583` L321: `return Number.isFinite(value) ? value.toFixed(value % 1 === 0 ? 0 : 1) : "—";` → `return Number.isFinite(value) ? value.toFixed(value % 0 === 0 ? 0 : 1) : "—";` (intconst: 1 -> 0)
-- `m03584` L321: `return Number.isFinite(value) ? value.toFixed(value % 1 === 0 ? 0 : 1) : "—";` → `return Number.isFinite(value) ? value.toFixed(value % 1 === 1 ? 0 : 1) : "—";` (intconst: 0 -> 1)
-- `m03585` L321: `return Number.isFinite(value) ? value.toFixed(value % 1 === 0 ? 0 : 1) : "—";` → `return Number.isFinite(value) ? value.toFixed(value % 1 === 0 ? 1 : 1) : "—";` (intconst: 0 -> 1)
 - `m03589` L334: `value={draft ?? String(inputProps.value ?? "")}` → `value={draft ?? String(inputProps.value || "")}` (binop: ?? -> ||)
 - `m03593` L355: `if ((day.moves?.length ?? 0) > 0) {` → `if ((day.moves?.length || 0) > 0) {` (binop: ?? -> ||)
 - `m03594` L355: `if ((day.moves?.length ?? 0) > 0) {` → `if ((day.moves?.length ?? 1) > 0) {` (intconst: 0 -> 1)
@@ -1015,8 +959,6 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m03729` L684: `row: index + 1,` → `row: index + 2,` (intconst: 1 -> 2)
 - `m03730` L684: `row: index + 1,` → `row: index + 0,` (intconst: 1 -> 0)
 - `m03731` L686: `? t("opsSim.aria.tagSuffix", { tag: row.tag.trim() })` → `? ""t("opsSim.aria.tagSuffix", { tag: row.tag.trim() })` (ifexp: swap ternary branches)
-- `m03732` L692: `maxLength={50}` → `maxLength={51}` (intconst: 50 -> 51)
-- `m03733` L692: `maxLength={50}` → `maxLength={49}` (intconst: 50 -> 49)
 - `m03734` L699: `updateRow(row.key, { sex: value === "M" ? "M" : "F" })` → `updateRow(row.key, { sex: value === "M" ? "F" : "M" })` (ifexp: swap ternary branches)
 - `m03735` L699: `updateRow(row.key, { sex: value === "M" ? "M" : "F" })` → `updateRow(row.key, { sex: value !== "M" ? "M" : "F" })` (compare: === -> !==)
 - `m03736` L702: `<SelectTrigger aria-label={t("opsSim.aria.sexFor", { tag: row.tag || row.key })}>` → `<SelectTrigger aria-label={t("opsSim.aria.sexFor", { tag: row.tag && row.key })}>` (binop: || -> &&)
@@ -1068,23 +1010,11 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m03804` L1208: `cards={2}` → `cards={3}` (intconst: 2 -> 3)
 - `m03805` L1208: `cards={2}` → `cards={1}` (intconst: 2 -> 1)
 
-### src/app/(app)/owner/page.tsx (44)
+### src/app/(app)/owner/page.tsx (32)
 
-- `m03806` L29: `const BENCHMARK_WINDOWS = [30, 90, 365] as const;` → `const BENCHMARK_WINDOWS = [31, 90, 365] as const;` (intconst: 30 -> 31)
-- `m03807` L29: `const BENCHMARK_WINDOWS = [30, 90, 365] as const;` → `const BENCHMARK_WINDOWS = [29, 90, 365] as const;` (intconst: 30 -> 29)
-- `m03808` L29: `const BENCHMARK_WINDOWS = [30, 90, 365] as const;` → `const BENCHMARK_WINDOWS = [30, 91, 365] as const;` (intconst: 90 -> 91)
-- `m03809` L29: `const BENCHMARK_WINDOWS = [30, 90, 365] as const;` → `const BENCHMARK_WINDOWS = [30, 89, 365] as const;` (intconst: 90 -> 89)
 - `m03812` L35: `const [windowDays, setWindowDays] = useState<number>(90);` → `const [windowDays, setWindowDays] = useState<number>(91);` (intconst: 90 -> 91)
 - `m03813` L35: `const [windowDays, setWindowDays] = useState<number>(90);` → `const [windowDays, setWindowDays] = useState<number>(89);` (intconst: 90 -> 89)
 - `m03824` L69: `const farmsRanked = [...(overview?.farms ?? [])].sort((a, b) => {` → `const farmsRanked = [...(overview?.farms || [])].sort((a, b) => {` (binop: ?? -> ||)
-- `m03825` L71: `f.overdue_duties * 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;` → `f.overdue_duties * 1000 + f.open_screening_flags * 100 - f.todays_duties_pending;` (binop: + -> -)
-- `m03826` L71: `f.overdue_duties * 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;` → `f.overdue_duties * 1000 - f.open_screening_flags * 100 + f.todays_duties_pending;` (binop: + -> -)
-- `m03827` L71: `f.overdue_duties * 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;` → `f.overdue_duties / 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;` (binop: * -> /)
-- `m03828` L71: `f.overdue_duties * 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;` → `f.overdue_duties * 1001 + f.open_screening_flags * 100 + f.todays_duties_pending;` (intconst: 1000 -> 1001)
-- `m03829` L71: `f.overdue_duties * 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;` → `f.overdue_duties * 999 + f.open_screening_flags * 100 + f.todays_duties_pending;` (intconst: 1000 -> 999)
-- `m03830` L71: `f.overdue_duties * 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;` → `f.overdue_duties * 1000 + f.open_screening_flags / 100 + f.todays_duties_pending;` (binop: * -> /)
-- `m03831` L71: `f.overdue_duties * 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;` → `f.overdue_duties * 1000 + f.open_screening_flags * 101 + f.todays_duties_pending;` (intconst: 100 -> 101)
-- `m03832` L71: `f.overdue_duties * 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;` → `f.overdue_duties * 1000 + f.open_screening_flags * 99 + f.todays_duties_pending;` (intconst: 100 -> 99)
 - `m03835` L91: `<TableSkeleton rows={4} columns={8} />` → `<TableSkeleton rows={5} columns={8} />` (intconst: 4 -> 5)
 - `m03836` L91: `<TableSkeleton rows={4} columns={8} />` → `<TableSkeleton rows={3} columns={8} />` (intconst: 4 -> 3)
 - `m03837` L91: `<TableSkeleton rows={4} columns={8} />` → `<TableSkeleton rows={4} columns={9} />` (intconst: 8 -> 9)
@@ -1117,7 +1047,7 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m03880` L234: `? "—"` → `? formatMoney(farm.profit_per_animal_sold)"—"` (ifexp: swap ternary branches)
 - `m03881` L233: `{farm.profit_per_animal_sold === null` → `{farm.profit_per_animal_sold !== null` (compare: === -> !==)
 
-### src/app/(app)/planner/page.tsx (67)
+### src/app/(app)/planner/page.tsx (65)
 
 - `m03888` L141: `}).format(new Date(Date.UTC(year, month - 1, 1)));` → `}).format(new Date(Date.UTC(year, month + 1, 1)));` (binop: - -> +)
 - `m03889` L141: `}).format(new Date(Date.UTC(year, month - 1, 1)));` → `}).format(new Date(Date.UTC(year, month - 2, 1)));` (intconst: 1 -> 2)
@@ -1152,8 +1082,6 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m04075` L671: `if (err instanceof ApiError && err.status === 409) {` → `if (err instanceof ApiError && err.status === 410) {` (intconst: 409 -> 410)
 - `m04076` L671: `if (err instanceof ApiError && err.status === 409) {` → `if (err instanceof ApiError && err.status === 408) {` (intconst: 409 -> 408)
 - `m04086` L740: `const evaluation = report ? (report.plan.after ?? report.plan.before) : null;` → `const evaluation = report ? (report.plan.after || report.plan.before) : null;` (binop: ?? -> ||)
-- `m04092` L763: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
-- `m04093` L763: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
 - `m04134` L858: `min={addMonths(startMonth, 1)}` → `min={addMonths(startMonth, 2)}` (intconst: 1 -> 2)
 - `m04135` L858: `min={addMonths(startMonth, 1)}` → `min={addMonths(startMonth, 0)}` (intconst: 1 -> 0)
 - `m04136` L891: `min={1}` → `min={2}` (intconst: 1 -> 2)
@@ -1450,7 +1378,7 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m04970` L307: `{(candidate.constraint_violations ?? []).length > 0` → `{(candidate.constraint_violations || []).length > 0` (binop: ?? -> ||)
 - `m04971` L307: `{(candidate.constraint_violations ?? []).length > 0` → `{(candidate.constraint_violations ?? []).length > 1` (intconst: 0 -> 1)
 
-### src/app/(app)/simulation/page.tsx (273)
+### src/app/(app)/simulation/page.tsx (270)
 
 - `m04984` L206: `"reproduction.lactation_months": { min: 1, max: 12 },` → `"reproduction.lactation_months": { min: 2, max: 12 },` (intconst: 1 -> 2)
 - `m04985` L206: `"reproduction.lactation_months": { min: 1, max: 12 },` → `"reproduction.lactation_months": { min: 0, max: 12 },` (intconst: 1 -> 0)
@@ -1718,9 +1646,6 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m06355` L4058: `{comparePayload && comparePayload.results.length > 0 && (` → `{comparePayload && comparePayload.results.length > 1 && (` (intconst: 0 -> 1)
 - `m06356` L4075: `<TableCell key={`${comparePayload.scenarios[i]?.id ?? "result"}-${i}`}>` → `<TableCell key={`${comparePayload.scenarios[i]?.id || "result"}-${i}`}>` (binop: ?? -> ||)
 - `m06359` L4093: `if (!nextOpen) setSaveError(null);` → `if (nextOpen) setSaveError(null);` (not: drop !)
-- `m06361` L4111: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
-- `m06362` L4111: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
-- `m06363` L4121: `maxLength={2000}` → `maxLength={2001}` (intconst: 2000 -> 2001)
 - `m06364` L4121: `maxLength={2000}` → `maxLength={1999}` (intconst: 2000 -> 1999)
 - `m06370` L4146: `if (!next) setPendingDelete(null);` → `if (next) setPendingDelete(null);` (not: drop !)
 - `m06381` L4239: `cards={2}` → `cards={3}` (intconst: 2 -> 3)
@@ -1772,7 +1697,7 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m06658` L1274: `cards={2}` → `cards={3}` (intconst: 2 -> 3)
 - `m06659` L1274: `cards={2}` → `cards={1}` (intconst: 2 -> 1)
 
-### src/app/(app)/team/page.tsx (108)
+### src/app/(app)/team/page.tsx (94)
 
 - `m06664` L113: `role_id: z.string().min(1, t("team.validation.pickRole")),` → `role_id: z.string().min(2, t("team.validation.pickRole")),` (intconst: 1 -> 2)
 - `m06667` L116: `.min(12, t("team.validation.passwordMin"))` → `.min(11, t("team.validation.passwordMin"))` (intconst: 12 -> 11)
@@ -1799,18 +1724,10 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m06765` L555: `void setWorkerActive(actionError.desiredActive ?? !m.is_active, false)` → `void setWorkerActive(actionError.desiredActive ?? m.is_active, false)` (not: drop !)
 - `m06778` L707: `onOpenChange(true);` → `onOpenChange(false);` (boolconst: -> false)
 - `m06779` L722: `disabled={authority.blocked || isSubmitting || createFlight.pending}` → `disabled={authority.blocked || isSubmitting && createFlight.pending}` (binop: || -> &&)
-- `m06785` L739: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
-- `m06786` L739: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
-- `m06790` L756: `maxLength={254}` → `maxLength={255}` (intconst: 254 -> 255)
-- `m06791` L756: `maxLength={254}` → `maxLength={253}` (intconst: 254 -> 253)
-- `m06795` L774: `maxLength={128}` → `maxLength={129}` (intconst: 128 -> 129)
-- `m06796` L774: `maxLength={128}` → `maxLength={127}` (intconst: 128 -> 127)
 - `m06805` L816: `disabled={isSubmitting || createFlight.pending}` → `disabled={isSubmitting && createFlight.pending}` (binop: || -> &&)
 - `m06807` L827: `isSubmitting ||` → `isSubmitting &&` (binop: || -> &&)
 - `m06823` L900: `<DialogTitle>{t("team.resetForm.title", { name: membership.name ?? membership.email })}</DialogTitle>` → `<DialogTitle>{t("team.resetForm.title", { name: membership.name || membership.email })}</DialogTitle>` (binop: ?? -> ||)
 - `m06824` L904: `disabled={authority.blocked || isSubmitting || resetFlight.pending}` → `disabled={authority.blocked || isSubmitting && resetFlight.pending}` (binop: || -> &&)
-- `m06827` L917: `maxLength={128}` → `maxLength={129}` (intconst: 128 -> 129)
-- `m06828` L917: `maxLength={128}` → `maxLength={127}` (intconst: 128 -> 127)
 - `m06832` L934: `disabled={isSubmitting || resetFlight.pending}` → `disabled={isSubmitting && resetFlight.pending}` (binop: || -> &&)
 - `m06833` L941: `disabled={authority.blocked || isSubmitting || resetFlight.pending}` → `disabled={authority.blocked || isSubmitting && resetFlight.pending}` (binop: || -> &&)
 - `m06838` L977: `const name = membership.name ?? membership.email;` → `const name = membership.name || membership.email;` (binop: ?? -> ||)
@@ -1833,8 +1750,6 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m06870` L1128: `onOpenChange={(open) => !open && !busy && onClose()}` → `onOpenChange={(open) => open && !busy && onClose()}` (not: drop !)
 - `m06871` L1128: `onOpenChange={(open) => !open && !busy && onClose()}` → `onOpenChange={(open) => !open && busy && onClose()}` (not: drop !)
 - `m06873` L1139: `data-readonly={readOnly || undefined}` → `data-readonly={readOnly && undefined}` (binop: || -> &&)
-- `m06878` L1162: `maxLength={20}` → `maxLength={21}` (intconst: 20 -> 21)
-- `m06879` L1162: `maxLength={20}` → `maxLength={19}` (intconst: 20 -> 19)
 - `m06880` L1165: `aria-invalid={Boolean(errors.phone) || undefined}` → `aria-invalid={Boolean(errors.phone) && undefined}` (binop: || -> &&)
 - `m06881` L1166: `aria-describedby={errors.phone ? "notification-phone-error" : undefined}` → `aria-describedby={errors.phone ? undefined : "notification-phone-error"}` (ifexp: swap ternary branches)
 - `m06883` L1189: `checked={values[alertClass.field] ?? false}` → `checked={values[alertClass.field] || false}` (binop: ?? -> ||)
@@ -1848,10 +1763,6 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m06901` L1290: `defaultValues: { name: role?.name ?? "", description: role?.description ?? "" },` → `defaultValues: { name: role?.name ?? "", description: role?.description || "" },` (binop: ?? -> ||)
 - `m06902` L1299: `if (dependency && canGrant(dependency)) next.add(dependency);` → `if (dependency || canGrant(dependency)) next.add(dependency);` (binop: && -> ||)
 - `m06919` L1359: `disabled={authority.blocked || isSubmitting || saveFlight.pending}` → `disabled={authority.blocked || isSubmitting && saveFlight.pending}` (binop: || -> &&)
-- `m06922` L1371: `maxLength={80}` → `maxLength={81}` (intconst: 80 -> 81)
-- `m06923` L1371: `maxLength={80}` → `maxLength={79}` (intconst: 80 -> 79)
-- `m06927` L1388: `maxLength={255}` → `maxLength={256}` (intconst: 255 -> 256)
-- `m06928` L1388: `maxLength={255}` → `maxLength={254}` (intconst: 255 -> 254)
 - `m06950` L1443: `{team.permission_labels[code] ?? code}` → `{team.permission_labels[code] || code}` (binop: ?? -> ||)
 - `m06959` L1450: `{held && code === "team.manage"` → `{held || code === "team.manage"` (binop: && -> ||)
 - `m06962` L1458: `label: team.permission_labels[dependency] ?? dependency,` → `label: team.permission_labels[dependency] || dependency,` (binop: ?? -> ||)
@@ -1883,7 +1794,7 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m07083` L2022: `cards={2}` → `cards={3}` (intconst: 2 -> 3)
 - `m07084` L2022: `cards={2}` → `cards={1}` (intconst: 2 -> 1)
 
-### src/app/farm-select/page.tsx (12)
+### src/app/farm-select/page.tsx (6)
 
 - `m07085` L48: `.min(1, t("farmSelect.errors.nameRequired"))` → `.min(2, t("farmSelect.errors.nameRequired"))` (intconst: 1 -> 2)
 - `m07091` L58: `.min(1, t("farmSelect.errors.timezoneRequired"))` → `.min(2, t("farmSelect.errors.timezoneRequired"))` (intconst: 1 -> 2)
@@ -1891,27 +1802,17 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m07105` L123: `router.push(requestedPath ?? firstPermittedPathFromList(permissions.permissions));` → `router.push(requestedPath || firstPermittedPathFromList(permissions.permissions));` (binop: ?? -> ||)
 - `m07136` L257: `{farm.location ?? "—"} · {farm.role ?? t("farmSelect.ownerRole")}` → `{farm.location || "—"} · {farm.role ?? t("farmSelect.ownerRole")}` (binop: ?? -> ||)
 - `m07137` L257: `{farm.location ?? "—"} · {farm.role ?? t("farmSelect.ownerRole")}` → `{farm.location ?? "—"} · {farm.role || t("farmSelect.ownerRole")}` (binop: ?? -> ||)
-- `m07139` L292: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
-- `m07140` L292: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
-- `m07144` L308: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
-- `m07145` L308: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
-- `m07149` L329: `maxLength={64}` → `maxLength={65}` (intconst: 64 -> 65)
-- `m07150` L329: `maxLength={64}` → `maxLength={63}` (intconst: 64 -> 63)
 
 ### src/app/layout.tsx (1)
 
 - `m07159` L51: `const nonce = (await headers()).get("x-nonce") ?? undefined;` → `const nonce = (await headers()).get("x-nonce") || undefined;` (binop: ?? -> ||)
 
-### src/app/login/page.tsx (14)
+### src/app/login/page.tsx (10)
 
 - `m07167` L74: `const mounted = useRef(true);` → `const mounted = useRef(false);` (boolconst: -> false)
 - `m07176` L124: `router.push(requested ?? firstPermittedPathFromList(permissions.permissions));` → `router.push(requested || firstPermittedPathFromList(permissions.permissions));` (binop: ?? -> ||)
 - `m07180` L144: `body: JSON.stringify({ mfa_token: mfaToken, code: values.totp ?? "" }),` → `body: JSON.stringify({ mfa_token: mfaToken, code: values.totp || "" }),` (binop: ?? -> ||)
 - `m07183` L170: `if (!body.access_token || !body.user) {` → `if (!body.access_token && !body.user) {` (binop: || -> &&)
-- `m07197` L234: `maxLength={254}` → `maxLength={255}` (intconst: 254 -> 255)
-- `m07203` L251: `maxLength={128}` → `maxLength={129}` (intconst: 128 -> 129)
-- `m07211` L271: `maxLength={11}` → `maxLength={12}` (intconst: 11 -> 12)
-- `m07212` L271: `maxLength={11}` → `maxLength={10}` (intconst: 11 -> 10)
 - `m07213` L272: `spellCheck={false}` → `spellCheck={true}` (boolconst: -> true)
 - `m07214` L273: `aria-invalid={!!errors.totp}` → `aria-invalid={!errors.totp}` (not: drop !)
 - `m07215` L273: `aria-invalid={!!errors.totp}` → `aria-invalid={!errors.totp}` (not: drop !)
@@ -1919,13 +1820,9 @@ Per-operator scores: compare 91.2%, intconst 68.6%, binop 74.4%, boolconst 80.8%
 - `m07226` L306: `disabled={isSubmitting || submission.pending}` → `disabled={isSubmitting && submission.pending}` (binop: || -> &&)
 - `m07227` L315: `setValue("totp", undefined, { shouldValidate: false });` → `setValue("totp", undefined, { shouldValidate: true });` (boolconst: -> true)
 
-### src/app/register/page.tsx (5)
+### src/app/register/page.tsx (1)
 
 - `m07248` L46: `const mounted = useRef(true);` → `const mounted = useRef(false);` (boolconst: -> false)
-- `m07256` L129: `maxLength={120}` → `maxLength={121}` (intconst: 120 -> 121)
-- `m07257` L129: `maxLength={120}` → `maxLength={119}` (intconst: 120 -> 119)
-- `m07261` L146: `maxLength={254}` → `maxLength={255}` (intconst: 254 -> 255)
-- `m07266` L163: `maxLength={128}` → `maxLength={129}` (intconst: 128 -> 129)
 
 ### src/app/worker/layout.tsx (21)
 

@@ -420,26 +420,6 @@
     "tests": 8
   },
   {
-    "id": "m00287",
-    "file": "src/app/(app)/animals/[id]/page.tsx",
-    "line": 1321,
-    "op": "intconst",
-    "desc": "120 -> 121",
-    "diff": "L1321: `maxLength={120}` → `maxLength={121}`",
-    "capped": false,
-    "tests": 8
-  },
-  {
-    "id": "m00288",
-    "file": "src/app/(app)/animals/[id]/page.tsx",
-    "line": 1321,
-    "op": "intconst",
-    "desc": "120 -> 119",
-    "diff": "L1321: `maxLength={120}` → `maxLength={119}`",
-    "capped": false,
-    "tests": 8
-  },
-  {
     "id": "m00302",
     "file": "src/app/(app)/animals/[id]/page.tsx",
     "line": 1372,
@@ -468,26 +448,6 @@
     "diff": "L1406: `if (actionFlight.pending || profileSettling || awaitingEpisodeRefresh) return;` → `if (actionFlight.pending && profileSettling || awaitingEpisodeRefresh) return;`",
     "capped": false,
     "tests": 4
-  },
-  {
-    "id": "m00325",
-    "file": "src/app/(app)/animals/[id]/page.tsx",
-    "line": 1488,
-    "op": "intconst",
-    "desc": "255 -> 256",
-    "diff": "L1488: `maxLength={255}` → `maxLength={256}`",
-    "capped": false,
-    "tests": 5
-  },
-  {
-    "id": "m00326",
-    "file": "src/app/(app)/animals/[id]/page.tsx",
-    "line": 1488,
-    "op": "intconst",
-    "desc": "255 -> 254",
-    "diff": "L1488: `maxLength={255}` → `maxLength={254}`",
-    "capped": false,
-    "tests": 5
   },
   {
     "id": "m00345",
@@ -970,26 +930,6 @@
     "tests": 16
   },
   {
-    "id": "m00714",
-    "file": "src/app/(app)/animals/page.tsx",
-    "line": 770,
-    "op": "intconst",
-    "desc": "60 -> 61",
-    "diff": "L770: `maxLength={60}` → `maxLength={61}`",
-    "capped": false,
-    "tests": 16
-  },
-  {
-    "id": "m00715",
-    "file": "src/app/(app)/animals/page.tsx",
-    "line": 770,
-    "op": "intconst",
-    "desc": "60 -> 59",
-    "diff": "L770: `maxLength={60}` → `maxLength={59}`",
-    "capped": false,
-    "tests": 16
-  },
-  {
     "id": "m00719",
     "file": "src/app/(app)/animals/page.tsx",
     "line": 790,
@@ -1010,92 +950,12 @@
     "tests": 16
   },
   {
-    "id": "m00727",
-    "file": "src/app/(app)/animals/page.tsx",
-    "line": 868,
-    "op": "intconst",
-    "desc": "2 -> 3",
-    "diff": "L868: `rows={2}` → `rows={3}`",
-    "capped": false,
-    "tests": 16
-  },
-  {
-    "id": "m00728",
-    "file": "src/app/(app)/animals/page.tsx",
-    "line": 868,
-    "op": "intconst",
-    "desc": "2 -> 1",
-    "diff": "L868: `rows={2}` → `rows={1}`",
-    "capped": false,
-    "tests": 16
-  },
-  {
-    "id": "m00729",
-    "file": "src/app/(app)/animals/page.tsx",
-    "line": 869,
-    "op": "intconst",
-    "desc": "255 -> 256",
-    "diff": "L869: `maxLength={255}` → `maxLength={256}`",
-    "capped": false,
-    "tests": 16
-  },
-  {
-    "id": "m00730",
-    "file": "src/app/(app)/animals/page.tsx",
-    "line": 869,
-    "op": "intconst",
-    "desc": "255 -> 254",
-    "diff": "L869: `maxLength={255}` → `maxLength={254}`",
-    "capped": false,
-    "tests": 16
-  },
-  {
     "id": "m00733",
     "file": "src/app/(app)/animals/page.tsx",
     "line": 887,
     "op": "binop",
     "desc": "?? -> ||",
     "diff": "L887: `value={field.value ?? \"\"}` → `value={field.value || \"\"}`",
-    "capped": false,
-    "tests": 16
-  },
-  {
-    "id": "m00745",
-    "file": "src/app/(app)/animals/page.tsx",
-    "line": 982,
-    "op": "intconst",
-    "desc": "120 -> 121",
-    "diff": "L982: `maxLength={120}` → `maxLength={121}`",
-    "capped": false,
-    "tests": 16
-  },
-  {
-    "id": "m00746",
-    "file": "src/app/(app)/animals/page.tsx",
-    "line": 982,
-    "op": "intconst",
-    "desc": "120 -> 119",
-    "diff": "L982: `maxLength={120}` → `maxLength={119}`",
-    "capped": false,
-    "tests": 16
-  },
-  {
-    "id": "m00750",
-    "file": "src/app/(app)/animals/page.tsx",
-    "line": 1000,
-    "op": "intconst",
-    "desc": "2 -> 3",
-    "diff": "L1000: `rows={2}` → `rows={3}`",
-    "capped": false,
-    "tests": 16
-  },
-  {
-    "id": "m00751",
-    "file": "src/app/(app)/animals/page.tsx",
-    "line": 1000,
-    "op": "intconst",
-    "desc": "2 -> 1",
-    "diff": "L1000: `rows={2}` → `rows={1}`",
     "capped": false,
     "tests": 16
   },
@@ -1746,26 +1606,6 @@
     "op": "binop",
     "desc": "?? -> ||",
     "diff": "L794: `doeTag: record.doe_tag ?? `#${record.doe_id}`,` → `doeTag: record.doe_tag || `#${record.doe_id}`,`",
-    "capped": false,
-    "tests": 4
-  },
-  {
-    "id": "m01180",
-    "file": "src/app/(app)/breeding/page.tsx",
-    "line": 858,
-    "op": "intconst",
-    "desc": "4000 -> 4001",
-    "diff": "L858: `maxLength={4_000}` → `maxLength={4001}`",
-    "capped": false,
-    "tests": 4
-  },
-  {
-    "id": "m01181",
-    "file": "src/app/(app)/breeding/page.tsx",
-    "line": 858,
-    "op": "intconst",
-    "desc": "4000 -> 3999",
-    "diff": "L858: `maxLength={4_000}` → `maxLength={3999}`",
     "capped": false,
     "tests": 4
   },
@@ -4280,46 +4120,6 @@
     "tests": 2
   },
   {
-    "id": "m02109",
-    "file": "src/app/(app)/finance/insurance/page.tsx",
-    "line": 249,
-    "op": "intconst",
-    "desc": "60 -> 61",
-    "diff": "L249: `maxLength={60}` → `maxLength={61}`",
-    "capped": false,
-    "tests": 2
-  },
-  {
-    "id": "m02110",
-    "file": "src/app/(app)/finance/insurance/page.tsx",
-    "line": 249,
-    "op": "intconst",
-    "desc": "60 -> 59",
-    "diff": "L249: `maxLength={60}` → `maxLength={59}`",
-    "capped": false,
-    "tests": 2
-  },
-  {
-    "id": "m02114",
-    "file": "src/app/(app)/finance/insurance/page.tsx",
-    "line": 264,
-    "op": "intconst",
-    "desc": "120 -> 121",
-    "diff": "L264: `maxLength={120}` → `maxLength={121}`",
-    "capped": false,
-    "tests": 2
-  },
-  {
-    "id": "m02115",
-    "file": "src/app/(app)/finance/insurance/page.tsx",
-    "line": 264,
-    "op": "intconst",
-    "desc": "120 -> 119",
-    "diff": "L264: `maxLength={120}` → `maxLength={119}`",
-    "capped": false,
-    "tests": 2
-  },
-  {
     "id": "m02131",
     "file": "src/app/(app)/finance/insurance/page.tsx",
     "line": 346,
@@ -4336,26 +4136,6 @@
     "op": "binop",
     "desc": "|| -> &&",
     "diff": "L351: `value={animalId || NONE}` → `value={animalId && NONE}`",
-    "capped": false,
-    "tests": 2
-  },
-  {
-    "id": "m02133",
-    "file": "src/app/(app)/finance/insurance/page.tsx",
-    "line": 374,
-    "op": "intconst",
-    "desc": "2 -> 3",
-    "diff": "L374: `rows={2}` → `rows={3}`",
-    "capped": false,
-    "tests": 2
-  },
-  {
-    "id": "m02134",
-    "file": "src/app/(app)/finance/insurance/page.tsx",
-    "line": 374,
-    "op": "intconst",
-    "desc": "2 -> 1",
-    "diff": "L374: `rows={2}` → `rows={1}`",
     "capped": false,
     "tests": 2
   },
@@ -4870,46 +4650,6 @@
     "tests": 5
   },
   {
-    "id": "m02344",
-    "file": "src/app/(app)/finance/page.tsx",
-    "line": 536,
-    "op": "intconst",
-    "desc": "255 -> 256",
-    "diff": "L536: `<Input id={`correction-notes-${transaction.id}`} maxLength={255} {...register(\"notes\")} />` → `<Input id={`correction-notes-${transaction.id}`} maxLength={256} {...register(\"notes\")} />`",
-    "capped": false,
-    "tests": 5
-  },
-  {
-    "id": "m02345",
-    "file": "src/app/(app)/finance/page.tsx",
-    "line": 536,
-    "op": "intconst",
-    "desc": "255 -> 254",
-    "diff": "L536: `<Input id={`correction-notes-${transaction.id}`} maxLength={255} {...register(\"notes\")} />` → `<Input id={`correction-notes-${transaction.id}`} maxLength={254} {...register(\"notes\")} />`",
-    "capped": false,
-    "tests": 5
-  },
-  {
-    "id": "m02346",
-    "file": "src/app/(app)/finance/page.tsx",
-    "line": 544,
-    "op": "intconst",
-    "desc": "255 -> 256",
-    "diff": "L544: `maxLength={255}` → `maxLength={256}`",
-    "capped": false,
-    "tests": 5
-  },
-  {
-    "id": "m02347",
-    "file": "src/app/(app)/finance/page.tsx",
-    "line": 544,
-    "op": "intconst",
-    "desc": "255 -> 254",
-    "diff": "L544: `maxLength={255}` → `maxLength={254}`",
-    "capped": false,
-    "tests": 5
-  },
-  {
     "id": "m02360",
     "file": "src/app/(app)/finance/page.tsx",
     "line": 637,
@@ -5236,26 +4976,6 @@
     "op": "boolconst",
     "desc": "-> false",
     "diff": "L1358: `setValue(\"category\", v as TxnInput[\"category\"], { shouldValidate: true })` → `setValue(\"category\", v as TxnInput[\"category\"], { shouldValidate: false })`",
-    "capped": false,
-    "tests": 10
-  },
-  {
-    "id": "m02510",
-    "file": "src/app/(app)/finance/page.tsx",
-    "line": 1417,
-    "op": "intconst",
-    "desc": "255 -> 256",
-    "diff": "L1417: `maxLength={255}` → `maxLength={256}`",
-    "capped": false,
-    "tests": 10
-  },
-  {
-    "id": "m02511",
-    "file": "src/app/(app)/finance/page.tsx",
-    "line": 1417,
-    "op": "intconst",
-    "desc": "255 -> 254",
-    "diff": "L1417: `maxLength={255}` → `maxLength={254}`",
     "capped": false,
     "tests": 10
   },
@@ -6010,86 +5730,6 @@
     "tests": 13
   },
   {
-    "id": "m03035",
-    "file": "src/app/(app)/health/page.tsx",
-    "line": 1690,
-    "op": "intconst",
-    "desc": "120 -> 121",
-    "diff": "L1690: `maxLength={120}` → `maxLength={121}`",
-    "capped": false,
-    "tests": 13
-  },
-  {
-    "id": "m03036",
-    "file": "src/app/(app)/health/page.tsx",
-    "line": 1690,
-    "op": "intconst",
-    "desc": "120 -> 119",
-    "diff": "L1690: `maxLength={120}` → `maxLength={119}`",
-    "capped": false,
-    "tests": 13
-  },
-  {
-    "id": "m03039",
-    "file": "src/app/(app)/health/page.tsx",
-    "line": 1702,
-    "op": "intconst",
-    "desc": "120 -> 121",
-    "diff": "L1702: `maxLength={120}` → `maxLength={121}`",
-    "capped": false,
-    "tests": 13
-  },
-  {
-    "id": "m03040",
-    "file": "src/app/(app)/health/page.tsx",
-    "line": 1702,
-    "op": "intconst",
-    "desc": "120 -> 119",
-    "diff": "L1702: `maxLength={120}` → `maxLength={119}`",
-    "capped": false,
-    "tests": 13
-  },
-  {
-    "id": "m03043",
-    "file": "src/app/(app)/health/page.tsx",
-    "line": 1713,
-    "op": "intconst",
-    "desc": "60 -> 61",
-    "diff": "L1713: `maxLength={60}` → `maxLength={61}`",
-    "capped": false,
-    "tests": 13
-  },
-  {
-    "id": "m03044",
-    "file": "src/app/(app)/health/page.tsx",
-    "line": 1713,
-    "op": "intconst",
-    "desc": "60 -> 59",
-    "diff": "L1713: `maxLength={60}` → `maxLength={59}`",
-    "capped": false,
-    "tests": 13
-  },
-  {
-    "id": "m03048",
-    "file": "src/app/(app)/health/page.tsx",
-    "line": 1745,
-    "op": "intconst",
-    "desc": "120 -> 121",
-    "diff": "L1745: `maxLength={120}` → `maxLength={121}`",
-    "capped": false,
-    "tests": 13
-  },
-  {
-    "id": "m03049",
-    "file": "src/app/(app)/health/page.tsx",
-    "line": 1745,
-    "op": "intconst",
-    "desc": "120 -> 119",
-    "diff": "L1745: `maxLength={120}` → `maxLength={119}`",
-    "capped": false,
-    "tests": 13
-  },
-  {
     "id": "m03073",
     "file": "src/app/(app)/health/page.tsx",
     "line": 1870,
@@ -6106,146 +5746,6 @@
     "op": "ifexp",
     "desc": "swap ternary branches",
     "diff": "L1887: `? `${template.name} — ${template.timing_note}`` → `? template.name`${template.name} — ${template.timing_note}``",
-    "capped": false,
-    "tests": 13
-  },
-  {
-    "id": "m03079",
-    "file": "src/app/(app)/health/page.tsx",
-    "line": 1898,
-    "op": "intconst",
-    "desc": "120 -> 121",
-    "diff": "L1898: `maxLength={120}` → `maxLength={121}`",
-    "capped": false,
-    "tests": 13
-  },
-  {
-    "id": "m03080",
-    "file": "src/app/(app)/health/page.tsx",
-    "line": 1898,
-    "op": "intconst",
-    "desc": "120 -> 119",
-    "diff": "L1898: `maxLength={120}` → `maxLength={119}`",
-    "capped": false,
-    "tests": 13
-  },
-  {
-    "id": "m03086",
-    "file": "src/app/(app)/health/page.tsx",
-    "line": 1917,
-    "op": "intconst",
-    "desc": "120 -> 121",
-    "diff": "L1917: `maxLength={120}` → `maxLength={121}`",
-    "capped": false,
-    "tests": 13
-  },
-  {
-    "id": "m03087",
-    "file": "src/app/(app)/health/page.tsx",
-    "line": 1917,
-    "op": "intconst",
-    "desc": "120 -> 119",
-    "diff": "L1917: `maxLength={120}` → `maxLength={119}`",
-    "capped": false,
-    "tests": 13
-  },
-  {
-    "id": "m03091",
-    "file": "src/app/(app)/health/page.tsx",
-    "line": 1931,
-    "op": "intconst",
-    "desc": "120 -> 121",
-    "diff": "L1931: `<Input id=\"product_lot\" maxLength={120} {...register(\"product_lot\")} />` → `<Input id=\"product_lot\" maxLength={121} {...register(\"product_lot\")} />`",
-    "capped": false,
-    "tests": 13
-  },
-  {
-    "id": "m03092",
-    "file": "src/app/(app)/health/page.tsx",
-    "line": 1931,
-    "op": "intconst",
-    "desc": "120 -> 119",
-    "diff": "L1931: `<Input id=\"product_lot\" maxLength={120} {...register(\"product_lot\")} />` → `<Input id=\"product_lot\" maxLength={119} {...register(\"product_lot\")} />`",
-    "capped": false,
-    "tests": 13
-  },
-  {
-    "id": "m03093",
-    "file": "src/app/(app)/health/page.tsx",
-    "line": 1935,
-    "op": "intconst",
-    "desc": "120 -> 121",
-    "diff": "L1935: `<Input id=\"administered_by\" maxLength={120} {...register(\"administered_by\")} />` → `<Input id=\"administered_by\" maxLength={121} {...register(\"administered_by\")} />`",
-    "capped": false,
-    "tests": 13
-  },
-  {
-    "id": "m03094",
-    "file": "src/app/(app)/health/page.tsx",
-    "line": 1935,
-    "op": "intconst",
-    "desc": "120 -> 119",
-    "diff": "L1935: `<Input id=\"administered_by\" maxLength={120} {...register(\"administered_by\")} />` → `<Input id=\"administered_by\" maxLength={119} {...register(\"administered_by\")} />`",
-    "capped": false,
-    "tests": 13
-  },
-  {
-    "id": "m03107",
-    "file": "src/app/(app)/health/page.tsx",
-    "line": 2000,
-    "op": "intconst",
-    "desc": "120 -> 121",
-    "diff": "L2000: `<Input id=\"certificate_number\" maxLength={120} {...register(\"certificate_number\")} />` → `<Input id=\"certificate_number\" maxLength={121} {...register(\"certificate_number\")} />`",
-    "capped": false,
-    "tests": 13
-  },
-  {
-    "id": "m03108",
-    "file": "src/app/(app)/health/page.tsx",
-    "line": 2000,
-    "op": "intconst",
-    "desc": "120 -> 119",
-    "diff": "L2000: `<Input id=\"certificate_number\" maxLength={120} {...register(\"certificate_number\")} />` → `<Input id=\"certificate_number\" maxLength={119} {...register(\"certificate_number\")} />`",
-    "capped": false,
-    "tests": 13
-  },
-  {
-    "id": "m03109",
-    "file": "src/app/(app)/health/page.tsx",
-    "line": 2004,
-    "op": "intconst",
-    "desc": "80 -> 81",
-    "diff": "L2004: `<Input id=\"official_tag_number\" maxLength={80} {...register(\"official_tag_number\")} />` → `<Input id=\"official_tag_number\" maxLength={81} {...register(\"official_tag_number\")} />`",
-    "capped": false,
-    "tests": 13
-  },
-  {
-    "id": "m03110",
-    "file": "src/app/(app)/health/page.tsx",
-    "line": 2004,
-    "op": "intconst",
-    "desc": "80 -> 79",
-    "diff": "L2004: `<Input id=\"official_tag_number\" maxLength={80} {...register(\"official_tag_number\")} />` → `<Input id=\"official_tag_number\" maxLength={79} {...register(\"official_tag_number\")} />`",
-    "capped": false,
-    "tests": 13
-  },
-  {
-    "id": "m03121",
-    "file": "src/app/(app)/health/page.tsx",
-    "line": 2075,
-    "op": "intconst",
-    "desc": "2 -> 3",
-    "diff": "L2075: `rows={2}` → `rows={3}`",
-    "capped": false,
-    "tests": 13
-  },
-  {
-    "id": "m03122",
-    "file": "src/app/(app)/health/page.tsx",
-    "line": 2075,
-    "op": "intconst",
-    "desc": "2 -> 1",
-    "diff": "L2075: `rows={2}` → `rows={1}`",
     "capped": false,
     "tests": 13
   },
@@ -6546,26 +6046,6 @@
     "op": "binop",
     "desc": "|| -> &&",
     "diff": "L554: `disabled={isSubmitting || createFlight.pending}` → `disabled={isSubmitting && createFlight.pending}`",
-    "capped": false,
-    "tests": 8
-  },
-  {
-    "id": "m03265",
-    "file": "src/app/(app)/kidding/page.tsx",
-    "line": 568,
-    "op": "intconst",
-    "desc": "2 -> 3",
-    "diff": "L568: `rows={2}` → `rows={3}`",
-    "capped": false,
-    "tests": 8
-  },
-  {
-    "id": "m03266",
-    "file": "src/app/(app)/kidding/page.tsx",
-    "line": 568,
-    "op": "intconst",
-    "desc": "2 -> 1",
-    "diff": "L568: `rows={2}` → `rows={1}`",
     "capped": false,
     "tests": 8
   },
@@ -7460,46 +6940,6 @@
     "tests": 2
   },
   {
-    "id": "m03582",
-    "file": "src/app/(app)/ops-simulation/page.tsx",
-    "line": 321,
-    "op": "intconst",
-    "desc": "1 -> 2",
-    "diff": "L321: `return Number.isFinite(value) ? value.toFixed(value % 1 === 0 ? 0 : 1) : \"—\";` → `return Number.isFinite(value) ? value.toFixed(value % 2 === 0 ? 0 : 1) : \"—\";`",
-    "capped": false,
-    "tests": 2
-  },
-  {
-    "id": "m03583",
-    "file": "src/app/(app)/ops-simulation/page.tsx",
-    "line": 321,
-    "op": "intconst",
-    "desc": "1 -> 0",
-    "diff": "L321: `return Number.isFinite(value) ? value.toFixed(value % 1 === 0 ? 0 : 1) : \"—\";` → `return Number.isFinite(value) ? value.toFixed(value % 0 === 0 ? 0 : 1) : \"—\";`",
-    "capped": false,
-    "tests": 2
-  },
-  {
-    "id": "m03584",
-    "file": "src/app/(app)/ops-simulation/page.tsx",
-    "line": 321,
-    "op": "intconst",
-    "desc": "0 -> 1",
-    "diff": "L321: `return Number.isFinite(value) ? value.toFixed(value % 1 === 0 ? 0 : 1) : \"—\";` → `return Number.isFinite(value) ? value.toFixed(value % 1 === 1 ? 0 : 1) : \"—\";`",
-    "capped": false,
-    "tests": 2
-  },
-  {
-    "id": "m03585",
-    "file": "src/app/(app)/ops-simulation/page.tsx",
-    "line": 321,
-    "op": "intconst",
-    "desc": "0 -> 1",
-    "diff": "L321: `return Number.isFinite(value) ? value.toFixed(value % 1 === 0 ? 0 : 1) : \"—\";` → `return Number.isFinite(value) ? value.toFixed(value % 1 === 0 ? 1 : 1) : \"—\";`",
-    "capped": false,
-    "tests": 2
-  },
-  {
     "id": "m03589",
     "file": "src/app/(app)/ops-simulation/page.tsx",
     "line": 334,
@@ -8130,26 +7570,6 @@
     "tests": 2
   },
   {
-    "id": "m03732",
-    "file": "src/app/(app)/ops-simulation/page.tsx",
-    "line": 692,
-    "op": "intconst",
-    "desc": "50 -> 51",
-    "diff": "L692: `maxLength={50}` → `maxLength={51}`",
-    "capped": false,
-    "tests": 2
-  },
-  {
-    "id": "m03733",
-    "file": "src/app/(app)/ops-simulation/page.tsx",
-    "line": 692,
-    "op": "intconst",
-    "desc": "50 -> 49",
-    "diff": "L692: `maxLength={50}` → `maxLength={49}`",
-    "capped": false,
-    "tests": 2
-  },
-  {
     "id": "m03734",
     "file": "src/app/(app)/ops-simulation/page.tsx",
     "line": 699,
@@ -8650,46 +8070,6 @@
     "tests": 2
   },
   {
-    "id": "m03806",
-    "file": "src/app/(app)/owner/page.tsx",
-    "line": 29,
-    "op": "intconst",
-    "desc": "30 -> 31",
-    "diff": "L29: `const BENCHMARK_WINDOWS = [30, 90, 365] as const;` → `const BENCHMARK_WINDOWS = [31, 90, 365] as const;`",
-    "capped": false,
-    "tests": 1
-  },
-  {
-    "id": "m03807",
-    "file": "src/app/(app)/owner/page.tsx",
-    "line": 29,
-    "op": "intconst",
-    "desc": "30 -> 29",
-    "diff": "L29: `const BENCHMARK_WINDOWS = [30, 90, 365] as const;` → `const BENCHMARK_WINDOWS = [29, 90, 365] as const;`",
-    "capped": false,
-    "tests": 1
-  },
-  {
-    "id": "m03808",
-    "file": "src/app/(app)/owner/page.tsx",
-    "line": 29,
-    "op": "intconst",
-    "desc": "90 -> 91",
-    "diff": "L29: `const BENCHMARK_WINDOWS = [30, 90, 365] as const;` → `const BENCHMARK_WINDOWS = [30, 91, 365] as const;`",
-    "capped": false,
-    "tests": 1
-  },
-  {
-    "id": "m03809",
-    "file": "src/app/(app)/owner/page.tsx",
-    "line": 29,
-    "op": "intconst",
-    "desc": "90 -> 89",
-    "diff": "L29: `const BENCHMARK_WINDOWS = [30, 90, 365] as const;` → `const BENCHMARK_WINDOWS = [30, 89, 365] as const;`",
-    "capped": false,
-    "tests": 1
-  },
-  {
     "id": "m03812",
     "file": "src/app/(app)/owner/page.tsx",
     "line": 35,
@@ -8716,86 +8096,6 @@
     "op": "binop",
     "desc": "?? -> ||",
     "diff": "L69: `const farmsRanked = [...(overview?.farms ?? [])].sort((a, b) => {` → `const farmsRanked = [...(overview?.farms || [])].sort((a, b) => {`",
-    "capped": false,
-    "tests": 1
-  },
-  {
-    "id": "m03825",
-    "file": "src/app/(app)/owner/page.tsx",
-    "line": 71,
-    "op": "binop",
-    "desc": "+ -> -",
-    "diff": "L71: `f.overdue_duties * 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;` → `f.overdue_duties * 1000 + f.open_screening_flags * 100 - f.todays_duties_pending;`",
-    "capped": false,
-    "tests": 1
-  },
-  {
-    "id": "m03826",
-    "file": "src/app/(app)/owner/page.tsx",
-    "line": 71,
-    "op": "binop",
-    "desc": "+ -> -",
-    "diff": "L71: `f.overdue_duties * 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;` → `f.overdue_duties * 1000 - f.open_screening_flags * 100 + f.todays_duties_pending;`",
-    "capped": false,
-    "tests": 1
-  },
-  {
-    "id": "m03827",
-    "file": "src/app/(app)/owner/page.tsx",
-    "line": 71,
-    "op": "binop",
-    "desc": "* -> /",
-    "diff": "L71: `f.overdue_duties * 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;` → `f.overdue_duties / 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;`",
-    "capped": false,
-    "tests": 1
-  },
-  {
-    "id": "m03828",
-    "file": "src/app/(app)/owner/page.tsx",
-    "line": 71,
-    "op": "intconst",
-    "desc": "1000 -> 1001",
-    "diff": "L71: `f.overdue_duties * 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;` → `f.overdue_duties * 1001 + f.open_screening_flags * 100 + f.todays_duties_pending;`",
-    "capped": false,
-    "tests": 1
-  },
-  {
-    "id": "m03829",
-    "file": "src/app/(app)/owner/page.tsx",
-    "line": 71,
-    "op": "intconst",
-    "desc": "1000 -> 999",
-    "diff": "L71: `f.overdue_duties * 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;` → `f.overdue_duties * 999 + f.open_screening_flags * 100 + f.todays_duties_pending;`",
-    "capped": false,
-    "tests": 1
-  },
-  {
-    "id": "m03830",
-    "file": "src/app/(app)/owner/page.tsx",
-    "line": 71,
-    "op": "binop",
-    "desc": "* -> /",
-    "diff": "L71: `f.overdue_duties * 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;` → `f.overdue_duties * 1000 + f.open_screening_flags / 100 + f.todays_duties_pending;`",
-    "capped": false,
-    "tests": 1
-  },
-  {
-    "id": "m03831",
-    "file": "src/app/(app)/owner/page.tsx",
-    "line": 71,
-    "op": "intconst",
-    "desc": "100 -> 101",
-    "diff": "L71: `f.overdue_duties * 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;` → `f.overdue_duties * 1000 + f.open_screening_flags * 101 + f.todays_duties_pending;`",
-    "capped": false,
-    "tests": 1
-  },
-  {
-    "id": "m03832",
-    "file": "src/app/(app)/owner/page.tsx",
-    "line": 71,
-    "op": "intconst",
-    "desc": "100 -> 99",
-    "diff": "L71: `f.overdue_duties * 1000 + f.open_screening_flags * 100 + f.todays_duties_pending;` → `f.overdue_duties * 1000 + f.open_screening_flags * 99 + f.todays_duties_pending;`",
     "capped": false,
     "tests": 1
   },
@@ -9416,26 +8716,6 @@
     "op": "binop",
     "desc": "?? -> ||",
     "diff": "L740: `const evaluation = report ? (report.plan.after ?? report.plan.before) : null;` → `const evaluation = report ? (report.plan.after || report.plan.before) : null;`",
-    "capped": false,
-    "tests": 7
-  },
-  {
-    "id": "m04092",
-    "file": "src/app/(app)/planner/page.tsx",
-    "line": 763,
-    "op": "intconst",
-    "desc": "120 -> 121",
-    "diff": "L763: `maxLength={120}` → `maxLength={121}`",
-    "capped": false,
-    "tests": 7
-  },
-  {
-    "id": "m04093",
-    "file": "src/app/(app)/planner/page.tsx",
-    "line": 763,
-    "op": "intconst",
-    "desc": "120 -> 119",
-    "diff": "L763: `maxLength={120}` → `maxLength={119}`",
     "capped": false,
     "tests": 7
   },
@@ -14600,36 +13880,6 @@
     "tests": 19
   },
   {
-    "id": "m06361",
-    "file": "src/app/(app)/simulation/page.tsx",
-    "line": 4111,
-    "op": "intconst",
-    "desc": "120 -> 121",
-    "diff": "L4111: `maxLength={120}` → `maxLength={121}`",
-    "capped": false,
-    "tests": 19
-  },
-  {
-    "id": "m06362",
-    "file": "src/app/(app)/simulation/page.tsx",
-    "line": 4111,
-    "op": "intconst",
-    "desc": "120 -> 119",
-    "diff": "L4111: `maxLength={120}` → `maxLength={119}`",
-    "capped": false,
-    "tests": 19
-  },
-  {
-    "id": "m06363",
-    "file": "src/app/(app)/simulation/page.tsx",
-    "line": 4121,
-    "op": "intconst",
-    "desc": "2000 -> 2001",
-    "diff": "L4121: `maxLength={2000}` → `maxLength={2001}`",
-    "capped": false,
-    "tests": 19
-  },
-  {
     "id": "m06364",
     "file": "src/app/(app)/simulation/page.tsx",
     "line": 4121,
@@ -15350,66 +14600,6 @@
     "tests": 8
   },
   {
-    "id": "m06785",
-    "file": "src/app/(app)/team/page.tsx",
-    "line": 739,
-    "op": "intconst",
-    "desc": "120 -> 121",
-    "diff": "L739: `maxLength={120}` → `maxLength={121}`",
-    "capped": false,
-    "tests": 8
-  },
-  {
-    "id": "m06786",
-    "file": "src/app/(app)/team/page.tsx",
-    "line": 739,
-    "op": "intconst",
-    "desc": "120 -> 119",
-    "diff": "L739: `maxLength={120}` → `maxLength={119}`",
-    "capped": false,
-    "tests": 8
-  },
-  {
-    "id": "m06790",
-    "file": "src/app/(app)/team/page.tsx",
-    "line": 756,
-    "op": "intconst",
-    "desc": "254 -> 255",
-    "diff": "L756: `maxLength={254}` → `maxLength={255}`",
-    "capped": false,
-    "tests": 8
-  },
-  {
-    "id": "m06791",
-    "file": "src/app/(app)/team/page.tsx",
-    "line": 756,
-    "op": "intconst",
-    "desc": "254 -> 253",
-    "diff": "L756: `maxLength={254}` → `maxLength={253}`",
-    "capped": false,
-    "tests": 8
-  },
-  {
-    "id": "m06795",
-    "file": "src/app/(app)/team/page.tsx",
-    "line": 774,
-    "op": "intconst",
-    "desc": "128 -> 129",
-    "diff": "L774: `maxLength={128}` → `maxLength={129}`",
-    "capped": false,
-    "tests": 8
-  },
-  {
-    "id": "m06796",
-    "file": "src/app/(app)/team/page.tsx",
-    "line": 774,
-    "op": "intconst",
-    "desc": "128 -> 127",
-    "diff": "L774: `maxLength={128}` → `maxLength={127}`",
-    "capped": false,
-    "tests": 8
-  },
-  {
     "id": "m06805",
     "file": "src/app/(app)/team/page.tsx",
     "line": 816,
@@ -15446,26 +14636,6 @@
     "op": "binop",
     "desc": "|| -> &&",
     "diff": "L904: `disabled={authority.blocked || isSubmitting || resetFlight.pending}` → `disabled={authority.blocked || isSubmitting && resetFlight.pending}`",
-    "capped": false,
-    "tests": 4
-  },
-  {
-    "id": "m06827",
-    "file": "src/app/(app)/team/page.tsx",
-    "line": 917,
-    "op": "intconst",
-    "desc": "128 -> 129",
-    "diff": "L917: `maxLength={128}` → `maxLength={129}`",
-    "capped": false,
-    "tests": 4
-  },
-  {
-    "id": "m06828",
-    "file": "src/app/(app)/team/page.tsx",
-    "line": 917,
-    "op": "intconst",
-    "desc": "128 -> 127",
-    "diff": "L917: `maxLength={128}` → `maxLength={127}`",
     "capped": false,
     "tests": 4
   },
@@ -15690,26 +14860,6 @@
     "tests": 1
   },
   {
-    "id": "m06878",
-    "file": "src/app/(app)/team/page.tsx",
-    "line": 1162,
-    "op": "intconst",
-    "desc": "20 -> 21",
-    "diff": "L1162: `maxLength={20}` → `maxLength={21}`",
-    "capped": false,
-    "tests": 1
-  },
-  {
-    "id": "m06879",
-    "file": "src/app/(app)/team/page.tsx",
-    "line": 1162,
-    "op": "intconst",
-    "desc": "20 -> 19",
-    "diff": "L1162: `maxLength={20}` → `maxLength={19}`",
-    "capped": false,
-    "tests": 1
-  },
-  {
     "id": "m06880",
     "file": "src/app/(app)/team/page.tsx",
     "line": 1165,
@@ -15836,46 +14986,6 @@
     "op": "binop",
     "desc": "|| -> &&",
     "diff": "L1359: `disabled={authority.blocked || isSubmitting || saveFlight.pending}` → `disabled={authority.blocked || isSubmitting && saveFlight.pending}`",
-    "capped": false,
-    "tests": 5
-  },
-  {
-    "id": "m06922",
-    "file": "src/app/(app)/team/page.tsx",
-    "line": 1371,
-    "op": "intconst",
-    "desc": "80 -> 81",
-    "diff": "L1371: `maxLength={80}` → `maxLength={81}`",
-    "capped": false,
-    "tests": 5
-  },
-  {
-    "id": "m06923",
-    "file": "src/app/(app)/team/page.tsx",
-    "line": 1371,
-    "op": "intconst",
-    "desc": "80 -> 79",
-    "diff": "L1371: `maxLength={80}` → `maxLength={79}`",
-    "capped": false,
-    "tests": 5
-  },
-  {
-    "id": "m06927",
-    "file": "src/app/(app)/team/page.tsx",
-    "line": 1388,
-    "op": "intconst",
-    "desc": "255 -> 256",
-    "diff": "L1388: `maxLength={255}` → `maxLength={256}`",
-    "capped": false,
-    "tests": 5
-  },
-  {
-    "id": "m06928",
-    "file": "src/app/(app)/team/page.tsx",
-    "line": 1388,
-    "op": "intconst",
-    "desc": "255 -> 254",
-    "diff": "L1388: `maxLength={255}` → `maxLength={254}`",
     "capped": false,
     "tests": 5
   },
@@ -16240,66 +15350,6 @@
     "tests": 3
   },
   {
-    "id": "m07139",
-    "file": "src/app/farm-select/page.tsx",
-    "line": 292,
-    "op": "intconst",
-    "desc": "120 -> 121",
-    "diff": "L292: `maxLength={120}` → `maxLength={121}`",
-    "capped": false,
-    "tests": 3
-  },
-  {
-    "id": "m07140",
-    "file": "src/app/farm-select/page.tsx",
-    "line": 292,
-    "op": "intconst",
-    "desc": "120 -> 119",
-    "diff": "L292: `maxLength={120}` → `maxLength={119}`",
-    "capped": false,
-    "tests": 3
-  },
-  {
-    "id": "m07144",
-    "file": "src/app/farm-select/page.tsx",
-    "line": 308,
-    "op": "intconst",
-    "desc": "120 -> 121",
-    "diff": "L308: `maxLength={120}` → `maxLength={121}`",
-    "capped": false,
-    "tests": 3
-  },
-  {
-    "id": "m07145",
-    "file": "src/app/farm-select/page.tsx",
-    "line": 308,
-    "op": "intconst",
-    "desc": "120 -> 119",
-    "diff": "L308: `maxLength={120}` → `maxLength={119}`",
-    "capped": false,
-    "tests": 3
-  },
-  {
-    "id": "m07149",
-    "file": "src/app/farm-select/page.tsx",
-    "line": 329,
-    "op": "intconst",
-    "desc": "64 -> 65",
-    "diff": "L329: `maxLength={64}` → `maxLength={65}`",
-    "capped": false,
-    "tests": 3
-  },
-  {
-    "id": "m07150",
-    "file": "src/app/farm-select/page.tsx",
-    "line": 329,
-    "op": "intconst",
-    "desc": "64 -> 63",
-    "diff": "L329: `maxLength={64}` → `maxLength={63}`",
-    "capped": false,
-    "tests": 3
-  },
-  {
     "id": "m07159",
     "file": "src/app/layout.tsx",
     "line": 51,
@@ -16346,46 +15396,6 @@
     "op": "binop",
     "desc": "|| -> &&",
     "diff": "L170: `if (!body.access_token || !body.user) {` → `if (!body.access_token && !body.user) {`",
-    "capped": false,
-    "tests": 5
-  },
-  {
-    "id": "m07197",
-    "file": "src/app/login/page.tsx",
-    "line": 234,
-    "op": "intconst",
-    "desc": "254 -> 255",
-    "diff": "L234: `maxLength={254}` → `maxLength={255}`",
-    "capped": false,
-    "tests": 5
-  },
-  {
-    "id": "m07203",
-    "file": "src/app/login/page.tsx",
-    "line": 251,
-    "op": "intconst",
-    "desc": "128 -> 129",
-    "diff": "L251: `maxLength={128}` → `maxLength={129}`",
-    "capped": false,
-    "tests": 5
-  },
-  {
-    "id": "m07211",
-    "file": "src/app/login/page.tsx",
-    "line": 271,
-    "op": "intconst",
-    "desc": "11 -> 12",
-    "diff": "L271: `maxLength={11}` → `maxLength={12}`",
-    "capped": false,
-    "tests": 5
-  },
-  {
-    "id": "m07212",
-    "file": "src/app/login/page.tsx",
-    "line": 271,
-    "op": "intconst",
-    "desc": "11 -> 10",
-    "diff": "L271: `maxLength={11}` → `maxLength={10}`",
     "capped": false,
     "tests": 5
   },
@@ -16456,46 +15466,6 @@
     "op": "boolconst",
     "desc": "-> false",
     "diff": "L46: `const mounted = useRef(true);` → `const mounted = useRef(false);`",
-    "capped": false,
-    "tests": 3
-  },
-  {
-    "id": "m07256",
-    "file": "src/app/register/page.tsx",
-    "line": 129,
-    "op": "intconst",
-    "desc": "120 -> 121",
-    "diff": "L129: `maxLength={120}` → `maxLength={121}`",
-    "capped": false,
-    "tests": 3
-  },
-  {
-    "id": "m07257",
-    "file": "src/app/register/page.tsx",
-    "line": 129,
-    "op": "intconst",
-    "desc": "120 -> 119",
-    "diff": "L129: `maxLength={120}` → `maxLength={119}`",
-    "capped": false,
-    "tests": 3
-  },
-  {
-    "id": "m07261",
-    "file": "src/app/register/page.tsx",
-    "line": 146,
-    "op": "intconst",
-    "desc": "254 -> 255",
-    "diff": "L146: `maxLength={254}` → `maxLength={255}`",
-    "capped": false,
-    "tests": 3
-  },
-  {
-    "id": "m07266",
-    "file": "src/app/register/page.tsx",
-    "line": 163,
-    "op": "intconst",
-    "desc": "128 -> 129",
-    "diff": "L163: `maxLength={128}` → `maxLength={129}`",
     "capped": false,
     "tests": 3
   },

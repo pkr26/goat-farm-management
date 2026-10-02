@@ -185,6 +185,10 @@ describe("AnimalProfilePage status-dialog aria wiring (rate pair, necropsy)", ()
     await pickOption(user, within(dialog).getByLabelText(/new status/i), "Dead");
     // Mortality-cause cap: 120 characters.
     expect(within(dialog).getByLabelText("Mortality cause")).toHaveAttribute("maxlength", "120");
+    await user.click(
+      within(dialog).getByRole("checkbox", { name: /scheduled\/notifiable disease/i }),
+    );
+    expect(within(dialog).getByLabelText(/suspected disease/i)).toHaveAttribute("maxlength", "120");
     await user.click(within(dialog).getByRole("checkbox", { name: /necropsy performed/i }));
 
     const findings = within(dialog).getByLabelText(/necropsy findings/i);
@@ -203,6 +207,30 @@ describe("AnimalProfilePage status-dialog aria wiring (rate pair, necropsy)", ()
     expect(findings).toHaveAttribute("aria-invalid", "true");
     expect(findings).toHaveAttribute("aria-describedby", "necropsy-findings-error");
     expect(statusBodies).toHaveLength(0);
+  });
+
+  it("caps the clearance reference at 255 characters", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("/api/animals/1", () =>
+        HttpResponse.json({
+          ...PROFILE,
+          animal: {
+            ...PROFILE.animal,
+            movement_restricted: true,
+            restriction_reason: "Scheduled-disease suspicion",
+            restriction_version: 1,
+          },
+        }),
+      ),
+      http.post("/api/health/restrictions/1/clear", () => HttpResponse.json({})),
+    );
+    await renderProfile();
+    const dialog = await openDialog(user, "Record clearance");
+    expect(within(dialog).getByLabelText(/clearance reference/i)).toHaveAttribute(
+      "maxlength",
+      "255",
+    );
   });
 
   it("caps dialog notes at 255 characters in 2-row boxes", async () => {

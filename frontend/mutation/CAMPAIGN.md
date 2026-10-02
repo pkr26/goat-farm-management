@@ -14,19 +14,24 @@ backend campaign's method (see ../MUTATION_TESTING_REPORT.md).
 |---|---|
 | Mutants (fresh manifest) | 9,944 over 126 source files |
 | Executed | 9,944 (100%; zero runner errors) |
-| Killed by tests | 7,869 |
+| Killed by tests | 7,972 |
 | Killed by timeout (confirmed hang) | 2 (api-client 10 s abort budget; image-deps comparator loop) |
-| Survived (Phase B re-verified) | 1,995 (lib 166, components 77, api 3, app pages 1,749) |
+| Survived (Phase B re-verified) | 1,892 |
 | Not covered by any test | 78 |
-| **Mutation score (covered code)** | **79.8%** |
+| **Mutation score (covered code)** | **80.8%** |
+
+A same-day follow-up round killed 103 more fixable survivors (DOM caps
+across nine more page harnesses, the owner attention-weight boundaries,
+the benchmark windows, the ops-sim kg formatting) — see EQUIVALENTS.md.
 
 Operator scores: compare 91.2%, not 94.2%, ifexp 93.0%, boolconst 80.8%,
 binop 74.4% (??-equivalents), intconst 68.6% (skeleton/card-count and DOM
 caps), loopjump 31.3%.
 
 Baseline suite: 4,965 tests in 293 files, green after fixing seven
-pre-existing test bugs found by the fresh run (below); closing suite 5,000
-tests in 304 files (11 new gap-test files, all green together).
+pre-existing test bugs found by the fresh run (below); closing suite 5,026
+tests in 313 files (20 new gap-test files across the campaign and the
+follow-up round, all green together).
 
 ## Fresh-start incidents (kept for the record)
 
