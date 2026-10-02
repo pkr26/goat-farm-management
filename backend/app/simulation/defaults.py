@@ -100,11 +100,15 @@ def osmanabadi(system: System = "stall_fed") -> SimulationAssumptions:
     horizon, and hold males finishing near a festival for the festival sale —
     the largest price event of the year is priced from month 1.
 
-    Framing (2026-10-01 audit, 08-M7): this preset is the complete, valid
-    REFERENCE unit, not a bankability claim — at 2025-26 cost levels the
-    leveraged 50+2 shape projects a deeply negative NPV, so treat it as a
-    stress-conservative baseline. Any re-baselining toward a
-    bankable-plausible unit is an owner decision (deferred).
+    DECIDED (2026-10-01 audit, 08-M7 → decision 2026-10-02): this preset is
+    the sourced, stress-conservative REFERENCE unit, and it stays that way.
+    Re-baselining toward a bankable-plausible unit was evaluated and rejected
+    on modeling-integrity grounds — every input is cited, the unit needs
+    ≈₹457/kg vs the sourced ₹370/kg market to break even, and neither
+    unlevering (≈ −₹8.8 lakh NPV) nor the semi-intensive system (≈ −₹12.3
+    lakh) closes the gap, so only unsourced input tuning would. The run's
+    narrative carries those diagnostics. Full rationale in
+    assumptions.py's decision record.
     """
     a = SimulationAssumptions()
     a.sales.festival_sale_months = bakrid_festival_months(

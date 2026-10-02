@@ -37,7 +37,15 @@ from .constants import (
     VERIFICATION_REQUIRED_CATEGORIES,
     WEANING_DAYS,
 )
-from .core import Farm, FarmMembership, RefreshSession, Role, TotpRecoveryCode, User
+from .core import (
+    ConsumedMfaChallenge,
+    Farm,
+    FarmMembership,
+    RefreshSession,
+    Role,
+    TotpRecoveryCode,
+    User,
+)
 from .enums import (
     AdministrationRoute,
     AnimalSource,
@@ -149,6 +157,7 @@ __all__ = [
     "BucketFeedSetting",
     "BucketMove",
     "CoatColor",
+    "ConsumedMfaChallenge",
     "DisposalMethod",
     "Farm",
     "FarmMembership",

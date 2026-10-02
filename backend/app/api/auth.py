@@ -7,7 +7,6 @@ import hashlib
 import logging
 import urllib.parse
 import uuid
-from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
@@ -17,6 +16,7 @@ from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import delete, func, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,6 +42,7 @@ from ..deps import (
     single_bearer_token,
 )
 from ..models import (
+    ConsumedMfaChallenge,
     Farm,
     FarmMembership,
     RefreshSession,
@@ -2188,34 +2189,36 @@ async def _decrypt_totp_secret_or_unavailable(
         raise HTTPException(status_code=503, detail=TOTP_SECRET_UNAVAILABLE_DETAIL) from None
 
 
-# Single-use challenge tokens: consumed jtis with their signed expiry, so the
-# cache is bounded by the token TTL, not by attacker volume. Per-process by
-# design (the deployment invariant is one API worker). Accepted tradeoff
-# (2026-09-28 audit, S5): being in-memory, the cache is lost on a process
-# restart, so a restart inside TOTP_CHALLENGE_TTL_SECONDS lets one already-
-# consumed challenge token replay exactly once. That bounded window is
-# accepted — a consumed token still demands its TOTP/recovery code — rather
-# than DB-backing the cache; do not widen it (multi-worker deploys must move
-# this to shared storage first). (2026-10-01 audit, 01-3: confirmed accepted
-# for single-worker topology.)
-_mfa_jti_replay_cache: OrderedDict[str, datetime] = OrderedDict()
-_MFA_REPLAY_CACHE_MAX = 4096
+# Single-use challenge tokens: each successful exchange claims its jti in
+# ``consumed_mfa_challenges`` (2026-10-01 audit, 01-3 — decided 2026-10-02:
+# durable storage replaces the per-process OrderedDict, which a restart
+# inside the challenge TTL could wipe to permit exactly one replay). The
+# claim rides the login-success transaction, so committed consumption and a
+# successful exchange are the same event: a request that fails later in the
+# handler rolls the claim back and the challenge stays retryable, while a
+# committed success is consumed for good — restart or not (RFC 6238: the
+# verifier MUST detect replay of a used exchange).
+async def _consume_mfa_jti(db: AsyncSession, jti: str, expires_at: datetime) -> bool:
+    """Claim a challenge token's single use; False when it was already used.
 
-
-def _consume_mfa_jti(jti: str, expires_at: datetime) -> bool:
-    """Mark a challenge token consumed; False when it was already used."""
-    now = utcnow()
-    while _mfa_jti_replay_cache:
-        _oldest_jti, oldest_expiry = next(iter(_mfa_jti_replay_cache.items()))
-        if oldest_expiry > now:
-            break
-        _mfa_jti_replay_cache.popitem(last=False)
-    if jti in _mfa_jti_replay_cache:
-        return False
-    _mfa_jti_replay_cache[jti] = expires_at
-    if len(_mfa_jti_replay_cache) > _MFA_REPLAY_CACHE_MAX:
-        _mfa_jti_replay_cache.popitem(last=False)
-    return True
+    INSERT ... ON CONFLICT DO NOTHING arbitrates concurrent replays: exactly
+    one session inserts, the others block on the unique jti until that
+    transaction commits (then see the conflict) or rolls back (then claim it
+    themselves). The opportunistic expired-row sweep shares the statement's
+    transaction, keeping the table bounded by one TTL window of successful
+    exchanges; it is rolled back with the claim on the replay path, which is
+    harmless — the next consume anywhere sweeps again.
+    """
+    await db.execute(delete(ConsumedMfaChallenge).where(ConsumedMfaChallenge.expires_at < utcnow()))
+    claimed = (
+        await db.execute(
+            pg_insert(ConsumedMfaChallenge)
+            .values(jti=jti, expires_at=expires_at)
+            .on_conflict_do_nothing(index_elements=[ConsumedMfaChallenge.jti])
+            .returning(ConsumedMfaChallenge.jti)
+        )
+    ).scalar_one_or_none()
+    return claimed is not None
 
 
 async def _confirm_current_password(
@@ -2967,8 +2970,10 @@ async def totp_challenge(
         )
     # Single-use means single SUCCESS: a wrong code leaves the challenge
     # retryable inside the throttle budget above; the successful exchange
-    # burns it for any later replay (including a thief with a copy).
-    if not _consume_mfa_jti(str(jti), _mfa_token_expiry(payload.mfa_token, generic)):
+    # burns it for any later replay (including a thief with a copy) —
+    # durably, in the database, so a restart inside the TTL no longer
+    # reopens the window.
+    if not await _consume_mfa_jti(db, str(jti), _mfa_token_expiry(payload.mfa_token, generic)):
         await db.rollback()
         security_event(
             "auth.totp.challenge_failed",

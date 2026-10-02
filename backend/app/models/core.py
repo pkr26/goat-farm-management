@@ -124,6 +124,30 @@ class TotpRecoveryCode(Base):
     )
 
 
+class ConsumedMfaChallenge(Base):
+    """A TOTP challenge token that has completed its one successful exchange.
+
+    The single-use property (RFC 6238: the verifier MUST detect replay of a
+    used one-time-password exchange) lives in the database, not process
+    memory, so it survives restarts and holds under any future multi-replica
+    topology (2026-10-01 audit, 01-3 — decided 2026-10-02: durable storage
+    replaces the previously accepted per-process tradeoff). The claim rides
+    the login-success transaction — the insert commits exactly when the
+    exchange succeeds, so a failed request never burns a challenge and a
+    committed success is consumed forever. ``expires_at`` is the token's
+    signed expiry; the verify path sweeps expired rows opportunistically, so
+    the table is bounded by successful exchanges since the last sweep.
+    """
+
+    __tablename__ = "consumed_mfa_challenges"
+
+    jti: Mapped[str] = mapped_column(String(64), primary_key=True)
+    expires_at: Mapped[datetime] = mapped_column(nullable=False)
+    consumed_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
+
+
 class Farm(Base):
     __tablename__ = "farms"
 

@@ -95,8 +95,13 @@ class MemoryLimiterBackend:
     Per-process and non-persistent; counts are lost on restart and multiply
     per replica. O(1) tiered LRU eviction keeps a unique-key spray from
     erasing a hot victim's brute-force history or turning bookkeeping
-    saturation into a process-wide denial of service. (2026-10-01 audit,
-    01-3: confirmed accepted for single-worker topology.)
+    saturation into a process-wide denial of service. Accepted for the
+    enforced single-worker topology: these ledgers are abuse-cost throttles
+    that fail closed (every guess still pays Argon2 and still fails), unlike
+    the MFA replay guard, which moved to durable storage (2026-10-01 audit,
+    01-3 — decided 2026-10-02; see consumed_mfa_challenges). A multi-replica
+    deployment must still move these ledgers to shared storage, which is why
+    production boot refuses UVICORN_WORKERS > 1.
     """
 
     def __init__(

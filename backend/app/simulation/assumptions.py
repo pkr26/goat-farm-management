@@ -4,14 +4,25 @@ Every field carries a default, so ``SimulationAssumptions()`` is a complete,
 valid Osmanabadi stall-fed baseline unit (50 does + 2 bucks, 120 months).
 All sub-models forbid extra keys so API payloads fail loudly on typos.
 
-Default-preset framing (2026-10-01 audit, 08-M7): the defaults are a
-stress-conservative scenario, NOT a bankability endorsement. At the 2025-26
-Telangana cost calibration the leveraged 50+2 unit projects a deeply negative
-deterministic NPV (verified: approximately -₹8.6 lakh, Monte Carlo mean
-approximately -₹13.6 lakh) — the arithmetic is internally consistent, but
-calling this shape "the bankable/NABARD unit" in code framing overstates it.
-Re-baselining the price/cost calibration to a bankable-plausible unit is an
-owner decision, deliberately deferred; only the framing was corrected.
+Default-preset DECISION RECORD (2026-10-01 audit, 08-M7 — decided
+2026-10-02): the defaults remain the sourced stress-conservative reference
+case; numeric re-baselining toward a "bankable" unit was evaluated and
+REJECTED on modeling-integrity grounds. Every price/cost input is pinned to
+a cited 2025-26 Telangana source, and the engine's own break-even search
+shows what flipping the sign would take: the unit needs ≈₹457/kg live
+weight against the sourced ₹370/kg farm-gate default (+24%), while its
+10-year accounting profit is ≈ −₹89k on a ₹2.0M project — the enterprise
+operates near break-even and cannot pay a 12% capital charge. Removing the
+financing layer does not rescue it (unlevered NPV ≈ −₹8.8 lakh) and neither
+does the semi-intensive system (≈ −₹12.3 lakh unlevered: slower field
+growth outweighs the 30% grazing discount), so only unsourced price hikes
+or cost cuts would manufacture positivity — exactly the input-tuning-to-
+output that model-risk standards prohibit. The reference case therefore
+stays honest and the run's narrative surfaces the decision-relevant
+diagnostics (break-even price vs assumed market, accounting result vs
+capital charge) instead of a bare "NOT VIABLE". Do not call this shape
+"the bankable/NABARD unit"; NABARD's model projects predate the 2025-26
+cost base documented per-field below.
 """
 
 import re

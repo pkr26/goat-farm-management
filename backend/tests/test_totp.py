@@ -2,6 +2,7 @@
 login challenge flow, single-use/replay protections, throttling, and at-rest
 encryption of the shared secret."""
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -536,6 +537,84 @@ async def test_challenge_token_is_single_use(client: httpx.AsyncClient) -> None:
         "/api/auth/totp/challenge", json={"mfa_token": mfa_token, "code": code}
     )
     assert replay.status_code == 401
+
+
+async def test_challenge_replay_guard_is_durable_across_a_restart(
+    client: httpx.AsyncClient,
+) -> None:
+    """The consumed-jti marker lives in the database, not process memory.
+
+    Pre-fix (2026-10-01 audit, 01-3) a restart inside the 300 s challenge
+    TTL wiped the in-memory cache and permitted exactly one replay of an
+    already-consumed challenge. With the consumed_mfa_challenges claim there
+    is no process state to lose: the row IS the restart. Decided 2026-10-02
+    per RFC 6238's verifier-must-detect-replay requirement.
+    """
+    from sqlalchemy import select
+
+    from app.db import get_sessionmaker
+    from app.models import ConsumedMfaChallenge
+
+    headers = await register(client, "totp-durable@farm.in")
+    secret, _codes = await _enroll_and_activate(client, headers)
+    login = await client.post(
+        "/api/auth/login", json={"email": "totp-durable@farm.in", "password": OWNER_PW}
+    )
+    mfa_token = login.json()["mfa_token"]
+    code, _step = _current_code(secret, drift=1)
+    ok = await client.post("/api/auth/totp/challenge", json={"mfa_token": mfa_token, "code": code})
+    assert ok.status_code == 200
+
+    # The single-use claim is committed to storage — the restart equivalent.
+    async with get_sessionmaker()() as db:
+        rows = list((await db.execute(select(ConsumedMfaChallenge))).scalars())
+    assert len(rows) == 1
+    # Naive-UTC house convention for stored datetimes.
+    assert rows[0].expires_at > datetime.now(UTC).replace(tzinfo=None)
+
+    # ...and that stored claim, not any process state, refuses the replay.
+    replay = await client.post(
+        "/api/auth/totp/challenge", json={"mfa_token": mfa_token, "code": code}
+    )
+    assert replay.status_code == 401
+
+
+async def test_concurrent_challenge_exchange_succeeds_exactly_once(
+    client: httpx.AsyncClient,
+) -> None:
+    """Two simultaneous exchanges of one challenge token: one winner.
+
+    Both racers present DIFFERENT still-valid codes (the step before and
+    after the one enrollment's confirm consumed — the ±1 drift window), so
+    code verification passes for both and the consumed_mfa_challenges unique
+    jti is the only arbiter: INSERT ... ON CONFLICT DO NOTHING lets exactly
+    one transaction claim the token; the loser blocks on the jti until the
+    winner commits, then sees the conflict and takes the generic 401.
+    """
+    from .test_concurrency import second_client
+
+    headers = await register(client, "totp-race@farm.in")
+    secret, _codes = await _enroll_and_activate(client, headers)
+    login = await client.post(
+        "/api/auth/login", json={"email": "totp-race@farm.in", "password": OWNER_PW}
+    )
+    mfa_token = login.json()["mfa_token"]
+    # Confirm consumed the current step N; N-1 and N+1 are both inside the
+    # ±TOTP_DRIFT_STEPS window and neither has been used.
+    earlier, _s1 = _current_code(secret, drift=-1)
+    later, _s2 = _current_code(secret, drift=1)
+    async with second_client() as other:
+        # Warm the cold client (app/router/connection init) with a cheap
+        # unauthenticated probe so both racers reach the jti claim together.
+        await other.get("/api/auth/worker-roster", params={"farm_id": 1})
+        first, second = await asyncio.gather(
+            client.post("/api/auth/totp/challenge", json={"mfa_token": mfa_token, "code": earlier}),
+            other.post("/api/auth/totp/challenge", json={"mfa_token": mfa_token, "code": later}),
+        )
+    assert sorted([first.status_code, second.status_code]) == [200, 401], (
+        first.status_code,
+        second.status_code,
+    )
 
 
 async def test_used_code_does_not_authenticate_a_second_challenge(
