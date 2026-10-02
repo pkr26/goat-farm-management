@@ -151,7 +151,13 @@ async def test_bakrid_window_clamps_month_arithmetic_on_the_finish_edge(
     interval month-addition, which overflows the day FORWARD (2033-05-31 +
     9 months → 2034-03-03 instead of the clamped 2034-02-28). A month-end
     born male whose clamped finish lands exactly on the festival day was
-    dropped from the advisory by the unclamped twin."""
+    dropped from the advisory by the unclamped twin.
+
+    Verification note (2026-10-02): PostgreSQL 16's timestamp + interval
+    already clamps month overflow natively, so this pin CANNOT fail there —
+    it guards the behavior on older/other engines where interval addition
+    still overflows, and locks the explicit clamp as the contract
+    independent of engine behavior."""
     from app.db import get_sessionmaker
     from app.models import Animal, Farm
     from app.services.dashboard import bakrid_hold_advisory

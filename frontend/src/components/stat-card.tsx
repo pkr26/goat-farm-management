@@ -66,7 +66,10 @@ export function StatCard({
   return (
     <Card className={className}>
       <CardContent className="flex items-start gap-3.5">
-        <span className={cn(statIconVariants({ tint }))}>
+        <span
+          className={cn(statIconVariants({ tint }))}
+          data-tone={tint ?? "default"}
+        >
           <Icon aria-hidden="true" />
         </span>
         <div className="min-w-0 flex-1 space-y-1">

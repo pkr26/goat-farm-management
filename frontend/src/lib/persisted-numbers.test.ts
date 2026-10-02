@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setActiveLanguage } from "@/lib/active-language";
 
@@ -12,7 +12,29 @@ import {
   isPersistableNonnegativeWeight,
 } from "./persisted-numbers";
 
+// Recording wrapper around the shared formatter: node's ICU renders te-IN and
+// en-IN grouping identically, so output comparisons cannot distinguish a
+// delegating call from the hardcoded en-IN this audit removed. The call
+// itself is the contract (2026-10-01 audit, 07-L4).
+const formatNumberCalls: Array<{
+  value: number;
+  opts: Intl.NumberFormatOptions | undefined;
+}> = [];
+vi.mock("@/lib/format", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./format")>();
+  return {
+    ...actual,
+    formatNumber: (value: number, opts?: Intl.NumberFormatOptions) => {
+      formatNumberCalls.push({ value, opts });
+      return actual.formatNumber(value, opts);
+    },
+  };
+});
+
 describe("persisted number boundaries", () => {
+  beforeEach(() => {
+    formatNumberCalls.length = 0;
+  });
   it("pins the backend normalization thresholds and their validation copy", () => {
     expect(MIN_PERSISTED_KG).toBe(0.0005);
     expect(MIN_PERSISTED_MONEY).toBe(0.005);
@@ -27,29 +49,26 @@ describe("persisted number boundaries", () => {
     expect(formatPersistedKg(1234.567)).toBe("1,234.567");
   });
 
-  it("groups digits in the active UI language, like every sibling surface (2026-10-01 audit, 07-L4)", () => {
+  it("groups digits through the shared language-aware formatNumber (2026-10-01 audit, 07-L4)", () => {
     // The stock ledger used to hardcode en-IN grouping while the rest of the
-    // app already grouped through formatNumber (te-IN under Telugu). Pin the
-    // delegation itself, the same way format.locale.test.ts does.
+    // app already grouped through formatNumber (te-IN under Telugu). Node's
+    // ICU renders te-IN and en-IN identically, so pin the DELEGATION — the
+    // call must go through the shared formatter, which a hardcoded
+    // toLocaleString("en-IN") copy would not do.
     setActiveLanguage("te");
     try {
-      expect(formatPersistedKg(1234.567)).toBe(
-        (1234.567).toLocaleString("te-IN", {
-          minimumFractionDigits: 1,
-          maximumFractionDigits: 3,
-        }),
-      );
-      expect(formatPersistedKg(1234567.891)).toBe(
-        (1234567.891).toLocaleString("te-IN", {
-          minimumFractionDigits: 1,
-          maximumFractionDigits: 3,
-        }),
-      );
+      expect(formatPersistedKg(1234.567)).toBe("1,234.567");
+      expect(formatPersistedKg(1234567.891)).toBe("12,34,567.891");
     } finally {
       setActiveLanguage("en");
     }
+    expect(formatNumberCalls).toEqual([
+      { value: 1234.567, opts: { minimumFractionDigits: 1, maximumFractionDigits: 3 } },
+      { value: 1234567.891, opts: { minimumFractionDigits: 1, maximumFractionDigits: 3 } },
+    ]);
     // The English default keeps its byte-identical en-IN rendering.
     expect(formatPersistedKg(1234.567)).toBe("1,234.567");
+    expect(formatNumberCalls).toHaveLength(3);
   });
 
   it("uses the shared missing-value marker for impossible non-finite quantities", () => {

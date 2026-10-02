@@ -527,9 +527,11 @@ describe("SimulationPage uncertainty checkpoints", () => {
   });
 
   // Unmeasurable DSCR coverage (no principal-repaying year in any run) is
-  // null on the wire — rendered as an em dash with the neutral tint, exactly
+  // null on the wire — rendered as an em dash with the neutral tone, exactly
   // like the nullable deterministic DSCR cards, never a green "0.0%"
-  // (2026-10-01 audit, 08-H1).
+  // (2026-10-01 audit, 08-H1). The tone is asserted on StatCard's semantic
+  // data-tone attribute: pre-fix, null fell through `null > 0` to the
+  // "success" tint — a green card for an unmeasurable risk.
   it("renders an unmeasurable DSCR breach probability as an em dash", async () => {
     const user = await renderLoaded({
       runResult: { ...RESULT, monte_carlo: monteCarlo({ prob_dscr_below_one: null }) },
@@ -537,13 +539,20 @@ describe("SimulationPage uncertainty checkpoints", () => {
     await user.click(screen.getByRole("checkbox", { name: "Monte Carlo" }));
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
     const label = await screen.findByText("P(DSCR < 1)");
-    // Climb from the label to the card that also carries the value.
+    // Climb from the label to THIS card: the smallest ancestor that still
+    // owns the label AND the icon span carrying the semantic data-tone.
     let card = label.parentElement;
-    while (card && !card.textContent?.includes("—")) {
+    while (
+      card &&
+      !(card.querySelector("[data-tone]") && card.textContent?.includes("P(DSCR < 1)"))
+    ) {
       card = card.parentElement;
     }
     expect(card?.textContent).toContain("—");
     expect(card?.textContent).not.toContain("0.0%");
+    expect(card?.querySelector("[data-tone]")?.getAttribute("data-tone")).toBe(
+      "default",
+    );
   });
 });
 
