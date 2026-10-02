@@ -31,24 +31,19 @@ KIDDING_LOCK_ORDER = "e7f9a1b3c5d8"
 # screening batches → residual numerics/next-due ceiling/jsonb shape →
 # screening upload hardening + finance/planner integrity merge → durable
 # screening-content claims).
-# Must track the chain head; the 2026-09-20 vocabulary cleanup revision
-# (cad1e2f3a4b5) made the previous pinned head stale, breaking every
-# upgrade-HEAD + alembic-check assertion in this suite.
-HEAD = (
-    # Timestamp server defaults on the newest tables (chain tail:
-    # screening_images bigint -> famacha duty category -> notification
-    # composite FK + CHECKs + Date -> screening image FK bigint -> bounded
-    # sale_weight CHECK -> screening run/crop FK bigint (moved BEFORE the
-    # join indexes on 2026-09-29 so the int8 ALTER never rewrites the
-    # CONCURRENTLY builds) -> notification/totp timestamp server defaults ->
-    # screening join indexes -> screening_images bucket varchar(20) ->
-    # index-hygiene wave 2 + subsumed birth-weight CHECK -> timestamp
-    # server defaults wave 2, the D7 completion -> notification_recipients
-    # membership composite tenant FK, the L2 completion -> screening_images
-    # updated_at trigger + notification_recipients opt-in server defaults,
-    # the out-of-band-writer parity revision)
-    "e7b9d1f3a5c2"
-)
+# Resolved from the script directory, not hand-pinned: the pinned literal
+# went stale twice (2026-09-20 vocabulary cleanup, then the 2026-10-02
+# durable MFA replay-guard revision), each time breaking every upgrade-HEAD
+# + alembic-check assertion in this suite until someone bumped the string.
+def _chain_head() -> str:
+    from alembic.script import ScriptDirectory
+
+    heads = ScriptDirectory(str(BACKEND_DIR / "alembic")).get_heads()
+    assert len(heads) == 1, f"migration chain has multiple heads: {heads}"
+    return heads[0]
+
+
+HEAD = _chain_head()
 SCREENING_CONTENT_CLAIMS_PARENT = "b7e8f9a0c1d2"
 SCREENING_CONTENT_CLAIMS = "f7a9c1e3b5d7"
 LEGACY_LOSS_NOTE = "Legacy pregnancy-loss row; original date and cause were not captured."
