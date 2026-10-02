@@ -509,7 +509,10 @@ describe("HealthPage async ownership guards", () => {
 
   // ---------- bulk preview: what may become the reviewed snapshot ----------
 
-  it("ignores a bulk review the API answered with no snapshot", async () => {
+  it("surfaces a bulk review the API answered with no snapshot (2026-10-01 audit, 05-Info)", async () => {
+    // A non-200 success envelope is contract drift: it used to dead-end the
+    // first "Review targets" click with no preview AND no feedback. The tap
+    // now gets the same inline message as a failed preview.
     server.use(
       http.post("/api/health/events/preview", () => new HttpResponse(null, { status: 204 })),
     );
@@ -519,7 +522,9 @@ describe("HealthPage async ownership guards", () => {
 
     await waitFor(() => expect(reviewButton(dialog)).toBeEnabled());
     expect(within(dialog).queryByRole("status")).not.toBeInTheDocument();
-    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      /Could not review the bulk target set\./,
+    );
     expect(toast.error).not.toHaveBeenCalled();
   });
 

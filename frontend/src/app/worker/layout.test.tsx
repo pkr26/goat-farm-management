@@ -49,7 +49,9 @@ const {
   navState: { pathname: "/worker" },
   wipeQueueMock: vi.fn(),
   clearBackoffMock: vi.fn(),
-  queueDepthMock: vi.fn<() => number>(() => 0),
+  queueDepthMock: vi.fn<
+    (scopes?: { actorScope: string; farmScope: string }) => number
+  >(() => 0),
   startWorkersMock: vi.fn(() => vi.fn()),
   drainQueueMock: vi.fn(),
   swRegistration: { update: vi.fn<() => Promise<void>>(() => Promise.resolve()) },
@@ -145,6 +147,24 @@ describe("WorkerShell chrome", () => {
 
     expect(await screen.findByTestId("worker-queue-depth")).toHaveTextContent(
       "2 saved — will send when online",
+    );
+  });
+
+  it("counts the badge with the same scope filter the drain uses (2026-10-01 audit, 07-L3)", async () => {
+    // A foreign actor's or farm's residue must not inflate the badge (or the
+    // end-shift confirm, which reads the same depth): the shell passes the
+    // session's scopes into offlineQueueDepth instead of counting the whole
+    // store.
+    queueDepthMock.mockReturnValue(1);
+    renderShell();
+
+    await screen.findByTestId("end-shift");
+    expect(queueDepthMock).toHaveBeenCalledWith({
+      actorScope: "7",
+      farmScope: "3",
+    });
+    expect(await screen.findByTestId("worker-queue-depth")).toHaveTextContent(
+      "1 saved — will send when online",
     );
   });
 

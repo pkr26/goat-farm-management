@@ -1431,20 +1431,24 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
   };
   // Stryker disable next-line ArrayDeclaration: payload is undefined only while the loading state hides the table, so the fallback array is never rendered
   const listedAnimals = payload?.animals ?? [];
-  const sortedAnimals =
-    listedAnimals && sort
-      ? [...listedAnimals].sort((a, b) => {
-          const dir = sort.direction === "asc" ? 1 : -1;
+  const sortedAnimals = sort
+    ? [...listedAnimals].sort((a, b) => {
+        const dir = sort.direction === "asc" ? 1 : -1;
+        if (sort.column === "tag") {
+          // Explicit locale: the host-locale collation made the same tag set
+          // sort differently on a Telugu tablet and an English desktop; tags
+          // are the backend's "G-XXXXX" scheme, so pin "en"
+          // (2026-10-01 audit, 05-5).
+          return a.tag_number.localeCompare(b.tag_number, "en") * dir;
+        }
+        if (sort.column === "age") {
           // Stryker disable next-line ArithmeticOperator: dir is always ±1, and x*±1 === x/±1 for every number
-          if (sort.column === "tag") return a.tag_number.localeCompare(b.tag_number) * dir;
-          if (sort.column === "age") {
-            // Stryker disable next-line ArithmeticOperator: dir is always ±1, and x*±1 === x/±1 for every number
-            return ((a.age_months ?? -1) - (b.age_months ?? -1)) * dir;
-          }
-          // Stryker disable next-line ArithmeticOperator: dir is always ±1, and x*±1 === x/±1 for every number
-          return ((a.latest_weight_kg ?? -1) - (b.latest_weight_kg ?? -1)) * dir;
-        })
-      : listedAnimals;
+          return ((a.age_months ?? -1) - (b.age_months ?? -1)) * dir;
+        }
+        // Stryker disable next-line ArithmeticOperator: dir is always ±1, and x*±1 === x/±1 for every number
+        return ((a.latest_weight_kg ?? -1) - (b.latest_weight_kg ?? -1)) * dir;
+      })
+    : listedAnimals;
 
   return (
     <div className="space-y-6">
@@ -1614,7 +1618,7 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
                 <p className="mt-1 text-xs text-muted-foreground">
                   {a.age_months != null ? `${t("animals.list.ageMonths", { count: a.age_months })} · ` : ""}
                   {a.latest_weight_kg != null
-                    ? `${a.latest_weight_kg.toFixed(1)} kg`
+                    ? t("common.kg", { value: a.latest_weight_kg.toFixed(1) })
                     : t("animals.list.weightNotRecorded")}
                 </p>
               </Link>
@@ -1671,7 +1675,9 @@ function AnimalsPageContent({ perms }: { perms: PermissionsState }) {
                     </TableCell>
                     <TableCell className="text-right">{a.age_months ?? "—"}</TableCell>
                     <TableCell className="text-right">
-                      {a.latest_weight_kg != null ? `${a.latest_weight_kg.toFixed(1)} kg` : "—"}
+                      {a.latest_weight_kg != null
+                        ? t("common.kg", { value: a.latest_weight_kg.toFixed(1) })
+                        : "—"}
                     </TableCell>
                   </TableRow>
                 ))}

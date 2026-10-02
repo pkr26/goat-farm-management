@@ -1,8 +1,17 @@
 """Assumption model for the bio-economic herd simulation.
 
 Every field carries a default, so ``SimulationAssumptions()`` is a complete,
-valid Osmanabadi stall-fed NABARD-style run (50 does + 2 bucks, 120 months).
+valid Osmanabadi stall-fed baseline unit (50 does + 2 bucks, 120 months).
 All sub-models forbid extra keys so API payloads fail loudly on typos.
+
+Default-preset framing (2026-10-01 audit, 08-M7): the defaults are a
+stress-conservative scenario, NOT a bankability endorsement. At the 2025-26
+Telangana cost calibration the leveraged 50+2 unit projects a deeply negative
+deterministic NPV (verified: approximately -₹8.6 lakh, Monte Carlo mean
+approximately -₹13.6 lakh) — the arithmetic is internally consistent, but
+calling this shape "the bankable/NABARD unit" in code framing overstates it.
+Re-baselining the price/cost calibration to a bankable-plausible unit is an
+owner decision, deliberately deferred; only the framing was corrected.
 """
 
 import re

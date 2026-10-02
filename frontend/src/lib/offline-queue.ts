@@ -48,6 +48,23 @@ export type QueuedMutation = {
 
 export type QueueScopes = { actorScope: string; farmScope: string };
 
+/** Header names a queued record may carry onto the wire (compared
+ * case-insensitively — HTTP header names are, so a smuggled lowercase
+ * "authorization" must not survive either). Everything else is stripped
+ * BEFORE the record is persisted AND again before replay, so no
+ * Authorization/Cookie a future caller leaks into init.headers can ever be
+ * written to disk or replayed verbatim — including records persisted by an
+ * older deploy before this allowlist existed (2026-10-01 audit, 07-M4). */
+const PERSISTED_HEADER_ALLOWLIST = new Set(["idempotency-key", "content-type"]);
+
+function sanitizeQueuedHeaders(headers: Record<string, string>): Record<string, string> {
+  const clean: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    if (PERSISTED_HEADER_ALLOWLIST.has(name.toLowerCase())) clean[name] = value;
+  }
+  return clean;
+}
+
 function writeQueue(storage: Storage, records: QueuedMutation[]): void {
   try {
     if (records.length === 0) storage.removeItem(OFFLINE_QUEUE_STORAGE_KEY);
@@ -130,8 +147,21 @@ export function wipeOfflineQueue(): void {
   if (storage !== null) writeQueue(storage, []);
 }
 
-export function offlineQueueDepth(): number {
-  return readOfflineQueue().length;
+/** Queue depth for the badge and the end-shift confirm. Pass the session's
+ * scopes to count only the records THIS session's drain would replay: residue
+ * from a foreign actor or farm (a crash-before-teardown, or records a forced
+ * logout deliberately preserved for their owner) must not inflate the number
+ * the worker is shown or the "deletes them permanently" copy, which would
+ * overstate writes that belong to no one on this tablet
+ * (2026-10-01 audit, 07-L3). Without scopes, counts everything — the same
+ * total the storage itself holds. */
+export function offlineQueueDepth(scopes?: QueueScopes): number {
+  const records = readOfflineQueue();
+  if (scopes === undefined) return records.length;
+  return records.filter(
+    (record) =>
+      record.actorScope === scopes.actorScope && record.farmScope === scopes.farmScope,
+  ).length;
 }
 
 /** Queue one mutation. Returns false when the queue is at its bound — the
@@ -156,7 +186,11 @@ export function enqueueOfflineMutation(
     path,
     method: init.method.toUpperCase(),
     body: init.body ?? null,
-    headers: { ...(init.headers ?? {}) },
+    // Strip to the persisted-header allowlist before anything touches disk
+    // (2026-10-01 audit, 07-M4): today's only enqueue site passes a single
+    // Idempotency-Key, but a future caller leaking credential headers into
+    // init.headers must not persist them to localStorage.
+    headers: sanitizeQueuedHeaders(init.headers ?? {}),
     queuedAt: Date.now(),
     actorScope: scopes.actorScope,
     farmScope: scopes.farmScope,
@@ -196,6 +230,16 @@ export function isOfflineQueueableMutation(path: string, method?: string): boole
 export function isOfflineQueueableFailure(error: unknown): boolean {
   const status = (error as { status?: unknown } | null)?.status;
   if (typeof status === "number" && status >= 400 && status < 500) return false;
+  // A 5xx is "the server could not answer", not an answer — the same
+  // philosophy as the refresh path's isTransientRefreshStatus, and the exact
+  // branch the drain below already takes (keep the record, back off). Before
+  // this arm, an immediate completion during a 502/503/504 outage fell
+  // through to the name check and answered false, because ApiError never
+  // sets .name ("Error"): the identical failure one drain later preserved
+  // the record while the immediate attempt rolled it back with an error
+  // toast (2026-10-01 audit, 07-M2 — the two halves of this subsystem now
+  // share one classification).
+  if (typeof status === "number" && status >= 500) return true;
   if (typeof navigator !== "undefined" && navigator.onLine === false) return true;
   return (
     typeof error === "object" &&
@@ -209,10 +253,13 @@ export function isOfflineQueueableFailure(error: unknown): boolean {
 export type DrainOutcome = {
   replayed: number;
   remaining: number;
-  /** Records the server definitively refused (4xx): the duty stays PENDING
-   * server-side and reappears on the board, but the completion the worker
-   * recorded was dropped — the shell surfaces this count so the loss is not
-   * silent (2026-09-29 audit). */
+  /** Records the drain settled WITHOUT delivering: either the server
+   * definitively refused them (4xx — the duty stays PENDING server-side and
+   * reappears on the board, but the completion the worker recorded was
+   * dropped), or the record failed the replay-allowlist re-validation below
+   * (a write this queue may not carry — only reachable from an older deploy
+   * or tampered storage). The shell surfaces this count so neither loss is
+   * silent (2026-09-29 audit; allowlist drops 2026-10-01 audit, 07-M4). */
   rejected: number;
 };
 
@@ -285,12 +332,27 @@ export async function drainOfflineQueue(
         // Not ours: leave it queued for whoever owns it.
         continue;
       }
+      // Replay-allowlist re-validation (2026-10-01 audit, 07-M4): readOfflineQueue
+      // validates only SHAPE, and enqueue's fail-closed allowlist check says
+      // nothing about what an OLDER deploy (or tampered storage) may have
+      // persisted with a wider allowlist. A well-formed record the server
+      // cannot replay safely under an Idempotency-Key is dropped and counted
+      // here — never replayed on shape alone. Runs even once the drain has
+      // stopped: dropping needs no network and cannot fail.
+      if (!isOfflineQueueableMutation(record.path, record.method)) {
+        resolvedIds.add(record.id);
+        rejected += 1;
+        continue;
+      }
       if (stopped) continue;
       try {
         await fetchImpl(record.path, {
           method: record.method,
           body: record.body ?? undefined,
-          headers: record.headers,
+          // Stripped again at the replay edge so records persisted before the
+          // header allowlist existed cannot leak a credential header onto the
+          // wire either (2026-10-01 audit, 07-M4).
+          headers: sanitizeQueuedHeaders(record.headers),
         });
         resolvedIds.add(record.id);
         replayed += 1;
@@ -337,9 +399,29 @@ export async function drainOfflineQueue(
     // Merge against LIVE storage: anything enqueued after the snapshot (a
     // completion recorded mid-drain) is not in resolvedIds and survives;
     // only the records this drain actually settled are removed.
-    const next = readOfflineQueue(storage).filter(
-      (record) => !resolvedIds.has(record.id),
+    const live = readOfflineQueue(storage);
+    const liveIds = new Set(live.map((record) => record.id));
+    // Mid-drain wipe guard (2026-10-01 audit, 07-H): the audit's exact
+    // failure had a forced logout wipe storage WHILE this drain held kept
+    // records (the 401/5xx "keep and stop" decisions) in memory — the plain
+    // merge below would then write the empty store back and the field writes
+    // would vanish with `{remaining: 0}` and no surfaced loss. The
+    // forced-logout path no longer wipes, but any teardown that still clears
+    // storage mid-drain (a cross-tab sign-out, a future regression) must not
+    // be able to destroy records THIS drain explicitly kept. Only records
+    // matching this drain's own actor+farm scope are re-persisted: foreign
+    // records belong to whoever wiped, and their hygiene decision stands.
+    const keptMissingFromLive = records.filter(
+      (record) =>
+        !resolvedIds.has(record.id) &&
+        record.actorScope === scopes.actorScope &&
+        record.farmScope === scopes.farmScope &&
+        !liveIds.has(record.id),
     );
+    const next = [
+      ...live.filter((record) => !resolvedIds.has(record.id)),
+      ...keptMissingFromLive,
+    ];
     writeQueue(storage, next);
     return { replayed, remaining: next.length, rejected };
   } finally {

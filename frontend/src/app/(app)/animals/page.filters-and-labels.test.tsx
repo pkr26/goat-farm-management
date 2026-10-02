@@ -244,6 +244,32 @@ describe("AnimalsPage filter sentinel and labels", () => {
     await pickOption(user, within(dialog).getByLabelText("Birth type"), "Twin");
     expect(within(dialog).getByLabelText("Birth type")).toHaveTextContent("Twin");
   });
+
+  it("sorts tags with a pinned locale, not the device collation (2026-10-01 audit, 05-5)", async () => {
+    // localeCompare without an explicit locale followed the device collation,
+    // so a Telugu-locale tablet and an English desktop sorted the same tag
+    // set differently. Tags are the backend's zero-padded "G-XXXXX" scheme —
+    // pin "en" so the order is the same on every device.
+    serveAnimals([
+      { ...animal(10), tag_number: "G-0010" },
+      { ...animal(2), tag_number: "G-0002" },
+    ]);
+    const spy = vi.spyOn(String.prototype, "localeCompare");
+    const user = userEvent.setup();
+    renderWithProviders(<AnimalsPage />);
+    await screen.findByText("2 animals");
+
+    await user.click(screen.getByRole("button", { name: "Tag" }));
+
+    const rows = screen.getAllByRole("row");
+    expect(within(rows[1]!).getByText("G-0002")).toBeInTheDocument();
+    expect(within(rows[2]!).getByText("G-0010")).toBeInTheDocument();
+    // The comparator names its locale instead of inheriting the device's
+    // (V8's tiny-array sort may compare the pair in either order).
+    expect(spy).toHaveBeenCalledWith(expect.any(String), "en");
+    expect(spy.mock.calls.every((call) => call[1] === "en")).toBe(true);
+    spy.mockRestore();
+  });
 });
 
 describe("AnimalsPage create dialog guards", () => {

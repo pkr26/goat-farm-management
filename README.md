@@ -453,6 +453,21 @@ decoding again and the version is added to the safe set.
   GOATFARM_ALLOWED_HOSTS=["app.example.com"]
   GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET=<independent-32-plus-character-secret>
   GOATFARM_TOTP_ENCRYPTION_KEY=<independent-32-byte-base64url-secret>
+  # Optional file-delivered secrets (2026-10-01 audit, 09-1): replace any of
+  # the plain secret values above with a *_FILE container path inside the
+  # read-only /run/secrets/app mount and remove the plain line. The
+  # config-guard preflight refuses an env file that delivers a required
+  # secret by both routes or by neither.
+  # GOATFARM_APP_SECRET_DIR=/secure/goatfarm-secrets
+  # GOATFARM_DATABASE_URL_FILE=/run/secrets/app/database_url
+  # GOATFARM_MIGRATION_DATABASE_URL_FILE=/run/secrets/app/migration_database_url
+  # GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET_FILE=/run/secrets/app/idempotency_request_hmac_secret
+  # GOATFARM_TOTP_ENCRYPTION_KEY_FILE=/run/secrets/app/totp_encryption_key
+  # GOATFARM_S3_ACCESS_KEY_ID_FILE=/run/secrets/app/s3_access_key_id
+  # GOATFARM_S3_SECRET_ACCESS_KEY_FILE=/run/secrets/app/s3_secret_access_key
+  # GOATFARM_SCREENING_ANTHROPIC_API_KEY_FILE=/run/secrets/app/screening_anthropic_api_key
+  # GOATFARM_SCREENING_OPENAI_API_KEY_FILE=/run/secrets/app/screening_openai_api_key
+  # GOATFARM_MSG91_AUTH_KEY_FILE=/run/secrets/app/msg91_auth_key
   GOATFARM_DOCKER_SUBNET=198.18.243.0/24
   GOATFARM_EDGE_PROXY_IP=198.18.243.10
   # The default trusts only the edge. With the required outer TLS terminator,
@@ -466,9 +481,31 @@ decoding again and the version is added to the safe set.
   GOATFARM_SCREENING_ENABLED=false
   ```
 
+  Beyond the JWT PEMs and the database CA, the remaining environment-borne
+  secrets — both database URLs (whose passwords ride inline), the idempotency
+  HMAC secret, the TOTP encryption key, and the S3/screening-provider/MSG91
+  keys — can move out of the process environment entirely (2026-10-01 audit,
+  09-1). `docker-compose.production.yml` bind-mounts a secrets directory
+  read-only at `/run/secrets/app` (`GOATFARM_APP_SECRET_DIR`, default
+  `./secrets/app`, auto-created empty and unused while the plain variables
+  carry the values). Put each secret in its own mode-`0600` file readable by
+  UID 10001, then set the matching `GOATFARM_*_FILE` container path from the
+  commented block above and delete the plain line: a set file path takes
+  precedence over the plain variable, which keeps working so upgrades never
+  break, and the values stop appearing in `docker inspect` output and
+  `/proc/<pid>/environ`. The config-guard preflight refuses an env file that
+  delivers a required secret by both routes (a stale plain value that looks
+  live while the app silently prefers the file) or by neither, and the app
+  itself fails closed when a configured `*_FILE` path is missing, unreadable,
+  or blank. Host-side jobs that read the URL from their own environment are
+  unaffected: keep exporting `GOATFARM_DATABASE_URL` (from your secret
+  store/file) in the shell that runs `backend/scripts/backup.sh`.
+
   Then render and execute the name preflight before every rollout. Rendering
   proves required interpolation is present, while the explicit one-shot run
-  catches misspelt `GOATFARM_*` names in the exact env file. Do not rely on a
+  catches misspelt `GOATFARM_*` names in the exact env file — and, since the
+  secrets became deliverable by file or by plain value, that every required
+  secret is delivered by exactly one of the two routes. Do not rely on a
   previously completed `config-guard` container from an older `up`: Compose
   can reuse that successful one-shot service even after the bind-mounted env
   file changes.
@@ -485,9 +522,14 @@ decoding again and the version is added to the safe set.
   ```
 
   Do not replace the digest variables with mutable tags. Read the two
-  multi-architecture manifest digests from the signed GitHub release; the
-  production manifest constructs `repository@sha256:...`, while local/staging
-  examples below may use a release tag for convenience.
+  multi-architecture manifest digests from the GitHub release published by the
+  gated release workflow; the release notes pin the exact digests the workflow
+  scanned, and the images carry provenance and SBOM build attestations, but
+  neither the release nor the images is cryptographically signed — the
+  integrity mechanism is the pinned `sha256:` digests themselves (compose
+  refuses to render without them), not a signature to verify (2026-10-01
+  audit, 09-4). The production manifest constructs `repository@sha256:...`,
+  while local/staging examples below may use a release tag for convenience.
   Supported Alembic and restore jobs share a database advisory lock, so two
   release/restore writers fail closed instead of racing. This protocol cannot
   stop manually issued DDL that ignores the application tooling: quiesce all

@@ -20,6 +20,7 @@ import signal
 import subprocess
 import sys
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -3176,6 +3177,85 @@ def test_production_compose_is_a_standalone_external_tls_topology() -> None:
     assert "config-guard:\n      build: !reset null" in readme
 
 
+def test_production_compose_delivers_secrets_by_read_only_file_mounts() -> None:
+    """2026-10-01 audit, 09-1: environment-borne secrets become file-deliverable.
+
+    The production manifest already mounted the JWT PEMs and the database CA
+    as read-only binds; every remaining secret must now have the same
+    *_FILE twin backed by the /run/secrets/app directory bind, so a deployment
+    can keep the values out of ``docker inspect`` and /proc/<pid>/environ.
+    The plain variables stay alongside (backward-compatible delivery); each
+    *_FILE value must be optional interpolation (empty string = unset), never
+    a hardcoded path an upgraded deployment's empty mount would fail on.
+    """
+    production = yaml.safe_load((REPO_ROOT / "docker-compose.production.yml").read_text())
+    services = production["services"]
+    api_env = services["backend"]["environment"]
+    worker_env = services["screening-worker"]["environment"]
+    migrate_env = services["migrate"]["environment"]
+
+    def _assert_optional_file_twin(env: dict[str, object], name: str) -> None:
+        assert f"{name}_FILE" in env, name
+        assert env[f"{name}_FILE"] == "${" + name + "_FILE:-}", name
+        # A plain twin must exist (or be explicitly absent for a secret the
+        # service must never receive) — checked by the caller.
+
+    # The API may receive every secret; the worker only the ones its
+    # image-processing role needs; migrate only the DDL URL.
+    for name in (
+        "GOATFARM_DATABASE_URL",
+        "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET",
+        "GOATFARM_TOTP_ENCRYPTION_KEY",
+        "GOATFARM_S3_ACCESS_KEY_ID",
+        "GOATFARM_S3_SECRET_ACCESS_KEY",
+        "GOATFARM_SCREENING_ANTHROPIC_API_KEY",
+        "GOATFARM_SCREENING_OPENAI_API_KEY",
+        "GOATFARM_MSG91_AUTH_KEY",
+    ):
+        _assert_optional_file_twin(api_env, name)
+        assert name in api_env, name
+    for name in (
+        "GOATFARM_DATABASE_URL",
+        "GOATFARM_S3_ACCESS_KEY_ID",
+        "GOATFARM_S3_SECRET_ACCESS_KEY",
+        "GOATFARM_SCREENING_ANTHROPIC_API_KEY",
+        "GOATFARM_SCREENING_OPENAI_API_KEY",
+    ):
+        _assert_optional_file_twin(worker_env, name)
+        assert name in worker_env, name
+    _assert_optional_file_twin(migrate_env, "GOATFARM_MIGRATION_DATABASE_URL")
+    for api_only in (
+        "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET_FILE",
+        "GOATFARM_TOTP_ENCRYPTION_KEY_FILE",
+        "GOATFARM_MSG91_AUTH_KEY_FILE",
+    ):
+        assert api_only not in worker_env
+        assert api_only not in migrate_env
+
+    # The JWT-style directory bind backs the paths: read-only, shared by every
+    # service that consumes a *_FILE twin, and its source is the
+    # GOATFARM_APP_SECRET_DIR interpolation variable with an upgrade-safe
+    # default (the guard and Settings both know the name).
+    anchor_text = (REPO_ROOT / "docker-compose.production.yml").read_text()
+    mounts_by_target = {
+        volume["target"]: volume
+        for service in services.values()
+        for volume in service.get("volumes", [])
+    }
+    mount = mounts_by_target["/run/secrets/app"]
+    assert mount["read_only"] is True
+    assert mount["type"] == "bind"
+    assert mount["source"] == "${GOATFARM_APP_SECRET_DIR:-./secrets/app}"
+    for name in ("migrate", "backend", "screening-worker"):
+        assert any(v.get("target") == "/run/secrets/app" for v in services[name]["volumes"]), name
+    assert anchor_text.count("- *app-secrets") == 3
+    from app.core.config import NON_APP_ENV_VARS
+
+    assert "GOATFARM_APP_SECRET_DIR" in NON_APP_ENV_VARS
+    # Tracked-file hygiene: the default host directory must never be committable.
+    assert "secrets/" in (REPO_ROOT / ".gitignore").read_text()
+
+
 def test_compose_pins_capability_hardening_and_db_role_wiring() -> None:
     """Mutation-audit survivors (2026-09-18): the compose hardening and the
     API-vs-migration credential split were declared but never asserted.
@@ -3192,19 +3272,29 @@ def test_compose_pins_capability_hardening_and_db_role_wiring() -> None:
     worker_env = production["services"]["screening-worker"]["environment"]
     migrate_env = production["services"]["migrate"]["environment"]
 
-    api_url = "${GOATFARM_DATABASE_URL:?set the external DDL-free API PostgreSQL URL}"
-    migration_url = "${GOATFARM_MIGRATION_DATABASE_URL:?set the external DDL-role PostgreSQL URL}"
+    api_url = "${GOATFARM_DATABASE_URL:-}"
+    migration_url = "${GOATFARM_MIGRATION_DATABASE_URL:-}"
     # The long-running API and worker must interpolate the DDL-free role and
-    # must not reference the migration credential in any env value.
+    # must not reference the migration credential in any env value. Since the
+    # 2026-10-01 audit (09-1) each URL is deliverable as a plain value or via
+    # a file mount, so the *_FILE twin must follow the same role split and
+    # the config-guard preflight enforces exactly-one-of delivery.
     assert api_env["GOATFARM_DATABASE_URL"] == api_url
+    assert api_env["GOATFARM_DATABASE_URL_FILE"] == "${GOATFARM_DATABASE_URL_FILE:-}"
     assert worker_env["GOATFARM_DATABASE_URL"] == api_url
+    assert worker_env["GOATFARM_DATABASE_URL_FILE"] == "${GOATFARM_DATABASE_URL_FILE:-}"
     for env in (api_env, worker_env):
         assert "GOATFARM_MIGRATION_DATABASE_URL" not in env
+        assert "GOATFARM_MIGRATION_DATABASE_URL_FILE" not in env
         assert not any("GOATFARM_MIGRATION_DATABASE_URL" in str(value) for value in env.values())
     # The one-shot migration job must interpolate the DDL role and must not
     # receive the API credential.
     assert migrate_env["GOATFARM_MIGRATION_DATABASE_URL"] == migration_url
+    assert migrate_env["GOATFARM_MIGRATION_DATABASE_URL_FILE"] == (
+        "${GOATFARM_MIGRATION_DATABASE_URL_FILE:-}"
+    )
     assert "GOATFARM_DATABASE_URL" not in migrate_env
+    assert "GOATFARM_DATABASE_URL_FILE" not in migrate_env
 
     # Every production service merges the x-service-hardening anchor: caps
     # fully dropped, privilege escalation refused. Only edge may add back the
@@ -3335,6 +3425,9 @@ def test_compose_env_guard_rejects_names_compose_would_otherwise_drop(tmp_path: 
         "GOATFARM_DB_CA_FILE=/secure/ca.pem\n"
         "GOATFARM_JWT_SECRET_DIR=/secure/jwt\n"
         "GOATFARM_COMPOSE_ENV_FILE=/secure/production.env\n"
+        "GOATFARM_DATABASE_URL=postgresql+asyncpg://api:pw@db:5432/goatfarm\n"
+        "GOATFARM_MIGRATION_DATABASE_URL=postgresql+asyncpg://mig:pw@db:5432/goatfarm\n"
+        "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET=stable-secret-0000000000000001\n"
     )
     result = subprocess.run(
         [sys.executable, str(guard), str(valid_env)],
@@ -3381,6 +3474,69 @@ def test_compose_env_guard_rejects_names_compose_would_otherwise_drop(tmp_path: 
     assert "!backend/scripts/compose_env_guard.py" in (REPO_ROOT / ".dockerignore").read_text()
 
 
+def test_compose_env_guard_enforces_exactly_one_delivery_route(tmp_path: Path) -> None:
+    """2026-10-01 audit, 09-1: required secrets must arrive by file OR plain env.
+
+    Compose's ``:?`` interpolation cannot express "one of two variables", so
+    once the production secrets became file-deliverable the guard restores
+    the fail-closed property: NEITHER route is a missing secret; BOTH routes
+    is the dangerous residue of a half-done migration (a stale plain value
+    that looks live while the app silently prefers the file). The TOTP key is
+    required only in production, so its absence passes the guard and the
+    application's boot validator decides by environment — but its ambiguity
+    is still refused.
+    """
+    guard = REPO_ROOT / "backend" / "scripts" / "compose_env_guard.py"
+    plain = {
+        "GOATFARM_DATABASE_URL": "postgresql+asyncpg://api:pw@db:5432/goatfarm",
+        "GOATFARM_MIGRATION_DATABASE_URL": "postgresql+asyncpg://mig:pw@db:5432/goatfarm",
+        "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET": "stable-secret-0000000000000001",
+    }
+    delivered_by_file = {f"{name}_FILE": f"/run/secrets/app/{name.lower()}" for name in plain}
+
+    def _write_env(name: str, entries: Mapping[str, object]) -> Path:
+        path = tmp_path / name
+        path.write_text("".join(f"{key}={value}\n" for key, value in entries.items()))
+        return path
+
+    def _run(path: Path) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(guard), str(path)],
+            cwd=REPO_ROOT / "backend",
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    assert _run(_write_env("plain.env", plain)).returncode == 0
+    assert _run(_write_env("file.env", delivered_by_file)).returncode == 0
+    # Optional secret absent in development: fine for the guard.
+    assert _run(_write_env("no_totp.env", plain)).returncode == 0
+
+    both = _run(_write_env("both.env", {**plain, **delivered_by_file}))
+    assert both.returncode == 2
+    assert "GOATFARM_DATABASE_URL and GOATFARM_DATABASE_URL_FILE are both set" in both.stderr
+
+    neither = _run(_write_env("neither.env", {}))
+    assert neither.returncode == 2
+    assert "neither GOATFARM_DATABASE_URL nor GOATFARM_DATABASE_URL_FILE is set" in neither.stderr
+
+    totp_both = _run(
+        _write_env(
+            "totp_both.env",
+            {
+                **plain,
+                "GOATFARM_TOTP_ENCRYPTION_KEY": "VFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFQ",
+                "GOATFARM_TOTP_ENCRYPTION_KEY_FILE": "/run/secrets/app/totp_encryption_key",
+            },
+        )
+    )
+    assert totp_both.returncode == 2
+    assert "GOATFARM_TOTP_ENCRYPTION_KEY and GOATFARM_TOTP_ENCRYPTION_KEY_FILE are both set" in (
+        totp_both.stderr
+    )
+
+
 def test_compose_env_guard_imports_app_without_an_installed_project(
     tmp_path: Path,
 ) -> None:
@@ -3401,7 +3557,14 @@ def test_compose_env_guard_imports_app_without_an_installed_project(
 
     guard = REPO_ROOT / "backend" / "scripts" / "compose_env_guard.py"
     env_file = tmp_path / "valid.env"
-    env_file.write_text("GOATFARM_ENVIRONMENT=production\n")
+    env_file.write_text(
+        "GOATFARM_ENVIRONMENT=production\n"
+        # Required secrets since the guard began enforcing delivery routes
+        # (2026-10-01 audit, 09-1) — this must remain a bootable env file.
+        "GOATFARM_DATABASE_URL=postgresql+asyncpg://api:pw@db:5432/goatfarm\n"
+        "GOATFARM_MIGRATION_DATABASE_URL=postgresql+asyncpg://mig:pw@db:5432/goatfarm\n"
+        "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET=stable-secret-0000000000000001\n"
+    )
 
     simulated = tmp_path / "simvenv"
     subprocess.run(

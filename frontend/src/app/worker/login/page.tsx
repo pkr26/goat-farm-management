@@ -103,7 +103,10 @@ export default function WorkerLoginPage() {
     setBusy(true);
     setError(null);
     try {
-      const body = await apiFetch<{ access_token: string; user: { id: number; email: string; name: string | null } }>(
+      // TokenOut is the generated contract (the login page anchors to it
+      // deliberately so backend renames break tsc); the inline type here was
+      // a drift risk (2026-10-01 audit, 05-Info).
+      const body = await apiFetch<TokenOut>(
         "/api/auth/worker-login",
         {
           method: "POST",
@@ -114,11 +117,7 @@ export default function WorkerLoginPage() {
           }),
         },
       );
-      await signIn(body.access_token, {
-        id: body.user.id,
-        email: body.user.email,
-        name: body.user.name,
-      });
+      await signIn(body.access_token, body.user);
       // signIn's farm discovery auto-selects list[0] when nothing is stored;
       // a pinned tablet belongs on ITS farm. getFarms() reads the list this
       // signIn just committed (React state has not re-rendered yet), and a
@@ -563,7 +562,10 @@ export default function WorkerLoginPage() {
           setError(null);
         }}
       >
-        ← {t("worker.login.title")}
+        {/* No glyph decorations in UI copy — the title alone is the back
+            action (the stray "←" contradicted this page's own convention,
+            2026-10-01 audit, 05-3). */}
+        {t("worker.login.title")}
       </Button>
     </div>
   );

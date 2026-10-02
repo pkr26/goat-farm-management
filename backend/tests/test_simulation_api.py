@@ -1247,6 +1247,11 @@ async def test_run_limiter_429_while_run_in_flight(client: httpx.AsyncClient) ->
     headers = await owner_with_farm(client)
     assumptions = await default_assumptions(client, headers)
     assumptions["meta"]["horizon_months"] = 12
+    # A stored scenario: since the 2026-10-01 audit (08-H2) compare snapshots
+    # and validates the scenarios BEFORE entering the run-limits region (like
+    # run_scenario), so a nonexistent id answers 404 even while the farm is
+    # busy — the busy 429 needs a fetchable scenario to exercise.
+    scenario = await create_scenario(client, headers, "Busy compare plan", assumptions)
     farm_id = int(headers["X-Farm-Id"])
     lock = _farm_run_lock(farm_id)
     await lock.acquire()  # simulate an in-flight run for this farm
@@ -1256,7 +1261,9 @@ async def test_run_limiter_429_while_run_in_flight(client: httpx.AsyncClient) ->
         )
         assert resp.status_code == 429, resp.text
         resp = await client.get(
-            "/api/simulation/scenarios/compare", params={"ids": "1"}, headers=headers
+            "/api/simulation/scenarios/compare",
+            params={"ids": str(scenario["id"])},
+            headers=headers,
         )
         assert resp.status_code == 429, resp.text
     finally:

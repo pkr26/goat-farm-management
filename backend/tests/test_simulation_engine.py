@@ -522,14 +522,21 @@ def test_fodder_balance_and_land_requirement() -> None:
 
 
 def test_drought_yield_multiplier_and_dm_conversion_reach_cultivation_cost() -> None:
+    # A herd with animals: the drought multiplier must flow into what is
+    # grown and therefore into the cultivation cost (the test's original
+    # coverage, preserved with a non-empty herd).
     assumptions = SimulationAssumptions(
         meta=MetaAssumptions(horizon_months=12),
-        herd=HerdAssumptions(does=0, bucks=0, auto_purchase_bucks=False),
+        herd=HerdAssumptions(does=1, bucks=0, auto_purchase_bucks=False),
         feed=FeedAssumptions(
             cultivated_fodder_acres=1.0,
             fodder_yield_t_dm_per_acre_year=6.0,
             green_dm_pct=0.25,
             green_price_per_kg=2.0,
+            # Zero the dry/concentrate lines so the assertion isolates the
+            # cultivation component of feed_cost for the one-doe herd.
+            dry_price_per_kg=0.0,
+            concentrate_price_per_kg=0.0,
         ),
     )
     # This is the multiplier emitted by a public drought episode. Calling the
@@ -545,7 +552,19 @@ def test_drought_yield_multiplier_and_dm_conversion_reach_cultivation_cost() -> 
     assert first.feed_cost == pytest.approx(
         cultivated_as_fed_kg * assumptions.feed.green_price_per_kg
     )
-    assert first.fodder_surplus_kg == pytest.approx(cultivated_dm_kg)
+    assert first.fodder_surplus_kg == pytest.approx(
+        cultivated_dm_kg - first.feed_homegrown_green_kg * assumptions.feed.green_dm_pct
+    )
+
+    # The same run with an EMPTY herd books no cultivation cost at all
+    # (2026-10-01 audit, 08-L8): nothing is grown for nothing, so a zero-animal
+    # farm no longer pays ₹/month for acreage no animal consumes.
+    empty = assumptions.model_copy(deep=True)
+    empty.herd.does = 0
+    empty_month = _run_core(empty, shocks).months[0]
+    assert empty_month.feed_cost == pytest.approx(0.0)
+    # The surplus/waste accounting is untouched: the crop still exists.
+    assert empty_month.fodder_surplus_kg == pytest.approx(cultivated_dm_kg)
 
 
 def test_land_requirement_is_a_true_annual_rate_on_ragged_horizons() -> None:

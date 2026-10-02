@@ -69,7 +69,6 @@ def main() -> None:
         last[rec["id"]] = rec
 
     if args.survivors_from_logs:
-
         from mutate_reverify import SURVIVOR_LINE
 
         by_key: dict[tuple[str, int, str, str], list[str]] = collections.defaultdict(list)

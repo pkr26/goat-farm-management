@@ -351,6 +351,43 @@ async def test_postpartum_dam_facts_persisted(client: httpx.AsyncClient) -> None
     assert entry.dam_rejected is False
 
 
+@pytest.mark.parametrize(
+    "coerced", [1, 0, "true", "false"], ids=["int-one", "int-zero", "str-true", "str-false"]
+)
+async def test_kidding_care_booleans_answer_422_for_coerced_values(
+    client: httpx.AsyncClient, coerced: object
+) -> None:
+    """Kidding care facts used plain bool, so 1/"true" posed as recorded care
+    while every sibling strict endpoint 422s (2026-10-01 audit, 04-3)."""
+    headers = await owner_with_farm(client)
+    _doe, _buck, br = await confirmed_pregnancy(client, headers, tag="HUSP-6C", bred_days_ago=160)
+
+    rejected = await post_kidding(
+        client,
+        headers,
+        br["id"],
+        br["expected_kidding_date"],
+        placenta_passed=coerced,
+        kids=[{"sex": "F", "dam_rejected": coerced}],
+    )
+    assert rejected.status_code == 422, rejected.text
+
+    # The same shape with genuine JSON booleans is the happy path: the fix
+    # tightens coercion only, never the accepted value set.
+    accepted = await post_kidding(
+        client,
+        headers,
+        br["id"],
+        br["expected_kidding_date"],
+        placenta_passed=True,
+        mastitis_suspected=False,
+        kids=[{"sex": "F", "colostrum_within_2h": True, "navel_dipped": False}],
+    )
+    assert accepted.status_code == 201, accepted.text
+    assert accepted.json()["placenta_passed"] is True
+    assert accepted.json()["kids"][0]["colostrum_within_2h"] is True
+
+
 # ---------------------------------------------------------------------------
 # Generated postpartum duties
 # ---------------------------------------------------------------------------

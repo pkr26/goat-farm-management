@@ -29,6 +29,7 @@ import httpx
 import pytest
 from sqlalchemy import event, select, update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import selectinload
 
 from app.db import get_engine, get_sessionmaker
 from app.models import (
@@ -41,7 +42,7 @@ from app.models import (
     User,
     WeightRecord,
 )
-from app.services.breeding import mark_unassessed, record_ultrasound_result
+from app.services.breeding import breeding_weights_as_of, mark_unassessed, record_ultrasound_result
 from app.services.tasks import _schedule_rebreed
 from app.utils import add_months, today
 
@@ -567,6 +568,45 @@ async def test_candidate_uses_latest_weight_as_of_farm_today(
     assert [(row["id"], row["latest_weight_kg"]) for row in page["candidates"]] == [
         (eligible["id"], 22.0)
     ]
+
+
+async def test_latest_weight_sql_twin_matches_model_for_unknown_dob(
+    client: httpx.AsyncClient,
+) -> None:
+    """(2026-10-01 audit, 02-4) Parity pin for the latest-weight twins: an
+    animal with no DOB but a birth weight falls back to that birth weight in
+    ``Animal.latest_weight_kg_on``; SQL ``NULL <= date`` is NULL, so the
+    correlated twin used to diverge to NULL here. The twins feed the same
+    ``bucket_transition_error``/picker facts and must never disagree."""
+    headers = await owner_with_farm(client, email="dob-parity@farm.in")
+    resp = await client.post(
+        "/api/animals",
+        json={
+            "tag_number": "D-NO-DOB",
+            "sex": "F",
+            "source": "BORN",
+            "current_bucket": "FEMALE_KIDS",
+            "birth_weight": 2.6,
+            "historical_import_reason": "Latest-weight twin parity fixture",
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    animal_id = resp.json()["id"]
+
+    async with get_sessionmaker()() as db:
+        row = (
+            await db.execute(
+                select(Animal)
+                .options(selectinload(Animal.weight_records))
+                .where(Animal.id == animal_id)
+            )
+        ).scalar_one()
+        model_value = row.latest_weight_kg_on(today())
+        assert row.effective_dob is None, "fixture must have no DOB at all"
+        sql_values = await breeding_weights_as_of(db, [animal_id], today())
+    assert model_value == 2.6
+    assert sql_values == {animal_id: 2.6}
 
 
 async def test_candidate_excludes_doe_without_weight(client: httpx.AsyncClient) -> None:

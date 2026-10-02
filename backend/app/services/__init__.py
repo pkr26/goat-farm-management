@@ -91,6 +91,7 @@ from .animals import (
     skip_pending_tasks_for_animal,
 )
 from .breeding import (
+    BreedingChronologyError,
     breeding_candidate_counts,
     breeding_candidate_page,
     breeding_weights_as_of,
@@ -138,7 +139,13 @@ from .health import (
     validated_template,
 )
 from .idempotency import IdempotencyKey, RequiredIdempotencyKey, execute_idempotent
-from .kidding import KidSpec, LitterSizeError, record_kidding, replan_dam_after_last_kid_death
+from .kidding import (
+    InputShapeError,
+    KidSpec,
+    LitterSizeError,
+    record_kidding,
+    replan_dam_after_last_kid_death,
+)
 from .purchases import create_purchase_batch, schedule_quarantine_tasks
 from .retention import RetentionSummary, run_retention_sweep
 from .tasks import (
@@ -176,6 +183,7 @@ __all__ = [
     "AnimalSource",
     "AnimalStatus",
     "BirthType",
+    "BreedingChronologyError",
     "BreedingMethod",
     "BreedingOutcome",
     "BreedingRecord",
@@ -192,6 +200,7 @@ __all__ = [
     "HealthEvent",
     "HealthEventType",
     "IdempotencyKey",
+    "InputShapeError",
     "InsufficientFeedError",
     "KidEntry",
     "KidSpec",

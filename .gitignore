@@ -31,6 +31,10 @@ test-results/
 .env.*
 !.env.example
 backend/keys/
+# Default host directory of docker-compose.production.yml's file-delivered
+# app secrets (GOATFARM_APP_SECRET_DIR, 2026-10-01 audit, 09-1). Never commit
+# secret material; deployments should point the variable outside the checkout.
+secrets/
 backups/
 *.dump
 *.dump.gpg

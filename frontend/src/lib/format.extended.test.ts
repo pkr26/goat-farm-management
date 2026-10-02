@@ -122,13 +122,40 @@ describe("formatDate — boundaries", () => {
   });
 
   it("ignores time and timezone suffixes on full ISO timestamps", () => {
-    expect(formatDate("2026-08-05T23:59:59.999Z")).toBe("5 Aug 2026");
+    // Since the 2026-10-01 audit (07-L5) a datetime renders the FARM-
+    // timezone calendar date of the instant (default Asia/Kolkata): these
+    // late-UTC instants are already the next day at +05:30.
+    expect(formatDate("2026-08-05T23:59:59.999Z")).toBe("6 Aug 2026");
     expect(formatDate("2026-02-14T00:00:00+05:30")).toBe("14 Feb 2026");
   });
 
   it("accepts ISO timestamps without seconds and with compact offsets", () => {
-    expect(formatDate("2026-08-05T23:59Z")).toBe("5 Aug 2026");
+    expect(formatDate("2026-08-05T23:59Z")).toBe("6 Aug 2026");
     expect(formatDate("2026-02-14T00:00+0530")).toBe("14 Feb 2026");
+  });
+
+  it("renders the farm-timezone calendar date for a datetime input (2026-10-01 audit, 07-L5)", () => {
+    try {
+      // 23:30Z on 5 Aug is already 6 Aug at the default farm zone (IST)…
+      expect(formatDate("2026-08-05T23:30:00Z")).toBe("6 Aug 2026");
+      // Telugu renders the same farm-local day through te-IN.
+      expect(formatDate("2026-08-05T23:30:00Z", "te")).toBe(
+        new Intl.DateTimeFormat("te-IN", {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+          timeZone: "UTC",
+        }).format(new Date(Date.UTC(2026, 7, 6))),
+      );
+      // …but still 5 Aug on a Phoenix farm: the string's wall date must not
+      // masquerade as the farm's calendar day.
+      setActiveFarmTimezone("America/Phoenix");
+      expect(formatDate("2026-08-05T23:30:00Z")).toBe("5 Aug 2026");
+      // Date-only values are wall dates by definition and stay untouched.
+      expect(formatDate("2026-08-05")).toBe("5 Aug 2026");
+    } finally {
+      setActiveFarmTimezone(null);
+    }
   });
 
   it("normalizes single-digit date parts before validating a timestamp", () => {

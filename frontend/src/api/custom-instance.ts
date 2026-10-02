@@ -15,6 +15,15 @@
  * the protected routes (src/lib/idempotent-request.ts). Any consumer using
  * the generated SDK WITHOUT this mutator must add the header itself or the
  * backend answers 422. Re-check on orval upgrades.
+ *
+ * Drift tripwire (2026-10-01 audit, 04-4): every route the spec marks
+ * `Idempotency-Key: required` (currently six POSTs: auth/farms,
+ * feeding/dispense, feeding/mix, feeding/inventory/{id}/add, finance/new,
+ * purchases/new) MUST stay covered by isIdempotencyProtectedMutation in
+ * src/lib/idempotent-request.ts. backend/tests/test_contract_drift.py
+ * asserts that superset relationship against shared/openapi.json, so adding
+ * a required-key route without extending the registry fails CI instead of
+ * surfacing as a bare 422 for SDK-without-mutator consumers.
  */
 
 import { ApiError, apiFetchEnvelope } from "@/lib/api-client";

@@ -126,8 +126,10 @@ async def test_partial_feed_purchase_provenance_is_a_clean_conflict_not_an_asser
 async def test_create_notes_over_255_chars_should_not_500(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     resp = await client.post("/api/finance/new", json=txn_payload(notes="x" * 256), headers=owner)
-    # Expected: 201 (stored) or 422 (rejected) — never a 500 crash.
-    assert resp.status_code in (201, 422), resp.text
+    # TransactionIn.notes is capped at the column width (max_length=255), so
+    # the settled contract is exactly 422 — never a 500 crash (2026-10-01
+    # audit, 10-3).
+    assert resp.status_code == 422, resp.text
 
 
 async def test_create_notes_10k_chars_should_not_500(client: httpx.AsyncClient) -> None:
@@ -135,20 +137,20 @@ async def test_create_notes_10k_chars_should_not_500(client: httpx.AsyncClient) 
     resp = await client.post(
         "/api/finance/new", json=txn_payload(notes="y" * 10_000), headers=owner
     )
-    assert resp.status_code in (201, 422), resp.text
+    # Same settled contract as above: schema cap → 422 (2026-10-01 audit, 10-3).
+    assert resp.status_code == 422, resp.text
 
 
 async def test_long_notes_followup_list_still_works(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     resp = await client.post("/api/finance/new", json=txn_payload(notes="z" * 300), headers=owner)
-    assert resp.status_code in (201, 422), resp.text
-    # A failed commit must not poison the session/app for later requests.
+    # Settled contract: the schema cap rejects the write with 422 before any
+    # row exists (2026-10-01 audit, 10-3).
+    assert resp.status_code == 422, resp.text
+    # A rejected create must not poison the session/app for later requests.
     lst = await client.get("/api/finance", headers=owner)
     assert lst.status_code == 200, lst.text
-    if resp.status_code == 201:
-        assert len(lst.json()["transactions"]) == 1
-    else:
-        assert lst.json()["transactions"] == []
+    assert lst.json()["transactions"] == []
 
 
 async def test_related_animal_id_above_int32_should_not_500(client: httpx.AsyncClient) -> None:

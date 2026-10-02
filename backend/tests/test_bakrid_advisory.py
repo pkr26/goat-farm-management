@@ -143,4 +143,55 @@ async def test_bakrid_hold_advisory_follows_the_animals_view_gate(
     assert dashboard.json()["advisory"] is None
 
 
+async def test_bakrid_window_clamps_month_arithmetic_on_the_finish_edge(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """2026-10-01 audit, 03-5: the window-start edge clamps month arithmetic
+    to month end (utils.add_months), but the finish edge used PostgreSQL
+    interval month-addition, which overflows the day FORWARD (2033-05-31 +
+    9 months → 2034-03-03 instead of the clamped 2034-02-28). A month-end
+    born male whose clamped finish lands exactly on the festival day was
+    dropped from the advisory by the unclamped twin."""
+    from app.db import get_sessionmaker
+    from app.models import Animal, Farm
+    from app.services.dashboard import bakrid_hold_advisory
+
+    headers = await owner_with_farm(client)
+    farm_id = int(headers["X-Farm-Id"])
+
+    frozen = date(2034, 1, 15)  # next Bakrid: 2034-02-28 (embedded calendar)
+
+    def frozen_today(timezone_name: str) -> date:
+        assert timezone_name == "Asia/Kolkata"
+        return frozen
+
+    monkeypatch.setattr("app.services.dashboard.today", frozen_today)
+
+    async with get_sessionmaker()() as db:
+        farm = await db.get(Farm, farm_id)
+        assert farm is not None
+        # Direct row: the animals API's real-clock future-date guard would
+        # refuse a 2033 birth date; the advisory math is what is under test.
+        db.add(
+            Animal(
+                farm_id=farm_id,
+                tag_number="BK-CLAMP",
+                sex="M",
+                status="ACTIVE",
+                source="PURCHASED",
+                current_bucket="MALE_KIDS",
+                date_of_birth=date(2033, 5, 31),
+            )
+        )
+        await db.commit()
+        advisory = await bakrid_hold_advisory(db, farm)
+
+    # Window [2033-12-28, 2034-02-28]: clamped finish 2034-02-28 is inside;
+    # the unclamped make_interval twin computed 2034-03-03 and dropped him.
+    assert advisory == {
+        "key": "bakrid_hold",
+        "args": {"count": 1, "festival_date": "2034-02-28"},
+    }
+
+
 EOF_MARKER_NOT_USED = None

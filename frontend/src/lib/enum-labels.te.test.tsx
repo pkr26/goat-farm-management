@@ -37,6 +37,10 @@ describe("enumLabel — Telugu map", () => {
     expect(enumLabel("outcome", "CONFIRMED_PREGNANT", "te")).toBe("గర్భం ధృవీకరించబడింది");
     expect(enumLabel("mortalityCause", "PNEUMONIA", "te")).toBe("న్యుమోనియా");
     expect(enumLabel("lossCause", "DISEASE", "te")).toBe("వ్యాధి");
+    // The duty lifecycle carries a full Telugu map (2026-10-01 audit, 06-1).
+    expect(enumLabel("taskStatus", "SKIPPED", "te")).toBe("వదిలివేయబడింది");
+    expect(enumLabel("taskStatus", "VERIFIED", "te")).toBe("ధృవీకరించబడింది");
+    expect(enumLabel("status", "INACTIVE", "te")).toBe("క్రియారహితం");
     // Unknown values still never render as SCREAMING_SNAKE.
     expect(enumLabel("taskCategory", "SOME_NEW_CODE", "te")).toBe("Some New Code");
   });

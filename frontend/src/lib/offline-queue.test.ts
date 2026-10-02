@@ -643,3 +643,156 @@ describe("failure classification and drain boundaries", () => {
     expect(readOfflineQueue(storage())).toEqual([]);
   });
 });
+
+/** 2026-10-01 audit (track 07): the drain's mid-drain wipe guard (07-H),
+ *  5xx classification shared with the immediate attempt (07-M2), the
+ *  replay-allowlist re-validation and persisted-header scrub (07-M4), and
+ *  the scope-filtered badge count (07-L3). */
+describe("2026-10-01 audit hardening", () => {
+  beforeEach(() => {
+    clearOfflineQueueDrainBackoff();
+  });
+
+  it("classifies a 5xx ApiError as queueable — the same verdict the drain gives (07-M2)", () => {
+    // ApiError never sets .name (it stays "Error"), so before the fix these
+    // fell through the name arm and answered false while the drain kept the
+    // identical failure for retry.
+    const answer = (status: number) => Object.assign(new Error("x"), { status });
+    expect(isOfflineQueueableFailure(answer(500))).toBe(true);
+    expect(isOfflineQueueableFailure(answer(502))).toBe(true);
+    expect(isOfflineQueueableFailure(answer(503))).toBe(true);
+    expect(isOfflineQueueableFailure(answer(504))).toBe(true);
+    // The 4xx boundary is unchanged: those are answers, not outages.
+    expect(isOfflineQueueableFailure(answer(400))).toBe(false);
+    expect(isOfflineQueueableFailure(answer(499))).toBe(false);
+  });
+
+  it("strips non-allowlisted headers before anything is persisted (07-M4)", () => {
+    expect(
+      enqueueOfflineMutation(
+        "/api/tasks/1/complete",
+        {
+          method: "POST",
+          headers: {
+            "Idempotency-Key": "key-1",
+            // Header names are case-insensitive: a lowercase smuggle must
+            // not survive either.
+            authorization: "Bearer secret-token",
+            Authorization: "Bearer other-token",
+            Cookie: "refresh=legacy-family",
+            "X-Farm-Id": "3",
+            "content-type": "application/json",
+          },
+        },
+        SCOPES,
+      ),
+    ).toBe(true);
+    const record = lastRecord();
+    expect(Object.keys(record.headers).sort()).toEqual([
+      "Idempotency-Key",
+      "content-type",
+    ]);
+  });
+
+  it("strips credential headers again at the replay edge, even for records an older deploy persisted (07-M4)", async () => {
+    storage().setItem(
+      OFFLINE_QUEUE_STORAGE_KEY,
+      JSON.stringify([
+        {
+          v: 1,
+          id: "smuggled",
+          path: "/api/tasks/5/complete",
+          method: "POST",
+          body: null,
+          headers: {
+            Authorization: "Bearer stale-token",
+            Cookie: "session=leaked",
+            "Idempotency-Key": "k",
+          },
+          queuedAt: Date.now(),
+          actorScope: "7",
+          farmScope: "3",
+        },
+      ]),
+    );
+    const fetchImpl = vi.fn().mockResolvedValue({});
+    const outcome = await drainOfflineQueue(SCOPES, fetchImpl);
+    expect(outcome).toEqual({ replayed: 1, remaining: 0, rejected: 0 });
+    const sentHeaders = fetchImpl.mock.calls[0]?.[1]?.headers as Record<string, string>;
+    expect(sentHeaders.Authorization).toBeUndefined();
+    expect(sentHeaders.Cookie).toBeUndefined();
+    expect(sentHeaders["Idempotency-Key"]).toBe("k");
+  });
+
+  it("drops a well-formed record whose path left the replay allowlist, counted not silent (07-M4)", async () => {
+    for (const [id, path, method] of [
+      ["foreign-route", "/api/finance/new", "POST"],
+      ["wrong-verb", "/api/tasks/1/complete", "GET"],
+    ] as const) {
+      storage().setItem(
+        OFFLINE_QUEUE_STORAGE_KEY,
+        JSON.stringify([
+          {
+            v: 1,
+            id,
+            path,
+            method,
+            body: null,
+            headers: {},
+            queuedAt: Date.now(),
+            actorScope: "7",
+            farmScope: "3",
+          },
+        ]),
+      );
+      const fetchImpl = vi.fn().mockResolvedValue({});
+      const outcome = await drainOfflineQueue(SCOPES, fetchImpl);
+      expect(fetchImpl, id).not.toHaveBeenCalled();
+      expect(outcome, id).toEqual({ replayed: 0, remaining: 0, rejected: 1 });
+      expect(offlineQueueDepth(), id).toBe(0);
+    }
+  });
+
+  it("re-persists a kept record when storage is wiped mid-drain under the same scope (07-H)", async () => {
+    // The audit's exact race: the replay 401s, a session-death teardown (or
+    // any other wipe) clears storage while the drain still holds the record
+    // it just decided to KEEP — the old write-back then persisted the empty
+    // store and the field write vanished with remaining: 0.
+    enqueueOfflineMutation("/api/tasks/1/complete", { method: "POST" }, SCOPES);
+    const fetchImpl = vi.fn().mockImplementation(async () => {
+      wipeOfflineQueue();
+      throw Object.assign(new Error("unauthorized"), { status: 401 });
+    });
+    const outcome = await drainOfflineQueue(SCOPES, fetchImpl);
+    expect(outcome).toEqual({ replayed: 0, remaining: 1, rejected: 0 });
+    expect(offlineQueueDepth()).toBe(1);
+  });
+
+  it("does not resurrect a foreign actor's records from a mid-drain wipe (07-H)", async () => {
+    enqueueOfflineMutation("/api/tasks/1/complete", { method: "POST" }, SCOPES);
+    enqueueOfflineMutation("/api/tasks/2/complete", { method: "POST" }, OTHER);
+    const fetchImpl = vi.fn().mockImplementation(async () => {
+      wipeOfflineQueue();
+      return {};
+    });
+    const outcome = await drainOfflineQueue(SCOPES, fetchImpl);
+    expect(outcome).toEqual({ replayed: 1, remaining: 0, rejected: 0 });
+    // The wipe's hygiene decision stands for records this drain does not own.
+    expect(offlineQueueDepth()).toBe(0);
+  });
+
+  it("counts only the records the current session's drain would replay (07-L3)", () => {
+    enqueueOfflineMutation("/api/tasks/1/complete", { method: "POST" }, SCOPES);
+    enqueueOfflineMutation("/api/tasks/2/complete", { method: "POST" }, SCOPES);
+    enqueueOfflineMutation("/api/tasks/3/complete", { method: "POST" }, OTHER);
+    enqueueOfflineMutation("/api/tasks/4/complete", { method: "POST" }, {
+      actorScope: "7",
+      farmScope: "9",
+    });
+    // Unscoped stays the whole-store total.
+    expect(offlineQueueDepth()).toBe(4);
+    expect(offlineQueueDepth(SCOPES)).toBe(2);
+    expect(offlineQueueDepth(OTHER)).toBe(1);
+    expect(offlineQueueDepth({ actorScope: "7", farmScope: "9" })).toBe(1);
+  });
+});

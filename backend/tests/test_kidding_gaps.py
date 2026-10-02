@@ -198,3 +198,100 @@ async def test_second_kidding_on_the_same_pregnancy_conflicts(client: httpx.Asyn
         "/api/kidding", json=_kidding_body(br["id"], kidding_date.isoformat()), headers=owner
     )
     assert again.status_code == 409, again.text
+
+
+async def test_kidding_after_history_override_into_breeding(
+    client: httpx.AsyncClient,
+) -> None:
+    """(2026-10-01 audit, 02-1) The override guard deliberately lets an owner
+    park a pregnant doe in BREEDING; the lifecycle graph had no (BREEDING,
+    RECOVERY) kidding edge, so every kidding attempt for her 409'd and the
+    only exits were a second override or a fabricated abortion. Kidding must
+    work from there — while POST /move still cannot forge the edge itself."""
+    owner = await owner_with_farm(client, email="override-bred-doe@farm.in")
+    doe, br = await _confirmed_pregnancy(client, owner, tag="OVR", bred_days_ago=150)
+
+    # The owner history-corrects the pregnant doe back into BREEDING: the
+    # override guard explicitly permits the reproductive buckets.
+    override = await client.post(
+        f"/api/animals/{doe['id']}/move",
+        json={
+            "to_bucket": "BREEDING",
+            "reason": "History correction: doe re-entered the breeding pen",
+            "history_override": True,
+        },
+        headers=owner,
+    )
+    assert override.status_code == 200, override.text
+    assert (await client.get(f"/api/animals/{doe['id']}", headers=owner)).json()["animal"][
+        "current_bucket"
+    ] == "BREEDING"
+
+    # The workflow-only invariant: neither a manual move nor an override can
+    # walk a pregnant BREEDING doe into RECOVERY — only the kidding workflow
+    # may take that edge.
+    manual = await client.post(
+        f"/api/animals/{doe['id']}/move",
+        json={"to_bucket": "RECOVERY", "reason": "forged kidding"},
+        headers=owner,
+    )
+    assert manual.status_code == 409, manual.text
+    override_forge = await client.post(
+        f"/api/animals/{doe['id']}/move",
+        json={
+            "to_bucket": "RECOVERY",
+            "reason": "forged kidding",
+            "history_override": True,
+        },
+        headers=owner,
+    )
+    assert override_forge.status_code == 409, override_forge.text
+
+    kidding_date = today() - timedelta(days=2)
+    kidded = await client.post(
+        "/api/kidding",
+        json=_kidding_body(br["id"], kidding_date.isoformat()),
+        headers=owner,
+    )
+    assert kidded.status_code == 201, kidded.text
+    refreshed = (await client.get(f"/api/animals/{doe['id']}", headers=owner)).json()["animal"]
+    assert refreshed["current_bucket"] == "RECOVERY", refreshed["current_bucket"]
+    async with get_sessionmaker()() as db:
+        kids = (
+            (
+                await db.execute(
+                    select(Animal).where(Animal.dam_id == doe["id"], Animal.source == "BORN")
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert len(kids) == 2, f"expected the litter on the ground, got {len(kids)}"
+
+
+async def test_gestation_window_violation_is_a_422_input_shape_error(
+    client: httpx.AsyncClient,
+) -> None:
+    """(2026-10-01 audit, 02-5) An absurd kidding date (gestation outside the
+    species window) is exactly as much input-shape validation as an over-cap
+    litter: 422, not a 409 "lifecycle conflict" for a request no raced state
+    refused."""
+    owner = await owner_with_farm(client, email="gestation-shape@farm.in")
+    _doe, br = await _confirmed_pregnancy(client, owner, tag="GST", bred_days_ago=150)
+
+    # Bred 150 days ago, kidding dated 60 days ago → a 90-day gestation,
+    # below the accepted window's floor.
+    absurd = await client.post(
+        "/api/kidding",
+        json=_kidding_body(br["id"], (today() - timedelta(days=60)).isoformat()),
+        headers=owner,
+    )
+    assert absurd.status_code == 422, (absurd.status_code, absurd.text[:200])
+    assert "gestation" in absurd.json()["detail"], absurd.json()["detail"]
+
+    # The sibling input-shape violation keeps its own 422 so the pair stays
+    # normalized: a litter above the species cap.
+    over_cap = _kidding_body(br["id"], (today() - timedelta(days=2)).isoformat())
+    over_cap["kids"] = [{"sex": "F", "status": "ALIVE", "birth_weight": 2.5} for _ in range(5)]
+    cap_resp = await client.post("/api/kidding", json=over_cap, headers=owner)
+    assert cap_resp.status_code == 422, (cap_resp.status_code, cap_resp.text[:200])

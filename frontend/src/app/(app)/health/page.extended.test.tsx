@@ -315,7 +315,9 @@ describe("HealthPage", () => {
     );
     expect(within(row).getByText("PPR")).toBeInTheDocument();
     expect(within(row).getByText("1 ml")).toBeInTheDocument();
-    expect(within(row).getByText("SC")).toBeInTheDocument();
+    // The route column resolves through the enum-label family, not the raw
+    // code (2026-10-01 audit, 05-2).
+    expect(within(row).getByText("SC (subcutaneous)")).toBeInTheDocument();
     expect(within(row).getByText("₹1,250.50")).toBeInTheDocument();
     expect(within(row).getByText("15 Jul 2027")).toBeInTheDocument();
   });
@@ -1326,7 +1328,9 @@ describe("HealthPage", () => {
     const typeSelect = () => within(dialog).getByRole("combobox", { name: "Type" });
     const routeSelect = () => within(dialog).getByRole("combobox", { name: "Route" });
     await pickOption(user, typeSelect(), "Deworming");
-    await pickOption(user, routeSelect(), "IM");
+    // Route options are labeled through the enum family (2026-10-01 audit,
+    // 05-2); the wire value stays the code.
+    await pickOption(user, routeSelect(), "IM (intramuscular)");
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
 
     await waitFor(() => expect(postBody).not.toBeNull());

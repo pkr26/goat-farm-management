@@ -1085,7 +1085,12 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="flex items-center gap-2">
-                    <StatusBadge status={txn.type} />
+                    {/* Localized children — the badge's humanize fallback is
+                     * English-only, and the type filters ten lines up already
+                     * resolve through the txType family (2026-10-01 audit, 06-2). */}
+                    <StatusBadge status={txn.type}>
+                      {enumLabel("txType", txn.type, language)}
+                    </StatusBadge>
                     {txn.voided_at && <Badge variant="destructive">{t("finance.void")}</Badge>}
                   </span>
                   <span
@@ -1181,7 +1186,11 @@ function FinancePageContent({ perms }: { perms: PermissionsState }) {
                 <TableRow key={txn.id} className={cn(txn.voided_at && "bg-muted/40 opacity-70")}>
                   <TableCell>{formatDate(txn.date)}</TableCell>
                   <TableCell>
-                    <StatusBadge status={txn.type} />
+                    {/* Localized children — same txType family as the mobile
+                     * card and the type filters (2026-10-01 audit, 06-2). */}
+                    <StatusBadge status={txn.type}>
+                      {enumLabel("txType", txn.type, language)}
+                    </StatusBadge>
                     {txn.voided_at && (
                       <Badge variant="destructive" className="ml-2">{t("finance.void")}</Badge>
                     )}

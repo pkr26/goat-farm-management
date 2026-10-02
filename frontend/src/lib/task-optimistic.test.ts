@@ -102,4 +102,48 @@ describe("applyOptimisticTaskPatch", () => {
     expect(client.getQueryData<typeof other>(otherKey)!.data.today[0].status).toBe("PENDING");
     rollback();
   });
+
+  it("one duty's rollback does not clobber another's optimistic strike-through (2026-10-01 audit, 07-L1)", () => {
+    // Duties 7 and 8 can both be in flight (busy disables only one card).
+    // Before the row-scoped rollback, duty 7's failure restored its whole-
+    // board snapshot — taken BEFORE duty 8's patch — and un-struck duty 8
+    // while its write was still queued.
+    const client = new QueryClient();
+    const key = ["/api/tasks", { active_limit: 200 }];
+    client.setQueryData(key, board([task({ id: 7 }), task({ id: 8 })]));
+
+    const rollback7 = applyOptimisticTaskPatch(client, 7, { status: "DONE" });
+    const rollback8Holder = applyOptimisticTaskPatch(client, 8, { status: "SKIPPED" });
+    expect(client.getQueryData<ReturnType<typeof board>>(key)!.data.today[0].status).toBe("DONE");
+    expect(client.getQueryData<ReturnType<typeof board>>(key)!.data.today[1].status).toBe("SKIPPED");
+
+    // Duty 7's write fails first: only ITS row goes back to PENDING.
+    rollback7();
+    const after7 = client.getQueryData<ReturnType<typeof board>>(key)!.data.today;
+    expect(after7[0].status).toBe("PENDING");
+    expect(after7[1].status).toBe("SKIPPED");
+
+    // Duty 8 later resolves the same way; both rows are consistent.
+    rollback8Holder();
+    const after8 = client.getQueryData<ReturnType<typeof board>>(key)!.data.today;
+    expect(after8.map((t) => t.status)).toEqual(["PENDING", "PENDING"]);
+  });
+
+  it("keeps server truth that replaced the patched row between patch and rollback", () => {
+    // A background refetch can reconcile the board while the mutation is
+    // still undecided; its snapshot outranks the optimistic one.
+    const client = new QueryClient();
+    const key = ["/api/tasks", { active_limit: 50 }];
+    client.setQueryData(key, board([task({ id: 7, title: "Field title" })]));
+
+    const rollback = applyOptimisticTaskPatch(client, 7, { status: "DONE" });
+    // The refetch lands with the server's (still-PENDING) state and a
+    // server-authored title change.
+    client.setQueryData(key, board([task({ id: 7, title: "Server title" })]));
+
+    rollback();
+    const row = client.getQueryData<ReturnType<typeof board>>(key)!.data.today[0];
+    expect(row.title).toBe("Server title");
+    expect(row.status).toBe("PENDING");
+  });
 });

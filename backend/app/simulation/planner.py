@@ -348,8 +348,24 @@ def _marginal_kids_per_doe(
         daughter_mass = daughters.pop(month_index, 0.0)
         if daughter_mass > 0.0:
             ready[month_index] = ready.get(month_index, 0.0) + daughter_mass
-        if month_index in ready:
-            dam_mass = ready.pop(month_index)
+        # Pop this month's masses BEFORE the sweep: a popped dam's month risk
+        # is charged at the pop (below), and the fragments she splits into
+        # re-enter the pools only AFTER the sweep, so no month is ever charged
+        # twice (2026-10-01 audit, 08-L9 — the literal "multiply at the pop"
+        # patch on the old order double-charged every service month, because
+        # the end-of-month sweep also covered the just-re-inserted fragments).
+        ready_pop = ready.pop(month_index, None)
+        kidding_pop = kidding.pop(month_index, None)
+        for pool in (ready, kidding, daughters):
+            for key in pool:
+                pool[key] *= _attrition(month_index)
+        if ready_pop is not None:
+            # Attrition BEFORE the conception split (2026-10-01 audit, 08-L9):
+            # a dam that dies in her service month no longer conceives; the
+            # failed remainder is re-serviced next month carrying the same
+            # once-per-month risk. Total per-month risk is unchanged — only
+            # its ordering relative to the conception draw moves.
+            dam_mass = ready_pop * _attrition(month_index)
             conceived = dam_mass * r.conception_rate
             kidding[month_index + r.gestation_months] = (
                 kidding.get(month_index + r.gestation_months, 0.0) + conceived
@@ -357,22 +373,29 @@ def _marginal_kids_per_doe(
             remaining = dam_mass - conceived
             if remaining > 1e-12:
                 ready[month_index + 1] = ready.get(month_index + 1, 0.0) + remaining
-        if month_index in kidding:
-            dam_mass = kidding.pop(month_index)
+        if kidding_pop is not None:
+            # Kids are born before any dam loss later in the kidding month, so
+            # the birth record keeps the pre-attrition dam mass; the dam's own
+            # continuation (and her month risk) is the attrited mass below.
+            dam_mass = kidding_pop
             births_by_month[month_index] = dam_mass
             # Meat-mode cycle: kidding → lactation → open period → service.
             next_service = month_index + r.lactation_months + r.months_open_before_breeding
-            ready[next_service] = ready.get(next_service, 0.0) + dam_mass
+            ready[next_service] = ready.get(next_service, 0.0) + dam_mass * _attrition(month_index)
             # Her retained daughters join the service pool at breeding age.
+            # The trailing _attrition factor preserves the old sweep's
+            # creation-month charge for this entry exactly (the insert now
+            # lands after the sweep), so only the conception ordering moved.
             graduation = month_index + afb
             if graduation <= last_month:
                 daughters[graduation] = (
                     daughters.get(graduation, 0.0)
-                    + dam_mass * female_per_birth * survival_to_afb * herd.female_retention_fraction
+                    + dam_mass
+                    * female_per_birth
+                    * survival_to_afb
+                    * herd.female_retention_fraction
+                    * _attrition(month_index)
                 )
-        for pool in (ready, kidding, daughters):
-            for key in pool:
-                pool[key] *= _attrition(month_index)
 
     female_share = (
         r.sex_ratio_female if target.animal_class.startswith("female") else 1.0 - r.sex_ratio_female

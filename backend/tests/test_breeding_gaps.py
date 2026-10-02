@@ -13,10 +13,13 @@ fence boundaries so nobody "fixes" the fence too tight or too loose later:
   a conscious decision instead of a silent regression.
 """
 
+from datetime import timedelta
+
 import httpx
 
 from app.db import get_sessionmaker
 from app.models import Animal
+from app.utils import today
 
 from .conftest import owner_with_farm
 from .test_breeding_extended import make_buck, make_doe, post_breeding
@@ -85,3 +88,49 @@ async def test_purchased_unknown_ancestry_mating_is_fail_open_by_design(
     assert resp.status_code == 201, (
         f"no-ancestry mating refused — fence silently tightened to fail-closed: {resp.text[:200]}"
     )
+
+
+async def test_service_predating_purchase_is_422_not_a_lifecycle_conflict(
+    client: httpx.AsyncClient,
+) -> None:
+    """(2026-10-01 audit, 02-6) "Breeding date cannot predate its recorded
+    purchase date" is a deterministic chronology fact about the request —
+    422 everywhere else (sale dates, health events, weights). The blanket
+    ValueError catch in POST /api/breeding folded it into the 409
+    lifecycle-conflict bucket together with genuine raced states."""
+    owner = await owner_with_farm(client, email="purchase-chronology@farm.in")
+    doe = await make_doe(client, owner, tag="CHRONO-P-F")
+    buck = await make_buck(client, owner, tag="CHRONO-P-M")
+
+    # The API's create guards refuse a weight dated before the purchase, so
+    # the acquisition fact is attached after the fact like a real
+    # purchase-record correction would leave behind.
+    async with get_sessionmaker()() as db:
+        row = await db.get(Animal, doe["id"])
+        assert row is not None
+        row.purchase_date = today() - timedelta(days=30)
+        await db.commit()
+
+    # A service dated 45 days ago: the doe is otherwise fully eligible on
+    # that date, but the service predates her recorded acquisition.
+    resp = await post_breeding(
+        client,
+        owner,
+        doe["id"],
+        buck["id"],
+        breeding_date=(today() - timedelta(days=45)).isoformat(),
+    )
+    assert resp.status_code == 422, (resp.status_code, resp.text[:200])
+    assert "cannot predate its recorded purchase date" in resp.json()["detail"], resp.json()[
+        "detail"
+    ]
+
+    # The same request after the purchase date is a normal, legal service.
+    legal = await post_breeding(
+        client,
+        owner,
+        doe["id"],
+        buck["id"],
+        breeding_date=(today() - timedelta(days=10)).isoformat(),
+    )
+    assert legal.status_code == 201, legal.text

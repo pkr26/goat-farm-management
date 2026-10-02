@@ -1894,10 +1894,12 @@ function ProfileBody({
             </Detail>
             <Detail label={t("animalDetail.detail.birthType")}>{a.birth_type ? enumLabel("birthType", a.birth_type, language) : "—"}</Detail>
             <Detail label={t("animalDetail.detail.birthWeight")}>
-              {a.birth_weight != null ? `${a.birth_weight} kg` : "—"}
+              {a.birth_weight != null ? t("common.kg", { value: a.birth_weight }) : "—"}
             </Detail>
             <Detail label={t("animalDetail.detail.latestWeight")}>
-              {a.latest_weight_kg != null ? `${a.latest_weight_kg.toFixed(1)} kg` : "—"}
+              {a.latest_weight_kg != null
+                ? t("common.kg", { value: a.latest_weight_kg.toFixed(1) })
+                : "—"}
             </Detail>
             <Detail label={t("animalDetail.detail.source")}>{enumLabel("source", a.source, language)}</Detail>
             {a.source === "PURCHASED" && (
@@ -1914,7 +1916,9 @@ function ProfileBody({
                   <>
                     <Detail label={t("animalDetail.detail.salePrice")}>{formatMoney(a.sale_price)}</Detail>
                     {a.sale_weight_kg != null && (
-                      <Detail label={t("animalDetail.detail.saleWeight")}>{a.sale_weight_kg} kg</Detail>
+                      <Detail label={t("animalDetail.detail.saleWeight")}>
+                        {t("common.kg", { value: a.sale_weight_kg })}
+                      </Detail>
                     )}
                     {/* Buyer identity is finance-gated on the API; the "—"
                         fallback covers both "none recorded" and "withheld". */}
@@ -2017,7 +2021,9 @@ function ProfileBody({
                 {profile.weights.map((w) => (
                   <TableRow key={w.id}>
                     <TableCell>{formatDate(w.date)}</TableCell>
-                    <TableCell className="text-right">{w.weight_kg.toFixed(1)} kg</TableCell>
+                    <TableCell className="text-right">
+                      {t("common.kg", { value: w.weight_kg.toFixed(1) })}
+                    </TableCell>
                     <TableCell className="text-right">{w.bcs ?? "—"}</TableCell>
                     <TableCell>{w.notes ?? ""}</TableCell>
                   </TableRow>

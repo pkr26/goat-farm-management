@@ -180,4 +180,33 @@ describe("AnimalProfilePage record-weight dialog — Telugu", () => {
     ).toBe("ఈ ఫారమ్ జాతికి బరువు గరిష్ఠంగా 150 కిలోలు ఉండాలి");
     expect(translate("te", "animalDetail.detail.ageMonths", { count: 14 })).toBe("14 నెలలు");
   });
+
+  it("renders every weight through the localized kg unit token (2026-10-01 audit, 05-3)", async () => {
+    // The birth/latest/detail and weights-table suffixes were hardcoded
+    // "kg"; they must resolve through the common.kg catalog token so the
+    // unit localizes with the rest of the sentence.
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "te");
+    server.use(
+      http.get("/api/animals/1", () =>
+        HttpResponse.json({
+          ...PROFILE,
+          weights: [{ id: 11, date: "2026-07-01", weight_kg: 28.44, bcs: 3, notes: null }],
+          weights_total: 1,
+        }),
+      ),
+    );
+    renderWithProviders(
+      <LanguageProvider>
+        <AnimalProfilePage />
+      </LanguageProvider>,
+    );
+
+    await screen.findByText("వివరాలు");
+    // Birth weight (2.4) in the Details card and the history row's 28.4
+    // both carry the Telugu unit.
+    expect((await screen.findAllByText("2.4 కిలో")).length).toBeGreaterThan(0);
+    expect(screen.getByText("28.4 కిలో")).toBeInTheDocument();
+    expect(screen.queryByText(/2\.4 kg/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/28\.4 kg/)).not.toBeInTheDocument();
+  });
 });

@@ -1031,7 +1031,11 @@ function InsurancePageContent({ perms }: { perms: PermissionsState }) {
           </div>
           <PaginationControls
             total={payload.total}
-            limit={INSURANCE_PAGE_LIMIT}
+            // The echoed limit, not the request constant — every sibling pager
+            // (finance/purchases/tasks/feeding) passes payload.limit so the
+            // math tracks whatever the server actually applied
+            // (2026-10-01 audit, 06-7).
+            limit={payload.limit}
             offset={offset}
             onOffsetChange={setOffset}
             label={t("insurance.paginationLabel")}

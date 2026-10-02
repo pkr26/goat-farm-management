@@ -257,7 +257,12 @@ class MonteCarloResult(BaseModel):
     npv_p95: float
     prob_npv_negative: float
     prob_liquidity_shortfall: float
-    prob_dscr_below_one: float
+    # Share of runs whose weakest repaying year covered debt service below
+    # 1.0; None when NO run had a measurable DSCR (no principal-repaying year
+    # inside the horizon — long moratorium, short horizon, or no debt), the
+    # same None-means-unmeasurable contract as ViabilityMetrics.min_dscr
+    # (2026-10-01 audit, 08-H1).
+    prob_dscr_below_one: float | None
     minimum_cash_p5: float
     minimum_cash_p50: float
     ending_cash_p5: float

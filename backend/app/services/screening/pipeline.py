@@ -61,7 +61,7 @@ from .detect import (
     DetectionParseError,
     parse_detection_response,
 )
-from .gate import GATE_PROMPT_VERSION
+from .gate import GATE_PROMPT_VERSION, GateObservation
 from .images import (
     CropError,
     CroppedImage,
@@ -801,14 +801,27 @@ async def _detect_with_fallback(
     every provider failed — the caller then screens the whole photo."""
     chain = [primary, *rotation.fallbacks_for(primary)]
     failures: list[str] = []
-    last_error: Exception | None = None
     for provider in chain:
         try:
             answer = await provider.complete(jpeg, DETECT_SYSTEM_PROMPT)
             boxes = parse_detection_response(answer.text, max_crops)
         except (ProviderError, DetectionParseError) as exc:
             failures.append(provider.name)
-            last_error = exc
+            # One provider call = one run row, whatever its outcome: a failed
+            # fallback attempt was paid and must count in the spend ledger and
+            # the daily budget here, not only the attempt that finally served
+            # (2026-10-01 audit, 02-3).
+            db.add(
+                _record_run(
+                    image,
+                    stage=ScreeningStage.DETECT.value,
+                    provider=provider.name,
+                    model=provider.model,
+                    prompt_version=DETECT_PROMPT_VERSION,
+                    run_status=ScreeningRunStatus.ERROR.value,
+                    error=_tenant_safe_error(exc),
+                )
+            )
             continue
         db.add(
             _record_run(
@@ -826,23 +839,9 @@ async def _detect_with_fallback(
             )
         )
         return boxes
-    if last_error is None:
-        # ``chain`` always contains primary, so normal execution either
-        # returned above or captured a provider/contract error. Keep a
-        # corrupt/custom provider implementation from turning that invariant
-        # into an AssertionError when Python runs with ``-O``.
-        last_error = ProviderError("detection provider chain ended without a result")
-    db.add(
-        _record_run(
-            image,
-            stage=ScreeningStage.DETECT.value,
-            provider=primary.name,
-            model=primary.model,
-            prompt_version=DETECT_PROMPT_VERSION,
-            run_status=ScreeningRunStatus.ERROR.value,
-            error=_tenant_safe_error(last_error),
-        )
-    )
+    # ``chain`` always contains primary, and every entry either returned
+    # above or recorded its own ERROR row, so a fully-failed chain has
+    # already left one run row per paid attempt.
     return None
 
 
@@ -863,23 +862,35 @@ async def _run_cascade(
     """
     primary = rotation.primary_for(business_today)
     crop_id = crop.id if crop is not None else None
-    try:
-        outcome: GateOutcome = await rotation.gate_with_fallback(primary, jpeg)
-    except GateExhaustedError as exc:
+
+    def _record_failed_gate_attempt(name: str) -> None:
+        # One provider call = one run row, whatever its outcome: each fallback
+        # attempt that failed before another provider served the gate was paid
+        # and must count in the spend ledger and the daily budget individually,
+        # never only the attempt that finally served (2026-10-01 audit, 02-3).
+        failed = rotation.provider_named(name)
         db.add(
             _record_run(
                 image,
                 stage=ScreeningStage.GATE.value,
-                provider=primary.name,
-                model=primary.model,
+                provider=name,
+                model=failed.model if failed is not None else "unknown",
                 prompt_version=GATE_PROMPT_VERSION,
                 run_status=ScreeningRunStatus.ERROR.value,
-                error=_tenant_safe_error(exc),
+                error=_reason_text(ScreeningErrorReason.PROVIDER_ERROR),
                 crop_id=crop_id,
             )
         )
+
+    try:
+        outcome: GateOutcome = await rotation.gate_with_fallback(primary, jpeg)
+    except GateExhaustedError as exc:
+        for name in exc.failed_providers or (primary.name,):
+            _record_failed_gate_attempt(name)
         logger.warning("gate run failed for image %s: %s", image.id, exc)
         return ScreeningImageStatus.ERROR.value
+    for name in outcome.failed_providers:
+        _record_failed_gate_attempt(name)
     # The gate chain is the longest single provider segment (every rotation
     # entry at its own timeout); renew the processing lease before the
     # specialist/cross-check stages continue without an image-row write.
@@ -928,8 +939,20 @@ async def _run_cascade(
     # ---- specialists on the provider that served the gate ---------------
     serving = rotation.provider_named(gate_result.provider)
     specialist_conditions: list[tuple[int, str | None, SpecialistCondition]] = []
+    # Gate observations grouped by the specialist kind their region maps to:
+    # a failed specialist call falls back to exactly its own kind's
+    # observations, so a partial outage neither drops a missed region's
+    # finding nor overrides a specialist that did answer (2026-10-01
+    # audit, 02-2).
+    observations_by_kind: dict[SpecialistKind, list[GateObservation]] = {}
+    for observation in observations or []:
+        observations_by_kind.setdefault(specialist_for_region(observation.region), []).append(
+            observation
+        )
+    gate_observations_lost: list[GateObservation] = []
     for kind, region in kinds:
         if serving is None:
+            gate_observations_lost.extend(observations_by_kind.get(kind, []))
             continue
         try:
             specialist: SpecialistCallResult = await run_specialist(serving, jpeg, kind)
@@ -948,6 +971,10 @@ async def _run_cascade(
             )
             logger.warning("specialist %s failed for image %s: %s", kind.value, image.id, exc)
             summary.notes.append(f"specialist {kind.value} failed for image {image.id}")
+            # The crop aggregates to FLAGGED, which is terminal for retries,
+            # so this is the only chance the missed region's gate observation
+            # has of reaching the vet queue.
+            gate_observations_lost.extend(observations_by_kind.get(kind, []))
             continue
         specialist_run = _record_run(
             image,
@@ -964,7 +991,7 @@ async def _run_cascade(
         for condition in specialist.response.conditions:
             specialist_conditions.append((specialist_run.id, region, condition))
 
-    if specialist_conditions:
+    if specialist_conditions or gate_observations_lost:
         for run_id, region, condition in specialist_conditions:
             db.add(
                 _add_finding(
@@ -975,6 +1002,20 @@ async def _run_cascade(
                     confidence=condition.confidence,
                     severity=condition.severity,
                     note=condition.note,
+                    crop_id=crop_id,
+                )
+            )
+        # Observations whose specialist never answered stay in the queue,
+        # attributed to the gate run that originally saw them.
+        for observation in gate_observations_lost:
+            db.add(
+                _add_finding(
+                    image,
+                    gate_run.id,
+                    region=observation.region,
+                    label=observation.label,
+                    confidence=observation.confidence,
+                    note=observation.note,
                     crop_id=crop_id,
                 )
             )

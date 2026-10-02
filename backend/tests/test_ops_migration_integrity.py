@@ -44,8 +44,10 @@ HEAD = (
     # screening join indexes -> screening_images bucket varchar(20) ->
     # index-hygiene wave 2 + subsumed birth-weight CHECK -> timestamp
     # server defaults wave 2, the D7 completion -> notification_recipients
-    # membership composite tenant FK, the L2 completion)
-    "c1d3e5f7a9b4"
+    # membership composite tenant FK, the L2 completion -> screening_images
+    # updated_at trigger + notification_recipients opt-in server defaults,
+    # the out-of-band-writer parity revision)
+    "e7b9d1f3a5c2"
 )
 SCREENING_CONTENT_CLAIMS_PARENT = "b7e8f9a0c1d2"
 SCREENING_CONTENT_CLAIMS = "f7a9c1e3b5d7"

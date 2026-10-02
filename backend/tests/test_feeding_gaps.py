@@ -80,8 +80,11 @@ async def _stock_up(client: httpx.AsyncClient, owner: dict, ingredient: str, kg:
     path = f"/api/feeding/inventory/{match['id']}/add" if match else None
     if path is None:  # ingredient not stocked for this farm yet — seed via a mix later
         raise AssertionError(f"ingredient {ingredient} not in inventory")
+    # The stock-add route has no success status override, so the settled
+    # contract is exactly 200 — formerly accepted (200, 201) as a never-a-500
+    # pin (2026-10-01 audit, 10-3).
     resp = await client.post(path, json={"qty_kg": kg, "price_per_kg": 10.0}, headers=owner)
-    assert resp.status_code in (200, 201), resp.text
+    assert resp.status_code == 200, resp.text
 
 
 async def test_mix_rejects_drifted_recipe_totals(client: httpx.AsyncClient) -> None:

@@ -56,7 +56,8 @@ async def test_send_with_retry_budget_is_exactly_configured_attempts(
 ) -> None:
     # notifications_send_retry_attempts is the TOTAL attempt budget (initial
     # try included): 2 → exactly one transport failure is absorbed by retry.
-    settings = _notif_settings(notifications_send_retry_attempts=2,
+    settings = _notif_settings(
+        notifications_send_retry_attempts=2,
         notifications_send_retry_backoff_seconds=0.0,
     )
     provider = FlakyProvider(fail=1)
@@ -70,13 +71,15 @@ async def test_send_with_retry_budget_is_exactly_configured_attempts(
 async def test_send_with_retry_exhaustion_reports_final_attempt(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    settings = _notif_settings(notifications_send_retry_attempts=3,
+    settings = _notif_settings(
+        notifications_send_retry_attempts=3,
         notifications_send_retry_backoff_seconds=0.0,
     )
     provider = FlakyProvider(fail=99)
     logger_name = "app.services.notifications.service"
-    with caplog.at_level(logging.WARNING, logger=logger_name), pytest.raises(
-        NotificationDeliveryError
+    with (
+        caplog.at_level(logging.WARNING, logger=logger_name),
+        pytest.raises(NotificationDeliveryError),
     ):
         await _send_with_retry(provider, "+919999999999", "m", settings)
     assert provider.calls == 3  # initial + 2 retries
@@ -90,7 +93,8 @@ async def test_send_with_retry_budget_cannot_shrink_below_one_attempt() -> None:
     # notifications_send_retry_attempts is ge=1 at the settings layer; the
     # max(1, ...) clamp still pins that a transport failure always gets its
     # one real attempt (a max(2, ...) drift would silently add retries).
-    settings = _notif_settings(notifications_send_retry_attempts=1,
+    settings = _notif_settings(
+        notifications_send_retry_attempts=1,
         notifications_send_retry_backoff_seconds=0.0,
     )
     provider = FlakyProvider(fail=0)  # succeeds immediately
@@ -142,7 +146,8 @@ async def test_wait_for_claim_deadline_budget(
         await db.commit()
         await db.refresh(log)
         monkeypatch.setattr(service, "asyncio", FakeAsyncio)
-        settings = _notif_settings(notifications_send_retry_attempts=1,
+        settings = _notif_settings(
+            notifications_send_retry_attempts=1,
             notifications_send_retry_backoff_seconds=2.0,
         )
         status = await service._wait_for_claim_to_settle(db, log.id, settings)
@@ -167,10 +172,20 @@ async def test_overdue_critical_threshold_is_three_days(client: httpx.AsyncClien
         only_two = today() - timedelta(days=2)
         db.add_all(
             [
-                Task(farm_id=farm_id, title="deep overdue", due_date=exactly_three,
-                     category="OTHER", status="PENDING"),
-                Task(farm_id=farm_id, title="shallow overdue", due_date=only_two,
-                     category="OTHER", status="PENDING"),
+                Task(
+                    farm_id=farm_id,
+                    title="deep overdue",
+                    due_date=exactly_three,
+                    category="OTHER",
+                    status="PENDING",
+                ),
+                Task(
+                    farm_id=farm_id,
+                    title="shallow overdue",
+                    due_date=only_two,
+                    category="OTHER",
+                    status="PENDING",
+                ),
             ]
         )
         await db.commit()
@@ -188,8 +203,13 @@ async def test_overdue_critical_threshold_is_three_days(client: httpx.AsyncClien
     async with get_sessionmaker()() as db:
         farm = await _farm(db, farm_id)
         db.add(
-            Task(farm_id=farm_id, title="another two-day", due_date=only_two,
-                 category="OTHER", status="PENDING")
+            Task(
+                farm_id=farm_id,
+                title="another two-day",
+                due_date=only_two,
+                category="OTHER",
+                status="PENDING",
+            )
         )
         await db.commit()
         sent2 = await overdue_critical_sweep(db, _notif_settings(), provider2, farm)

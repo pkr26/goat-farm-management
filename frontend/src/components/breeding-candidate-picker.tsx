@@ -33,6 +33,7 @@ interface BreedingCandidatePickerProps {
 function candidateOption(
   candidate: BreedingCandidateOut,
   kind: BreedingCandidatesApiBreedingCandidatesGetKind,
+  cullSuffix: string,
 ): RemotePickerOption {
   const name = candidate.name ? ` · ${candidate.name}` : "";
   const age = candidate.age_months !== null ? ` — ${candidate.age_months} mo` : "";
@@ -42,8 +43,10 @@ function candidateOption(
       : "";
   // Cull-flagged does are servable by the owner only — the flag must be
   // visible at pick time so a non-owner manager skips her instead of
-  // filling the form into a guaranteed 409 (wave-5, 2026-09-20 audit).
-  const cull = kind === "doe" && candidate.cull_candidate ? " — cull candidate (owner only)" : "";
+  // filling the form into a guaranteed 409 (wave-5, 2026-09-20 audit). The
+  // suffix resolves through the i18n catalog so the "owner only" warning
+  // is not English-only for Telugu managers (2026-10-01 audit, 06-2).
+  const cull = kind === "doe" && candidate.cull_candidate ? cullSuffix : "";
   return {
     value: String(candidate.id),
     label: `${candidate.tag_number}${name}${age}${weight}${cull}`,
@@ -81,7 +84,9 @@ export function BreedingCandidatePicker({
     );
     if (response.status !== 200) throw new Error("Could not load breeding candidates.");
     return {
-      options: response.data.candidates.map((candidate) => candidateOption(candidate, kind)),
+      options: response.data.candidates.map((candidate) =>
+        candidateOption(candidate, kind, t("picker.candidates.cullSuffix")),
+      ),
       total: response.data.total,
       nextOffset: offset + response.data.candidates.length,
     };

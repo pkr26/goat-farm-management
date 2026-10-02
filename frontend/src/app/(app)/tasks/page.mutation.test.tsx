@@ -556,7 +556,7 @@ describe("TasksPage create-duty dialog", () => {
     );
   });
 
-  it("keeps the dialog open while a create is in flight", async () => {
+  it("honours dismissal while a create is in flight (2026-10-01 audit, 06-3)", async () => {
     let release!: () => void;
     let announce!: () => void;
     const started = new Promise<void>((resolve) => {
@@ -578,13 +578,16 @@ describe("TasksPage create-duty dialog", () => {
     await started;
 
     expect(within(dialog).getByRole("button", { name: "Creating…" })).toBeDisabled();
+    // Escape must always work, even mid-write — the attempt-fenced
+    // continuation confirms via toast without reopening the dialog.
     await user.keyboard("{Escape}");
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
     await act(async () => {
       release();
     });
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await settle();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
 

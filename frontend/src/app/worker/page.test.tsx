@@ -3,25 +3,28 @@
  * PIN → worker-login → signIn) and the duty board's offline-aware completion.
  */
 
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { permissionsHandler, server } from "@/test/msw-server";
 import { createTestQueryClient, renderWithProviders } from "@/test/render";
+import { settle } from "@/test/settle";
+import { setCurrentFarmId } from "@/lib/api-client";
 import { LANGUAGE_STORAGE_KEY, LanguageProvider } from "@/lib/i18n";
 import { OFFLINE_QUEUE_STORAGE_KEY } from "@/lib/offline-queue";
 
 import WorkerLoginPage from "./login/page";
 import WorkerBoardPage from "./page";
 
-const { pushMock, replaceMock, signOutMock, selectFarmMock, getFarmsMock } = vi.hoisted(() => ({
+const { pushMock, replaceMock, signOutMock, selectFarmMock, getFarmsMock, toastSuccess } = vi.hoisted(() => ({
   pushMock: vi.fn(),
   replaceMock: vi.fn(),
   signOutMock: vi.fn(),
   selectFarmMock: vi.fn(),
   getFarmsMock: vi.fn<() => { id: number; name: string; location: null; timezone: string; role: null }[]>(() => []),
+  toastSuccess: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -29,6 +32,10 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/worker",
   useSearchParams: () => new URLSearchParams(),
   useParams: () => ({}),
+}));
+
+vi.mock("sonner", () => ({
+  toast: { success: toastSuccess, info: vi.fn(), error: vi.fn() },
 }));
 
 const signIn = vi.fn();
@@ -102,6 +109,7 @@ beforeEach(() => {
   selectFarmMock.mockClear();
   getFarmsMock.mockReset().mockReturnValue([]);
   signIn.mockReset();
+  toastSuccess.mockClear();
   window.localStorage.clear();
 });
 
@@ -140,6 +148,27 @@ describe("WorkerLoginPage", () => {
     expect(
       await screen.findByText("No farm on this tablet"),
     ).toBeInTheDocument();
+  });
+
+  it("labels the roster-back action without a glyph decoration (2026-10-01 audit, 05-3)", async () => {
+    // The page's own convention is "No glyph decorations in UI copy": the
+    // back action carried a literal "←" that contradicted it. The accessible
+    // name is the roster title alone.
+    window.localStorage.setItem("herdly.tabletFarm", "3");
+    server.use(
+      http.get("/api/auth/worker-roster", () => HttpResponse.json(ROSTER)),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<WorkerLoginPage />, createTestQueryClient());
+
+    await user.click(await screen.findByRole("button", { name: "Lakshmi" }));
+
+    expect(
+      await screen.findByRole("button", { name: "Who is working?" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "← Who is working?" }),
+    ).not.toBeInTheDocument();
   });
 
   it("runs the manager setup flow: credentials → TOTP code → pick farm → pin + sign out", async () => {
@@ -581,6 +610,53 @@ describe("WorkerBoardPage", () => {
 
     await user.click(await screen.findByTestId("complete-1"));
     await waitFor(() => expect(completed).toBe(1));
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Marked done."));
+  });
+
+  it("does not toast or refetch when the farm scope changes mid-flight (2026-10-01 audit, 07-L2)", async () => {
+    let boardGets = 0;
+    let releaseComplete!: () => void;
+    const parked = new Promise<void>((resolve) => {
+      releaseComplete = resolve;
+    });
+    server.use(
+      http.get("/api/tasks", () => {
+        boardGets += 1;
+        return HttpResponse.json({
+          today: [BOARD(1, "Feed the bucks", today())],
+          overdue: [],
+          upcoming: [],
+          awaiting: [],
+          completed: [],
+          totals: { today: 1, overdue: 0, upcoming: 0, awaiting: 0, completed: 0 },
+        });
+      }),
+      http.post("/api/tasks/1/complete", async () => {
+        await parked;
+        return HttpResponse.json(BOARD(1, "Feed the bucks", today()));
+      }),
+    );
+    const user = userEvent.setup();
+    renderBoard();
+
+    await user.click(await screen.findByTestId("complete-1"));
+    expect(boardGets).toBe(1);
+
+    // The write is on the wire; the worker's shift ends / farm switches
+    // before the answer lands (the epoch bump is what farmScope() reads).
+    setCurrentFarmId("99");
+    try {
+      releaseComplete();
+      await settle(100);
+
+      // The success continuation is fenced: no "Marked done." toast for a
+      // scope the worker already left, and no board refetch under the NEW
+      // scope either.
+      expect(toastSuccess).not.toHaveBeenCalled();
+      expect(boardGets).toBe(1);
+    } finally {
+      setCurrentFarmId(null);
+    }
   });
 
   it("queues the completion when the network fails, with the same key", async () => {
@@ -751,5 +827,100 @@ describe("WorkerBoardPage", () => {
     await user.click(await screen.findByTestId("skip-1"));
     await waitFor(() => expect(skipBody).not.toBeNull());
     expect(skipBody).toEqual({ reason: "Skipped on the tablet" });
+  });
+
+  it("completes a duty on an origin without crypto.randomUUID (2026-10-01 audit, 05-1)", async () => {
+    // crypto.randomUUID exists only in secure contexts (HTTPS/localhost); the
+    // worker shell explicitly serves plain-http tablet origins. Calling it
+    // directly threw BEFORE the try block, so Complete/Skip silently no-opped
+    // — no request, no optimistic strike-through, no toast. The key must mint
+    // through the getRandomValues fallback (same fake as the
+    // idempotent-request suite).
+    let receivedKey: string | null = null;
+    server.use(
+      http.get("/api/tasks", () =>
+        HttpResponse.json({
+          today: [BOARD(1, "Feed the bucks", today())],
+          overdue: [],
+          upcoming: [],
+          awaiting: [],
+          completed: [],
+          totals: { today: 1, overdue: 0, upcoming: 0, awaiting: 0, completed: 0 },
+        }),
+      ),
+      http.post("/api/tasks/1/complete", ({ request }) => {
+        receivedKey = request.headers.get("Idempotency-Key");
+        return HttpResponse.json(BOARD(1, "Feed the bucks", today()));
+      }),
+    );
+    const getRandomValues = vi.fn((bytes: Uint8Array) => {
+      bytes.set(Array.from({ length: 16 }, (_, index) => index));
+      return bytes;
+    });
+    vi.stubGlobal("crypto", { getRandomValues });
+    try {
+      const user = userEvent.setup();
+      renderBoard();
+
+      await user.click(await screen.findByTestId("complete-1"));
+
+      // The mutation reached the server and carried a v4-shaped key minted
+      // by the fallback (deterministic bytes 0..15).
+      await waitFor(() => expect(receivedKey).not.toBeNull());
+      expect(receivedKey).toBe("00010203-0405-4607-8809-0a0b0c0d0e0f");
+      await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Marked done."));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps every in-flight card disabled independently (2026-10-01 audit, 05-4)", async () => {
+    // busyId was ONE slot: starting card B's mutation overwrote it and
+    // re-enabled card A's Complete/Skip while A's POST was still on the wire
+    // (a board refetch mid-flight restores the struck row from server truth,
+    // so the buttons ARE mounted again), and a second tap fired a fresh
+    // idempotency key into a spurious 409 toast. A Set of busy ids fences
+    // each card by its own mutation.
+    let releaseFirst!: () => void;
+    const firstParked = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    server.use(
+      http.get("/api/tasks", () =>
+        HttpResponse.json({
+          today: [BOARD(1, "Feed the bucks", today()), BOARD(2, "Water round", today())],
+          overdue: [],
+          upcoming: [],
+          awaiting: [],
+          completed: [],
+          totals: { today: 2, overdue: 0, upcoming: 0, awaiting: 0, completed: 0 },
+        }),
+      ),
+      http.post("/api/tasks/1/complete", async () => {
+        await firstParked;
+        return HttpResponse.json(BOARD(1, "Feed the bucks", today()));
+      }),
+      http.post("/api/tasks/2/complete", () =>
+        HttpResponse.json(BOARD(2, "Water round", today())),
+      ),
+    );
+    const user = userEvent.setup();
+    const queryClient = createTestQueryClient();
+    renderWithProviders(<WorkerBoardPage />, queryClient);
+
+    await user.click(await screen.findByTestId("complete-1"));
+    // The optimistic strike-through removed card 1's actions; a mid-flight
+    // board refetch brings the still-PENDING row (and its buttons) back.
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+    });
+    expect(await screen.findByTestId("complete-1")).toBeDisabled();
+
+    // Card B's mutation must not re-enable card A mid-flight.
+    await user.click(screen.getByTestId("complete-2"));
+    expect(screen.getByTestId("complete-1")).toBeDisabled();
+
+    releaseFirst();
+    await waitFor(() => expect(screen.getByTestId("complete-1")).toBeEnabled());
   });
 });

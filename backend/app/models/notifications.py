@@ -72,21 +72,38 @@ class NotificationRecipient(Base):
     membership_id: Mapped[int] = mapped_column()
     phone: Mapped[str] = mapped_column(String(20))
     # Alert-class opt-ins. The daily digest is the headline; the rest are
-    # same-day owner/operator alerts.
-    daily_digest: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    screening_flags: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    kidding_watch: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    overdue_critical: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    feed_reorder: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # same-day owner/operator alerts. server_default "false" on every column
+    # (2026-10-01 audit, 04-Info) keeps direct-SQL INSERTs symmetric with the
+    # ORM's Python defaults — movement_restriction led the way; the migration
+    # backfilled the rest.
+    daily_digest: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    screening_flags: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    kidding_watch: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    overdue_critical: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    feed_reorder: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
     movement_restriction: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
     )
-    verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    verified: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
     # UTC server defaults standardized by the housekeeping wave (2026-09-28
     # audit, D7).
     created_at: Mapped[datetime] = mapped_column(
         default=utcnow, server_default=text("timezone('UTC', now())")
     )
+    # ORM/SQLAlchemy-layer refresh only (onupdate); no DB trigger and no
+    # raw-SQL writers in production (2026-10-01 audit, 04-2).
     updated_at: Mapped[datetime] = mapped_column(
         default=utcnow,
         onupdate=utcnow,

@@ -43,6 +43,17 @@ from .animals import move_animal
 from .health import PRE_KIDDING_VACCINE_TITLE
 from .kidding import LitterSizeError
 
+
+class BreedingChronologyError(ValueError):
+    """A breeding date that predates a participant's recorded birth or
+    purchase date.
+
+    A deterministic chronology fact about the request, not a raced lifecycle
+    state — routers map it to 422 like every other chronology fence, while
+    genuine state conflicts stay 409 (2026-10-01 audit, 02-6).
+    """
+
+
 logger = logging.getLogger(__name__)
 
 BreedingCandidateKind = Literal["doe", "buck"]
@@ -89,7 +100,12 @@ def _latest_weight_as_of(reference_date: date) -> ColumnElement[float]:
         .scalar_subquery()
     )
     effective_dob = func.coalesce(Animal.date_of_birth, Animal.estimated_dob)
+    # The model twin falls back to the birth weight when the DOB is unknown
+    # (an unknown birth cannot be in the future); SQL NULL <= date is NULL,
+    # so the unknown-DOB case needs its own branch or the twins silently
+    # disagree (2026-10-01 audit, 02-4).
     birth_weight_available = case(
+        (effective_dob.is_(None), Animal.birth_weight),
         (effective_dob <= reference_date, Animal.birth_weight),
         else_=None,
     )
@@ -524,9 +540,11 @@ async def create_breeding_record(
         )
     for animal, role in participants:
         if animal.effective_dob and breeding_date < animal.effective_dob:
-            raise ValueError(f"{role} breeding chronology cannot predate its recorded birth date")
+            raise BreedingChronologyError(
+                f"{role} breeding chronology cannot predate its recorded birth date"
+            )
         if animal.purchase_date and breeding_date < animal.purchase_date:
-            raise ValueError(
+            raise BreedingChronologyError(
                 f"{role} breeding chronology cannot predate its recorded purchase date"
             )
     if has_open_breeding:

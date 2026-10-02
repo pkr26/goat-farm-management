@@ -22,7 +22,7 @@ export interface MonteCarloResult {
   npv_p95: number;
   prob_npv_negative: number;
   prob_liquidity_shortfall: number;
-  prob_dscr_below_one: number;
+  prob_dscr_below_one: number | null;
   minimum_cash_p5: number;
   minimum_cash_p50: number;
   ending_cash_p5: number;

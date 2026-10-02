@@ -6,21 +6,25 @@ Deep mutation testing of the Next.js frontend (`frontend/src`), run
 completely fresh: artifacts wiped, manifest regenerated (9,944 mutants over
 126 files), coverage map rebuilt per test file (293 files, zero failures),
 every mutant executed with escalating selections, a fix cycle that added 11
-test files (35 tests, 93 verified kills), and Phase B full-selection
-re-verification of every survivor. Full detail: `frontend/mutation/CAMPAIGN.md`
+test files (35 tests, 93 verified kills), Phase B full-selection
+re-verification of every survivor, and a same-day follow-up round that
+killed 103 more fixable survivors. Full detail: `frontend/mutation/CAMPAIGN.md`
 (per-mutant survivors: `frontend/mutation/report.md`).
 
 | Metric | Value |
 |---|---|
-| Mutants | 9,944 (100% of manifest) |
-| Killed | 7,869 + 2 confirmed hangs |
-| Survived (Phase B re-verified) | 1,995 (of which app pages 1,749) |
+| Mutants (fresh manifest) | 9,944 (100% of manifest) |
+| Killed by tests | 7,972 |
+| Killed by timeout (confirmed hang) | 2 (api-client 10 s abort budget; image-deps comparator loop) |
+| Survived (Phase B re-verified) | 1,892 (of which app pages 1,646) |
 | Not covered by any test | 78 |
-| **Mutation score (covered code)** | **79.8%** |
+| **Mutation score (covered code)** | **80.8%** |
 
 Baseline suite: 4,965 tests / 293 files, green after fixing seven
 pre-existing test bugs (five planner date/timezone flakes, two heavy-test
-budgets). Closing suite: 5,000 tests / 304 files.
+budgets). Closing suite: 5,026 tests / 313 files.
+
+(2026-10-01 audit, 10-1: resynced)
 
 ## Backend — 2026-09-30
 

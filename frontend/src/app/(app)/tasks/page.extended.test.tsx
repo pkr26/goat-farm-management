@@ -338,7 +338,10 @@ describe("TasksPage (extended)", () => {
     await user.click(screen.getByRole("tab", { name: "Completed (2)" }));
 
     const awaitingRow = rowOf("Deep-clean kidding pen");
-    expect(within(awaitingRow).getByText("DONE")).toBeInTheDocument();
+    // Status chips resolve through the taskStatus label family — the raw
+    // wire codes used to render verbatim (2026-10-01 audit, 06-1).
+    expect(within(awaitingRow).getByText("Done")).toBeInTheDocument();
+    expect(within(awaitingRow).queryByText("DONE")).not.toBeInTheDocument();
     expect(within(awaitingRow).getByText("awaiting")).toBeInTheDocument();
     // completed_at is naive UTC rendered in the active farm's timezone
     // (Asia/Kolkata, +05:30), so 14:07 UTC must display as 19:37 — asserted as
@@ -346,7 +349,8 @@ describe("TasksPage (extended)", () => {
     expect(within(awaitingRow).getByText("5 Aug 2026, 7:37 pm")).toBeInTheDocument();
 
     const verifiedRow = rowOf("Weekly sweep");
-    expect(within(verifiedRow).getByText("VERIFIED")).toBeInTheDocument();
+    expect(within(verifiedRow).getByText("Verified")).toBeInTheDocument();
+    expect(within(verifiedRow).queryByText("VERIFIED")).not.toBeInTheDocument();
     expect(within(verifiedRow).queryByText("awaiting")).not.toBeInTheDocument();
   });
 
@@ -368,7 +372,8 @@ describe("TasksPage (extended)", () => {
     await user.click(screen.getByRole("tab", { name: "Completed (1)" }));
 
     const row = rowOf("Evening ration check");
-    expect(within(row).getByText("SKIPPED")).toBeInTheDocument();
+    expect(within(row).getByText("Skipped")).toBeInTheDocument();
+    expect(within(row).queryByText("SKIPPED")).not.toBeInTheDocument();
     expect(within(row).getByText("Reason: No animals in pen")).toBeInTheDocument();
     // 13:00 naive UTC → 18:30 in the farm's Asia/Kolkata day.
     expect(within(row).getByText("5 Aug 2026, 6:30 pm")).toBeInTheDocument();
@@ -521,6 +526,35 @@ describe("TasksPage (extended)", () => {
 
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(actionCalls).toHaveLength(0);
+  });
+
+  it("honours dismissal of the skip dialog while its write is in flight (2026-10-01 audit, 06-3)", async () => {
+    let releaseSkip!: () => void;
+    server.use(
+      http.post(
+        "/api/tasks/1/skip",
+        () =>
+          new Promise<Response>((resolve) => {
+            releaseSkip = () => resolve(HttpResponse.json(TODAY_TASK));
+          }),
+      ),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+    await user.click(within(rowOf("Morning feed count")).getByRole("button", { name: "Skip" }));
+    const dialog = await screen.findByRole("dialog", { name: "Skip this task?" });
+    await user.type(within(dialog).getByLabelText("Reason *"), "not needed");
+    await user.click(within(dialog).getByRole("button", { name: "Skip task" }));
+    await waitFor(() => expect(releaseSkip).toBeTypeOf("function"));
+
+    // Dismissal wins even mid-write: Escape closes the dialog instead of
+    // trapping it (and its disabled Cancel button) for the mutation timeout.
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    // The in-flight write itself still lands — the board refreshes.
+    releaseSkip();
+    await waitFor(() => expect(listCalls).toBeGreaterThanOrEqual(2));
   });
 
   it("records a trimmed skip reason in the task audit history", async () => {
@@ -766,7 +800,7 @@ describe("TasksPage (extended)", () => {
     await waitFor(() => expect(listCalls).toBeGreaterThanOrEqual(2));
   });
 
-  it("does not dismiss the create dialog while its write is in flight", async () => {
+  it("honours dismissal while the create write is in flight and fences its late completion (2026-10-01 audit, 06-3)", async () => {
     let releaseCreate!: () => void;
     let markCreateStarted!: () => void;
     const createGate = new Promise<void>((resolve) => {
@@ -788,13 +822,23 @@ describe("TasksPage (extended)", () => {
     await user.click(within(dialog).getByRole("button", { name: "Create duty" }));
     await createStarted;
 
+    // Dismissal must always win, even mid-write (the finance "never block"
+    // rule — a blocked close was an up-to-60s unclosable modal on a slow
+    // rural connection). The write itself stays single-flighted.
     await user.click(within(dialog).getByRole("button", { name: "Close" }));
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Creating…" })).toBeDisabled();
-    expect(within(dialog).getByLabelText(/title/i)).toBeDisabled();
-
-    releaseCreate();
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    // A fresh session can be opened while the dismissed write is pending…
+    await user.click(screen.getByRole("button", { name: "New duty" }));
+    const reopened = await screen.findByRole("dialog");
+
+    // …and the late completion must confirm (board refresh) without closing
+    // or resetting that fresh session (the createAttempt fence).
+    const callsBefore = listCalls;
+    releaseCreate();
+    await waitFor(() => expect(listCalls).toBeGreaterThan(callsBefore));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(reopened).toBeInTheDocument();
   });
 
   it("creates at most one duty across same-render duplicate form events", async () => {

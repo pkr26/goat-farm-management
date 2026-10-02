@@ -318,7 +318,16 @@ function allowsInflightSharing(url: string): boolean {
   return requestPath(url) !== "/api/screening/batches";
 }
 
-function randomIdempotencyKey(): string {
+/** Mint a fresh idempotency key safely on any origin.
+ *
+ * `crypto.randomUUID` exists only in secure contexts (HTTPS or localhost);
+ * plain-`http://` tablet deployments keep `getRandomValues` but not
+ * `randomUUID`, so call sites that mint a key for the offline queue must go
+ * through here rather than calling `crypto.randomUUID()` directly
+ * (2026-10-01 audit, 05-1: the worker board's Complete/Skip threw a
+ * TypeError before its own try block on such origins and silently no-opped).
+ */
+export function randomIdempotencyKey(): string {
   const cryptography = globalThis.crypto;
   if (!cryptography) {
     throw new Error("Secure random generation is unavailable; mutation was not sent.");

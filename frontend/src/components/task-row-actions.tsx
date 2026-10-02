@@ -14,7 +14,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -90,6 +90,14 @@ export function RowActions({
   const verifyMutation = useVerifyApiTasksTaskIdVerifyPost();
   const rejectMutation = useRejectApiTasksTaskIdRejectPost();
   const actionFlight = useSingleFlight();
+  /** Identifies one open/submit cycle across this row's dialogs (skip /
+   *  recurring-confirm / reject are mutually exclusive per status). A
+   *  submission that resolves after the operator dismissed — and possibly
+   *  reopened — a dialog must not close or reset the fresh session; this is
+   *  the finance add-dialog's attempt fence, which lets dismissal always
+   *  win instead of trapping a modal for the mutation timeout
+   *  (2026-10-01 audit, 06-3). */
+  const dialogAttempt = useRef(0);
   const safeAction = safeAppPath(task.action_url);
   const permittedAction = permittedTaskActionPath(task.action_url, can);
   const actionButtonClass = touch ? "h-11 px-4" : undefined;
@@ -115,6 +123,8 @@ export function RowActions({
   async function completeTask() {
     await actionFlight.run(async () => {
       const farmScope = captureFarmScope();
+      // Stryker disable next-line UpdateOperator: a monotonically decreasing attempt counter mismatches a captured value exactly as reliably as an increasing one
+      const attempt = ++dialogAttempt.current;
       setActionError(null);
       // Strike the row through instantly; a failed completion rolls the
       // board cache back to exactly what it showed before the tap.
@@ -126,15 +136,16 @@ export function RowActions({
         await completeMutation.mutateAsync({ taskId: task.id });
         if (!farmScope()) return;
         toast.success(t("tasks.toast.completed"));
-        setRecurringConfirmOpen(false);
         invalidate();
+        if (dialogAttempt.current !== attempt) return;
+        setRecurringConfirmOpen(false);
       } catch (error) {
         // Guard BEFORE rollback: after a farm switch the board cache was
         // cleared, and restoring the pre-patch snapshots would resurrect the
         // OLD farm's rows (2026-09-28 audit, W6).
         if (!farmScope()) return;
         rollback();
-        reportActionError("complete", error);
+        if (dialogAttempt.current === attempt) reportActionError("complete", error);
       }
     });
   }
@@ -142,6 +153,8 @@ export function RowActions({
   async function skipTask() {
     await actionFlight.run(async () => {
       const farmScope = captureFarmScope();
+      // Stryker disable next-line UpdateOperator: a monotonically decreasing attempt counter mismatches a captured value exactly as reliably as an increasing one
+      const attempt = ++dialogAttempt.current;
       setActionError(null);
       try {
         await skipMutation.mutateAsync({
@@ -150,11 +163,14 @@ export function RowActions({
         });
         if (!farmScope()) return;
         toast.success(t("tasks.toast.skipped"));
+        invalidate();
+        if (dialogAttempt.current !== attempt) return;
         setSkipReason("");
         setSkipOpen(false);
-        invalidate();
       } catch (error) {
-        if (farmScope()) reportActionError("skip", error);
+        if (farmScope() && dialogAttempt.current === attempt) {
+          reportActionError("skip", error);
+        }
       }
     });
   }
@@ -189,6 +205,8 @@ export function RowActions({
     }
     await actionFlight.run(async () => {
       const farmScope = captureFarmScope();
+      // Stryker disable next-line UpdateOperator: a monotonically decreasing attempt counter mismatches a captured value exactly as reliably as an increasing one
+      const attempt = ++dialogAttempt.current;
       setActionError(null);
       try {
         await rejectMutation.mutateAsync({
@@ -197,10 +215,13 @@ export function RowActions({
         });
         if (!farmScope()) return;
         toast.success(t("tasks.toast.sentBack"));
-        setRejectOpen(false);
         invalidate();
+        if (dialogAttempt.current !== attempt) return;
+        setRejectOpen(false);
       } catch (error) {
-        if (farmScope()) reportActionError("reject", error);
+        if (farmScope() && dialogAttempt.current === attempt) {
+          reportActionError("reject", error);
+        }
       }
     });
   }
@@ -300,8 +321,12 @@ export function RowActions({
         <Dialog
           open={skipOpen}
           onOpenChange={(nextOpen) => {
-            // Stryker disable next-line ConditionalExpression, BooleanLiteral: the single-flight guard blocks a resubmission regardless, so the wider close-lock variants are defense-in-depth
-            if (!nextOpen && actionFlight.pending) return;
+            // Never block dismissal on an in-flight write (the finance rule,
+            // 2026-09-20 P3): the write itself stays single-flighted, and the
+            // continuation is fenced by dialogAttempt so a late resolve
+            // cannot close/reset a session the operator reopened
+            // (2026-10-01 audit, 06-3).
+            if (!nextOpen) dialogAttempt.current += 1;
             setSkipOpen(nextOpen);
           }}
         >
@@ -353,7 +378,9 @@ export function RowActions({
           <Dialog
             open={recurringConfirmOpen}
             onOpenChange={(nextOpen) => {
-              if (!nextOpen && actionFlight.pending) return;
+              // Same never-block rule as the skip dialog above
+              // (2026-10-01 audit, 06-3).
+              if (!nextOpen) dialogAttempt.current += 1;
               setRecurringConfirmOpen(nextOpen);
             }}
           >
@@ -442,8 +469,9 @@ export function RowActions({
         <Dialog
           open={rejectOpen}
           onOpenChange={(nextOpen) => {
-            // Stryker disable next-line ConditionalExpression, BooleanLiteral: the single-flight guard blocks a resubmission regardless, so the wider close-lock variants are defense-in-depth
-            if (!nextOpen && actionFlight.pending) return;
+            // Same never-block rule as the skip dialog above
+            // (2026-10-01 audit, 06-3).
+            if (!nextOpen) dialogAttempt.current += 1;
             setRejectOpen(nextOpen);
           }}
         >

@@ -288,6 +288,31 @@ describe("KiddingPage branches", () => {
     );
   });
 
+  it("refreshes the kidding-date ceiling after midnight while the dialog stays open (2026-10-01 audit, 05-Info)", async () => {
+    // The date window lived in a useMemo whose deps omitted "today", so a
+    // dialog held open across midnight kept the old ceiling in the schema
+    // and in the input's min/max until an unrelated dep changed.
+    const user = userEvent.setup();
+    const view = await renderLoaded();
+    await user.click(
+      desktopScope(card("Upcoming (next 30 days)")).getByRole("button", { name: "Record kidding" }),
+    );
+    const dateInput = await screen.findByLabelText("Kidding date *");
+    // Bred 120 days ago with a 200-day gestation ceiling: the cap is the
+    // farm's calendar today.
+    expect(dateInput).toHaveAttribute("max", TODAY);
+
+    // Midnight passes with the dialog still open: the ceiling must follow
+    // the new farm day on the next render.
+    vi.setSystemTime(new Date(Date.now() + 24 * 60 * 60 * 1000));
+    try {
+      view.rerender(<KiddingPage />);
+      expect(screen.getByLabelText("Kidding date *")).toHaveAttribute("max", daysFromToday(1));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // ---------- doe identity + table shape ----------
 
   it("links each doe by tag, falling back to its id only when untagged", async () => {

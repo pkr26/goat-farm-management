@@ -68,9 +68,14 @@ async def _worker_login(
 def _clear_pin_limiters() -> Iterator[None]:
     # In-memory throttle state must not leak between tests (DB ids restart
     # every test while the limiter process survives — test_totp convention).
+    # The roster's per-farm bucket keys on the farm id, which restarts too.
+    from app.api.auth import worker_roster_farm_limiter
+
     auth_limiter.clear()
+    worker_roster_farm_limiter.clear()
     yield
     auth_limiter.clear()
+    worker_roster_farm_limiter.clear()
 
 
 @pytest.fixture
@@ -656,6 +661,71 @@ async def test_roster_throttles_per_ip(client: httpx.AsyncClient, rate_limits_on
         assert ok.status_code == 200
     throttled = await client.get("/api/auth/worker-roster", params={"farm_id": farm_id})
     assert throttled.status_code == 429, throttled.text
+
+
+async def test_roster_per_farm_budget_cannot_be_reset_by_ip_rotation(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """(2026-10-01 audit, 01-1) the roster throttle was per-IP only, so a
+    rotating caller got a fresh budget per address and could probe ONE farm's
+    names without limit (or crawl ids while rotating). The roster now also
+    carries an IP-agnostic per-TARGET budget — the register-email /
+    worker-pin-account idiom: one bucket per farm id, charged by every
+    admitted probe regardless of source address.
+
+    Rate limiting is enabled through env + cache_clear (not the in-process
+    fixture) because the rotated client needs a freshly built app that trusts
+    127.0.0.1 as a proxy, exactly like the login IP-rotation test."""
+    import app.api.auth as auth_api
+    from app.core.config import get_settings
+    from app.main import create_app
+
+    owner = await owner_with_farm(client, email="pin-owner-roster-farm@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+
+    monkeypatch.setenv("GOATFARM_AUTH_RATE_LIMIT_ENABLED", "true")
+    monkeypatch.setenv("GOATFARM_AUTH_RATE_LIMIT_WINDOW_SECONDS", "300")
+    monkeypatch.setenv("GOATFARM_TRUSTED_PROXY_HOSTS", "127.0.0.1")
+    get_settings.cache_clear()
+    try:
+        # Two probes under the ceiling succeed — the shared tablet's shape.
+        for _ in range(2):
+            ok = await client.get("/api/auth/worker-roster", params={"farm_id": farm_id})
+            assert ok.status_code == 200, ok.text
+
+        # 28 more probes "from other addresses": they charge ONLY the farm
+        # bucket (this client's per-IP bucket stays at 2 of its own 30).
+        for _ in range(28):
+            auth_api.worker_roster_farm_limiter.record(
+                auth_api.WORKER_ROSTER_FARM_SCOPE,
+                str(farm_id),
+                window_seconds=300,
+                max_attempts=auth_api._WORKER_ROSTER_FARM_MAX_ATTEMPTS,
+            )
+
+        # A genuinely different source IP is still refused — the ceiling is
+        # charged by the farm id, never the address — with the standard
+        # throttle headers.
+        app = create_app()
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as rotated:
+            throttled = await rotated.get(
+                "/api/auth/worker-roster",
+                params={"farm_id": farm_id},
+                headers={"X-Forwarded-For": "203.0.113.7"},
+            )
+        assert throttled.status_code == 429, throttled.text
+        assert throttled.headers["Retry-After"] == "300"
+
+        # A different farm id is unaffected: the ceiling is per TARGET. (This
+        # client's per-IP usage is 3 — the 429 above belonged to the farm
+        # bucket, not this address.)
+        other = await client.get("/api/auth/worker-roster", params={"farm_id": farm_id + 12345})
+        assert other.status_code == 200, other.text
+    finally:
+        get_settings.cache_clear()
 
 
 async def test_pin_length_floor_follows_the_deployment_setting(

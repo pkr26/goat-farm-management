@@ -18,7 +18,13 @@ from app.schemas.purchases import PurchaseBatchIn
 from app.schemas.screening import ScreeningBatchCreateIn
 from app.schemas.simulation import RunIn, ScenarioCreateIn, ScenarioUpdateIn
 from app.schemas.tasks import TaskCreateIn, TaskRejectIn, TaskSkipIn
-from app.schemas.team import PasswordResetIn, RoleChangeIn, RoleIn, WorkerCreateIn
+from app.schemas.team import (
+    NotificationPrefsIn,
+    PasswordResetIn,
+    RoleChangeIn,
+    RoleIn,
+    WorkerCreateIn,
+)
 from app.simulation.assumptions import SimulationAssumptions
 
 REQUEST_MODELS: tuple[type[BaseModel], ...] = (
@@ -177,6 +183,84 @@ def test_boolean_flags_do_not_coerce_json_types(bad_bool: object) -> None:
                 "monte_carlo": bad_bool,
             }
         )
+
+
+@pytest.mark.parametrize("bad_bool", [0, 1, "true", "false"])
+def test_kidding_care_booleans_do_not_coerce_json_types(bad_bool: object) -> None:
+    """Kidding care facts used plain bool and admitted 1/"true" payloads that
+    every sibling strict endpoint 422s (2026-10-01 audit, 04-3)."""
+    with pytest.raises(ValidationError):
+        KidIn.model_validate({"sex": "F", "dam_rejected": bad_bool})
+    with pytest.raises(ValidationError):
+        KidIn.model_validate({"sex": "F", "colostrum_within_2h": bad_bool})
+    with pytest.raises(ValidationError):
+        KidIn.model_validate({"sex": "F", "navel_dipped": bad_bool})
+    with pytest.raises(ValidationError):
+        KiddingCreateIn.model_validate(
+            {
+                "breeding_record_id": 1,
+                "date": date.today().isoformat(),
+                "placenta_passed": bad_bool,
+                "kids": [{"sex": "F"}],
+            }
+        )
+    with pytest.raises(ValidationError):
+        KiddingCreateIn.model_validate(
+            {
+                "breeding_record_id": 1,
+                "date": date.today().isoformat(),
+                "mastitis_suspected": bad_bool,
+                "kids": [{"sex": "F"}],
+            }
+        )
+
+
+@pytest.mark.parametrize("bad_bool", [0, 1, "true", "false"])
+def test_notification_opt_in_booleans_do_not_coerce_json_types(bad_bool: object) -> None:
+    """NotificationPrefsIn opt-ins used plain bool and admitted 1/"true"
+    payloads (2026-10-01 audit, 04-3)."""
+    for field in (
+        "daily_digest",
+        "screening_flags",
+        "kidding_watch",
+        "overdue_critical",
+        "feed_reorder",
+        "movement_restriction",
+        "verified",
+    ):
+        with pytest.raises(ValidationError):
+            NotificationPrefsIn.model_validate({"phone": "+919888877777", field: bad_bool})
+
+
+def test_care_and_opt_in_booleans_still_accept_real_booleans() -> None:
+    """The strictness added for 2026-10-01 audit 04-3 tightens coercion only:
+    genuine JSON booleans (and the explicit None for "not recorded") still
+    validate exactly as before."""
+    kid = KidIn.model_validate(
+        {"sex": "F", "colostrum_within_2h": True, "navel_dipped": False, "dam_rejected": False}
+    )
+    assert (kid.colostrum_within_2h, kid.navel_dipped, kid.dam_rejected) == (True, False, False)
+    unrecorded = KidIn.model_validate({"sex": "M"})
+    assert unrecorded.colostrum_within_2h is None
+    assert unrecorded.dam_rejected is False
+    kidding = KiddingCreateIn.model_validate(
+        {
+            "breeding_record_id": 1,
+            "date": date.today().isoformat(),
+            "placenta_passed": None,
+            "mastitis_suspected": True,
+            "kids": [{"sex": "F", "dam_rejected": True}],
+        }
+    )
+    assert kidding.placenta_passed is None
+    assert kidding.mastitis_suspected is True
+    assert kidding.kids[0].dam_rejected is True
+    prefs = NotificationPrefsIn.model_validate(
+        {"phone": "+919888877777", "daily_digest": True, "verified": True}
+    )
+    assert prefs.daily_digest is True
+    assert prefs.verified is True
+    assert prefs.kidding_watch is False
 
 
 @pytest.mark.parametrize("bad_number", [True, "50"])

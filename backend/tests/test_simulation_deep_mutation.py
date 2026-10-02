@@ -612,10 +612,13 @@ def test_metric_explanations_irr_and_mirr_undefined() -> None:
     assert result.metrics.irr is None
     texts = {entry.key: entry.explanation for entry in result.metric_explanations}
     assert "IRR is undefined for this cash-flow pattern" in texts["irr"]
-    # MIRR is defined here (the terminal recovery is a positive flow) but
-    # deeply negative — the report must still show a MIRR sentence.
-    assert result.metrics.mirr is not None
-    assert texts["mirr"]
+    # With the empty-herd cultivation skip (2026-10-01 audit, 08-L8) the
+    # zero-animal farm also books no cultivation opex, so the year-1 average
+    # monthly opex — and with it the terminal working-capital recovery — is
+    # zero: the projection now has no positive flow at all, and MIRR is
+    # undefined exactly like IRR instead of resting on a phantom recovery.
+    assert result.metrics.mirr is None
+    assert "MIRR is undefined" in texts["mirr"]
 
 
 def test_payback_by_liquidation_wording() -> None:

@@ -36,7 +36,6 @@ import {
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/lib/auth-context";
 import { firstPermittedPath } from "@/lib/permission-navigation";
-import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { usePermissions } from "@/lib/use-permissions";
 import { cn } from "@/lib/utils";
 
@@ -361,7 +360,6 @@ function AppLayoutContent({
   }
 
   const farm = farms.find((f) => f.id === farmId);
-  const vocabulary = farmVocabulary;
   const visibleGroups = permsLoading
     ? []
     : NAV_GROUPS.map((group) => ({
@@ -373,9 +371,13 @@ function AppLayoutContent({
   const landingItem = visibleGroups[0]?.items[0];
   const landingHref = !permsLoading && !permsError ? firstPermittedPath(can) : null;
   // Without a permitted module (or while permissions are unknown) the brand
-  // link still points somewhere safe, but its label must not promise a page.
+  // link still points somewhere safe, but its label must not promise a page —
+  // and the fallback is catalog copy, not hardcoded English (2026-10-01
+  // audit, 05-3).
   const landingLabel =
-    landingItem && !permsLoading && !permsError ? t(landingItem.labelKey) : "access status";
+    landingItem && !permsLoading && !permsError
+      ? t(landingItem.labelKey)
+      : t("shell.brandLinkFallback");
   const search = searchParams.toString();
   const returnTo = `${pathname}${search ? `?${search}` : ""}`;
   const farmSelectHref = `/farm-select?returnTo=${encodeURIComponent(returnTo)}`;
@@ -405,7 +407,7 @@ function AppLayoutContent({
           {farm && (
             <FarmSwitcher
               farmName={farm.name}
-              typeLabel={vocabulary.typeLabel}
+              typeLabel={t("common.farmType")}
               href={farmSelectHref}
             />
           )}

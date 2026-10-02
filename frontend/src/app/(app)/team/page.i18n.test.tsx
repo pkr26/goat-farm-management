@@ -99,6 +99,39 @@ async function renderTelugu() {
 }
 
 describe("TeamPage — Telugu", () => {
+  it("renders the membership status chips through the enum labels, in Telugu too (2026-10-01 audit, 06-2)", async () => {
+    server.use(
+      http.get("/api/team", () =>
+        HttpResponse.json({
+          ...TEAM_PAYLOAD,
+          memberships: [
+            ...TEAM_PAYLOAD.memberships,
+            {
+              id: 2,
+              user_id: 77,
+              email: "ravi@goatfarm.test",
+              name: "Ravi",
+              role_id: 10,
+              role_name: "Night Watch",
+              is_active: false,
+              can_reset_password: true,
+              reset_password_block_reason: null,
+            },
+          ],
+        }),
+      ),
+    );
+    await renderTelugu();
+
+    // Both the desktop row and the below-md card resolve the chips through
+    // the status family — the badge's humanize fallback used to render
+    // English-only "Active"/"Inactive".
+    expect(screen.getAllByText("సక్రియం").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("క్రియారహితం").length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText("Active")).not.toBeInTheDocument();
+    expect(screen.queryByText("Inactive")).not.toBeInTheDocument();
+  });
+
   it("renders the page chrome and role cards in Telugu, including the member-count plural split", async () => {
     await renderTelugu();
 

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { setActiveLanguage } from "@/lib/active-language";
+
 import {
   MIN_PERSISTED_KG,
   MIN_PERSISTED_KG_MESSAGE,
@@ -22,6 +24,31 @@ describe("persisted number boundaries", () => {
     expect(formatPersistedKg(0)).toBe("0.0");
     expect(formatPersistedKg(1)).toBe("1.0");
     expect(formatPersistedKg(0.0005)).toBe("0.001");
+    expect(formatPersistedKg(1234.567)).toBe("1,234.567");
+  });
+
+  it("groups digits in the active UI language, like every sibling surface (2026-10-01 audit, 07-L4)", () => {
+    // The stock ledger used to hardcode en-IN grouping while the rest of the
+    // app already grouped through formatNumber (te-IN under Telugu). Pin the
+    // delegation itself, the same way format.locale.test.ts does.
+    setActiveLanguage("te");
+    try {
+      expect(formatPersistedKg(1234.567)).toBe(
+        (1234.567).toLocaleString("te-IN", {
+          minimumFractionDigits: 1,
+          maximumFractionDigits: 3,
+        }),
+      );
+      expect(formatPersistedKg(1234567.891)).toBe(
+        (1234567.891).toLocaleString("te-IN", {
+          minimumFractionDigits: 1,
+          maximumFractionDigits: 3,
+        }),
+      );
+    } finally {
+      setActiveLanguage("en");
+    }
+    // The English default keeps its byte-identical en-IN rendering.
     expect(formatPersistedKg(1234.567)).toBe("1,234.567");
   });
 

@@ -25,6 +25,7 @@ import { apiFetch, ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { farmToday, formatDate } from "@/lib/format";
+import { randomIdempotencyKey } from "@/lib/idempotent-request";
 import { useLanguage, useT } from "@/lib/i18n";
 import {
   enqueueOfflineMutation,
@@ -127,7 +128,7 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
   const t = useT();
   const { user, farmId } = useAuth();
   const queryClient = useQueryClient();
-  const [busyId, setBusyId] = useState<number | null>(null);
+  const [busyIds, setBusyIds] = useState<ReadonlySet<number>>(() => new Set<number>());
   const allowed = perms.can("tasks.view");
 
   const query = useListTasksApiTasksGet(
@@ -166,7 +167,11 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
     if (user === null || farmId === null) return;
     const farmScope = captureFarmScope();
     const path = `/api/tasks/${task.id}/${kind}`;
-    const idempotencyKey = crypto.randomUUID();
+    // NOT crypto.randomUUID(): that exists only in secure contexts, and this
+    // shell explicitly serves plain-http tablet origins — the direct call
+    // threw before the try block, so Complete/Skip silently no-opped
+    // (2026-10-01 audit, 05-1). The helper falls back to getRandomValues.
+    const idempotencyKey = randomIdempotencyKey();
     // The skip reason is user-authored content (like a typed reason): persist
     // it in the device's language rather than a fixed English string
     // (2026-09-28 audit — "Tablet skip" was hardcoded English).
@@ -176,16 +181,27 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
       task.id,
       kind === "complete" ? { status: "DONE" } : { status: "SKIPPED" },
     );
-    setBusyId(task.id);
+    // A Set, not a single slot: overwriting one busy id used to re-enable
+    // another card's Complete/Skip mid-flight, so a second tap fired a fresh
+    // idempotency key and the server's pending check answered a spurious 409
+    // toast right after a success (2026-10-01 audit, 05-4).
+    setBusyIds((prev) => new Set(prev).add(task.id));
     try {
       await apiFetch(path, {
         method: "POST",
         body,
         headers: { "Idempotency-Key": idempotencyKey },
       });
-      if (kind === "complete") toast.success(t("worker.completedToast"));
-      else toast.success(t("worker.skippedToast"));
-      await query.refetch();
+      // Fence the SUCCESS path too, not just the catch (2026-10-01 audit,
+      // 07-L2): after a farm-scope change (end-shift/farm switch) mid-flight,
+      // toasting "Marked done." and refetching the board under the new scope
+      // violates the fence contract every other write surface follows. The
+      // write itself is safe (it carried the captured X-Farm-Id).
+      if (farmScope()) {
+        if (kind === "complete") toast.success(t("worker.completedToast"));
+        else toast.success(t("worker.skippedToast"));
+        await query.refetch();
+      }
     } catch (error) {
       // Guard BEFORE any rollback: after a farm-scope change (farm switch,
       // end-shift) the board cache was cleared, and restoring the pre-patch
@@ -226,7 +242,11 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
         );
       }
     } finally {
-      setBusyId(null);
+      setBusyIds((prev) => {
+        const next = new Set(prev);
+        next.delete(task.id);
+        return next;
+      });
     }
   }
 
@@ -274,7 +294,7 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
                     key={task.id}
                     task={task}
                     canComplete={canComplete}
-                    busy={busyId === task.id}
+                    busy={busyIds.has(task.id)}
                     onComplete={(tk) => void runDutyMutation(tk, "complete")}
                     onSkip={(tk) => void runDutyMutation(tk, "skip")}
                   />
@@ -293,7 +313,7 @@ function WorkerBoardContent({ perms }: { perms: PermissionsState }) {
                     key={task.id}
                     task={task}
                     canComplete={canComplete}
-                    busy={busyId === task.id}
+                    busy={busyIds.has(task.id)}
                     onComplete={(tk) => void runDutyMutation(tk, "complete")}
                     onSkip={(tk) => void runDutyMutation(tk, "skip")}
                   />

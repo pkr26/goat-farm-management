@@ -163,14 +163,15 @@ async def test_kidding_at_gestation_floor_accepted(client: httpx.AsyncClient) ->
 
 
 # A "kidding" on the breeding date itself (0-day gestation) is below the
-# 100-day floor and now rejected (409 from the service guard) instead of
-# silently corrupting gestation statistics.
+# 100-day floor and rejected instead of silently corrupting gestation
+# statistics. Input-shape validation, so 422 like an over-cap litter —
+# not a 409 lifecycle conflict (2026-10-01 audit, 02-5).
 async def test_kidding_on_breeding_date_rejected(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     breeding_date = today() - timedelta(days=160)
     _doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
     resp = await kid_on_ekd_raw(client, headers, br, date=iso(breeding_date))
-    assert resp.status_code == 409
+    assert resp.status_code == 422
     assert "gestation" in resp.json()["detail"]
 
 

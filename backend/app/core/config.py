@@ -102,6 +102,9 @@ NON_APP_ENV_VARS = frozenset(
         "GOATFARM_DB_CA_FILE",
         "GOATFARM_JWT_SECRET_DIR",
         "GOATFARM_COMPOSE_ENV_FILE",
+        # Host-side directory bind-mounted (read-only) at /run/secrets/app for
+        # the file-delivered application secrets (2026-10-01 audit, 09-1).
+        "GOATFARM_APP_SECRET_DIR",
     }
 )
 
@@ -305,6 +308,42 @@ def _invalid_db_ca_mode(path: Path | None, sslmode: DbSslMode) -> str | None:
     return None
 
 
+def _read_secret_file(path: Path, *, setting_name: str) -> str:
+    """Read and trim one file-delivered secret value (2026-10-01 audit, 09-1).
+
+    Production compose delivers the environment-borne secrets as read-only
+    bind files under ``/run/secrets/app`` — the same mechanism the JWT PEMs
+    and the database CA already use — so the values never appear in
+    ``docker inspect`` output or ``/proc/<pid>/environ``. Only the
+    container-side path travels through the environment.
+
+    A configured path that is missing, unreadable, or blank fails here, at
+    settings construction, in every environment: pointing a ``*_FILE``
+    variable at nothing is an operator error, never a licence to fall back
+    to the plain variable (which may hold a development default).
+    """
+    try:
+        content = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ValueError(f"{setting_name} must name a readable secret file: {path}") from exc
+    trimmed = content.strip()
+    if not trimmed:
+        raise ValueError(f"{setting_name} must contain a non-blank secret: {path}")
+    return trimmed
+
+
+def _secret_file_value(path: Path | None, *, setting_name: str) -> str | None:
+    """Trimmed content of an optional ``*_FILE`` setting, or ``None``.
+
+    ``None`` means "keep the plain environment value", which remains fully
+    supported so existing env-var deployments do not break on upgrade; a set
+    file path always takes precedence.
+    """
+    if path is None:
+        return None
+    return _read_secret_file(path, setting_name=setting_name)
+
+
 class MigrationSettings(BaseSettings):
     """Minimal settings surface for the privileged Alembic release job.
 
@@ -329,6 +368,18 @@ class MigrationSettings(BaseSettings):
     db_sslmode: DbSslMode = "disable"
     db_sslrootcert_path: Path | None = None
     migration_statement_timeout_ms: int = Field(default=0, ge=0)
+    # File-delivered URL variants (2026-10-01 audit, 09-1): when set, the
+    # read-only mounted file's trimmed content replaces the plain URL
+    # variable's value. See the Settings block for the delivery contract.
+    database_url_file: Path | None = None
+    migration_database_url_file: Path | None = None
+
+    @field_validator("database_url_file", "migration_database_url_file", mode="before")
+    @classmethod
+    def _empty_secret_file_var_is_unset(cls, value: object) -> object:
+        # Compose's optional interpolation yields an empty string; treat only
+        # that exact value as absent (same idiom as the Settings projection).
+        return None if value == "" else value
 
     @field_validator("db_sslrootcert_path")
     @classmethod
@@ -337,6 +388,22 @@ class MigrationSettings(BaseSettings):
 
     @model_validator(mode="after")
     def _production_tls(self) -> MigrationSettings:
+        # File-delivered URLs win over their plain environment variables
+        # (2026-10-01 audit, 09-1) and must be substituted before the URL
+        # contract checks below read the value.
+        if (
+            value := _secret_file_value(
+                self.database_url_file, setting_name="GOATFARM_DATABASE_URL_FILE"
+            )
+        ) is not None:
+            self.database_url = value
+        if (
+            value := _secret_file_value(
+                self.migration_database_url_file,
+                setting_name="GOATFARM_MIGRATION_DATABASE_URL_FILE",
+            )
+        ) is not None:
+            self.migration_database_url = value
         self.database_url = _normalize_database_url(
             self.database_url,
             sslmode=self.db_sslmode,
@@ -690,6 +757,26 @@ class Settings(BaseSettings):
     totp_encryption_previous_keys: list[SecretStr] = Field(
         default_factory=list, max_length=MAX_PREVIOUS_TOTP_ENCRYPTION_KEYS
     )
+
+    # --- File-delivered secrets (2026-10-01 audit, 09-1) --------------------
+    # Optional container-side paths for the environment-borne secrets above.
+    # When one is set, the mounted file's trimmed content takes precedence
+    # over the plain environment variable; the plain variables keep working
+    # so existing env-var deployments do not break on upgrade (file wins when
+    # both are set). docker-compose.production.yml mounts the files under
+    # /run/secrets/app exactly like the JWT PEMs and the database CA, keeping
+    # the values out of `docker inspect` and /proc/<pid>/environ. Compose's
+    # optional interpolation yields an empty string, which the validator
+    # below normalizes back to "unset".
+    database_url_file: Path | None = None
+    migration_database_url_file: Path | None = None
+    idempotency_request_hmac_secret_file: Path | None = None
+    totp_encryption_key_file: Path | None = None
+    s3_access_key_id_file: Path | None = None
+    s3_secret_access_key_file: Path | None = None
+    screening_anthropic_api_key_file: Path | None = None
+    screening_openai_api_key_file: Path | None = None
+    msg91_auth_key_file: Path | None = None
     jwt_algorithm: Literal["RS256"] = "RS256"
     # Bind signed tokens to this service/client pair. Signature validity alone
     # is not enough when the same key might ever be used by another service.
@@ -962,6 +1049,25 @@ class Settings(BaseSettings):
             raise ValueError("must not be blank")
         return normalized
 
+    @field_validator(
+        "database_url_file",
+        "migration_database_url_file",
+        "idempotency_request_hmac_secret_file",
+        "totp_encryption_key_file",
+        "s3_access_key_id_file",
+        "s3_secret_access_key_file",
+        "screening_anthropic_api_key_file",
+        "screening_openai_api_key_file",
+        "msg91_auth_key_file",
+        mode="before",
+    )
+    @classmethod
+    def _empty_secret_file_var_is_unset(cls, value: object) -> object:
+        # Compose's optional interpolation yields an empty string for unset
+        # *_FILE knobs; treat only that exact value as absent (the same idiom
+        # as the TOTP key fields below). Whitespace remains a real path.
+        return None if value == "" else value
+
     @field_validator("totp_encryption_key", mode="before")
     @classmethod
     def _empty_totp_encryption_key_is_unset(cls, value: object) -> object:
@@ -1185,6 +1291,74 @@ class Settings(BaseSettings):
         trivially insecure — an HTTP refresh-cookie, localhost CORS origins,
         or a plaintext database connection are always operator mistakes,
         never valid production config."""
+        # File-delivered secrets (2026-10-01 audit, 09-1) are substituted
+        # FIRST, before any check below reads or normalizes the value they
+        # replace. A configured-but-unreadable file fails closed here in
+        # every environment, not only production.
+        if (
+            value := _secret_file_value(
+                self.database_url_file, setting_name="GOATFARM_DATABASE_URL_FILE"
+            )
+        ) is not None:
+            self.database_url = value
+        if (
+            value := _secret_file_value(
+                self.migration_database_url_file,
+                setting_name="GOATFARM_MIGRATION_DATABASE_URL_FILE",
+            )
+        ) is not None:
+            self.migration_database_url = value
+        if (
+            value := _secret_file_value(
+                self.idempotency_request_hmac_secret_file,
+                setting_name="GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET_FILE",
+            )
+        ) is not None:
+            self.idempotency_request_hmac_secret = SecretStr(value)
+        if (
+            value := _secret_file_value(
+                self.totp_encryption_key_file, setting_name="GOATFARM_TOTP_ENCRYPTION_KEY_FILE"
+            )
+        ) is not None:
+            self.totp_encryption_key = SecretStr(value)
+            # Field validation has already run by the time this substitution
+            # happens; re-check the canonical 32-byte base64url form on the
+            # file-delivered value.
+            decode_totp_encryption_key(
+                self.totp_encryption_key, setting_name="GOATFARM_TOTP_ENCRYPTION_KEY"
+            )
+        if (
+            value := _secret_file_value(
+                self.s3_access_key_id_file, setting_name="GOATFARM_S3_ACCESS_KEY_ID_FILE"
+            )
+        ) is not None:
+            self.s3_access_key_id = SecretStr(value)
+        if (
+            value := _secret_file_value(
+                self.s3_secret_access_key_file, setting_name="GOATFARM_S3_SECRET_ACCESS_KEY_FILE"
+            )
+        ) is not None:
+            self.s3_secret_access_key = SecretStr(value)
+        if (
+            value := _secret_file_value(
+                self.screening_anthropic_api_key_file,
+                setting_name="GOATFARM_SCREENING_ANTHROPIC_API_KEY_FILE",
+            )
+        ) is not None:
+            self.screening_anthropic_api_key = SecretStr(value)
+        if (
+            value := _secret_file_value(
+                self.screening_openai_api_key_file,
+                setting_name="GOATFARM_SCREENING_OPENAI_API_KEY_FILE",
+            )
+        ) is not None:
+            self.screening_openai_api_key = SecretStr(value)
+        if (
+            value := _secret_file_value(
+                self.msg91_auth_key_file, setting_name="GOATFARM_MSG91_AUTH_KEY_FILE"
+            )
+        ) is not None:
+            self.msg91_auth_key = SecretStr(value)
         self.database_url = _normalize_database_url(
             self.database_url,
             sslmode=self.db_sslmode,
@@ -1453,6 +1627,14 @@ class ScreeningWorkerSettings(BaseSettings):
     db_max_overflow: int = Field(default=2, ge=0)
     db_pool_timeout: int = Field(default=30, ge=1)
     db_statement_timeout_ms: int = Field(default=30_000, ge=1)
+    # File-delivered secret variants (2026-10-01 audit, 09-1): when set, the
+    # read-only mounted file's trimmed content replaces the plain variable's
+    # value. See the Settings block for the delivery contract.
+    database_url_file: Path | None = None
+    s3_access_key_id_file: Path | None = None
+    s3_secret_access_key_file: Path | None = None
+    screening_anthropic_api_key_file: Path | None = None
+    screening_openai_api_key_file: Path | None = None
 
     screening_enabled: bool = False
     s3_endpoint_url: str | None = None
@@ -1534,6 +1716,41 @@ class ScreeningWorkerSettings(BaseSettings):
 
     @model_validator(mode="after")
     def _worker_safety(self) -> ScreeningWorkerSettings:
+        # File-delivered secrets (2026-10-01 audit, 09-1) are substituted
+        # before the URL contract check reads the value; a configured but
+        # unreadable file fails closed here in every environment.
+        if (
+            value := _secret_file_value(
+                self.database_url_file, setting_name="GOATFARM_DATABASE_URL_FILE"
+            )
+        ) is not None:
+            self.database_url = value
+        if (
+            value := _secret_file_value(
+                self.s3_access_key_id_file, setting_name="GOATFARM_S3_ACCESS_KEY_ID_FILE"
+            )
+        ) is not None:
+            self.s3_access_key_id = SecretStr(value)
+        if (
+            value := _secret_file_value(
+                self.s3_secret_access_key_file, setting_name="GOATFARM_S3_SECRET_ACCESS_KEY_FILE"
+            )
+        ) is not None:
+            self.s3_secret_access_key = SecretStr(value)
+        if (
+            value := _secret_file_value(
+                self.screening_anthropic_api_key_file,
+                setting_name="GOATFARM_SCREENING_ANTHROPIC_API_KEY_FILE",
+            )
+        ) is not None:
+            self.screening_anthropic_api_key = SecretStr(value)
+        if (
+            value := _secret_file_value(
+                self.screening_openai_api_key_file,
+                setting_name="GOATFARM_SCREENING_OPENAI_API_KEY_FILE",
+            )
+        ) is not None:
+            self.screening_openai_api_key = SecretStr(value)
         self.database_url = _normalize_database_url(
             self.database_url,
             sslmode=self.db_sslmode,

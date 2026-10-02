@@ -29,8 +29,22 @@ export default defineConfig({
   // A committed test.only would otherwise narrow the whole CI gate to one
   // test and still exit 0.
   forbidOnly: !!process.env.CI,
+  // CI retries exist to absorb infrastructure noise only: any test that
+  // needs a retry is recorded with status "flaky" by the JSON reporter
+  // below, and the e2e workflow fails the job on a non-zero flaky count —
+  // a genuinely racy product behavior can no longer land on main as
+  // "passing" (2026-10-01 audit, 10-2). Local runs stay at retries: 0 so a
+  // flake is always visible in the console.
   retries: process.env.CI ? 2 : 0,
-  reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : [["list"]],
+  reporter: process.env.CI
+    ? [
+        ["list"],
+        ["html", { open: "never" }],
+        // Machine-readable verdicts for the workflow's flaky gate; the file
+        // rides along in the uploaded playwright-report artifact.
+        ["json", { outputFile: "playwright-report/results.json" }],
+      ]
+    : [["list"]],
   use: {
     baseURL: "http://localhost:3000",
     trace: "retain-on-failure",

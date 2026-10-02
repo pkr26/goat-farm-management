@@ -52,6 +52,42 @@ TASK_LOADS = (
     selectinload(Task.animal),
 )
 
+# (2026-10-01 audit, 01-4) SMS bodies interpolate worker-enterable free text
+# (tag numbers, disease targets, finding labels). IdentifierText already
+# strips control characters and bounds length, but a URL smuggled into a tag
+# ("verify at http://x") is plain words to every schema — the report's lighter
+# mitigation is to neutralize URL-ish tokens at the emit sites. Two shapes:
+# an explicit scheme or www. prefix, and bare scheme-less domains whose final
+# label looks like a TLD (2+ letters — digits excluded, so "3.5 kg", "v1.2"
+# and dates are plain text; a path/port tail rides along with its domain).
+_SMS_EXPLICIT_URL_RE = re.compile(r"(?i:(?:https?://|www\.)\S+)")
+_SMS_BARE_DOMAIN_RE = re.compile(
+    r"(?<![\w.-])"  # the match must be the whole token, not a fragment of one
+    r"(?:[\w-]+\.)+"
+    r"[^\W\d_]{2,}"
+    r"(?:[:/]\S*)?"
+)
+
+
+def sms_safe_text(value: str | None) -> str:
+    """Free text made safe to interpolate into a notification SMS body.
+
+    Strips anything resembling a URL — ``http(s)://…``, ``www.…``, bare
+    ``domain.tld`` forms with an optional ``/path`` or ``:port`` tail — and
+    collapses the whitespace the removal leaves behind. Plain text passes
+    through byte-identical; an input that was nothing but a URL collapses to
+    ``""`` so callers' own fallbacks apply. Conservative by design: a dotted
+    prose run with a letter-only final label ("foot.and.mouth") is
+    indistinguishable from a domain and is neutralized too — a cosmetic cost
+    on the alert's own channel, never a correctness one.
+    """
+    text = (value or "").strip()
+    if not text:
+        return ""
+    text = _SMS_EXPLICIT_URL_RE.sub(" ", text)
+    text = _SMS_BARE_DOMAIN_RE.sub(" ", text)
+    return " ".join(text.split())
+
 
 @dataclass(frozen=True)
 class AnimalComputedFacts:

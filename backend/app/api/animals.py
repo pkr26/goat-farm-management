@@ -84,7 +84,13 @@ from ..services import (
 from ..services.animals import canonicalize_breed, skip_pending_tasks_for_empty_batch
 from ..services.breeding import mark_unassessed
 from ..utils import MONEY_QUANTUM, money, today
-from ._shared import AnimalComputedFacts, animal_computed_facts, animal_out, unique_constraint_name
+from ._shared import (
+    AnimalComputedFacts,
+    animal_computed_facts,
+    animal_out,
+    sms_safe_text,
+    unique_constraint_name,
+)
 
 router = APIRouter(prefix="/api/animals", tags=["animals"], responses=COMMON_ERROR_RESPONSES)
 
@@ -1276,9 +1282,16 @@ async def _change_status_mutation(
                 acted_by_id=user.id,
             )
             animal.authority_notified_at = payload.authority_notified_at
+            # (2026-10-01 audit, 01-4) the tag and disease string are
+            # worker-enterable free text interpolated into an SMS body: URL-ish
+            # tokens are neutralized at the emit site, before the tuple reaches
+            # emit_alert. A tag that was nothing but a URL falls back to the
+            # animal id so the regulatory SMS keeps an identity.
+            tag_label = sms_safe_text(animal.tag_number) or f"#{animal.id}"
+            disease_label = sms_safe_text(payload.suspected_disease) or "scheduled disease"
             restriction_alert = (
-                f"Herdly: {animal.tag_number} placed under movement restriction "
-                f"(suspected {payload.suspected_disease or 'scheduled disease'}).",
+                f"Herdly: {tag_label} placed under movement restriction "
+                f"(suspected {disease_label}).",
                 f"movement-restriction:{animal.id}:{animal.restriction_version}",
             )
         try:

@@ -24201,6 +24201,20 @@
             "title": "Adult Annual Mortality",
             "default": 0.05
           },
+          "kid_post_weaning_mortality": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Kid Post Weaning Mortality",
+            "default": 0.05
+          },
+          "grower_annual_mortality": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Grower Annual Mortality",
+            "default": 0.04
+          },
           "failed_services_before_cull": {
             "type": "integer",
             "maximum": 6.0,
@@ -28867,7 +28881,14 @@
             "title": "Prob Liquidity Shortfall"
           },
           "prob_dscr_below_one": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Prob Dscr Below One"
           },
           "minimum_cash_p5": {

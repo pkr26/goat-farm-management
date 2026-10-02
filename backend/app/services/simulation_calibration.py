@@ -1,7 +1,7 @@
 """Derive simulation assumptions from audited operational farm records."""
 
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from math import ceil, exp
 from statistics import median
@@ -33,6 +33,7 @@ from ..simulation.assumptions import (
 )
 from ..simulation.defaults import System, get_preset
 from ..simulation.engine import labour_units_for
+from ..simulation.feed import DAYS_PER_MONTH
 from ..simulation.market import BAKRID_DATES_BY_YEAR, bakrid_festival_months
 from ..utils import add_months, today
 
@@ -81,6 +82,19 @@ def _months_between(start: date, end: date) -> float:
     if end <= start:
         return 0.0
     return (end - start).days / 30.44  # same convention as the engine's DAYS_PER_MONTH
+
+
+def _class_boundary(dob: date, age_months: int) -> date:
+    """Age-class boundary in the SAME 30.44-day convention the exposure
+    lengths are measured in (2026-10-01 audit, 08-M5).
+
+    ``add_months`` clamps to calendar month ends, so a February-born animal's
+    "3-month" boundary landed 2-3 days off the 3 x 30.44-day count the
+    denominator divides by — a per-class annualized mortality bias of up to
+    ~±2% in edge months. Deriving every boundary from DAYS_PER_MONTH keeps
+    windows and denominators in one convention.
+    """
+    return dob + timedelta(days=round(age_months * DAYS_PER_MONTH))
 
 
 def _annual_fraction_from_exposure(deaths: int, animal_months: float) -> float:
@@ -684,8 +698,11 @@ async def calibrate_farm_assumptions(
     # heads instead put survivors in whatever class they had aged into by the
     # reference date while their class-mates' deaths stayed behind, so the two
     # transient classes (post-weaning kid, grower) could report a death count
-    # larger than the population it was divided by.
-    mortality_exposure: dict[str, float] = defaultdict(float)
+    # larger than the population it was divided by. Exposure accumulates in
+    # DAYS over 30.44-day class boundaries and converts to animal-months once
+    # at the end, keeping boundaries and denominator in a single convention
+    # (2026-10-01 audit, 08-M5).
+    mortality_exposure_days: dict[str, float] = defaultdict(float)
     mortality_animals: dict[str, int] = defaultdict(int)
     mortality_deaths: dict[str, int] = defaultdict(int)
     # (class, first age-month inclusive, last age-month exclusive; None = open)
@@ -712,32 +729,33 @@ async def calibrate_farm_assumptions(
         observed_end = min(reference_date, left_on)
         if dob is None:
             # Unknown age counts as adult for the whole observed span, matching
-            # the herd-snapshot convention used above.
+            # the herd-snapshot convention used above. The open-ended span has
+            # no class boundary to honor, so it is measured directly in days.
             exposure_start = max(period_start, mortality_row.purchase_date or period_start)
-            months = _months_between(exposure_start, observed_end)
-            if months > 0.0:
-                mortality_exposure["adult"] += months
+            days = (observed_end - exposure_start).days if observed_end > exposure_start else 0
+            if days > 0:
+                mortality_exposure_days["adult"] += days
                 mortality_animals["adult"] += 1
                 if died_in_window:
                     mortality_deaths["adult"] += 1
             continue
         for group, from_age, to_age in _CLASSES:
-            class_start = add_months(dob, from_age)
-            class_end = add_months(dob, to_age) if to_age is not None else observed_end
-            overlap = _months_between(
-                max(
+            class_start = _class_boundary(dob, from_age)
+            class_end = _class_boundary(dob, to_age) if to_age is not None else observed_end
+            overlap_days = (
+                min(observed_end, class_end)
+                - max(
                     period_start,
                     mortality_row.purchase_date or period_start,
                     class_start,
-                ),
-                min(observed_end, class_end),
-            )
-            if overlap <= 0.0:
+                )
+            ).days
+            if overlap_days <= 0:
                 continue
-            mortality_exposure[group] += overlap
+            mortality_exposure_days[group] += overlap_days
             mortality_animals[group] += 1
             if died_in_window and class_start <= mortality_row.status_date < (
-                add_months(dob, to_age) if to_age is not None else date.max
+                _class_boundary(dob, to_age) if to_age is not None else date.max
             ):
                 mortality_deaths[group] += 1
     for group, field_name in (
@@ -745,13 +763,14 @@ async def calibrate_farm_assumptions(
         ("grower", "grower"),
         ("kid_post_weaning", "kid_post_weaning"),
     ):
+        exposure_months = mortality_exposure_days[group] / DAYS_PER_MONTH
         # Twelve animal-months is one animal-year: below that a single death
         # implies an absurd rate, so it is not evidence of anything.
-        if mortality_exposure[group] >= 12.0 and mortality_animals[group] >= 10:
+        if exposure_months >= 12.0 and mortality_animals[group] >= 10:
             mortality_previous = float(getattr(assumptions.mortality, field_name))
             mortality_calibrated = min(
                 0.9,
-                _annual_fraction_from_exposure(mortality_deaths[group], mortality_exposure[group]),
+                _annual_fraction_from_exposure(mortality_deaths[group], exposure_months),
             )
             setattr(assumptions.mortality, field_name, mortality_calibrated)
             record(

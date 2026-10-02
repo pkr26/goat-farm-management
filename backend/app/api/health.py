@@ -77,7 +77,7 @@ from ..services import (
     validated_template,
 )
 from ..utils import today, utcnow
-from ._shared import visible_to
+from ._shared import sms_safe_text, visible_to
 
 router = APIRouter(prefix="/api/health", tags=["health"], responses=COMMON_ERROR_RESPONSES)
 
@@ -1047,7 +1047,10 @@ async def record_event(
         # would absorb a repeat anyway.
         from ..services.notifications import emit_alert
 
-        target = (payload.disease_target or "").strip() or "scheduled disease"
+        # (2026-10-01 audit, 01-4) disease_target is worker-enterable free
+        # text interpolated into the SMS body and the dedupe payload —
+        # URL-ish tokens are neutralized before they reach emit_alert.
+        target = sms_safe_text(payload.disease_target) or "scheduled disease"
         await emit_alert(
             farm.id,
             "MOVEMENT_RESTRICTION",

@@ -38,6 +38,12 @@ const en = {
   "common.none": "— none —",
   "common.language": "Language",
   "common.somethingWentWrong": "Something went wrong",
+  // Weight unit token: every "N kg" suffix resolves through here so the unit
+  // localizes with the rest of the sentence (2026-10-01 audit, 05-3).
+  "common.kg": "{value} kg",
+  // Farm-type chip on the farm cards and the switcher (was the English-only
+  // farmTypeLabel constant, 2026-10-01 audit, 05-3).
+  "common.farmType": "Goat farm",
 
   // ---------- route-state boundaries (error / 404 / loading) ----------
   "error.boundary.title": "Something went wrong loading this page.",
@@ -399,6 +405,10 @@ const en = {
   // ---------- app shell ----------
   "shell.skipToContent": "Skip to content",
   "shell.tagline": "Goat farm management",
+  // Brand-link fallback: with no permitted module (or while permissions are
+  // unknown) the link still goes somewhere safe, but its accessible label
+  // must not promise a page (2026-10-01 audit, 05-3).
+  "shell.brandLinkFallback": "access status",
   "shell.passwordChangeNotice":
     "This password was set by the farm owner — change it (Account → Change password) before continuing. Farm pages and actions stay blocked until you do.",
 
@@ -457,6 +467,9 @@ const en = {
   "health.form.reviewedExplainer":
     "Confirming records only the reviewed IDs. An animal that joins an unlinked scope afterward is not silently added; if a reviewed animal leaves the scope (or a linked batch no longer matches exactly), the server rejects the write and requires a fresh review.",
   "health.form.reviewedListLabel": "Reviewed target animals",
+  // Age line in the bulk-review target list (was a hardcoded "N mo",
+  // 2026-10-01 audit, 05-3).
+  "health.form.reviewedAgeMonths": "{count} mo",
   "health.form.reviewedEmptyTitle": "No active animals are in this reviewed target.",
   "health.form.reviewedEmptyDescription":
     "Pick a different target above — recording this one would save nothing.",
@@ -483,6 +496,10 @@ const en = {
   "health.form.dutyNotDue":
     "Duty #{id} is not due until {date} — the server rejects an event dated before then.",
   "health.form.linkedDutyLabel": "Linked duty (completes it)",
+  // Option label suffix for a duty that is not due yet (was hardcoded
+  // "(due …)" English in the select and its closed trigger, 2026-10-01
+  // audit, 05-3).
+  "health.form.taskDueSuffix": "(due {date})",
   "health.form.advancedTitle": "Advanced traceability & compliance",
   "health.form.advancedIntro":
     "Record the product trail, authorised schedule, statutory notification and movement/withdrawal holds when they apply.",
@@ -592,6 +609,10 @@ const en = {
   "health.events.loadFailed": "Could not load health events.",
   "health.events.retry": "Retry health events",
   "health.log.lot": "Lot: {lot}",
+  // Target column of the event log for batch-/bucket-scoped events (was
+  // hardcoded "batch #N" / "bucket-wide" English, 2026-10-01 audit, 05-3).
+  "health.log.batchTarget": "batch #{id}",
+  "health.log.bucketWide": "bucket-wide",
   "health.log.manufactured": "Manufactured: {date}",
   "health.log.expires": "Expires: {date}",
   "health.log.vaccineValidUntil": "Vaccine valid until: {date}",
@@ -2286,6 +2307,8 @@ const en = {
   "planner.eval.filledNow": "Filled now",
   "planner.eval.withPurchases": "With purchases",
   "planner.eval.pFull": "P(full)",
+  "planner.eval.minimumCash": "Minimum cash (month {month})",
+  "planner.eval.workingCapital": "Additional working capital",
   "planner.actions.title": "What to do and when",
   "planner.actions.description":
     "The dated to-do list that delivers the targets. Actions dated before the plan start are missed deadlines — the reason a target cannot fill.",
@@ -3239,6 +3262,7 @@ const en = {
   "picker.candidates.searchPlaceholder": "Search tag or name…",
   "picker.candidates.emptyMessage": "No eligible {kind} match this search.",
   "picker.candidates.noEligibleYet": "No listed eligible animals in the records checked yet. Load more to continue.",
+  "picker.candidates.cullSuffix": " — cull candidate (owner only)",
 } as const;
 
 export type MessageKey = keyof typeof en;

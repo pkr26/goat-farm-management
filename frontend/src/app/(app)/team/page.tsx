@@ -67,6 +67,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
+import { useEnumLabel } from "@/lib/enum-labels";
 import { useMutationError } from "@/lib/mutations";
 import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { useAuth } from "@/lib/auth-context";
@@ -566,6 +567,7 @@ function WorkerActions({
 function WorkerRow(props: WorkerControlsProps) {
   const { m, isSelf, protectedTarget, isOwner, idPrefix } = props;
   const controls = useWorkerControls(props);
+  const enumLabel = useEnumLabel();
   return (
     <TableRow>
       <TableCell>
@@ -576,7 +578,11 @@ function WorkerRow(props: WorkerControlsProps) {
         <WorkerRoleField m={m} controls={controls} isSelf={isSelf} protectedTarget={protectedTarget} />
       </TableCell>
       <TableCell>
-        <StatusBadge status={m.is_active ? "ACTIVE" : "INACTIVE"} />
+        {/* Localized children — the badge's humanize fallback is English-only
+         * (2026-10-01 audit, 06-2). */}
+        <StatusBadge status={m.is_active ? "ACTIVE" : "INACTIVE"}>
+          {enumLabel("status", m.is_active ? "ACTIVE" : "INACTIVE")}
+        </StatusBadge>
       </TableCell>
       <TableCell>
         <WorkerActions
@@ -599,11 +605,16 @@ function WorkerRow(props: WorkerControlsProps) {
 function WorkerCard(props: WorkerControlsProps) {
   const { m, isSelf, protectedTarget, isOwner, idPrefix } = props;
   const controls = useWorkerControls(props);
+  const enumLabel = useEnumLabel();
   return (
     <div className="space-y-3 rounded-xl border bg-card p-3 shadow-xs">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <WorkerIdentity m={m} />
-        <StatusBadge status={m.is_active ? "ACTIVE" : "INACTIVE"} />
+        {/* Localized children — same status family as the desktop row
+         * (2026-10-01 audit, 06-2). */}
+        <StatusBadge status={m.is_active ? "ACTIVE" : "INACTIVE"}>
+          {enumLabel("status", m.is_active ? "ACTIVE" : "INACTIVE")}
+        </StatusBadge>
       </div>
       <p className="text-xs text-muted-foreground">{m.email}</p>
       <WorkerRoleField m={m} controls={controls} isSelf={isSelf} protectedTarget={protectedTarget} />

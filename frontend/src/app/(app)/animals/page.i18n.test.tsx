@@ -148,4 +148,20 @@ describe("AnimalsPage create dialog — Telugu", () => {
       "బ్యాచ్ #7 — క్వారంటైన్‌లో 3 యాక్టివ్",
     );
   });
+
+  it("renders the latest weight through the localized kg unit token (2026-10-01 audit, 05-3)", async () => {
+    // The "N kg" suffixes were hardcoded English; the unit must localize
+    // with the rest of the row (common.kg catalog token).
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "te");
+    renderWithProviders(
+      <LanguageProvider>
+        <AnimalsPage />
+      </LanguageProvider>,
+    );
+
+    await screen.findByText("1 మేక");
+    // The mobile card and the desktop table both carry the Telugu unit.
+    expect(screen.getAllByText("32.5 కిలో").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/32\.5 kg/)).not.toBeInTheDocument();
+  });
 });

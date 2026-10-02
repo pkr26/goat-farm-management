@@ -109,8 +109,10 @@ def main() -> None:
         last[rec["id"]] = rec
     todo_ids = sorted(mid for mid, r in last.items() if r["status"] == args.status)
     todo = [manifest[mid] for mid in todo_ids]
-    print(f"verifying {len(todo)} {args.status} mutants (full phase, "
-          f"{args.timeout:.0f}s budget, gap files included)")
+    print(
+        f"verifying {len(todo)} {args.status} mutants (full phase, "
+        f"{args.timeout:.0f}s budget, gap files included)"
+    )
 
     # Single FULL phase for every mutant; a timeout in this pass is not a
     # kill (see module docstring) — map it to the honest verdict per status.

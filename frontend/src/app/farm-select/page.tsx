@@ -35,7 +35,6 @@ import {
 } from "@/lib/permission-navigation";
 import { fetchSharedPermissions } from "@/lib/permission-envelope";
 import { useSingleFlight } from "@/lib/use-single-flight";
-import { farmTypeLabel } from "@/lib/farm-vocabulary";
 
 
 /** Localized twin of the old module-scope schema (ITEM 5): validation copy
@@ -259,12 +258,15 @@ function FarmSelectPageContent() {
                   {/* Full-strength muted token: the /80 tint sat under 4.5:1
                   (sub-AA microtext, 2026-09-21 audit). */}
               <p className="mt-1 text-xs text-muted-foreground">
-                    <span>
-                      {farmTypeLabel}
-                    </span>
-                    {" · "}
-                    <span>{farm.timezone}</span>
-                  </p>
+                <span>
+                  {/* Catalog copy, not the English-only farmTypeLabel constant
+                      — this card is Telugu-first surface (2026-10-01 audit,
+                      05-3). */}
+                  {t("common.farmType")}
+                </span>
+                {" · "}
+                <span>{farm.timezone}</span>
+              </p>
                 </button>
               );
             })}

@@ -292,6 +292,12 @@ class Animal(Base):
     created_at: Mapped[datetime] = mapped_column(
         default=utcnow, server_default=text("timezone('UTC', now())")
     )
+    # Refresh is SQLAlchemy-layer only: ``onupdate`` covers ORM flushes AND
+    # Core ``update()`` statements, but ``server_onupdate`` emits no DDL and
+    # animals deliberately carries no DB trigger — no production writer
+    # targets it with raw SQL (2026-10-01 audit, 04-2). This column is
+    # display/audit metadata, never a concurrency token; staleness-critical
+    # tables use explicit ``revision`` columns instead.
     updated_at: Mapped[datetime] = mapped_column(
         default=utcnow,
         onupdate=utcnow,

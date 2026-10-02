@@ -525,6 +525,26 @@ describe("SimulationPage uncertainty checkpoints", () => {
     expect(within(bands).getAllByRole("row")).toHaveLength(1);
     expect(within(bands).queryByRole("cell")).not.toBeInTheDocument();
   });
+
+  // Unmeasurable DSCR coverage (no principal-repaying year in any run) is
+  // null on the wire — rendered as an em dash with the neutral tint, exactly
+  // like the nullable deterministic DSCR cards, never a green "0.0%"
+  // (2026-10-01 audit, 08-H1).
+  it("renders an unmeasurable DSCR breach probability as an em dash", async () => {
+    const user = await renderLoaded({
+      runResult: { ...RESULT, monte_carlo: monteCarlo({ prob_dscr_below_one: null }) },
+    });
+    await user.click(screen.getByRole("checkbox", { name: "Monte Carlo" }));
+    await user.click(screen.getByRole("button", { name: "Run simulation" }));
+    const label = await screen.findByText("P(DSCR < 1)");
+    // Climb from the label to the card that also carries the value.
+    let card = label.parentElement;
+    while (card && !card.textContent?.includes("—")) {
+      card = card.parentElement;
+    }
+    expect(card?.textContent).toContain("—");
+    expect(card?.textContent).not.toContain("0.0%");
+  });
 });
 
 describe("SimulationPage optimization alternatives", () => {

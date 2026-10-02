@@ -178,12 +178,6 @@ def _latest_occurrence(round_month: int, reference: date) -> date:
     return date(year, round_month, 1)
 
 
-def _prefix_pattern(raw: str) -> str:
-    """Literal, case-insensitive SQL prefix pattern (no wildcard injection)."""
-    escaped = raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return f"{escaped}%"
-
-
 async def _task_exists(db: AsyncSession, farm_id: int, *conditions: ColumnElement[bool]) -> bool:
     """Bounded indexed existence probe for one dedupe key."""
     probe = (
@@ -327,17 +321,21 @@ async def _ensure_interval_rounds(db: AsyncSession, farm_id: int, reference: dat
 async def _ensure_daily_feed_routine(db: AsyncSession, farm_id: int, reference: date) -> bool:
     """The feed-room morning routine, once per business day.
 
-    Dedupe is any-status on the exact (title, due date). Yesterday's completed
-    routine has a different due date, so it never stops today's copy — but a
-    routine already completed (or skipped) today does, where a PENDING-only
-    probe would re-mint a same-day duplicate on every later sweep visit.
+    Dedupe is any-status on the stable (title_key, due date). Yesterday's
+    completed routine has a different due date, so it never stops today's
+    copy — but a routine already completed (or skipped) today does, where a
+    PENDING-only probe would re-mint a same-day duplicate on every later
+    sweep visit. The key is the server-owned title_key, never the free-text
+    title: manual duties may reuse category FEED, and an operator-titled
+    copy of the routine's English fallback must not suppress the auto round
+    (2026-10-01 audit, 03-6).
     """
     already = await _task_exists(
         db,
         farm_id,
         Task.category == TaskCategory.FEED.value,
         Task.due_date == reference,
-        Task.title == _DAILY_MORNING_FEED_TITLE,
+        Task.title_key == _DAILY_MORNING_FEED_TITLE_KEY,
     )
     if already:
         return False
@@ -356,16 +354,17 @@ async def _ensure_daily_feed_routine(db: AsyncSession, farm_id: int, reference: 
 async def _ensure_daily_water_check(db: AsyncSession, farm_id: int, reference: date) -> bool:
     """The twice-daily trough round, once per business day.
 
-    Same any-status (title, due date) dedupe as the feed routine: today's
+    Same any-status (title_key, due date) dedupe as the feed routine: today's
     completed/skipped copy must not be re-minted, yesterday's must not block
-    today's.
+    today's — and a manually titled lookalike never suppresses the auto round
+    (2026-10-01 audit, 03-6).
     """
     already = await _task_exists(
         db,
         farm_id,
         Task.category == TaskCategory.WATER.value,
         Task.due_date == reference,
-        Task.title == _DAILY_WATER_CHECK_TITLE,
+        Task.title_key == _DAILY_WATER_CHECK_TITLE_KEY,
     )
     if already:
         return False
@@ -414,16 +413,18 @@ async def _ensure_feed_reorders(db: AsyncSession, farm_id: int, reference: date)
             f"Reorder {item.ingredient}: {item.qty_on_hand:.0f} kg on hand "
             f"(reorder level {level:.0f} kg)"
         )
-        # Prefix match on the generated "Reorder {ingredient}: " title: a bare
-        # substring would let any pending FEED duty that merely mentions the
-        # ingredient (the morning routine talks about bunks and water) swallow
-        # the alert, and "Maize" must not suppress "Maize DDGS".
+        # Dedupe is PENDING-only on the server-owned identity of the reminder
+        # — title_key "feed_reorder" plus the ingredient in title_args
+        # (2026-10-01 audit, 03-6). The old free-text prefix match let any
+        # manually titled "Reorder {ingredient}: …" duty suppress the auto
+        # alert for as long as it stayed open.
         already = await _task_exists(
             db,
             farm_id,
             Task.category == TaskCategory.FEED.value,
             Task.status == TaskStatus.PENDING.value,
-            Task.title.ilike(_prefix_pattern(f"Reorder {item.ingredient}:"), escape="\\"),
+            Task.title_key == "feed_reorder",
+            Task.title_args["ingredient"].as_string() == item.ingredient,
         )
         if already:
             continue

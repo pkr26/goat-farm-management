@@ -675,11 +675,74 @@ function isRefreshCookieMutation(path: string, method?: string): boolean {
 
 function isLogoutRoute(path: string, method?: string): boolean {
   const requestPath = path.split(/[?#]/, 1)[0];
-  // Stryker disable next-line ConditionalExpression, EqualityOperator: the length guard only separates the degenerate "/" (length 1) from longer slash-suffixed paths, and both spellings yield a non-logout route for it; every real request path is longer
+  // Stryker disable ConditionalExpression, EqualityOperator: the length guard only separates the degenerate "/" (length 1) from longer slash-suffixed paths, and both spellings yield a non-logout route for it; every real request path is longer
   const route = requestPath.length > 1 && requestPath.endsWith("/") ? requestPath.slice(0, -1) : requestPath;
-  // Stryker disable next-line ConditionalExpression: the logout endpoint is only ever called with POST (the generated client and AuthProvider share that spelling), so a true method-guard cannot change the result for a real caller
+  // Stryker disable ConditionalExpression: the logout endpoint is only ever called with POST (the generated client and AuthProvider share that spelling), so a true method-guard cannot change the result for a real caller
   // Stryker disable StringLiteral: hand-proven killed by the refresh-concurrency teardown tests (a garbage route re-enables assertAuthSession, failing them) — Stryker's perTest selection never includes those tests for this mutant; documented attribution artifact
   return (method ?? "GET").toUpperCase() === "POST" && route === "/api/auth/logout";
+}
+
+/** The value a request-timeout abort rejects fetch with. AbortSignal.timeout
+ *  produces a DOMException named "TimeoutError"; the manual fallback below
+ *  must produce the same shape so the offline queue classifies a timed-out
+ *  completion identically on old and new browsers. */
+function timeoutAbortReason(): unknown {
+  if (typeof DOMException === "function") {
+    return new DOMException("The operation timed out.", "TimeoutError");
+  }
+  const error = new Error("The operation timed out.");
+  error.name = "TimeoutError";
+  return error;
+}
+
+/** Compose the caller's cancellation with the bounded request lifetime.
+ *
+ * AbortSignal.any (Safari 17.4+ / Chrome 116+ / Firefox 124+) and
+ * AbortSignal.timeout used to be hard dependencies — unlike the Web Locks
+ * path above, which degrades for pre-Web-Lock browsers — so a pre-17.4
+ * Safari threw "AbortSignal.any is not a function" synchronously inside
+ * rawFetch for EVERY apiFetch. Worse, that TypeError is exactly what the
+ * offline queue classifies as queueable, so each worker completion showed
+ * "Saved — will send when online" for a request that never left the device.
+ * Mirror the Web-Locks fallback pattern: feature-detect and degrade to a
+ * manual AbortController composition that preserves BOTH semantics — the
+ * caller's cancellation and the bounded lifetime, timeout reason included
+ * (2026-10-01 audit, 07-M3). */
+function composeRequestSignal(
+  callerSignal: AbortSignal | null | undefined,
+  timeoutMs: number,
+): AbortSignal {
+  const hasNativeTimeout =
+    typeof AbortSignal === "function" && typeof AbortSignal.timeout === "function";
+  const hasNativeAny =
+    typeof AbortSignal === "function" && typeof AbortSignal.any === "function";
+  if (hasNativeTimeout && hasNativeAny) {
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    return callerSignal ? AbortSignal.any([callerSignal, timeoutSignal]) : timeoutSignal;
+  }
+  if (hasNativeTimeout && !callerSignal) {
+    // Native timeout without a caller signal needs no composition at all.
+    return AbortSignal.timeout(timeoutMs);
+  }
+  const controller = new AbortController();
+  // Like the native signal, the timer is never cancelled on settle: it fires
+  // once and aborting an already-settled request is a no-op for the promise,
+  // while a still-streaming body keeps the same bounded lifetime the native
+  // path enforces.
+  const timer = setTimeout(() => controller.abort(timeoutAbortReason()), timeoutMs);
+  if (callerSignal) {
+    if (callerSignal.aborted) {
+      clearTimeout(timer);
+      controller.abort(callerSignal.reason);
+    } else {
+      callerSignal.addEventListener(
+        "abort",
+        () => controller.abort(callerSignal.reason),
+        { once: true },
+      );
+    }
+  }
+  return controller.signal;
 }
 
 async function rawFetch(
@@ -727,11 +790,11 @@ async function rawFetch(
     // Compose, never replace: a caller signal (TanStack Query unmount/farm
     // switch, the idempotency registry) used to disable the timeout
     // entirely — an unbounded fetch on a dropped connection left the query
-    // pending forever (P3, 2026-09-20 audit). AbortSignal.any aborts when
+    // pending forever (P3, 2026-09-20 audit). The composed signal aborts when
     // EITHER source fires, so caller cancellation semantics are unchanged
-    // and the bounded lifetime still applies.
-    const timeoutSignal = AbortSignal.timeout(timeoutMs);
-    const signal = init.signal ? AbortSignal.any([init.signal, timeoutSignal]) : timeoutSignal;
+    // and the bounded lifetime still applies (with a pre-17.4-Safari
+    // fallback inside — see composeRequestSignal, 2026-10-01 audit, 07-M3).
+    const signal = composeRequestSignal(init.signal, timeoutMs);
     return fetch(path, { ...init, headers, credentials: "include", signal });
   };
   if (!cookieMutation) return execute();
@@ -796,9 +859,10 @@ const NO_REFRESH_PATHS = new Set([
   "/api/auth/totp/challenge",
   // A 401 from worker-login IS the answer ("Invalid PIN."). On a signed-out
   // tablet the refresh attempt can only fail, and its rejection ran the
-  // auth-failure path — wiping the offline queue and ejecting the worker to
-  // /login; with a live cookie the retry double-charged the server's PIN
-  // lockout budget (2026-09-28 audit, C1).
+  // auth-failure path — ejecting the worker to /login (and, before the
+  // 2026-10-01 audit's 07-H fix, wiping the offline queue) — while with a
+  // live cookie the retry double-charged the server's PIN lockout budget
+  // (2026-09-28 audit, C1).
   "/api/auth/worker-login",
 ]);
 

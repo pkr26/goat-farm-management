@@ -10,7 +10,8 @@ keep results exactly reproducible.
 import math
 import random
 import statistics
-from collections.abc import Callable, Mapping
+from array import array
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 from ..models.species import GOAT_PROFILE
@@ -91,8 +92,11 @@ _FACTOR_LOADINGS: dict[str, tuple[float, float, float]] = {
 }
 
 
-def percentile(values: list[float], p: float) -> float:
-    """Linear-interpolation percentile (numpy 'linear' method); p in [0, 1]."""
+def percentile(values: Sequence[float], p: float) -> float:
+    """Linear-interpolation percentile (numpy 'linear' method); p in [0, 1].
+
+    Accepts any float sequence — the Monte Carlo band builder passes compact
+    ``array('d')`` per-month columns (2026-10-01 audit, 08-L10)."""
     if not values:
         return 0.0
     xs = sorted(values)
@@ -404,13 +408,24 @@ def run_monte_carlo(a: SimulationAssumptions) -> MonteCarloResult:
         "operating_cost": a.risk.operating_cost,
     }
 
-    herd_paths: list[list[float]] = []
-    cash_paths: list[list[float]] = []
-    liquidity_paths: list[list[float]] = []
+    # Per-month trajectory columns accumulated online as compact C doubles
+    # (2026-10-01 audit, 08-L10): the former per-run list-of-lists held three
+    # runs x horizon boxed Python floats (~100+ MB at the schema max of
+    # 2000 x 240) before the percentile bands collapsed them. array('d')
+    # stores the same values in the same arrival order — percentiles and all
+    # downstream statistics are bit-identical — at 8 bytes per value
+    # (~11.5 MB total at the schema max).
+    horizon = a.meta.horizon_months
+    herd_columns = [array("d") for _ in range(horizon)]
+    cash_columns = [array("d") for _ in range(horizon)]
+    liquidity_columns = [array("d") for _ in range(horizon)]
     npvs: list[float] = []
     minimum_cash: list[float] = []
     ending_cash: list[float] = []
     liquidity_shortfalls = 0
+    # Runs whose horizon contained no principal-repaying year, so min_dscr is
+    # None exactly like the deterministic contract (2026-10-01 audit, 08-H1).
+    unmeasured_dscr_runs = 0
     weak_dscr_runs = 0
     disease_outbreaks: list[int] = []
     drought_events: list[int] = []
@@ -428,20 +443,21 @@ def run_monte_carlo(a: SimulationAssumptions) -> MonteCarloResult:
             else draws
         )
         core = _run_core(_apply_draws(a, effective_draws), event_path)
-        herd_paths.append([m.total_herd for m in core.months])
-        cash_paths.append([m.cumulative_cash_flow for m in core.months])
-        liquidity_paths.append([m.cash_balance for m in core.months])
+        for month_index, row in enumerate(core.months):
+            herd_columns[month_index].append(row.total_herd)
+            cash_columns[month_index].append(row.cumulative_cash_flow)
+            liquidity_columns[month_index].append(row.cash_balance)
         npvs.append(core.npv)
         minimum_cash.append(core.minimum_cash_balance)
         ending_cash.append(core.months[-1].cash_balance)
         liquidity_shortfalls += int(core.minimum_cash_balance < 0.0)
         weak_dscr_runs += int(core.min_dscr is not None and core.min_dscr < 1.0)
+        unmeasured_dscr_runs += int(core.min_dscr is None)
         disease_outbreaks.append(event_path.disease_outbreaks)
         drought_events.append(event_path.drought_events)
         market_crashes.append(event_path.market_crashes)
 
-    def band(paths: list[list[float]]) -> PercentileBand:
-        columns = [[path[m] for path in paths] for m in range(len(paths[0]))]
+    def band(columns: list[array[float]]) -> PercentileBand:
         return PercentileBand(
             p5=[percentile(col, 0.05) for col in columns],
             p25=[percentile(col, 0.25) for col in columns],
@@ -465,9 +481,9 @@ def run_monte_carlo(a: SimulationAssumptions) -> MonteCarloResult:
     return MonteCarloResult(
         runs=runs,
         seed=a.risk.seed,
-        herd_percentiles=band(herd_paths),
-        cash_percentiles=band(cash_paths),
-        liquidity_percentiles=band(liquidity_paths),
+        herd_percentiles=band(herd_columns),
+        cash_percentiles=band(cash_columns),
+        liquidity_percentiles=band(liquidity_columns),
         npv_mean=statistics.mean(npvs),
         npv_std=statistics.pstdev(npvs),
         npv_p5=percentile(npvs, 0.05),
@@ -475,7 +491,16 @@ def run_monte_carlo(a: SimulationAssumptions) -> MonteCarloResult:
         npv_p95=percentile(npvs, 0.95),
         prob_npv_negative=prob_negative,
         prob_liquidity_shortfall=liquidity_shortfalls / runs,
-        prob_dscr_below_one=weak_dscr_runs / runs,
+        # Nullable exactly like the deterministic min_dscr contract: when no
+        # run had a measurable DSCR (a horizon with no principal-repaying
+        # year — long moratorium, short horizon, or no debt), 0.0 read as
+        # "0% chance of a coverage breach" in precisely the fragile financing
+        # shapes where interest is in fact uncovered. None says
+        # "unmeasurable", not "safe" (2026-10-01 audit, 08-H1). Measurability
+        # is a property of the (deterministic) debt schedule, so a run set is
+        # normally all-measurable or all-unmeasurable; the mixed case keeps
+        # the weak fraction over all runs.
+        prob_dscr_below_one=(weak_dscr_runs / runs if unmeasured_dscr_runs < runs else None),
         npv_p5_ci=npv_p5_ci,
         npv_p50_ci=npv_p50_ci,
         npv_p95_ci=npv_p95_ci,
@@ -533,25 +558,15 @@ def _scale_milk_price_high(v: SimulationAssumptions) -> None:
     v.sales.milk_price_per_litre = min(MAX_MONEY, v.sales.milk_price_per_litre * 1.2)
 
 
-def run_sensitivity(a: SimulationAssumptions) -> list[SensitivityItem]:
-    """OAT (tornado) sensitivity of NPV: +/-20% on one parameter at a time.
+def _sensitivity_cases() -> list[_SensitivityCase]:
+    """The tornado's one-at-a-time perturbation cases, in report order.
 
-    ``sale_age_months`` is varied by +/-2 months instead of a percentage, and
-    four cases clamp the high side at a schema ceiling, so every item reports
-    the perturbation it actually applied (``label_low`` / ``label_high``)
-    rather than leaving readers to assume a flat 20%. The list is sorted by
-    impact (largest absolute delta first) for tornado plots.
+    Built by a module-level factory so the admission budget can count the
+    passes run_sensitivity will actually execute (2026-10-01 audit, 08-L13):
+    ``SENSITIVITY_PASSES`` below is derived from this list, so adding or
+    removing a case cannot leave the API layer's pricing stale.
     """
-    base_npv = _run_core(a).npv
-
-    def run_case(mutate: _Mutator, read: _Reader) -> tuple[float, float]:
-        """(NPV, value actually applied) for one perturbed variant."""
-        variant = a.model_copy(deep=True)
-        mutate(variant)
-        validated = SimulationAssumptions.model_validate(variant.model_dump())
-        return _run_core(validated).npv, read(validated)
-
-    cases: list[_SensitivityCase] = [
+    return [
         _SensitivityCase(
             "meat_price",
             lambda v: v.sales.meat_price_per_kg,
@@ -660,8 +675,34 @@ def run_sensitivity(a: SimulationAssumptions) -> list[SensitivityItem]:
         ),
     ]
 
+
+# Admission-budget export (2026-10-01 audit, 08-L13): full engine passes
+# run_sensitivity executes — the base evaluation plus (low, high) per case,
+# derived from the case list so the two can never drift.
+SENSITIVITY_PARAMETER_COUNT = len(_sensitivity_cases())
+SENSITIVITY_PASSES = 1 + 2 * SENSITIVITY_PARAMETER_COUNT
+
+
+def run_sensitivity(a: SimulationAssumptions) -> list[SensitivityItem]:
+    """OAT (tornado) sensitivity of NPV: +/-20% on one parameter at a time.
+
+    ``sale_age_months`` is varied by +/-2 months instead of a percentage, and
+    four cases clamp the high side at a schema ceiling, so every item reports
+    the perturbation it actually applied (``label_low`` / ``label_high``)
+    rather than leaving readers to assume a flat 20%. The list is sorted by
+    impact (largest absolute delta first) for tornado plots.
+    """
+    base_npv = _run_core(a).npv
+
+    def run_case(mutate: _Mutator, read: _Reader) -> tuple[float, float]:
+        """(NPV, value actually applied) for one perturbed variant."""
+        variant = a.model_copy(deep=True)
+        mutate(variant)
+        validated = SimulationAssumptions.model_validate(variant.model_dump())
+        return _run_core(validated).npv, read(validated)
+
     items: list[SensitivityItem] = []
-    for case in cases:
+    for case in _sensitivity_cases():
         base_value = case.read(a)
         npv_low, value_low = run_case(case.low, case.read)
         npv_high, value_high = run_case(case.high, case.read)

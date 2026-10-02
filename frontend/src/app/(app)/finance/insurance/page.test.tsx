@@ -116,6 +116,27 @@ describe("InsurancePage", () => {
     return row as HTMLElement;
   }
 
+  it("drives the pager off the echoed limit, not the request constant (2026-10-01 audit, 06-7)", async () => {
+    server.use(
+      http.get("/api/finance/insurance", () =>
+        HttpResponse.json({
+          policies: [makePolicy()],
+          total: 40,
+          // A server that clamps below the requested 50: the pager must
+          // follow the echoed limit or the "Showing X–Y" math lies (a
+          // hardcoded 50 rendered "1–40" and disabled Next).
+          limit: 30,
+          offset: 0,
+        }),
+      ),
+    );
+    renderWithProviders(<InsurancePage />);
+
+    const pager = await screen.findByRole("navigation", { name: "policies pagination" });
+    expect(pager).toHaveTextContent("Showing 1–30 of 40 policies");
+    expect(within(pager).getByRole("button", { name: "Next" })).toBeEnabled();
+  });
+
   it("lists every policy column with the animal tag when present", async () => {
     await renderLoaded();
 

@@ -336,20 +336,28 @@ function RecordKiddingDialog({
   const youngNounCap = t("kidding.noun.youngCap");
   const triItems = triStateItems(t);
   const [formError, setFormError] = useState<string | null>(null);
-  const [earliestKiddingDate, latestKiddingDate] = useMemo(() => {
+  // Computed per render, NOT memoized: the ceiling `min(gestation max,
+  // farmToday())` rolls forward at midnight, and a memo whose deps omit
+  // "today" kept a dialog held open across midnight on the old ceiling in
+  // both the schema and the input's min/max (2026-10-01 audit, 05-Info).
+  // addDays string math is trivial, and the dialog remounts per record
+  // (key={activeRecord.id}) so the default date stays mount-fresh.
+  const earliestKiddingDate = (() => {
     const minGestationDate = addDays(
       breeding.breeding_date,
       vocabulary.facts.gestationWindowDays.min,
     );
     // Stryker disable next-line ConditionalExpression, EqualityOperator: when the scan result equals the floor both arms return the same date, and when they differ > and >= agree — the boundary is not observable
-    const earliest = breeding.ultrasound_result_date && breeding.ultrasound_result_date > minGestationDate ? breeding.ultrasound_result_date : minGestationDate;
+    return breeding.ultrasound_result_date && breeding.ultrasound_result_date > minGestationDate ? breeding.ultrasound_result_date : minGestationDate;
+  })();
+  const latestKiddingDate = (() => {
     const maxGestationDate = addDays(
       breeding.breeding_date,
       vocabulary.facts.gestationWindowDays.max,
     );
     // Stryker disable next-line EqualityOperator: when the ceiling equals today both arms return the same date, and otherwise < and <= agree
-    return [earliest, maxGestationDate < farmToday() ? maxGestationDate : farmToday()];
-  }, [breeding.breeding_date, breeding.ultrasound_result_date, vocabulary]);
+    return maxGestationDate < farmToday() ? maxGestationDate : farmToday();
+  })();
   const resolver = useMemo(
     () => zodResolver(buildKiddingSchemaFor(t, vocabulary, earliestKiddingDate, latestKiddingDate)),
     [t, vocabulary, earliestKiddingDate, latestKiddingDate],

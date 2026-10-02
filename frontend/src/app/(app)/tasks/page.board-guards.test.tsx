@@ -602,7 +602,7 @@ describe("TasksPage branch guards", () => {
       expect(skipCalls).toBe(0);
     });
 
-    it("holds the skip dialog open while the skip is in flight, then closes it", async () => {
+    it("honours dismissal of the skip dialog mid-write; the write still lands (2026-10-01 audit, 06-3)", async () => {
       let releaseSkip!: () => void;
       let markSkipStarted!: () => void;
       const skipGate = new Promise<void>((resolve) => {
@@ -623,13 +623,14 @@ describe("TasksPage branch guards", () => {
       await user.click(within(dialog).getByRole("button", { name: "Skip task" }));
       await skipStarted;
 
+      // Dismissal always wins — Escape closes the dialog instead of holding
+      // it (and its disabled controls) captive for the mutation timeout.
       await user.keyboard("{Escape}");
-      expect(screen.getByRole("dialog", { name: "Skip this task?" })).toBeInTheDocument();
-      expect(within(dialog).getByRole("button", { name: "Skipping…" })).toBeDisabled();
-
-      releaseSkip();
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-      expect(skipCalls).toBe(1);
+
+      // The single-flighted write itself is unaffected: it lands exactly once.
+      releaseSkip();
+      await waitFor(() => expect(skipCalls).toBe(1));
     });
   });
 
@@ -694,16 +695,14 @@ describe("TasksPage branch guards", () => {
 
       // react-hook-form flags the submission before the write leaves the
       // browser: the fieldset, the submit control itself and its label must
-      // already say so, and a dismissal arriving in that window is ignored.
+      // already say so. (Dismissal in that window is honoured — pinned by
+      // the 06-3 test in page.extended.test.tsx.)
       fireEvent.submit(form);
       expect(within(dialog).getByLabelText("Title *")).toBeDisabled();
       const submit = within(dialog).getByRole("button", { name: "Creating…" });
       expect(submit).toHaveAttribute("disabled");
-      fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
 
       await createStarted;
-      expect(screen.getByRole("dialog")).toBeInTheDocument();
-
       releaseCreate();
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
       expect(createBody).toMatchObject({ title: "Check fences" });

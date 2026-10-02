@@ -61,7 +61,10 @@ async def test_wrong_pin_timing_is_equalized_between_known_and_unknown_names(
         },
         headers=owner,
     )
-    assert worker.status_code in (201, 200), worker.text
+    # Worker creation is a plain 201 (the route decorator pins it; no path
+    # rewrites the status) — formerly accepted (201, 200) as a never-a-500
+    # pin (2026-10-01 audit, 10-3).
+    assert worker.status_code == 201, worker.text
     farm_id = owner["X-Farm-Id"]
 
     roster = await client.get("/api/auth/worker-roster", params={"farm_id": farm_id})

@@ -202,6 +202,12 @@ class ScreeningImage(Base):
     created_at: Mapped[dt.datetime] = mapped_column(
         default=utcnow, server_default=text("timezone('UTC', now())")
     )
+    # Unlike animals/farms, this column IS the worker pipeline's lease and
+    # retry-backoff marker AND receives direct SQL UPDATEs in production (the
+    # pipeline's Core sweeps), so a BEFORE UPDATE trigger refreshes it for
+    # out-of-band writers too (2026-10-01 audit, 04-2). The trigger only
+    # fires when the statement did not set updated_at itself, so the
+    # onupdate above keeps deciding the value on every app-layer write.
     updated_at: Mapped[dt.datetime] = mapped_column(
         default=utcnow,
         onupdate=utcnow,

@@ -101,6 +101,12 @@ _HEAT_CYCLE_DAYS = 21
 # the legal minimum GOAT_PROFILE.min_rest_flush_days so a shortened prompt
 # could never project a re-breed the API would still block (2026-09-28 audit).
 _RESTING_FLUSH_DAYS = max(30, GOAT_PROFILE.min_rest_flush_days)
+# Young-stock class windows in days, anchoring the post-weaning hazards to the
+# monthly engine's class boundaries (2026-10-01 audit, 08-M3): the weaner
+# class spans ages 3-5 months (3 x DAYS_PER_MONTH), and weaned stock past
+# 6 months still growing in a kids pen is a grower.
+_WEANER_PHASE_DAYS = round(3 * DAYS_PER_MONTH)
+_GROWER_AGE_DAYS = round(6 * DAYS_PER_MONTH)
 # Maximum doe age before the age cull fires (mirrors CullingAssumptions
 # default max_doe_age_months used by the monthly engine).
 _MAX_DOE_AGE_MONTHS = 72
@@ -109,6 +115,28 @@ MAX_START_HEAD = 500
 MAX_HORIZON_DAYS = 365
 MIN_HORIZON_DAYS = 7
 _MAX_AGE_MONTHS_START = 240  # models.constants.MAX_AGE_MONTHS parity
+
+
+class DailyOpsResultCapExceeded(ValueError):
+    """The run's standing herd (births included) outgrew the result ceiling.
+
+    In-sim births multiply the day-by-day result (one DayRecord per day with
+    per-building feeding/occupancy, plus a journey per animal) far beyond the
+    starting head the input cap prices; the caller — who knows the ceiling it
+    wants to enforce on materialized/serialized output — turns this into a
+    clean input rejection (2026-10-01 audit, 08-M6: the memory bound is an
+    enforced ceiling, not a priced heuristic).
+    """
+
+    def __init__(self, head_days: int, cap: int) -> None:
+        super().__init__(
+            f"The day-by-day result outgrew the ceiling: the standing herd "
+            f"(births included) reached {head_days:,} head-days against the "
+            f"cap of {cap:,}. Narrow the herd or the horizon."
+        )
+        self.head_days = head_days
+        self.cap = cap
+
 
 _BUCKET_CODES = tuple(member.value for member in Bucket)
 
@@ -236,6 +264,16 @@ class DailyOpsParams(BaseModel):
     abortion_rate: float = Field(default=0.02, ge=0.0, le=1.0)
     kid_pre_weaning_mortality: float = Field(default=0.15, ge=0.0, le=1.0)
     adult_annual_mortality: float = Field(default=0.05, ge=0.0, le=1.0)
+    # Young-stock survival after weaning, mirroring the monthly engine's class
+    # rates (MortalityAssumptions) instead of jumping straight from the
+    # pre-weaning hazard to the adult hazard the day a kid is weaned
+    # (2026-10-01 audit, 08-M3). ``kid_post_weaning_mortality`` is a
+    # WHOLE-PHASE rate over the 3-month weaner class (3-5 months, the same
+    # convention as the monthly engine's kid_post_weaning);
+    # ``grower_annual_mortality`` is an annual rate for weaned stock past
+    # 6 months still growing in the kids pens.
+    kid_post_weaning_mortality: float = Field(default=0.05, ge=0.0, le=1.0)
+    grower_annual_mortality: float = Field(default=0.04, ge=0.0, le=1.0)
     failed_services_before_cull: int = Field(
         default=_PROFILE.failed_services_before_cull, ge=1, le=6
     )
@@ -560,12 +598,16 @@ class _Animal:
 class _DailyOpsRun:
     """All mutable state for one simulation; ``run()`` produces the result."""
 
-    def __init__(self, payload: DailyOpsInput) -> None:
+    def __init__(self, payload: DailyOpsInput, *, max_result_head_days: int | None = None) -> None:
         self.payload = payload
         self.params = payload.params
         self.rng = Random(payload.seed)
         self.animals: dict[str, _Animal] = {}
         self.days: list[DayRecord] = []
+        # Hard output-side ceiling on standing head-days (see
+        # DailyOpsResultCapExceeded); None disables it for direct callers.
+        self.max_result_head_days = max_result_head_days
+        self.result_head_days = 0
         self.conceptions = 0
         self.failed_services = 0
         self.services = 0
@@ -575,6 +617,17 @@ class _DailyOpsRun:
             self.params.kid_pre_weaning_mortality, _PROFILE.weaning_days
         )
         self.adult_hazard = _daily_hazard(self.params.adult_annual_mortality, 365)
+        # Weaned young stock keeps its own class hazards, mirroring the monthly
+        # engine's kid_post_weaning (whole 3-month weaner phase) and grower
+        # (annual) rates instead of facing the adult hazard from the weaning
+        # day on (2026-10-01 audit, 08-M3). The weaner phase spans ages 3-5
+        # months; past 6 months a weaned animal still in a kids pen is a
+        # grower. Both windows anchor to DAYS_PER_MONTH like every other age
+        # conversion here.
+        self.weaner_hazard = _daily_hazard(
+            self.params.kid_post_weaning_mortality, _WEANER_PHASE_DAYS
+        )
+        self.grower_hazard = _daily_hazard(self.params.grower_annual_mortality, 365)
         # The draw window is scan → kidding (gestation days 32..149): a loss
         # before the scan is indistinguishable from a failed conception, so
         # the nominal rate anchors to the exposed window — not all 150 days —
@@ -750,7 +803,13 @@ class _DailyOpsRun:
             members = groups[(building, recipe, band)]
             display = RECIPE_DISPLAY.get(recipe, recipe)
             if recipe == "CREEP":
-                kg_per_head = creep_daily_kg(members[0].age_days(day))
+                # Price the whole band at its MEAN member age, not the first
+                # (tag-sorted) member's age (2026-10-01 audit, 08-L14): a
+                # band straddling a ramp step used to price every member at
+                # whichever tag happened to sort first, gram-shifting the
+                # band's total by up to one ramp step.
+                mean_age_days = sum(member.age_days(day) for member in members) // len(members)
+                kg_per_head = creep_daily_kg(mean_age_days)
                 display = f"{display} ({band})"
                 assert kg_per_head > 0, "banded creep group with a zero ration"  # noqa: S101 — deliberate simulation invariant, not user input
             else:
@@ -1385,14 +1444,33 @@ class _DailyOpsRun:
 
     def _mortality(self, day: int) -> None:
         for animal in sorted(self._active(), key=lambda a: a.tag):
-            hazard = self.kid_hazard if animal.dependent_kid else self.adult_hazard
+            # Class hazards mirror the monthly engine (2026-10-01 audit,
+            # 08-M3): dependent kids face the pre-weaning phase rate; weaned
+            # stock in the kids pens faces the weaner (3-5 m) then grower
+            # (6 m+) class rates; everything else — breeding does, bucks — is
+            # adult. One draw per animal per day is consumed regardless of the
+            # class, so the seeded stream (and every other animal's draws) is
+            # unchanged; only the threshold each class compares against moves.
+            growing_pen = animal.bucket in (
+                Bucket.MALE_KIDS.value,
+                Bucket.FEMALE_KIDS.value,
+            )
+            if animal.dependent_kid:
+                hazard = self.kid_hazard
+                reason = (
+                    f"Pre-weaning kid loss (phase rate {self.params.kid_pre_weaning_mortality:.0%})"
+                )
+            elif growing_pen and animal.age_days(day) < _GROWER_AGE_DAYS:
+                hazard = self.weaner_hazard
+                reason = f"Weaner loss (phase rate {self.params.kid_post_weaning_mortality:.0%})"
+            elif growing_pen:
+                hazard = self.grower_hazard
+                reason = f"Grower mortality (annual rate {self.params.grower_annual_mortality:.0%})"
+            else:
+                hazard = self.adult_hazard
+                reason = f"Adult mortality (annual rate {self.params.adult_annual_mortality:.0%})"
             if self.rng.random() >= hazard:
                 continue
-            reason = (
-                f"Pre-weaning kid loss (phase rate {self.params.kid_pre_weaning_mortality:.0%})"
-                if animal.dependent_kid
-                else f"Adult mortality (annual rate {self.params.adult_annual_mortality:.0%})"
-            )
             self._record(
                 day,
                 TIME_DUTIES,
@@ -1471,6 +1549,17 @@ class _DailyOpsRun:
             self._feed_round(day, FeedingShift.NIGHT, TIME_NIGHT_FEED)
             self._cleaning_round(day, TIME_NIGHT_CLEAN, "night (after the night feed)")
             self.days[day - 1].occupancy = self._occupancy()
+            # Enforce the output-side ceiling on the STANDING herd, births
+            # included, as it grows — not merely on the input head the request
+            # started with (2026-10-01 audit, 08-M6). Aborting mid-run bounds
+            # the materialized DayRecord/journey graph too, and the charge the
+            # caller already booked prices the real CPU spent.
+            self.result_head_days += len(self._active())
+            if (
+                self.max_result_head_days is not None
+                and self.result_head_days > self.max_result_head_days
+            ):
+                raise DailyOpsResultCapExceeded(self.result_head_days, self.max_result_head_days)
         return self._build_result()
 
     # -- aggregation --------------------------------------------------------------
@@ -1893,6 +1982,14 @@ def build_daily_ledger(result: DailyOpsResult) -> str:
     return "\n".join(lines) + "\n"
 
 
-def run_daily_ops(payload: DailyOpsInput) -> DailyOpsResult:
-    """Validate and run the daily operations simulation."""
-    return _DailyOpsRun(payload).run()
+def run_daily_ops(
+    payload: DailyOpsInput, *, max_result_head_days: int | None = None
+) -> DailyOpsResult:
+    """Validate and run the daily operations simulation.
+
+    ``max_result_head_days`` is the caller's hard output-side ceiling on
+    standing head-days (births included); exceeding it aborts the run with
+    ``DailyOpsResultCapExceeded`` instead of materializing an unbounded
+    result (2026-10-01 audit, 08-M6).
+    """
+    return _DailyOpsRun(payload, max_result_head_days=max_result_head_days).run()

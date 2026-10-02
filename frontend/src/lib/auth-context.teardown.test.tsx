@@ -22,6 +22,8 @@ import {
   clearOfflineQueueDrainBackoff,
   drainOfflineQueue,
   enqueueOfflineMutation,
+  offlineQueueDepth,
+  readOfflineQueue,
   wipeOfflineQueue,
 } from "@/lib/offline-queue";
 import { server } from "@/test/msw-server";
@@ -276,6 +278,119 @@ describe("AuthProvider teardown — module-level scopes reset with the session",
     );
 
     expect(farmToday(INSTANT)).toBe("2026-08-10");
+  });
+});
+
+describe("AuthProvider teardown — offline queue survives session death, dies with sign-out (2026-10-01 audit, 07-H)", () => {
+  /** The signed-in test session's scopes (user 1 on farm 1). */
+  const SCOPES = { actorScope: "1", farmScope: "1" };
+
+  beforeEach(() => {
+    pushMock.mockClear();
+    replaceMock.mockClear();
+    setAccessToken(null);
+    setCurrentFarmId(null);
+    wipeOfflineQueue();
+    clearOfflineQueueDrainBackoff();
+  });
+
+  it("a forced logout mid-drain keeps the queued write for redelivery after re-login", async () => {
+    let completions = 0;
+    server.use(
+      http.post("/api/tasks/9/complete", () => {
+        completions += 1;
+        return HttpResponse.json({ detail: "Expired" }, { status: 401 });
+      }),
+      // The refresh cookie is dead (expired family, or revoked by an owner
+      // password reset): the api client's rejected-refresh path owns the
+      // teardown from here.
+      http.post("/api/auth/refresh", () => new HttpResponse(null, { status: 401 })),
+    );
+
+    renderWithProviders(<Probe />);
+    await expectLoaded();
+
+    // The worker's offline completion, scoped to the signed-in session.
+    expect(
+      enqueueOfflineMutation(
+        "/api/tasks/9/complete",
+        { method: "POST", body: "{}", headers: { "Idempotency-Key": "field-key" } },
+        SCOPES,
+      ),
+    ).toBe(true);
+
+    // Connectivity returns; the drain replays straight into the dead session.
+    // The 401 triggers refresh → rejected → onAuthFailure → clearSession —
+    // the exact path that used to wipeOfflineQueue() while the drain's own
+    // 401 branch was busy KEEPING the record.
+    const outcome = await drainOfflineQueue(SCOPES);
+    expect(completions).toBe(1);
+    expect(outcome).toEqual({ replayed: 0, remaining: 1, rejected: 0 });
+    expect(offlineQueueDepth()).toBe(1);
+    expect(readOfflineQueue()[0]?.headers["Idempotency-Key"]).toBe("field-key");
+
+    await waitFor(() =>
+      expect(screen.getByTestId("user")).toHaveTextContent("none"),
+    );
+    expect(replaceMock).toHaveBeenCalledWith("/login");
+
+    // After re-login (the session re-establishes via the same cookie jar in
+    // a real flow), the SAME record is still deliverable.
+    const replay = vi.fn().mockResolvedValue({});
+    const redelivered = await drainOfflineQueue(SCOPES, replay);
+    expect(redelivered).toEqual({ replayed: 1, remaining: 0, rejected: 0 });
+    expect(replay.mock.calls[0]?.[0]).toBe("/api/tasks/9/complete");
+  });
+
+  it("an explicit sign-out still wipes the queue for the next tablet user", async () => {
+    acceptLogout();
+    const user = userEvent.setup();
+    renderWithProviders(<Probe />);
+    await expectLoaded();
+
+    expect(
+      enqueueOfflineMutation(
+        "/api/tasks/9/complete",
+        { method: "POST", body: "{}" },
+        SCOPES,
+      ),
+    ).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "sign-out" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("user")).toHaveTextContent("none"),
+    );
+    // Shared-tablet hygiene: the departing worker's queued writes leave with
+    // them — only session DEATH preserves records now.
+    expect(offlineQueueDepth()).toBe(0);
+  });
+
+  it("records preserved by a forced logout are never replayed under the next actor", async () => {
+    let completions = 0;
+    server.use(
+      http.post("/api/tasks/9/complete", () => {
+        completions += 1;
+        return HttpResponse.json({});
+      }),
+    );
+
+    // What a dead session left behind: the previous worker's preserved write.
+    expect(
+      enqueueOfflineMutation(
+        "/api/tasks/9/complete",
+        { method: "POST", body: "{}", headers: { "Idempotency-Key": "prev-key" } },
+        SCOPES,
+      ),
+    ).toBe(true);
+
+    // The next worker on the shared tablet drains under a different actor.
+    const nextWorker = { actorScope: "42", farmScope: "1" };
+    const outcome = await drainOfflineQueue(nextWorker);
+    expect(completions).toBe(0);
+    expect(outcome).toEqual({ replayed: 0, remaining: 1, rejected: 0 });
+    // Skipped, not destroyed: the record waits for its owner (until the 72h
+    // TTL retires it) instead of replaying under the new session.
+    expect(readOfflineQueue()[0]?.headers["Idempotency-Key"]).toBe("prev-key");
   });
 });
 

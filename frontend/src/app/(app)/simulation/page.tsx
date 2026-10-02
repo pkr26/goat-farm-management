@@ -2889,7 +2889,13 @@ function SimulationPageContent({ perms }: { perms: PermissionsState }) {
                   value={formatPercent(r.monte_carlo.prob_dscr_below_one)}
                   label={t("simulation.metric.probabilityDscrBelowOne")}
                   icon={ShieldAlert}
-                  tint={r.monte_carlo.prob_dscr_below_one > 0 ? "destructive" : "success"}
+                  tint={
+                    r.monte_carlo.prob_dscr_below_one === null
+                      ? "default"
+                      : r.monte_carlo.prob_dscr_below_one > 0
+                        ? "destructive"
+                        : "success"
+                  }
                 />
                 <MetricCard
                   value={formatMoney(r.monte_carlo.minimum_cash_p5)}

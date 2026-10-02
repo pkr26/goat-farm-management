@@ -307,6 +307,57 @@ describe("HealthPage copy and error wiring", () => {
     expect(schedule).toHaveTextContent(/^Annual PPR programme$/);
   });
 
+  it("labels the administration route in the log, never the raw code (2026-10-01 audit, 05-2)", async () => {
+    // The route column (and select) used to render the wire codes verbatim —
+    // INTRANASAL/SCREAMING_SNAKE for a vet-facing, Telugu-first surface.
+    events = [makeEvent({ id: 4, route: "INTRANASAL" })];
+    renderWithProviders(<HealthPage />);
+
+    const row = (await within(await screen.findByRole("table")).findByText("Vaccination"))
+      .closest("tr")!;
+    // Date, Type, Animal, Product, Target, Dose, Route → index 6.
+    const cells = within(row).getAllByRole("cell");
+    expect(cells[6]).toHaveTextContent("Intranasal");
+    expect(cells[6]).not.toHaveTextContent("INTRANASAL");
+  });
+
+  it("renders batch and bucket-wide targets through the catalog (2026-10-01 audit, 05-3)", async () => {
+    // "batch #N" and "bucket-wide" were hardcoded English fragments in the
+    // event log's Animal/target column.
+    events = [
+      makeEvent({ id: 5, animal_id: null, animal_tag: null, purchase_batch_id: 7 }),
+      makeEvent({ id: 6, animal_id: null, animal_tag: null, purchase_batch_id: null }),
+    ];
+    renderWithProviders(<HealthPage />);
+
+    await screen.findByText("Event log");
+    // The mobile card list repeats the same label — scope to the desktop table.
+    const table = screen.getByRole("table");
+    expect(within(table).getByText("batch #7")).toBeInTheDocument();
+    expect(within(table).getByText("bucket-wide")).toBeInTheDocument();
+  });
+
+  it("surfaces a non-200 preview envelope instead of silently dead-ending (2026-10-01 audit, 05-Info)", async () => {
+    // Contract drift: the preview endpoint promises 200. A success envelope
+    // with any other status used to return early with no preview panel AND
+    // no feedback — the first "Review targets" tap looked like a dead button.
+    server.use(
+      http.post("/api/health/events/preview", async ({ request }) => {
+        const target = (await request.json()) as Record<string, unknown>;
+        previewBodies.push(target);
+        return HttpResponse.json(previewFor(target), { status: 201 });
+      }),
+    );
+    const { user, dialog } = await openDialog();
+    await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
+    await pickOption(user, within(dialog).getByRole("combobox", { name: "Bucket *" }), "Breeding");
+    await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
+
+    const error = await within(dialog).findByRole("alert");
+    expect(error).toHaveTextContent(/Could not review the bulk target set\./);
+    expect(within(dialog).queryByRole("button", { name: "Confirm for 2 animals" })).not.toBeInTheDocument();
+  });
+
   // ---------- save confirmations ----------
 
   it("confirms a single-animal save without a herd count", async () => {

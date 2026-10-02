@@ -525,6 +525,55 @@ async def test_register_email_probe_throttle_log_never_contains_the_raw_address(
     assert all(owner_email not in record.getMessage() for record in caplog.records)
 
 
+async def test_register_probe_ceiling_is_soft_for_a_fresh_address(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """(2026-10-01 audit, 01-2) login-email soft semantics for the register
+    probe bucket: the ceiling may only ever REPLACE the oracle answer — the
+    duplicate 400. It is never consulted before the existence decision, so a
+    bucket holding history cannot refuse a registration that would otherwise
+    succeed (an address freed by a deletion inside the window, or any
+    mischarge). Before the fix a full bucket pre-empted the request with a
+    429 before the hash, locking exactly that legitimate registrant out."""
+    from app.api import auth as auth_api
+    from app.core.config import Settings
+    from app.ratelimit import SlidingWindowRateLimiter
+
+    settings = Settings(
+        auth_rate_limit_enabled=True,
+        auth_rate_limit_max_attempts=50,
+        auth_rate_limit_window_seconds=300,
+    )
+    monkeypatch.setattr(auth_api, "get_settings", lambda: settings)
+    monkeypatch.setattr(auth_api, "register_email_limiter", SlidingWindowRateLimiter())
+    monkeypatch.setattr(auth_api, "auth_limiter", SlidingWindowRateLimiter())
+
+    # A FRESH (unregistered) address whose probe bucket is nevertheless at
+    # the ceiling — worst case for the soft rule.
+    fresh = "freed-and-reprobed@farm.in"
+    email_key = auth_api._register_email_probe_key(fresh)
+    for _ in range(50):
+        auth_api.register_email_limiter.record("register-email", email_key, 300, max_attempts=50)
+
+    register = await client.post(
+        "/api/auth/register", json={"email": fresh, "password": "rebornpass123"}
+    )
+    assert register.status_code == 201, register.text
+    # The success inherited and cleared the stale history (register-path
+    # reset rule: the address now belongs to this registrant).
+    assert not auth_api.register_email_limiter.has_attempts("register-email", email_key)
+
+    # The ceiling itself still works where it belongs: re-filled, it replaces
+    # the duplicate 400 for the now-registered address with the 429 — the
+    # enumeration oracle is cut off without touching any fresh registration.
+    for _ in range(50):
+        auth_api.register_email_limiter.record("register-email", email_key, 300, max_attempts=50)
+    duplicate = await client.post(
+        "/api/auth/register", json={"email": fresh, "password": "rebornpass123"}
+    )
+    assert duplicate.status_code == 429, duplicate.text
+
+
 # ---------------------------------------------------------------------------
 # ITEM 5 (2026-09-21 playbook): machine-readable ``code`` on mapped errors
 # ---------------------------------------------------------------------------

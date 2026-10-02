@@ -62,6 +62,9 @@ class PlannerPlan(Base):
     created_at: Mapped[datetime] = mapped_column(
         default=utcnow, server_default=text("timezone('UTC', now())")
     )
+    # ORM/SQLAlchemy-layer refresh only (onupdate); no DB trigger and no
+    # raw-SQL writers in production — concurrency is the revision column
+    # above (2026-10-01 audit, 04-2).
     updated_at: Mapped[datetime] = mapped_column(
         default=utcnow,
         onupdate=utcnow,

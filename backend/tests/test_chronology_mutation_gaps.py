@@ -109,9 +109,7 @@ async def test_purchase_probe_ignores_other_farms_facts(client: httpx.AsyncClien
         await require_purchase_before_recorded_facts(db, animal, accepted)
         # …but one day after her own earliest fact is still rejected.
         with pytest.raises(ValueError, match="earliest recorded"):
-            await require_purchase_before_recorded_facts(
-                db, animal, today() - timedelta(days=799)
-            )
+            await require_purchase_before_recorded_facts(db, animal, today() - timedelta(days=799))
 
 
 async def test_purchase_probe_ignores_sibling_animals_in_same_farm(

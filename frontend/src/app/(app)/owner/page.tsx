@@ -22,7 +22,7 @@ import { PageHeader } from "@/components/page-header";
 import { TableSkeleton } from "@/components/skeletons";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, formatMoneyDecimal } from "@/lib/format";
 import { useT } from "@/lib/i18n";
 import { useAuth } from "@/lib/auth-context";
 
@@ -152,7 +152,12 @@ export default function OwnerPage() {
                         "—"
                       )}
                     </td>
-                    <td className="table-numeric text-right">{formatMoney(Number(farm.month_net))}</td>
+                    {/* month_net is a Decimal-pattern string on the wire —
+                     * route it through formatMoneyDecimal, never Number()
+                     * (2026-10-01 audit, 06-4). */}
+                    <td className="table-numeric text-right">
+                      {formatMoneyDecimal(farm.month_net)}
+                    </td>
                     <td>
                       <Button
                         type="button"

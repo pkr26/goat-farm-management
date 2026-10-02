@@ -257,6 +257,35 @@ describe("TasksPage mobile card list", () => {
     expect(laterBadge).not.toHaveClass("bg-warning-tint");
     expect(laterBadge).not.toHaveClass("bg-destructive/10");
   });
+
+  it("flags the same 2-day due-soon window on mobile and desktop (2026-10-01 audit, 06-5)", async () => {
+    server.use(
+      http.get("/api/tasks", () =>
+        HttpResponse.json(
+          boardPayload({
+            today: [makeTask({ id: 8, title: "Fence repair", due_date: addDays(TODAY, 1) })],
+            today_total: 1,
+          }),
+        ),
+      ),
+    );
+    renderTasks();
+    await screen.findByRole("tab", { name: "Today (1)" });
+
+    // Mobile card: due tomorrow used to render the muted variant — only
+    // due-today was flagged below md while the desktop row flagged the whole
+    // 2-day window.
+    const cards = mobileCardList();
+    const cardOf = (title: string) =>
+      within(cards).getByText(title).parentElement?.parentElement as HTMLElement;
+    const mobileBadge = within(cardOf("Fence repair")).getByText(formatDate(addDays(TODAY, 1)));
+    expect(mobileBadge).toHaveClass("bg-warning-tint");
+
+    // Desktop row: the same duty gets the same warning badge.
+    const table = document.querySelector('[class~="md:block"] table') as HTMLElement;
+    const row = within(table).getByText("Fence repair").closest("tr") as HTMLElement;
+    expect(within(row).getByText(formatDate(addDays(TODAY, 1)))).toHaveClass("bg-warning-tint");
+  });
 });
 
 describe("TasksPage recurring-complete confirmation", () => {
@@ -488,6 +517,35 @@ describe("TasksPage in Telugu", () => {
     const dialog = await screen.findByRole("dialog", { name: "పనిని తిరస్కరించు" });
     await user.click(within(dialog).getByRole("button", { name: "పనిని తిరస్కరించు" }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("కారణం అవసరం.");
+  });
+
+  it("translates the Completed-tab status chips (2026-10-01 audit, 06-1)", async () => {
+    server.use(
+      http.get("/api/tasks", () =>
+        HttpResponse.json(
+          boardPayload({
+            completed: [COMPLETED_BY_RAJU, makeTask({ id: 10, title: "Skipped sweep", status: "SKIPPED" })],
+            completed_total: 2,
+          }),
+        ),
+      ),
+    );
+    nav.state.search = "tab=completed";
+    renderTasks();
+    await screen.findByRole("tab", { name: "పూర్తైనవి (2)" });
+
+    // The chips resolve through the taskStatus label family — the raw wire
+    // codes used to render verbatim in both languages.
+    const table = document.querySelector('[class~="md:block"] table') as HTMLElement;
+    const verifiedRow = within(table).getByText("Weekly sweep").closest("tr") as HTMLElement;
+    expect(within(verifiedRow).getByText("ధృవీకరించబడింది")).toBeInTheDocument();
+    expect(within(verifiedRow).queryByText("VERIFIED")).not.toBeInTheDocument();
+    const skippedRow = within(table).getByText("Skipped sweep").closest("tr") as HTMLElement;
+    expect(within(skippedRow).getByText("వదిలివేయబడింది")).toBeInTheDocument();
+
+    // The phone card carries the same Telugu chips.
+    expect(within(mobileCardList()).getByText("ధృవీకరించబడింది")).toBeInTheDocument();
+    expect(within(mobileCardList()).getByText("వదిలివేయబడింది")).toBeInTheDocument();
   });
 });
 

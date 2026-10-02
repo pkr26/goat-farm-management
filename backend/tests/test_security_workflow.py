@@ -113,3 +113,41 @@ def test_security_workflow_gates_private_codeql_and_scans_exact_compose_images()
     for image_name in ("${{ env.COMPOSE_POSTGRES_IMAGE }}", "${{ env.COMPOSE_NGINX_IMAGE }}"):
         assert workflow.count(f"image: {image_name}") >= 1
         assert workflow.count(f"image-ref: {image_name}") >= 1
+
+
+def test_security_workflow_scans_the_production_compose_edge_digest() -> None:
+    """The digest lockstep must cover docker-compose.production.yml too.
+
+    The production manifest pins its nginx edge with a literal digest that no
+    interpolation touches, so the dev-compose assertion above could not see a
+    production-only drift: an operator refreshing only the production digest
+    would deploy an image the weekly Trivy scans (and the scoped
+    .trivyignore.compose-images rationale) never examined (2026-10-01 audit,
+    09-3). The production file has no db service, so its only third-party
+    image is the edge.
+    """
+    workflow = SECURITY_WORKFLOW.read_text()
+    production = yaml.safe_load((REPO_ROOT / "docker-compose.production.yml").read_text())
+    dev_compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text())
+
+    production_edge_image = production["services"]["edge"]["image"]
+    dev_edge_image = dev_compose["services"]["edge"]["image"]
+    # Every production service image that is not an interpolated
+    # own-registry reference ("${...}@${...}") is a literal third-party
+    # reference; today that must be exactly the edge nginx digest.
+    literal_images = {
+        name: service["image"]
+        for name, service in production["services"].items()
+        if not service["image"].startswith("${")
+    }
+    assert set(literal_images) == {"edge"}
+    assert literal_images["edge"] == production_edge_image
+    # The scanned image and both deployed manifests must be the same digest.
+    assert production_edge_image == dev_edge_image
+    assert f"COMPOSE_NGINX_IMAGE: {production_edge_image}" in workflow
+    # The ignore file's per-image rationale headers name the same digests the
+    # scans use, keeping the freshness-marker refresh honest about which
+    # pinned images it evaluated.
+    trivyignore = (REPO_ROOT / ".trivyignore.compose-images").read_text()
+    for image in (production_edge_image, dev_compose["services"]["db"]["image"]):
+        assert image in trivyignore

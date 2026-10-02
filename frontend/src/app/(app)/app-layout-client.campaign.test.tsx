@@ -5,9 +5,10 @@
 
 import { screen, waitFor } from "@testing-library/react";
 import { http } from "msw";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { server } from "@/test/msw-server";
+import { LANGUAGE_STORAGE_KEY, LanguageProvider } from "@/lib/i18n";
+import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
 import { AppLayoutClient as AppLayout } from "./app-layout-client";
@@ -60,4 +61,25 @@ describe("AppLayoutClient — campaign kills", () => {
     await waitFor(() => expect(screen.queryByText("Logout")).not.toBeInTheDocument());
     expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
   });
+
+  it("labels the brand link's no-module fallback through the catalog in Telugu (2026-10-01 audit, 05-3)", async () => {
+    // With no permitted module the brand link still points somewhere safe
+    // (/no-access), but its accessible label must not promise a page — and
+    // the "access status" fallback was hardcoded English.
+    server.use(permissionsHandler([]));
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "te");
+    renderWithProviders(
+      <LanguageProvider>
+        <AppLayout defaultOpen={true}>{null}</AppLayout>
+      </LanguageProvider>,
+    );
+
+    const brand = await screen.findByLabelText(/యాక్సెస్ స్థితి/);
+    expect(brand).toHaveAttribute("href", "/no-access");
+    expect(screen.queryByLabelText(/go to access status/)).not.toBeInTheDocument();
+  });
+});
+
+afterEach(() => {
+  window.localStorage.clear();
 });

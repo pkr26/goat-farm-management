@@ -976,10 +976,11 @@ async def test_kidding_rejects_bad_dates_caps_and_weights(client: httpx.AsyncCli
 # Gestation sanity window (services.record_kidding): goats kid at ~150 days
 # (SPEC window 145–155); the service accepts a generous 100–200 day band for
 # backdated record-keeping but rejects a "kidding" 1 day or 3 years
-# post-breeding as the data-entry error it is.
+# post-breeding as the data-entry error it is (422 input-shape error since
+# the 2026-10-01 audit normalized it with the sibling litter-cap violation).
 @pytest.mark.parametrize(
     ("gestation_days", "expected"),
-    [(99, 409), (201, 409), (100, 201), (150, 201), (200, 201)],
+    [(99, 422), (201, 422), (100, 201), (150, 201), (200, 201)],
 )
 async def test_kidding_gestation_window(
     client: httpx.AsyncClient, gestation_days: int, expected: int

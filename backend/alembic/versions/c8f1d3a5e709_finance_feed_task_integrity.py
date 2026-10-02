@@ -11,6 +11,11 @@ carries no marker of what was rewritten — the refusal preflight below only
 protects databases that had not yet passed this revision. Editing an applied
 revision is normally forbidden for exactly this reason; the rewrite shipped
 before any external deployment, and this note is the permanent record.
+
+(2026-10-01 audit, 04-1: accepted as historical/pre-release — no retroactive
+marker or data surgery is possible or required. If any pre-external-release
+database is still in use, compare its ``transactions.amount = 0`` / NULL-price
+rows against source records before trusting aggregates.)
 """
 
 from collections.abc import Sequence

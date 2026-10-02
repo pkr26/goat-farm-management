@@ -136,6 +136,23 @@ describe("OwnerPage", () => {
     expect(within(rows[1]).getByText("7")).toBeInTheDocument();
   });
 
+  it("renders month_net as a Decimal string, never through Number() (2026-10-01 audit, 06-4)", async () => {
+    // Five paise — the backend's persisted-money quantum: Number() silently
+    // rounded it to ₹0 while formatMoneyDecimal keeps every wire digit.
+    server.use(
+      http.get("/api/owner/overview", () =>
+        HttpResponse.json({
+          farms: [{ ...OVERVIEW.farms[0], month_net: "600.005" }],
+        }),
+      ),
+      http.get("/api/owner/benchmarks", () => HttpResponse.json(BENCHMARKS)),
+    );
+    renderPage();
+
+    expect(await screen.findByText("₹600.005")).toBeInTheDocument();
+    expect(screen.queryByText("₹600")).not.toBeInTheDocument();
+  });
+
   it("renders benchmark figures with withheld-not-zero dashes", async () => {
     renderPage();
 

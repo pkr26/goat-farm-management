@@ -366,7 +366,13 @@ function BatchDetailDialog({
                           <TableCell>{formatDate(t.due_date)}</TableCell>
                           <TableCell>{resolveTaskTitle(t, language)}</TableCell>
                           <TableCell>
-                            <StatusBadge status={t.status}>{t.status}</StatusBadge>
+                            {/* The chip's children must resolve through the
+                             * taskStatus label family — the raw wire code
+                             * ("PENDING") used to render verbatim
+                             * (2026-10-01 audit, 06-1). */}
+                            <StatusBadge status={t.status}>
+                              {enumLabel("taskStatus", t.status, language)}
+                            </StatusBadge>
                           </TableCell>
                         </TableRow>
                       ))}

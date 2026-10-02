@@ -42,6 +42,8 @@ const te: Partial<Record<MessageKey, string>> = {
   "common.none": "— ఏదీ లేదు —",
   "common.language": "భాష",
   "common.somethingWentWrong": "ఏదో తప్పు జరిగింది.",
+  "common.kg": "{value} కిలో",
+  "common.farmType": "మేక ఫారం",
 
   // ---------- రూట్-స్థితి సరిహద్దులు (లోపం / 404 / లోడింగ్) ----------
   "error.boundary.title": "పేజీ లోడ్ చేయడంలో ఏదో తప్పు జరిగింది.",
@@ -473,6 +475,7 @@ const te: Partial<Record<MessageKey, string>> = {
   // ---------- app shell ----------
   "shell.skipToContent": "కంటెంట్ కు వెళ్లండి",
   "shell.tagline": "మేక ఫారం నిర్వహణ",
+  "shell.brandLinkFallback": "యాక్సెస్ స్థితి",
   "shell.passwordChangeNotice":
     "ఈ పాస్‌వర్డ్ ఫారం యజమాని ఇచ్చింది — కొనసాగే ముందు దాన్ని మార్చండి (ఖాతా → పాస్‌వర్డ్ మార్చండి). మీరు మార్చే వరకు ఫారం పేజీలు, చర్యలు బ్లాక్ అవుతాయి.",
 
@@ -527,6 +530,7 @@ const te: Partial<Record<MessageKey, string>> = {
   "health.form.reviewedExplainer":
     "నిర్ధారించడం సమీక్షించిన IDలను మాత్రమే నమోదు చేస్తుంది. ఆ తర్వాత లింక్ లేని లక్ష్యంలో చేరిన మేక నిశ్శబ్దంగా చేరదు; సమీక్షించిన మేక లక్ష్యం నుండి బయటపడితే (లేదా లింక్ చేసిన బ్యాచ్ ఇక సరిగ్గా సరిపోకపోతే), సర్వర్ నమోదును తిరస్కరిస్తుంది, కొత్త సమీక్ష అవసరం.",
   "health.form.reviewedListLabel": "సమీక్షించిన లక్ష్య మేకలు",
+  "health.form.reviewedAgeMonths": "{count} నెలలు",
   "health.form.reviewedEmptyTitle": "ఈ సమీక్షిత లక్ష్యంలో సక్రియ మేకలు లేవు.",
   "health.form.reviewedEmptyDescription":
     "పైన వేరే లక్ష్యాన్ని ఎంచుకోండి — దీన్ని నమోదు చేస్తే ఏమీ సేవ్ కాదు.",
@@ -553,6 +557,7 @@ const te: Partial<Record<MessageKey, string>> = {
   "health.form.dutyNotDue":
     "పని #{id} కి {date} వరకు గడువు రాలేదు — దానికి ముందు తేదీతో నమోదును సర్వర్ తిరస్కరిస్తుంది.",
   "health.form.linkedDutyLabel": "లింక్ చేసిన పని (దాన్ని పూర్తి చేస్తుంది)",
+  "health.form.taskDueSuffix": "(గడువు {date})",
   "health.form.advancedTitle": "అదనపు ట్రేసబిలిటీ & నిబంధనలు",
   "health.form.advancedIntro":
     "మందు బ్యాచ్ వివరాలు, అధికృత షెడ్యూల్, చట్టపరమైన నోటిఫికేషన్, తరలింపు/అమ్మక నిషేధాలు వర్తిస్తే నమోదు చేయండి.",
@@ -653,6 +658,8 @@ const te: Partial<Record<MessageKey, string>> = {
   "health.events.loadFailed": "ఆరోగ్య ఘటనలు లోడ్ కాలేదు.",
   "health.events.retry": "ఆరోగ్య ఘటనలను మళ్లీ ప్రయత్నించు",
   "health.log.lot": "లాట్: {lot}",
+  "health.log.batchTarget": "బ్యాచ్ #{id}",
+  "health.log.bucketWide": "పెంట మొత్తం",
   "health.log.manufactured": "తయారీ: {date}",
   "health.log.expires": "గడువు ముగింపు: {date}",
   "health.log.vaccineValidUntil": "టీకా చెల్లుబాటు: {date}",
@@ -2255,6 +2262,8 @@ const te: Partial<Record<MessageKey, string>> = {
   "planner.eval.filledNow": "ఇప్పుడు నిండింది",
   "planner.eval.withPurchases": "కొనుగోళ్లతో",
   "planner.eval.pFull": "P(నిండుగా)",
+  "planner.eval.minimumCash": "కనిష్ఠ నగదు (నెల {month})",
+  "planner.eval.workingCapital": "అదనపు వర్కింగ్ క్యాపిటల్",
   "planner.actions.title": "ఏమి, ఎప్పుడు చేయాలి",
   "planner.actions.description":
     "లక్ష్యాలను చేరువ చేసే తేదీలతో కూడిన చేయవలసిన జాబితా. ప్లాన్ ప్రారంభానికి ముందు తేదీ ఉన్న చర్యలు మిస్ అయిన గడువులు — లక్ష్యం నిండని కారణం.",
@@ -3207,6 +3216,7 @@ const te: Partial<Record<MessageKey, string>> = {
   "picker.candidates.searchPlaceholder": "టాగ్ లేదా పేరు వెతకండి…",
   "picker.candidates.emptyMessage": "ఈ వెతుకులాటకు అర్హులైన {kind} లేరు.",
   "picker.candidates.noEligibleYet": "ఇంకా తనిఖీ చేసిన రికార్డుల్లో అర్హులైన జంతువులు ఎవరూ లేరు. కొనసాగించడానికి మరిన్ని లోడ్ చేయండి.",
+  "picker.candidates.cullSuffix": " — తొలగించడానికి ఎంపిక (యజమాని మాత్రమే)",
 };
 
 export default te;

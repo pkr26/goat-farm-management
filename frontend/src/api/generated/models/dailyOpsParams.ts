@@ -46,6 +46,16 @@ export interface DailyOpsParams {
      */
   adult_annual_mortality?: number;
   /**
+     * @minimum 0
+     * @maximum 1
+     */
+  kid_post_weaning_mortality?: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  grower_annual_mortality?: number;
+  /**
      * @minimum 1
      * @maximum 6
      */

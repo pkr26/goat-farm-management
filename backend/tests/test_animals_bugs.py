@@ -108,8 +108,9 @@ async def test_move_huge_id_returns_404_not_500(client: httpx.AsyncClient) -> No
 # FIXED — regression test
 # POST /api/animals/{id}/weight with notes longer than 255 chars crashes with
 # an unhandled asyncpg DataError: WeightIn.notes has no max_length while the
-# WeightRecord.notes column is String(255). Expected: 422 (schema bound) or the
-# note stored (Text column) — never a 500.
+# WeightRecord.notes column is String(255). The schema is now capped at the
+# column width (max_length=255), so the settled contract is exactly 422
+# (2026-10-01 audit, 10-3).
 async def test_weight_notes_over_255_chars_not_500(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     animal = await _make_animal(client, owner)
@@ -118,13 +119,15 @@ async def test_weight_notes_over_255_chars_not_500(client: httpx.AsyncClient) ->
         json={"weight_kg": 20, "notes": "n" * 300},
         headers=owner,
     )
-    assert resp.status_code in (201, 422)
+    assert resp.status_code == 422
 
 
 # FIXED — regression test
 # POST /api/animals/{id}/move with a reason longer than 255 chars crashes with
 # an unhandled asyncpg DataError: MoveIn.reason has no max_length while the
-# BucketMove.reason column is String(255). Expected: 200/422, never a 500.
+# BucketMove.reason column is String(255). The schema is now capped at the
+# column width (max_length=255), so the settled contract is exactly 422
+# (2026-10-01 audit, 10-3).
 async def test_move_reason_over_255_chars_not_500(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     animal = await _make_animal(client, owner)
@@ -133,13 +136,15 @@ async def test_move_reason_over_255_chars_not_500(client: httpx.AsyncClient) -> 
         json={"to_bucket": "BREEDING", "reason": "r" * 300},
         headers=owner,
     )
-    assert resp.status_code in (200, 422)
+    assert resp.status_code == 422
 
 
 # FIXED — regression test
 # POST /api/animals/{id}/status with notes longer than 255 chars crashes with
 # an unhandled asyncpg DataError: StatusChangeIn.notes has no max_length while
-# Animal.status_notes is String(255). Expected: 200/422, never a 500.
+# Animal.status_notes is String(255). The schema is now capped at the column
+# width (max_length=255), so the settled contract is exactly 422
+# (2026-10-01 audit, 10-3).
 async def test_status_notes_over_255_chars_not_500(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     animal = await _make_animal(client, owner)
@@ -148,7 +153,7 @@ async def test_status_notes_over_255_chars_not_500(client: httpx.AsyncClient) ->
         json={"new_status": "DEAD", "notes": "n" * 300},
         headers=owner,
     )
-    assert resp.status_code in (200, 422)
+    assert resp.status_code == 422
 
 
 # FIXED — regression test

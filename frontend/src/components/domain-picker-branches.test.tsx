@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Species nouns come from the session farm type; these prop-capture tests
@@ -17,6 +17,7 @@ import type {
   RemotePickerOption,
   RemotePickerPage,
 } from "@/components/remote-picker";
+import { LanguageProvider, LANGUAGE_STORAGE_KEY } from "@/lib/i18n";
 
 interface CapturedPickerProps {
   loadPage: (args: RemotePickerLoadArgs) => Promise<RemotePickerPage>;
@@ -480,6 +481,62 @@ describe("BreedingCandidatePicker branches", () => {
     await expect(captured().loadPage(loadArgs())).rejects.toThrow(
       "Could not load breeding candidates.",
     );
+  });
+
+  it("localizes the cull-candidate warning suffix (2026-10-01 audit, 06-2)", async () => {
+    picker.breedingCandidates.mockResolvedValue({
+      status: 200,
+      data: {
+        candidates: [
+          {
+            id: 1,
+            tag_number: "B-1",
+            name: "Bela",
+            age_months: 16,
+            latest_weight_kg: 23.46,
+            cull_candidate: true,
+          },
+        ],
+        total: 1,
+      },
+    });
+    const { rerender } = render(
+      <BreedingCandidatePicker
+        id="candidate"
+        kind="doe"
+        value=""
+        onValueChange={() => undefined}
+        placeholder="Choose"
+        dialogTitle="Choose candidate"
+      />,
+    );
+    // English default keeps the "owner only" hint at pick time.
+    await expect(captured().loadPage(loadArgs())).resolves.toMatchObject({
+      options: [{ label: "B-1 · Bela — 16 mo, 23.5 kg — cull candidate (owner only)" }],
+    });
+
+    // Telugu resolves the suffix from the catalog — the safety-relevant
+    // hint used to be a hardcoded English literal.
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "te");
+    rerender(
+      <LanguageProvider>
+        <BreedingCandidatePicker
+          id="candidate"
+          kind="doe"
+          value=""
+          onValueChange={() => undefined}
+          placeholder="Choose"
+          dialogTitle="Choose candidate"
+        />
+      </LanguageProvider>,
+    );
+    await waitFor(() => expect(document.documentElement.lang).toBe("te"));
+    await expect(captured().loadPage(loadArgs())).resolves.toMatchObject({
+      options: [
+        { label: "B-1 · Bela — 16 mo, 23.5 kg — తొలగించడానికి ఎంపిక (యజమాని మాత్రమే)" },
+      ],
+    });
+    window.localStorage.removeItem(LANGUAGE_STORAGE_KEY);
   });
 
   it("uses kind-specific empty messages and cache keys", () => {

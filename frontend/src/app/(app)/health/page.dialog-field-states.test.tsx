@@ -344,9 +344,11 @@ describe("HealthPage dialog field and in-flight states", () => {
     const route = within(dialog).getByLabelText("Route");
     expect(route).toHaveTextContent("—");
 
-    await pickOption(user, route, "IM");
+    // The route options carry their enum-label family, not the raw codes
+    // (2026-10-01 audit, 05-2); the wire value stays the code.
+    await pickOption(user, route, "IM (intramuscular)");
 
-    await waitFor(() => expect(route).toHaveTextContent("IM"));
+    await waitFor(() => expect(route).toHaveTextContent("IM (intramuscular)"));
     await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003 · Kaveri/);
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
     await waitFor(() => expect(postBody).not.toBeNull());

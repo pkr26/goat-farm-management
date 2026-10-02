@@ -252,32 +252,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [queryClient],
   );
 
-  /** Full local session teardown — shared by signOut and the forced-logout
-   *  (refresh rejected, e.g. a rotated/reused refresh token now 401s) path so
-   *  both behave identically. */
-  const clearSession = useCallback(() => {
-    farmRefreshGeneration.current += 1;
-    // Stryker disable next-line AssignmentOperator: any clearSession that could race an in-flight establishment first flips the access token (null), whose epoch bump already invalidates that establishment on both its resolved and rejected paths
-    sessionEstablishmentGeneration.current += 1;
-    queryClient.clear();
-    clearPersistedIdempotencyRequestState();
-    setAccessToken(null);
-    setCurrentFarmId(null);
-    setActiveFarmTimezone(null);
-    setUser(null);
-    farmsRef.current = [];
-    setFarms([]);
-    farmIdRef.current = null;
-    setFarmIdState(null);
-    // Last, so the in-memory teardown above can never be left half applied.
-    clearStoredFarmId();
-    // Shared-tablet hygiene: queued offline writes are the departing
-    // worker's, not the next one's. The 429 drain backoff belongs to the
-    // same session — leaving it set would gate the next actor's first drain
-    // behind the previous actor's Retry-After hint.
-    wipeOfflineQueue();
-    clearOfflineQueueDrainBackoff();
-  }, [queryClient]);
+  /** Full local session teardown — shared by signOut and the session-death
+   *  paths (rejected refresh, the cross-tab teardown mirror, a failed session
+   *  establishment) so all of them reset the same module state. The callers
+   *  differ in exactly ONE policy: whether queued offline writes are
+   *  destroyed.
+   *
+   *  - Explicit sign-out (`wipeQueuedOfflineWrites: true`): the actor is
+   *    deliberately handing the device back, so the queued writes go with
+   *    them — the shared-tablet hygiene the end-shift confirm promises. (The
+   *    worker shell's end-shift flow calls wipeOfflineQueue itself before
+   *    signOut; this is the belt to its braces.)
+   *  - Session death (`wipeQueuedOfflineWrites: false`): the session ended
+   *    WITHOUT the actor's choice. The queued writes must survive for
+   *    redelivery after re-login: the drain skips records whose actorScope
+   *    does not match the new session, so they can never replay under a
+   *    different worker, and the 72h record TTL eventually retires them.
+   *    Previously BOTH paths wiped, so a rejected refresh mid-drain silently
+   *    destroyed every queued field completion exactly when the queue's
+   *    "must survive connectivity loss" promise mattered
+   *    (2026-10-01 audit, 07-H). */
+  const clearSession = useCallback(
+    ({ wipeQueuedOfflineWrites }: { wipeQueuedOfflineWrites: boolean }) => {
+      farmRefreshGeneration.current += 1;
+      // Stryker disable next-line AssignmentOperator: any clearSession that could race an in-flight establishment first flips the access token (null), whose epoch bump already invalidates that establishment on both its resolved and rejected paths
+      sessionEstablishmentGeneration.current += 1;
+      queryClient.clear();
+      clearPersistedIdempotencyRequestState();
+      setAccessToken(null);
+      setCurrentFarmId(null);
+      setActiveFarmTimezone(null);
+      setUser(null);
+      farmsRef.current = [];
+      setFarms([]);
+      farmIdRef.current = null;
+      setFarmIdState(null);
+      // Last, so the in-memory teardown above can never be left half applied.
+      clearStoredFarmId();
+      if (wipeQueuedOfflineWrites) {
+        // Shared-tablet hygiene: queued offline writes are the departing
+        // worker's, not the next one's.
+        wipeOfflineQueue();
+      }
+      // The 429 drain backoff belongs to the session either way — leaving it
+      // set would gate the next actor's first drain behind the previous
+      // actor's Retry-After hint.
+      clearOfflineQueueDrainBackoff();
+    },
+    [queryClient],
+  );
 
   const signOut = useCallback((): Promise<void> => {
     if (!mounted.current) return Promise.resolve();
@@ -301,7 +324,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const revoked = apiFetch("/api/auth/logout", { method: "POST" }).catch(() => {
       /* cookie may already be gone */
     });
-    clearSession();
+    // Explicit sign-out: the only teardown allowed to destroy queued offline
+    // writes (see clearSession) — the actor chose to hand the device back.
+    clearSession({ wipeQueuedOfflineWrites: true });
     router.replace("/login");
     const task = (async () => {
       await revoked;
@@ -464,7 +489,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // still cleared and the refresh cookie remains httpOnly.
           });
         }
-        clearSession();
+        // A failed establishment is a session death, not a handover choice:
+        // queued writes (possibly this actor's, preserved by an earlier
+        // forced logout) must survive the retry (2026-10-01 audit, 07-H).
+        clearSession({ wipeQueuedOfflineWrites: false });
         throw error;
       }
     },
@@ -497,9 +525,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // loop. window.location over a pathname closure: this handler is
       // registered once and must decide from where the failure actually
       // fired.
+      // Session death, not an explicit handover: the queued offline writes
+      // must survive for redelivery after re-login — the drain never replays
+      // them under a different actor (2026-10-01 audit, 07-H).
       if (forcedLogout.current) return;
       forcedLogout.current = true;
-      clearSession();
+      clearSession({ wipeQueuedOfflineWrites: false });
       router.replace(forcedLogoutDestination(window.location.pathname));
     };
     return setOnAuthFailure(handleAuthFailure);
@@ -515,11 +546,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (event.newValue === null) {
         // Another tab tore its session down (clearSession removes the key):
         // mirror the forced-logout cleanup here instead of letting requests
-        // 401 one by one against a revoked family.
+        // 401 one by one against a revoked family. The queue-wipe decision
+        // belonged to the ACTING tab: if it signed out explicitly it already
+        // wiped the shared store, and if its session died the records must
+        // survive — so this mirror never wipes (2026-10-01 audit, 07-H).
         if (userRef.current === null) return;
         if (forcedLogout.current) return;
         forcedLogout.current = true;
-        clearSession();
+        clearSession({ wipeQueuedOfflineWrites: false });
         router.replace(forcedLogoutDestination(window.location.pathname));
         return;
       }

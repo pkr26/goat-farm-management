@@ -3,7 +3,18 @@
 from datetime import date, timedelta
 from typing import Any
 
-from sqlalchemy import Date, ScalarSelect, Select, and_, case, cast, func, or_, select
+from sqlalchemy import (
+    Date,
+    Integer,
+    ScalarSelect,
+    Select,
+    and_,
+    case,
+    cast,
+    func,
+    or_,
+    select,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (
@@ -60,8 +71,34 @@ async def bakrid_hold_advisory(db: AsyncSession, farm: Farm) -> dict[str, Any] |
         return None
     window_start = add_months(festival, -BAKRID_HOLD_WINDOW_MONTHS)
     effective_dob = func.coalesce(Animal.date_of_birth, Animal.estimated_dob)
+    # Both window edges must use clamped month arithmetic (2026-10-01 audit,
+    # 03-5). window_start already does (utils.add_months clamps the day to
+    # the month's end), but PostgreSQL interval month-addition overflows the
+    # day FORWARD (May 31 + 9 months → March 2/3, not the clamped Feb 28/29),
+    # so the finish edge — the same window's other boundary — disagreed with
+    # its Python twin on month-end births. The SQL equivalent of add_months:
+    # shift the month START, then take the day no later than that month's
+    # last day.
+    finish_month_start = func.date_trunc("month", effective_dob) + func.make_interval(
+        0, MEAT_SALE_AGE_MONTHS[1]
+    )
     finish_date = cast(
-        effective_dob + func.make_interval(0, MEAT_SALE_AGE_MONTHS[1]),
+        func.make_date(
+            cast(func.extract("year", finish_month_start), Integer),
+            cast(func.extract("month", finish_month_start), Integer),
+            func.least(
+                cast(func.extract("day", effective_dob), Integer),
+                cast(
+                    func.extract(
+                        "day",
+                        finish_month_start
+                        + func.make_interval(0, 1)
+                        - func.make_interval(0, 0, 0, 1),
+                    ),
+                    Integer,
+                ),
+            ),
+        ),
         Date,
     )
     count = (

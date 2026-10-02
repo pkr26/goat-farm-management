@@ -15,3 +15,7 @@ Dockerfile
 .dockerignore
 **/*.test.ts
 **/*.test.tsx
+# Mutation-campaign artifacts are regenerable output (~12.6 MB) and are never
+# needed by the image — mirror of the root .dockerignore's backend/mutation
+# entry (2026-10-01 audit, 09-2).
+mutation

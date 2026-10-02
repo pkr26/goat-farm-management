@@ -250,7 +250,10 @@ jobs:
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 24
+          # Read the version from the repo file exactly as security.yml does,
+          # so the gating CI jobs and the weekly audit cannot drift apart on
+          # an .nvmrc bump (2026-10-01 audit, 09-5).
+          node-version-file: frontend/.nvmrc
 
       - name: Enable pnpm (pinned via packageManager)
         run: corepack enable
@@ -357,7 +360,8 @@ jobs:
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 24
+          # Same single source of truth as security.yml (2026-10-01 audit, 09-5).
+          node-version-file: frontend/.nvmrc
 
       - name: Create runner Postgres role
         run: |
@@ -395,6 +399,31 @@ jobs:
       - name: Run Playwright e2e
         working-directory: frontend
         run: pnpm exec playwright test
+
+      - name: Retried (flaky) e2e tests fail the job
+        # playwright.config.ts retries twice in CI, so a test that fails
+        # twice and passes on the third attempt still exits 0 — a genuinely
+        # racy product behavior could land on main as "passing" with only a
+        # reporter line (2026-10-01 audit, 10-2). The JSON reporter records
+        # every retried test with status "flaky"; this gate fails the job
+        # on any of them, so retries can only shorten a run hit by
+        # infrastructure noise, never mask a reproducible race. Local runs
+        # keep retries: 0 and are unaffected.
+        if: always()
+        working-directory: frontend
+        run: |
+          report="playwright-report/results.json"
+          if [ ! -f "$report" ]; then
+            echo "::error::Playwright JSON report missing ($report) — cannot verify the run had no flaky retries."
+            exit 1
+          fi
+          flaky_count="$(jq '.stats.flaky' "$report")"
+          if [ "$flaky_count" != "0" ]; then
+            echo "::error::$flaky_count e2e test(s) needed a retry (flaky) — see the playwright-report artifact"
+            jq -r '[.suites[] | recurse(.suites[]?) | .tests[]? | select((.results // []) | any(.status == "flaky")) | .title] | unique | .[]' "$report" | sed 's/^/  flaky: /'
+            exit 1
+          fi
+          echo "no flaky retries in this run"
 
       - name: Upload Playwright report on failure
         if: failure()

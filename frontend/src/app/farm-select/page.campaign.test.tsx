@@ -7,8 +7,9 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { LANGUAGE_STORAGE_KEY, LanguageProvider } from "@/lib/i18n";
 import { server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
@@ -66,4 +67,23 @@ describe("FarmSelectPage — campaign kills", () => {
     await waitFor(() => expect(logouts).toBe(1));
     await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
   });
+
+  it("labels the farm card's type through the catalog in Telugu (2026-10-01 audit, 05-3)", async () => {
+    // farmTypeLabel ("Goat farm") was English-only by construction and
+    // rendered on every farm card — a Telugu-first surface.
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "te");
+    renderWithProviders(
+      <LanguageProvider>
+        <FarmSelectPage />
+      </LanguageProvider>,
+    );
+
+    await screen.findByText("మీ ఫారమ్‌లు");
+    expect(await screen.findAllByText("మేక ఫారం")).not.toHaveLength(0);
+    expect(screen.queryByText("Goat farm")).not.toBeInTheDocument();
+  });
+});
+
+afterEach(() => {
+  window.localStorage.clear();
 });

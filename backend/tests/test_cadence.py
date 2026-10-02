@@ -6,10 +6,12 @@ Domain rules under test:
 - Interval rounds (hoof trimming, spraying, disinfection, weighing) respect
   their lookback windows; a round due inside the window — including an
   operator-scheduled one due in the coming weeks — suppresses the next.
-- The daily feed-room routine and the daily water check dedupe on (exact
-  title, due date, any status).
-- Feed reorder duties fire per under-level ingredient unless a PENDING FEED
-  duty already names that ingredient.
+- The daily feed-room routine and the daily water check dedupe on
+  (title_key, due date, any status) — a manually titled lookalike never
+  suppresses the auto round (2026-10-01 audit, 03-6).
+- Feed reorder duties fire per under-level ingredient unless a PENDING
+  engine-generated reorder duty for that ingredient exists (title_key +
+  ingredient arg — never a free-text title match).
 - Buck rotation fires per male ≥ GOAT_PROFILE.buck_rotation_age_months with a
   365-day dedupe, coalescing dob/estimated_dob for the age math.
 - A farm with no ACTIVE animals is a complete no-op.
@@ -330,14 +332,26 @@ async def test_daily_routine_dedupes_per_business_day(
     assert len(routine) == 2
 
 
-async def test_daily_routine_honours_a_pending_manual_copy(
+async def test_manually_titled_lookalikes_never_suppress_auto_rounds(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """2026-10-01 audit, 03-6: the daily routine, the water check and the
+    feed reorder alert used to dedupe on the free-text title (a prefix match
+    for reorders), so a manually titled lookalike — manual duties may use
+    category FEED — suppressed the engine's own round for as long as it
+    stayed PENDING. The dedupe key is now the server-owned title_key (plus
+    the ingredient arg for reorders), which clients never supply."""
     headers = await owner_with_farm(client)
     await make_animal(client, headers, "D-002")
     farm_id = int(headers["X-Farm-Id"])
     frozen = freeze_business_date(monkeypatch, date(2026, 9, 14))
 
+    water_title = (
+        "Water check: clean and fill all troughs morning and evening "
+        "(lactating does need 10–15 L/day)"
+    )
+    # Manual lookalikes: exact copies of the engine titles, PENDING, but
+    # title_key NULL (manual duties carry no localization key).
     await seed_history_task(
         farm_id,
         category="FEED",
@@ -345,9 +359,39 @@ async def test_daily_routine_honours_a_pending_manual_copy(
         due_date=frozen,
         status=TaskStatus.PENDING.value,
     )
+    await seed_history_task(
+        farm_id,
+        category="FEED",
+        title="Reorder Salt: 0 kg on hand (reorder level 100 kg)",
+        due_date=frozen,
+        status=TaskStatus.PENDING.value,
+    )
+    await seed_history_task(
+        farm_id,
+        category="WATER",
+        title=water_title,
+        due_date=frozen,
+        status=TaskStatus.PENDING.value,
+    )
     await run_ensure(farm_id)
-    routine = [t for t in await farm_tasks(farm_id, "FEED") if t.title == ROUTINE_TITLE]
-    assert len(routine) == 1
+
+    routines = [t for t in await farm_tasks(farm_id, "FEED") if t.title == ROUTINE_TITLE]
+    assert len(routines) == 2, "the auto routine must appear beside the manual copy"
+    assert [t.title_key for t in routines] == [None, "morning_feed_routine"]
+
+    water = [t for t in await farm_tasks(farm_id, "WATER") if t.title == water_title]
+    assert len(water) == 2
+    assert [t.title_key for t in water] == [None, "daily_water_check"]
+
+    salt = [t for t in await farm_tasks(farm_id, "FEED") if "Salt" in t.title]
+    assert len(salt) == 2, "the engine's own reorder alert must not be suppressed"
+    assert [t.title_key for t in salt] == [None, "feed_reorder"]
+
+    # The engine's own copies DO suppress: no further minting on re-sweep.
+    await run_ensure(farm_id)
+    assert len([t for t in await farm_tasks(farm_id, "FEED") if t.title == ROUTINE_TITLE]) == 2
+    assert len(await farm_tasks(farm_id, "WATER")) == 2
+    assert len([t for t in await farm_tasks(farm_id, "FEED") if "Salt" in t.title]) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -377,10 +421,11 @@ async def test_reorder_fires_for_under_level_ingredients_only(
     feed_titles = [t.title for t in await farm_tasks(farm_id, "FEED")]
     assert "Reorder Salt: 0 kg on hand (reorder level 100 kg)" in feed_titles
     assert not any("Crushed maize" in title for title in feed_titles)
-    # Dedupe is a PREFIX match on the generated "Reorder {ingredient}: "
-    # title: a pending note that merely mentions the ingredient does not
-    # suppress the engine's own duty (the morning routine talks about bunks
-    # and water; a substring match swallowed real alerts).
+    # Dedupe is the server-owned identity (title_key "feed_reorder" + the
+    # ingredient arg, 2026-10-01 audit 03-6): a pending note that merely
+    # mentions the ingredient does not suppress the engine's own duty (the
+    # morning routine talks about bunks and water; a substring match
+    # swallowed real alerts).
     groundnut = sorted(title for title in feed_titles if "Groundnut haulms" in title)
     assert groundnut == [
         "Owner note: reorder Groundnut haulms this week",

@@ -285,6 +285,74 @@ async def test_create_spawns_accountant_renewal_duty(client: httpx.AsyncClient) 
     assert len(await insurance_tasks(farm_id)) == 1
 
 
+async def test_renewal_duty_is_never_born_overdue(client: httpx.AsyncClient) -> None:
+    """2026-10-01 audit, 03-2: a horizon inside the 30-day lead used to pass
+    the old guard (``renewal_date > today``) and mint an INSURANCE duty
+    already overdue by (30 − horizon) days — the exact backdated duty the
+    helper's contract rules out. The gate is now the lead-adjusted due date
+    itself, on both the create and the renew path."""
+    owner = await owner_with_farm(client, email="ins-lead@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+
+    # 14-day horizon: due would be 16 days in the past — no duty at all.
+    short = await add_policy(
+        client,
+        owner,
+        policy_number="POL-SHORT",
+        start_date=iso(today()),
+        renewal_date=iso(today() + timedelta(days=14)),
+    )
+    assert short.status_code == 201, short.text
+    # Exactly the lead (due would be today, not the future): still no duty.
+    at_lead = await add_policy(
+        client,
+        owner,
+        policy_number="POL-LEAD",
+        start_date=iso(today()),
+        renewal_date=iso(today() + timedelta(days=30)),
+    )
+    assert at_lead.status_code == 201, at_lead.text
+    # One day past the lead: the duty is born due TOMORROW.
+    horizon = today() + timedelta(days=31)
+    beyond_lead = await add_policy(
+        client,
+        owner,
+        policy_number="POL-LEAD-PLUS",
+        start_date=iso(today()),
+        renewal_date=iso(horizon),
+    )
+    assert beyond_lead.status_code == 201, beyond_lead.text
+
+    duties = await insurance_tasks(farm_id)
+    assert [d.title for d in duties] == ["Insurance renewal due: policy POL-LEAD-PLUS"]
+    assert duties[0].due_date == horizon - timedelta(days=30)
+    assert duties[0].due_date > today(), "a duty must never be born overdue"
+
+    # The renew path shares the gate: renewing inside the final 30 days of a
+    # still-renewable horizon mints no already-overdue successor duty.
+    short_id = short.json()["id"]
+    in_lead = await client.post(
+        f"/api/finance/insurance/{short_id}/renew",
+        json={"renewal_date": iso(today() + timedelta(days=20))},
+        headers=owner,
+    )
+    assert in_lead.status_code == 200, in_lead.text
+    assert len(await insurance_tasks(farm_id)) == 1  # still only POL-LEAD-PLUS
+
+    out_of_lead = await client.post(
+        f"/api/finance/insurance/{short_id}/renew",
+        json={"renewal_date": iso(today() + timedelta(days=45))},
+        headers=owner,
+    )
+    assert out_of_lead.status_code == 200, out_of_lead.text
+    duties = await insurance_tasks(farm_id)
+    assert [d.title for d in duties] == [
+        "Insurance renewal due: policy POL-LEAD-PLUS",
+        "Insurance renewal due: policy POL-SHORT",
+    ]
+    assert duties[1].due_date == today() + timedelta(days=15)
+
+
 async def test_renew_moves_horizon_forward_and_respawns_duty(
     client: httpx.AsyncClient,
 ) -> None:

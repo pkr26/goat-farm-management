@@ -130,6 +130,15 @@ export function WorkerShell({ children }: { children: ReactNode }) {
       user !== null && farmId !== null
         ? { actorScope: String(user.id), farmScope: String(farmId) }
         : null;
+    // The badge and the end-shift confirm count with the SAME scope filter
+    // the drain uses: a foreign actor's or farm's residue (a crash before
+    // teardown, or records a forced logout deliberately preserved for their
+    // owner) must not inflate the number this worker is shown or the
+    // "deletes them permanently" copy (2026-10-01 audit, 07-L3).
+    const scopedQueueDepth = () => {
+      const current = scopes();
+      return current === null ? 0 : offlineQueueDepth(current);
+    };
     const stop = startOfflineQueueWorkers(scopes, (rejected) => {
       // A drain settled records the server definitively refused: the duties
       // stay PENDING and reappear on the board, but the recorded
@@ -142,9 +151,9 @@ export function WorkerShell({ children }: { children: ReactNode }) {
         ),
       );
     });
-    const tick = window.setInterval(() => setDepth(offlineQueueDepth()), 1500);
+    const tick = window.setInterval(() => setDepth(scopedQueueDepth()), 1500);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- the badge must reflect the queue depth this session inherited, not wait 1.5s
-    setDepth(offlineQueueDepth());
+    setDepth(scopedQueueDepth());
     // Arriving online with a queue: drain immediately. The effect's guard
     // makes scopes() non-null here; the callback form keeps that coupling
     // visible instead of a dead empty-scope fallback (2026-09-29 audit).

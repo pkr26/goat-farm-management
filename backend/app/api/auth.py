@@ -126,6 +126,11 @@ ALREADY_REGISTERED = "That email is already registered."
 # load-bearing for the invalid-token and login budgets).
 register_email_limiter = SlidingWindowRateLimiter()
 
+# Same isolation rule, same reason (2026-10-01 audit, 01-1): roster probes are
+# unauthenticated, so the per-farm budget below is charged by arbitrary callers
+# and must not consume the shared auth limiter's bounded bookkeeping either.
+worker_roster_farm_limiter = SlidingWindowRateLimiter()
+
 
 def _register_email_probe_key(email: str) -> str:
     """Bucket key for one probed address — a hash, never the raw address.
@@ -820,12 +825,16 @@ async def register(
     # and charging fresh-address attempts would let an IP-rotating attacker
     # lock a legitimate registrant out of their own address.
     #
-    # The probe bucket's is_blocked gate runs BEFORE the hash (RT-A-2): an
-    # already-blocked prober gets the 429 without spending one of the two
-    # shared Argon2 pool slots per request. This leaks nothing — existence is
-    # already disclosed by the explicit 400, is_blocked allocates nothing for
-    # unseen keys, and every still-admissible request (the timing-equalized
-    # path) hashes exactly as before.
+    # (2026-10-01 audit, 01-2) The per-email ceiling is SOFT exactly like
+    # login's email scope (RT-A-1): it is consulted only where the oracle
+    # answer — the duplicate 400 — is about to be sent, never before. A
+    # bucket holding history therefore cannot refuse a registration that
+    # would otherwise succeed (a freed address re-registering after a
+    # deletion inside the window; any mischarge). This supersedes the old
+    # RT-A-2 pre-hash gate: its only unique effect was to let a hot bucket
+    # 429 before the hash, and unregistered-address bursts could always
+    # spend those same Argon2 slots ungated — so the gate bought no CPU
+    # bound, only the registrant lockout the soft scope forbids.
     # The probe key is a hash of the address, never the address itself: the
     # key is logged verbatim on a throttle decision, and the raw email is PII.
     email_probe_key = _register_email_probe_key(payload.email)
@@ -840,17 +849,24 @@ async def register(
                 max_attempts=s_limits.auth_rate_limit_max_attempts,
             )
 
-    if s_limits.auth_rate_limit_enabled and register_email_limiter.is_blocked(
-        "register-email",
-        email_probe_key,
-        s_limits.auth_rate_limit_max_attempts,
-        s_limits.auth_rate_limit_window_seconds,
-    ):
-        logger.info("register-email throttled (key=%s)", email_probe_key)
-        raise _too_many_attempts()
+    def _probe_ceiling_tripped() -> bool:
+        """The duplicate answer is about to be sent: should it be a 429?"""
+        return bool(
+            s_limits.auth_rate_limit_enabled
+            and register_email_limiter.is_blocked(
+                "register-email",
+                email_probe_key,
+                s_limits.auth_rate_limit_max_attempts,
+                s_limits.auth_rate_limit_window_seconds,
+            )
+        )
+
     pw_hash = await hash_password_async(payload.password)
     existing = await db.execute(select(User).where(User.email == payload.email))
     if existing.scalar_one_or_none() is not None:
+        if _probe_ceiling_tripped():
+            logger.info("register-email throttled (key=%s)", email_probe_key)
+            raise _too_many_attempts()
         _charge_email_probe()
         raise HTTPException(status_code=400, detail=ALREADY_REGISTERED)
     user = User(
@@ -1039,6 +1055,11 @@ async def worker_roster(
     farm id for a PIN pad a field worker can actually use — the documented
     owner-operator tradeoff (README, worker tablet app).
     """
+    # (Kept out of the docstring above so the OpenAPI snapshot — and the orval
+    # client regeneration-locked to it — stays byte-identical.) The throttle
+    # is two-layered since the 2026-10-01 audit, 01-1: per IP, and —
+    # IP-agnostically — per target farm id, so rotating source addresses
+    # cannot reset the probe budget for one farm's names.
     s = get_settings()
     if not s.worker_roster_enabled:
         # GOATFARM_WORKER_ROSTER_ENABLED=false: deployments with no shared
@@ -1054,6 +1075,19 @@ async def worker_roster(
     ):
         metrics.record_auth_rate_limit_rejection(WORKER_ROSTER_SCOPE)
         raise _too_many_attempts()
+    if s.auth_rate_limit_enabled and worker_roster_farm_limiter.is_blocked(
+        WORKER_ROSTER_FARM_SCOPE,
+        str(farm_id),
+        _WORKER_ROSTER_FARM_MAX_ATTEMPTS,
+        s.auth_rate_limit_window_seconds,
+    ):
+        # (2026-10-01 audit, 01-1) the per-farm ceiling is charged by the
+        # farm id alone, never the source address, so this 429 fires however
+        # many addresses the probing rotated through. farm_id is a public
+        # URL parameter — safe to name in the log line.
+        logger.info("worker-roster-farm throttled (farm_id=%s)", farm_id)
+        metrics.record_auth_rate_limit_rejection(WORKER_ROSTER_FARM_SCOPE)
+        raise _too_many_attempts()
     if s.auth_rate_limit_enabled:
         # The only record among the auth call sites that must be gated
         # explicitly: with limiting disabled, an unauthenticated roster probe
@@ -1063,6 +1097,12 @@ async def worker_roster(
             _client_key(request),
             s.auth_rate_limit_window_seconds,
             max_attempts=_WORKER_ROSTER_MAX_ATTEMPTS,
+        )
+        worker_roster_farm_limiter.record(
+            WORKER_ROSTER_FARM_SCOPE,
+            str(farm_id),
+            s.auth_rate_limit_window_seconds,
+            max_attempts=_WORKER_ROSTER_FARM_MAX_ATTEMPTS,
         )
     rows = (
         await db.execute(
@@ -2101,6 +2141,17 @@ WORKER_PIN_SPRAY_SCOPE = "worker-pin-spray"
 WORKER_PIN_RESERVATION_SCOPE = "worker-pin-work"
 WORKER_ROSTER_SCOPE = "worker-roster"
 _WORKER_ROSTER_MAX_ATTEMPTS = 30
+# (2026-10-01 audit, 01-1): the roster throttle above is per-IP only, so an
+# address-rotating caller got a fresh budget per request and could probe ONE
+# farm's names without limit (or crawl ids while rotating). The IP-agnostic
+# per-TARGET budget mirrors register's per-email probe bucket (and the
+# worker-pin account ceiling): one bucket per farm id, charged by every
+# admitted roster probe regardless of source address, so N probes per window
+# per farm is the ceiling no IP rotation resets. It sits at the same 30 the
+# per-IP scope grants one address — a single tablet's budget is unchanged;
+# only rotation against one target loses its multiplier.
+WORKER_ROSTER_FARM_SCOPE = "worker-roster-farm"
+_WORKER_ROSTER_FARM_MAX_ATTEMPTS = 30
 # Challenge codes are 6 digits: 5 attempts / 5 minutes per account makes
 # exhaustive guessing ~700 years; per-IP composite mirrors login.
 TOTP_CHALLENGE_MAX_ATTEMPTS = 5
@@ -2145,7 +2196,8 @@ async def _decrypt_totp_secret_or_unavailable(
 # consumed challenge token replay exactly once. That bounded window is
 # accepted — a consumed token still demands its TOTP/recovery code — rather
 # than DB-backing the cache; do not widen it (multi-worker deploys must move
-# this to shared storage first).
+# this to shared storage first). (2026-10-01 audit, 01-3: confirmed accepted
+# for single-worker topology.)
 _mfa_jti_replay_cache: OrderedDict[str, datetime] = OrderedDict()
 _MFA_REPLAY_CACHE_MAX = 4096
 

@@ -15,8 +15,11 @@ client; before CI existed nothing failed when it went stale. Two tests:
 """
 
 import json
+import re
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 from app.main import create_app
 
@@ -149,3 +152,91 @@ def test_farm_response_contract_requires_every_emitted_key() -> None:
         "timezone",
         "role",
     }
+
+
+# --- Idempotency-Key required-header drift tripwire (2026-10-01 audit, 04-4) ---
+
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+IDEMPOTENT_REQUEST_TS = REPO_ROOT / "frontend" / "src" / "lib" / "idempotent-request.ts"
+
+
+def _spec_routes_requiring_idempotency_key(schema: dict[str, Any]) -> set[str]:
+    """POST paths whose ``Idempotency-Key`` header parameter is required.
+
+    Orval 8 emits no typed parameter for header arguments on body routes, so
+    the ONLY thing standing between these routes and a bare 422 for SDK
+    consumers is the frontend transport's route registry (documented gap in
+    frontend/src/api/custom-instance.ts). These are the routes that must
+    never fall out of that registry.
+    """
+    required: set[str] = set()
+    for path, methods in schema.get("paths", {}).items():
+        operation = methods.get("post")
+        if not isinstance(operation, dict):
+            continue
+        for parameter in operation.get("parameters", []):
+            if (
+                parameter.get("name") == "Idempotency-Key"
+                and parameter.get("in") == "header"
+                and parameter.get("required") is True
+            ):
+                required.add(path)
+    return required
+
+
+def _frontend_registry_matchers() -> tuple[set[str], list[re.Pattern[str]]]:
+    """Exact paths and regex matchers from isIdempotencyProtectedMutation.
+
+    The registry mixes ``path === "/api/..."`` literals with anchored
+    ``/^\\/api\\/...$/ `` regex tests; both are extracted so the tripwire
+    sees every matcher the runtime transport uses.
+    """
+    source = IDEMPOTENT_REQUEST_TS.read_text()
+    exact = set(re.findall(r'path === "(/api/[^"]+)"', source))
+    patterns = [
+        re.compile(literal.replace("\\/", "/")) for literal in re.findall(r"/\^(.+?)\$/", source)
+    ]
+    return exact, patterns
+
+
+def test_required_idempotency_key_routes_stay_covered_by_the_frontend_registry() -> None:
+    """Every spec-required Idempotency-Key route must be in the transport's
+    allowlist: the generated SDK carries no typed header parameter for it
+    (orval 8 gap), so registry drift would surface as a bare 422 for any
+    consumer of the generated client without the custom instance."""
+    if not IDEMPOTENT_REQUEST_TS.exists():  # backend-only checkout
+        pytest.skip("frontend/src/lib/idempotent-request.ts not present")
+    required = _spec_routes_requiring_idempotency_key(_committed_schema())
+    assert required, "extraction found no required Idempotency-Key routes — parser drift"
+    exact, patterns = _frontend_registry_matchers()
+    assert exact or patterns, "frontend registry extraction found nothing — parser drift"
+
+    def covered(spec_path: str) -> bool:
+        # Instantiate path params with a concrete id (every idempotency-keyed
+        # route parameter is an integer resource id) and ask the registry.
+        concrete = re.sub(r"\{[^}]+\}", "1", spec_path)
+        return concrete in exact or any(p.fullmatch(concrete) for p in patterns)
+
+    uncovered = sorted(path for path in required if not covered(path))
+    assert not uncovered, (
+        "routes marked Idempotency-Key: required in shared/openapi.json but missing "
+        f"from frontend isIdempotencyProtectedMutation: {uncovered}"
+    )
+
+
+def test_conftest_auto_key_hook_matches_the_spec_required_header_set() -> None:
+    """The test client's auto-key injection mirrors the same spec set (with
+    its documented inventory-add path normalization), so backend tests keep
+    exercising the business logic on exactly the routes the spec protects."""
+    from .conftest import IDEMPOTENCY_REQUIRED_PATHS
+
+    def conftest_style(spec_path: str) -> str:
+        return re.sub(
+            r"^/api/feeding/inventory/\{item_id\}/add$",
+            "/api/feeding/inventory-add",
+            spec_path,
+        )
+
+    spec_required = _spec_routes_requiring_idempotency_key(_committed_schema())
+    normalized = {conftest_style(path) for path in spec_required}
+    assert normalized == set(IDEMPOTENCY_REQUIRED_PATHS)

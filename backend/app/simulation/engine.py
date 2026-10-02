@@ -849,7 +849,14 @@ def _run_core(
                     take = _draw(m_weaner, requested)
                     default_price = avg_kg * meat_price
                 elif event.animal_class == "female_grower":
-                    avg_kg = _pool_avg_weight(f_grower, 6, g, doe_w, f_grower_mid_age)
+                    # Empty-chain boundary stock (afb == 6) stands at the
+                    # graduation boundary, so the no-composition fallback must
+                    # price it at the graduation weight — the same weight the
+                    # purchase path above and month-1 graduation apply — never
+                    # at a mid-class placement age (2026-10-01 audit, 08-M4).
+                    avg_kg = _pool_avg_weight(
+                        f_grower, 6, g, doe_w, f_grower_mid_age if f_grower else afb
+                    )
                     if f_grower:
                         take = _draw(f_grower, requested)
                     else:
@@ -857,7 +864,16 @@ def _run_core(
                         f_boundary_grower -= take
                     default_price = avg_kg * meat_price
                 else:  # male_grower
-                    avg_kg = _pool_avg_weight(m_grower, 6, g, buck_w, m_grower_mid_age, male=True)
+                    # Same graduation-boundary fallback for the sale_age == 6
+                    # empty chain (2026-10-01 audit, 08-M4).
+                    avg_kg = _pool_avg_weight(
+                        m_grower,
+                        6,
+                        g,
+                        buck_w,
+                        m_grower_mid_age if m_grower else sale_age,
+                        male=True,
+                    )
                     if m_grower:
                         take = _draw(m_grower, requested)
                     else:
@@ -1379,8 +1395,16 @@ def _run_core(
         # Costing it per kg consumed made storage spoilage and every tonne above
         # storage capacity free, so adding acreage could never cost anything and
         # the acreage decision had no downside to weigh.
+        # Degenerate-input exception (2026-10-01 audit, 08-L8): a herd with ZERO
+        # dry-matter requirement (an empty farm — dm_kg is the PRE-grazing
+        # total, so a fully-grazing herd still counts) grows nothing for
+        # nothing — charging it ₹6,000/month of cultivation for 3 default
+        # acres produced a nonsense "cost with no animals" projection (NPV
+        # -₹7.5 lakh at zero head). With any animals at all the requirement is
+        # positive, so the acreage-has-a-downside rule above is untouched.
+        cultivation_cost = cultivated_green_kg * home_green_price if feed_total.dm_kg > 0.0 else 0.0
         feed_cost = (
-            cultivated_green_kg * home_green_price
+            cultivation_cost
             + purchased_green_kg * purchased_green_price
             + feed_total.dry_kg * dry_price
             + feed_total.concentrate_kg * concentrate_price
@@ -2053,6 +2077,16 @@ def _run_core(
     )
 
 
+# Pass-count exports for the admission-control budget (2026-10-01 audit,
+# 08-L13): api.simulation._run_cost must derive its per-analysis pass counts
+# from these, so a future tuning of the loop (or a new analysis block) cannot
+# silently under-price admission. BREAK_EVEN_PASSES counts full engine
+# evaluations inside break_even_meat_price: the two endpoint probes plus the
+# bisection steps.
+BREAK_EVEN_BISECTION_STEPS = 50
+BREAK_EVEN_PASSES = 2 + BREAK_EVEN_BISECTION_STEPS
+
+
 def break_even_meat_price(a: SimulationAssumptions) -> float | None:
     """Meat price (₹/kg) at which NPV = 0, by bisection on the price.
 
@@ -2075,7 +2109,16 @@ def break_even_meat_price(a: SimulationAssumptions) -> float | None:
     if npv_at(upper_price) < 0.0:
         return None
     lo, hi = 0.0, upper_price
-    for _ in range(50):
+    # Monotonicity assumption (documented per the 2026-10-01 audit, 08-L11):
+    # bisection is only guaranteed to find THE crossing while NPV is
+    # nondecreasing in meat price. Practically it is — a higher meat price
+    # lifts sales, cull and young-stock insurance value together, and every
+    # executed configuration has been monotone — but a future revenue line
+    # that falls as meat prices rise (e.g. a substitution effect) could make
+    # the profile non-monotone, in which case this loop may return a
+    # non-minimal crossing. 50 halvings of the schema ceiling give ~₹1e-6/kg
+    # precision, ample for the reported figure.
+    for _ in range(BREAK_EVEN_BISECTION_STEPS):
         mid = (lo + hi) / 2.0
         if npv_at(mid) >= 0.0:
             hi = mid

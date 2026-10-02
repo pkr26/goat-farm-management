@@ -773,6 +773,10 @@ describe("PurchasesPage batch detail dialog", () => {
     expect(within(dialog).getByText("Open quarantine tasks (1)")).toBeInTheDocument();
     expect(within(dialog).getByText("Deworm batch")).toBeInTheDocument();
     expect(within(dialog).getByText("8 Jan 2026")).toBeInTheDocument();
+    // The status chip resolves through the taskStatus label family — the raw
+    // wire code used to render verbatim (2026-10-01 audit, 06-1).
+    expect(within(dialog).queryByText("PENDING")).not.toBeInTheDocument();
+    expect(within(dialog).getByText("Pending")).toBeInTheDocument();
     // The DONE task is filtered out.
     expect(within(dialog).queryByText("PPR vaccine")).not.toBeInTheDocument();
   });

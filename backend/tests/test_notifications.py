@@ -6,13 +6,16 @@ concurrency and the single-batch daily cap — 2026-09-28 audit N1/N2), the
 alert hook's provider-transport lifecycle (N3), quiet hours, the per-worker
 digest content (role-scoped duties), the daily kidding-watch and feed-reorder
 scans, the overdue-critical sweep, and the owner-only preferences API (plus
-the screening-confirm alert hook end to end).
+the screening-confirm alert hook end to end). 2026-10-01 audit, 03: same-day
+alerts skip deactivated/tombstoned recipients (03-1), the digest readiness
+gate settles per recipient after a partial crash (03-3), and the digest
+headline reports the true duty total (03-4).
 """
 
 import asyncio
 import importlib
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -20,6 +23,7 @@ import httpx
 import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.db import get_sessionmaker
@@ -533,6 +537,51 @@ async def test_digest_sends_each_recipient_their_own_scope(client: httpx.AsyncCl
     assert "no duties today" in provider.sent[0][1]
 
 
+async def test_digest_headline_states_the_true_duty_total(
+    client: httpx.AsyncClient,
+) -> None:
+    """2026-10-01 audit, 03-4: the headline counted the capped 10-row sample,
+    so a worker with 12 due duties was told "10 duties today". The count is
+    now the true total over the same scope; only the body listing stays
+    capped."""
+    from app.models import FarmMembership
+
+    owner = await owner_with_farm(client, email="notif-count@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+    membership_id = await _membership_id(client, owner)
+    settings = Settings(environment="development", notifications_enabled=True)
+    provider = RecordingProvider()
+
+    async with get_sessionmaker()() as db:
+        farm = await _farm(db, farm_id)
+        await _recipient(db, farm_id, membership_id)
+        role_id = (
+            await db.execute(
+                select(FarmMembership.role_id).where(FarmMembership.id == membership_id)
+            )
+        ).scalar_one()
+        # Twelve role-scoped duties due today: visible to this worker, beyond
+        # the digest's 10-row listing.
+        for i in range(12):
+            db.add(
+                Task(
+                    farm_id=farm_id,
+                    title=f"Pen duty {i}",
+                    due_date=today(),
+                    category="OTHER",
+                    status="PENDING",
+                    assigned_role_id=role_id,
+                )
+            )
+        await db.commit()
+        summary = await run_digest_for_farm(db, settings, provider, farm, now_local=midday(farm))
+
+    assert summary.sent == 1
+    body = provider.sent[0][1]
+    assert "12 duties today" in body, body
+    assert "... and 7 more" in body, body  # 12 total − 5 listed, not 10 − 5
+
+
 async def test_digest_skips_inactive_memberships_entirely(client: httpx.AsyncClient) -> None:
     """2026-09-29 audit: a deactivated worker's recipient gets NO digest SMS —
     not even a 'no duties (inactive)' one. Spending daily-cap budget on a
@@ -613,6 +662,71 @@ async def test_mid_fanout_crash_cannot_rollback_earlier_recipients(
     assert statuses.count("SENT") == 1, "recipient 1's delivery must be durable"
 
 
+async def test_partial_digest_failure_leaves_the_farm_ready_per_recipient(
+    client: httpx.AsyncClient,
+) -> None:
+    """2026-10-01 audit, 03-3: the readiness gate settled the whole FARM on
+    any single recipient's settled row, so a fan-out failure after recipient
+    1 settled SENT — but before recipient 2 was ever attempted — meant
+    recipient 2 silently missed that day's digest; the farm looked "done".
+    Readiness is now per recipient (the day-dedupe key IS per recipient), so
+    re-entry finishes the fan-out without re-billing anyone."""
+    from app.services.notifications import service as notification_service
+
+    owner = await owner_with_farm(client, email="notif-partial@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+    settings = Settings(environment="development", notifications_enabled=True)
+    provider = RecordingProvider()
+
+    real_text = notification_service._digest_text_for_recipient
+    text_calls = ["first"]
+
+    async def text_dying_on_the_second_recipient(
+        db: AsyncSession, farm: Farm, recipient: NotificationRecipient, reference: date
+    ) -> str | None:
+        # A mid-fan-out failure BETWEEN recipients (e.g. the scope query
+        # blowing up): recipient 1's outcome is already committed, recipient
+        # 2 has not even claimed its dedupe slot yet.
+        if text_calls[0] == "crash now":
+            raise RuntimeError("simulated failure between recipients (no claim yet)")
+        text_calls[0] = "crash now"
+        return await real_text(db, farm, recipient, reference)
+
+    async with get_sessionmaker()() as db:
+        farm = await _farm(db, farm_id)
+        phones = ("+919555555551", "+919555555552")
+        for phone in phones:
+            await _recipient(db, farm_id, await _membership_id(client, owner), phone=phone)
+        await db.commit()
+        noon = midday(farm)
+        notification_service._digest_text_for_recipient = text_dying_on_the_second_recipient
+        try:
+            with pytest.raises(RuntimeError, match="between recipients"):
+                await run_digest_for_farm(db, settings, provider, farm, now_local=noon)
+        finally:
+            notification_service._digest_text_for_recipient = real_text
+        await db.rollback()
+
+        # Recipient 1's SENT row is durable, but the farm is still ready:
+        # recipient 2 holds no settled DAILY_DIGEST row for its local today.
+        # (Before the per-recipient gate this returned [] and the digest was
+        # lost for the day.)
+        ready = await farms_ready_for_digest(db, settings, noon.astimezone(UTC))
+        assert farm_id in [f.id for f in ready]
+
+        # Re-entry: recipient 1 replays its settled outcome (not fresh, no
+        # second SMS), recipient 2 finally gets the digest.
+        summary = await run_digest_for_farm(db, settings, provider, farm, now_local=noon)
+        done = await farms_ready_for_digest(db, settings, noon.astimezone(UTC))
+
+    assert (summary.sent, summary.skipped) == (1, 1)
+    # Exactly one SMS per phone across the crash + the catch-up re-run:
+    # recipient 1 billed once (before the crash), recipient 2 once (after) —
+    # the replay of recipient 1's settled outcome re-bills nobody.
+    assert sorted(phone for phone, _message in provider.sent) == sorted(phones)
+    assert farm_id not in [f.id for f in done], "both settled ⇒ farm done for the day"
+
+
 async def test_repeat_quiet_hours_touches_do_not_rewrite_the_placeholder(
     client: httpx.AsyncClient,
 ) -> None:
@@ -673,6 +787,34 @@ async def test_repeat_quiet_hours_touches_do_not_rewrite_the_placeholder(
     assert ids == [row_id], "the placeholder must never be rewritten inside the window"
 
 
+async def _digest_target(
+    db: AsyncSession, farm_id: int, *, email: str, phone: str
+) -> NotificationRecipient:
+    """A deliverable digest target: live user, active membership, opted in.
+
+    The readiness gate is per recipient (2026-10-01 audit, 03-3), so a farm
+    only counts as ready when it has at least one target like this still
+    unsettled for its local today.
+    """
+    from app.models import FarmMembership, Role, User
+
+    user = User(email=email, password_hash="not-used", created_at=utcnow())
+    db.add(user)
+    await db.flush()
+    role = Role(farm_id=farm_id, name="Digest target role", permissions=["dashboard.view"])
+    db.add(role)
+    await db.flush()
+    membership = FarmMembership(farm_id=farm_id, user_id=user.id, role_id=role.id, is_active=True)
+    db.add(membership)
+    await db.flush()
+    recipient = NotificationRecipient(
+        farm_id=farm_id, membership_id=membership.id, phone=phone, daily_digest=True
+    )
+    db.add(recipient)
+    await db.commit()
+    return recipient
+
+
 async def test_farms_ready_for_digest_fires_at_or_past_the_local_digest_time() -> None:
     """Catch-up window: the loop ticks roughly every minute and can drift
     past a farm's digest minute, so readiness is "same-day local time at or
@@ -686,6 +828,10 @@ async def test_farms_ready_for_digest_fires_at_or_past_the_local_digest_time() -
         await db.flush()
         farm = Farm(name="TZ Farm", owner_id=tz_owner.id, timezone="Asia/Kolkata")
         db.add(farm)
+        await db.flush()
+        # Readiness is per recipient (2026-10-01 audit, 03-3): the farm needs
+        # a deliverable digest target, not just a wall clock past 06:30.
+        await _digest_target(db, farm.id, email="tz-target@farm.in", phone="+919999999995")
         await db.commit()
         # 01:00 UTC == 06:30 local: the configured minute itself.
         on_time = await farms_ready_for_digest(
@@ -756,12 +902,12 @@ async def test_farms_ready_for_digest_respects_the_loop_batch_size() -> None:
         notifications_loop_batch_size=1,
     )
     now = datetime(2026, 9, 21, 1, 0, tzinfo=UTC)
-    from app.models import FarmMembership, Role, User
+    from app.models import User as UserRow
 
     async with get_sessionmaker()() as db:
         farm_ids = []
         for name in ("Batch First", "Batch Second"):
-            owner_row = User(
+            owner_row = UserRow(
                 email=f"tz-{name.lower().replace(' ', '-')}@farm.in",
                 password_hash="not-used",
                 created_at=utcnow(),
@@ -772,40 +918,24 @@ async def test_farms_ready_for_digest_respects_the_loop_batch_size() -> None:
             db.add(farm)
             await db.flush()
             farm_ids.append(farm.id)
+        # Both farms have a deliverable digest target still due for its local
+        # today (the per-recipient readiness gate, 2026-10-01 audit 03-3).
+        settled_recipient = await _digest_target(
+            db, min(farm_ids), email="tz-batch-first-target@farm.in", phone="+919999999998"
+        )
+        await _digest_target(
+            db, max(farm_ids), email="tz-batch-second-target@farm.in", phone="+919999999997"
+        )
         await db.commit()
         # Both farms ready, batch of one: only the first farm by id this tick.
         ready = await farms_ready_for_digest(db, settings, now)
         assert [f.id for f in ready] == [min(farm_ids)]
-        # The first farm's digest settles (any settled DAILY_DIGEST row for
-        # its local today closes the catch-up window). The membership target
-        # only needs to exist for the log row's FK.
-        settled_farm = min(farm_ids)
-        owner_row = (
-            await db.execute(select(User).where(User.email == "tz-batch-first@farm.in"))
-        ).scalar_one()
-        role = Role(farm_id=settled_farm, name="Digest probe role", permissions=["dashboard.view"])
-        db.add(role)
-        await db.flush()
-        membership = FarmMembership(
-            farm_id=settled_farm,
-            user_id=owner_row.id,
-            role_id=role.id,
-            is_active=True,
-        )
-        db.add(membership)
-        await db.flush()
-        recipient = NotificationRecipient(
-            farm_id=settled_farm,
-            membership_id=membership.id,
-            phone="+919999999998",
-            daily_digest=True,
-        )
-        db.add(recipient)
-        await db.flush()
+        # The first farm's digest settles (its one recipient's settled
+        # DAILY_DIGEST row for the local today closes the catch-up window).
         db.add(
             NotificationLog(
-                farm_id=settled_farm,
-                recipient_id=recipient.id,
+                farm_id=min(farm_ids),
+                recipient_id=settled_recipient.id,
                 alert_class="DAILY_DIGEST",
                 payload_hash=payload_hash("DAILY_DIGEST:digest:settled"),
                 local_date=now.astimezone(ZoneInfo("Asia/Kolkata")).date(),
@@ -920,6 +1050,121 @@ async def test_overdue_critical_sweep_alerts_three_day_old_duties(
     assert "1 duties are 3+ days overdue" in provider.sent[0][1]
 
 
+# --- inactive recipients in same-day alerts (2026-10-01 audit, 03-1) ----------
+
+# Alert class → NotificationRecipient opt-in column (notify_alert_class's map).
+_ALERT_OPT_IN_COLUMN = {
+    "SCREENING_FLAG": "screening_flags",
+    "KIDDING_WATCH": "kidding_watch",
+    "OVERDUE_CRITICAL": "overdue_critical",
+    "FEED_REORDER": "feed_reorder",
+    "MOVEMENT_RESTRICTION": "movement_restriction",
+}
+
+
+@pytest.mark.parametrize(
+    "alert_class",
+    ["SCREENING_FLAG", "KIDDING_WATCH", "OVERDUE_CRITICAL", "FEED_REORDER", "MOVEMENT_RESTRICTION"],
+)
+async def test_alert_fanout_skips_deactivated_workers(
+    client: httpx.AsyncClient, alert_class: str
+) -> None:
+    """2026-10-01 audit, 03-1: worker removal only flips the membership flag,
+    so the opted-in recipient row survives — and every same-day alert class
+    kept SMSing the removed worker's phone indefinitely. The fan-out now
+    applies the digest path's guard: no SMS, not even a claimed dedupe slot."""
+    owner = await owner_with_farm(client, email=f"notif-off-{alert_class.lower()}@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+    membership_id = await _membership_id(client, owner)
+    settings = Settings(environment="development", notifications_enabled=True)
+    provider = RecordingProvider()
+
+    deactivated = await client.put(
+        f"/api/team/workers/{membership_id}/status",
+        json={"is_active": False},
+        headers=owner,
+    )
+    assert deactivated.status_code == 200, deactivated.text
+
+    async with get_sessionmaker()() as db:
+        farm = await _farm(db, farm_id)
+        recipient = await _recipient(db, farm_id, membership_id)
+        # Opt into THIS class explicitly: _recipient covers every opt-in but
+        # movement_restriction, and a recipient not opted in would pass the
+        # test vacuously under the old code too.
+        setattr(recipient, _ALERT_OPT_IN_COLUMN[alert_class], True)
+        await db.commit()
+        sent = await notify_alert_class(
+            db,
+            settings,
+            provider,
+            farm=farm,
+            alert_class=alert_class,
+            message="m",
+            payload=f"probe:{alert_class}",
+            now_local=midday(farm),
+        )
+        log_rows = (
+            (await db.execute(select(NotificationLog).where(NotificationLog.farm_id == farm_id)))
+            .scalars()
+            .all()
+        )
+
+    assert sent == 0
+    assert provider.sent == []
+    assert log_rows == [], "no dedupe slot may be claimed for a deactivated membership"
+
+
+async def test_alert_fanout_skips_tombstoned_accounts(client: httpx.AsyncClient) -> None:
+    """2026-10-01 audit, 03-1 (User.deleted_at twin of the guard): membership
+    deactivation converges asynchronously after a tombstone, so the fan-out
+    must test the tombstone itself — exactly like the digest path."""
+    from app.models import FarmMembership, User
+
+    owner = await owner_with_farm(client, email="notif-off-tombstone@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+    membership_id = await _membership_id(client, owner)
+    settings = Settings(environment="development", notifications_enabled=True)
+    provider = RecordingProvider()
+
+    async with get_sessionmaker()() as db:
+        farm = await _farm(db, farm_id)
+        await _recipient(db, farm_id, membership_id)
+        worker_user_id = (
+            await db.execute(
+                select(FarmMembership.user_id).where(FarmMembership.id == membership_id)
+            )
+        ).scalar_one()
+        tombstoned = await db.get(User, worker_user_id)
+        assert tombstoned is not None
+        # The DB's own scrub constraint shape (ck_users_deleted_profile_scrubbed):
+        # a tombstone is date + scrubbed profile, exactly what the async
+        # deleter converges to while memberships are still active.
+        tombstoned.email = "deleted-notif-fanout@deleted.invalid"
+        tombstoned.name = None
+        tombstoned.deleted_at = utcnow()
+        await db.commit()
+        sent = await notify_alert_class(
+            db,
+            settings,
+            provider,
+            farm=farm,
+            alert_class="SCREENING_FLAG",
+            message="m",
+            payload="probe:tombstone",
+            now_local=midday(farm),
+        )
+        log_rows = (
+            (await db.execute(select(NotificationLog).where(NotificationLog.farm_id == farm_id)))
+            .scalars()
+            .all()
+        )
+
+    assert sent == 0
+    assert provider.sent == []
+    assert log_rows == [], "no dedupe slot may be claimed for a tombstoned account"
+
+
 # --- provider seam + config ----------------------------------------------------
 
 
@@ -997,6 +1242,39 @@ async def test_preferences_api_is_owner_only_and_persists(client: httpx.AsyncCli
     # A non-member cannot even resolve the worker: 403 (owner check) or 404
     # (membership lookup) — both refuse the write.
     assert forbidden.status_code in (403, 404)
+
+
+async def test_preferences_reject_coerced_booleans(client: httpx.AsyncClient) -> None:
+    """The opt-ins used plain bool, so 1/"true" silently flipped an alert
+    preference where every sibling strict endpoint answers 422
+    (2026-10-01 audit, 04-3)."""
+    owner = await owner_with_farm(client, email="notif-strict-bool@farm.in")
+    membership_id = await _membership_id(client, owner)
+
+    for coerced in (1, 0, "true", "false"):
+        rejected = await client.put(
+            f"/api/team/workers/{membership_id}/notifications",
+            json={"phone": "+919888877777", "daily_digest": coerced},
+            headers=owner,
+        )
+        assert rejected.status_code == 422, rejected.text
+
+    # Genuine JSON booleans remain the happy path — the fix tightens
+    # coercion only, never the accepted value set.
+    saved = await client.put(
+        f"/api/team/workers/{membership_id}/notifications",
+        json={
+            "phone": "+919888877777",
+            "daily_digest": True,
+            "kidding_watch": False,
+            "verified": True,
+        },
+        headers=owner,
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["daily_digest"] is True
+    assert saved.json()["kidding_watch"] is False
+    assert saved.json()["verified"] is True
 
 
 async def test_notification_prefs_audit_event_never_logs_the_phone(
@@ -1403,3 +1681,182 @@ async def test_recipient_membership_fk_blocks_cross_farm_rows(
             {"farm": farm_b, "membership": membership_b_id},
         )
         await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# (2026-10-01 audit, 01-4) URL-ish tokens in interpolated free text are
+# neutralized before any free-text field reaches an SMS body.
+# ---------------------------------------------------------------------------
+
+
+def test_sms_safe_text_neutralizes_urlish_tokens_only() -> None:
+    """The shared emit-site helper: explicit schemes, www. forms and bare
+    domain.tld tokens (with optional /path or :port tails) are stripped;
+    plain operational text passes through byte-identical."""
+    from app.api._shared import sms_safe_text
+
+    # The audit's shape: a tag/label carrying a phishing instruction.
+    assert sms_safe_text("www.evil.example verify at http://x") == "verify at"
+    # Explicit schemes and www forms, any case, with or without tails.
+    assert sms_safe_text("see https://evil.example/phish now") == "see now"
+    assert sms_safe_text("HTTP://X and WWW.EVIL.EXAMPLE") == "and"
+    # Bare scheme-less domains, optionally with a path/port tail.
+    assert sms_safe_text("go to evil.example/verify") == "go to"
+    assert sms_safe_text("evil.example:8080/x now") == "now"
+    # An input that was nothing but a URL collapses to the empty string so
+    # caller fallbacks ("scheduled disease", the animal id) apply.
+    assert sms_safe_text("http://only.example") == ""
+    assert sms_safe_text(None) == ""
+    # Conservative non-goals: numbers, abbreviations and dates are text.
+    assert sms_safe_text("3.5 kg, 2026.10.01, e.g. F.M.D") == "3.5 kg, 2026.10.01, e.g. F.M.D"
+    assert sms_safe_text("DEAD-MOVE-1 suspected anthrax") == "DEAD-MOVE-1 suspected anthrax"
+    # Whitespace the removal leaves behind is collapsed.
+    assert sms_safe_text("keep  http://x  spacing") == "keep spacing"
+
+
+async def test_mortality_alert_neutralizes_urlish_tag_text(
+    client: httpx.AsyncClient,
+) -> None:
+    """(2026-10-01 audit, 01-4) the mortality restriction alert interpolates
+    the animal's tag and the suspected-disease string into the SMS body; a
+    tag smuggled full of URL-ish tokens reaches the provider neutralized,
+    while the surrounding regulatory sentence is untouched."""
+    owner = await owner_with_farm(client, email="notif-dead-url@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+    membership_id = await _membership_id(client, owner)
+    await _movement_animal(farm_id, "www.evil.example verify at http://x")
+    async with get_sessionmaker()() as db:
+        await _movement_recipient(db, farm_id, membership_id, opted_in=True)
+        from app.models import Animal
+
+        animal_id = (
+            await db.execute(
+                select(Animal.id).where(Animal.tag_number == "www.evil.example verify at http://x")
+            )
+        ).scalar_one()
+
+    with _MovementHooks() as hooks:
+        status_change = await client.post(
+            f"/api/animals/{animal_id}/status",
+            json={
+                "new_status": "DEAD",
+                "suspected_scheduled_disease": True,
+                "suspected_disease": "anthrax",
+            },
+            headers=owner,
+        )
+
+    assert status_change.status_code == 200, status_change.text
+    assert len(hooks.sent) == 1
+    body = hooks.sent[0][1]
+    # The URL-ish tokens are gone; the instruction words and the regulatory
+    # sentence survive.
+    assert "evil.example" not in body and "http" not in body and "www." not in body
+    assert "verify at" in body
+    assert "placed under movement restriction" in body
+    assert "suspected anthrax" in body
+
+
+async def test_health_alert_neutralizes_urlish_disease_target(
+    client: httpx.AsyncClient,
+) -> None:
+    """(2026-10-01 audit, 01-4) same rule on the health-event alert path: the
+    worker-enterable disease target is sanitized before it reaches the SMS
+    body (and the dedupe payload)."""
+    owner = await owner_with_farm(client, email="notif-health-url@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+    membership_id = await _membership_id(client, owner)
+    await _movement_animal(farm_id, "HEALTH-URL-1")
+    async with get_sessionmaker()() as db:
+        await _movement_recipient(db, farm_id, membership_id, opted_in=True)
+        from app.models import Animal
+
+        animal_id = (
+            await db.execute(select(Animal.id).where(Animal.tag_number == "HEALTH-URL-1"))
+        ).scalar_one()
+
+    with _MovementHooks() as hooks:
+        event = await client.post(
+            "/api/health/events",
+            json={
+                "animal_id": animal_id,
+                "date": today().isoformat(),
+                "type": "TREATMENT",
+                "disease_target": "PPR details at http://track.evil.example/x",
+                "suspected_scheduled_disease": True,
+            },
+            headers=owner,
+        )
+
+    assert event.status_code == 201, event.text
+    assert len(hooks.sent) == 1
+    body = hooks.sent[0][1]
+    assert "evil.example" not in body and "http" not in body
+    assert "PPR details at" in body
+    assert "movement restriction placed" in body
+
+
+async def test_screening_confirm_alert_neutralizes_urlish_label(
+    client: httpx.AsyncClient,
+) -> None:
+    """(2026-10-01 audit, 01-4) same rule on the screening CONFIRMED alert:
+    the finding label is sanitized before it reaches the SMS body; plain
+    labels (the existing hook tests) keep passing through unchanged."""
+    from app.models import ScreeningFinding, ScreeningImage, ScreeningRun
+
+    owner = await owner_with_farm(client, email="notif-screen-url@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+    membership_id = await _membership_id(client, owner)
+
+    async with get_sessionmaker()() as db:
+        await _recipient(db, farm_id, membership_id)
+        image = ScreeningImage(
+            farm_id=farm_id,
+            bucket="BREEDING",
+            s3_bucket="b",
+            s3_key="raw/url-label.jpg",
+            captured_date=today(),
+            status="FLAGGED",
+        )
+        db.add(image)
+        await db.flush()
+        run = ScreeningRun(
+            farm_id=farm_id,
+            image_id=image.id,
+            stage="GATE",
+            run_status="OK",
+            provider="fake",
+            model="fake",
+            prompt_version="v1",
+            latency_ms=1,
+            created_at=utcnow(),
+        )
+        db.add(run)
+        await db.flush()
+        finding = ScreeningFinding(
+            farm_id=farm_id,
+            run_id=run.id,
+            label="Orf lesions — see www.orf-check.example",
+            note=None,
+            status="PENDING_REVIEW",
+            region="lips",
+            confidence=None,
+            severity=None,
+        )
+        db.add(finding)
+        await db.commit()
+        finding_id = finding.id
+
+    with _MovementHooks() as hooks:
+        review = await client.post(
+            f"/api/screening/findings/{finding_id}/review",
+            json={"status": "CONFIRMED", "expected_status": "PENDING_REVIEW"},
+            headers=owner,
+        )
+
+    assert review.status_code == 200, review.text
+    assert len(hooks.sent) == 1
+    body = hooks.sent[0][1]
+    assert "orf-check.example" not in body and "www." not in body
+    assert "Orf lesions" in body
+    assert "CONFIRMED by the vet" in body

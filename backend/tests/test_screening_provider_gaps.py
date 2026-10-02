@@ -84,7 +84,7 @@ def test_anthropic_text_extraction_skips_non_text_and_non_dict_blocks() -> None:
                     {"type": "text", "text": '{"flagged": '},
                     "not-a-dict-string",
                     {"type": "image", "source": {}},
-                    {"type": "text", "text": 'true}'},
+                    {"type": "text", "text": "true}"},
                 ]
             },
         )

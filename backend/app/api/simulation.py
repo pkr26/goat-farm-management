@@ -65,7 +65,8 @@ from ..services import IdempotencyKey, execute_idempotent
 from ..services.simulation_calibration import calibrate_farm_assumptions
 from ..simulation.assumptions import SimulationAssumptions
 from ..simulation.defaults import PRESET_FACTORIES, SYSTEMS, System, get_preset
-from ..simulation.engine import run_simulation
+from ..simulation.engine import BREAK_EVEN_PASSES, run_simulation
+from ..simulation.montecarlo import SENSITIVITY_PASSES
 from ..simulation.results import SimulationResult
 from ..simulation.vocabulary import GOAT_NOUNS, SpeciesNouns
 from ..utils import today
@@ -252,11 +253,16 @@ async def _run_offloaded(
 # live in ``._run_limits`` (shared with the planner router); they are imported
 # above so tests that reach for them via this module keep working.
 
-_BREAK_EVEN_PASSES = 52  # npv_at(0), npv_at(schema ceiling) + 50 bisection steps
-# base + 9 parameters x (low, high) — the comment said "8 parameters"
-# while the runner has carried nine cases (sale_age_months included) for a
-# while; the budget under-counted by two passes (P3, 2026-09-20 audit).
-_SENSITIVITY_PASSES = 19
+# Derived from the engine, not hand-maintained (2026-10-01 audit, 08-L13):
+# the module docstring's warning that _run_cost "is only honest while one
+# pass is linear in the horizon" also applies to the pass COUNTS — a tuned
+# bisection loop or a new sensitivity case silently under-priced admission
+# when these were literals. The engine exports the counts next to the loops
+# that spend them, so the two can no longer drift.
+_BREAK_EVEN_PASSES = BREAK_EVEN_PASSES  # npv_at(0) + npv_at(schema ceiling) + bisection steps
+# Base + every case x (low, high): nine cases today, derived from the
+# runner's own case list (sale_age_months included; P3, 2026-09-20 audit).
+_SENSITIVITY_PASSES = SENSITIVITY_PASSES
 
 
 def _run_cost(
@@ -605,15 +611,25 @@ async def compare_scenarios(
     user_id = user.id
     nouns = GOAT_NOUNS
 
+    # Snapshot BEFORE the limits region, exactly like run_scenario above: the
+    # fetch + JSON parse + full pydantic validation of up to five assumption
+    # documents is request-scoped DB work, and performing it inside
+    # _with_run_limits held one of only two process-wide simulation slots (plus
+    # the farm/user leases) across zero-CPU database reads — under DB latency,
+    # two compares could starve all simulation admission deployment-wide while
+    # the 429 body claimed "capacity is busy" during a CPU-idle period
+    # (2026-10-01 audit, 08-H2). The response models and validated assumptions
+    # are detached snapshots now; nothing below pins a pool connection.
+    scenarios = [await _get_scenario(db, farm_id, scenario_id) for scenario_id in id_list]
+    loaded = [_load_assumptions(scenario) for scenario in scenarios]
+    scenario_snapshots = [_scenario_out(scenario) for scenario in scenarios]
+    cost = sum(_run_cost(a, False, False, False) for a in loaded)
+    await db.rollback()
+
     async def run_compare() -> ScenarioCompareOut:
-        scenarios = [await _get_scenario(db, farm_id, scenario_id) for scenario_id in id_list]
-        loaded = [_load_assumptions(scenario) for scenario in scenarios]
-        scenario_snapshots = [_scenario_out(scenario) for scenario in scenarios]
-        cost = sum(_run_cost(a, False, False, False) for a in loaded)
-        # The response models and validated assumptions are detached snapshots
-        # now. Do not pin a pool connection for the sequential off-thread runs.
-        await db.rollback()
-        # Charged once the scenarios are known, before any engine work starts.
+        # Charged on admission, not at the gate (a request the concurrency
+        # limiter turns away never runs and must not spend the budget), and
+        # only now that the scenarios are known, before any engine work starts.
         _check_run_budget(farm_id, user_id, cost)
         _charge_run_budget(farm_id, user_id, cost)
         return ScenarioCompareOut(

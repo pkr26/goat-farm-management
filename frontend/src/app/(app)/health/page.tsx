@@ -121,11 +121,13 @@ const MAX_WITHDRAWAL_DAYS = MAX_WITHDRAWAL_DAYS_CAP;
 /** Sentinel for "no selection" in optional selects (empty string is not a valid item value). */
 const NONE = "none";
 /** value → label map for the root `items` prop: without it, Base UI's
- * Select.Value renders the raw value in the closed trigger. */
-const ROUTE_ITEMS: Record<string, string> = {
+ * Select.Value renders the raw value in the closed trigger. The labels
+ * resolve through the enum map in the active language — the raw codes used
+ * to render verbatim here and in the option list (2026-10-01 audit, 05-2). */
+const routeItems = (language: "en" | "te"): Record<string, string> => ({
   [NONE]: "—",
-  ...Object.fromEntries(ROUTES.map((r) => [r, r])),
-};
+  ...Object.fromEntries(ROUTES.map((r) => [r, enumLabel("adminRoute", r, language)])),
+});
 /** value → label map for the event-type select, in the active language. */
 const eventTypeItems = (language: "en" | "te"): Record<string, string> =>
   Object.fromEntries(EVENT_TYPES.map((t) => [t, enumLabel("eventType", t, language)]));
@@ -162,6 +164,7 @@ function EventAnimalLabel({
   event: HealthEventOut;
   canViewAnimals: boolean;
 }) {
+  const t = useT();
   if (event.animal_tag && canViewAnimals) {
     return (
       <Link
@@ -173,11 +176,14 @@ function EventAnimalLabel({
     );
   }
   if (event.animal_tag) return <>{event.animal_tag}</>;
-  if (event.purchase_batch_id) return <>batch #{event.purchase_batch_id}</>;
+  // Batch/bucket fragments resolve through the catalog, not hardcoded
+  // English (2026-10-01 audit, 05-3).
+  if (event.purchase_batch_id)
+    return <>{t("health.log.batchTarget", { id: event.purchase_batch_id })}</>;
   if (event.animal_id !== null) return <>#{event.animal_id}</>;
   // Animal-scoped rows keep #id; reaching this branch with every id null
   // means the event targeted a whole bucket.
-  return <span className="text-muted-foreground">bucket-wide</span>;
+  return <span className="text-muted-foreground">{t("health.log.bucketWide")}</span>;
 }
 
 /** Exported for direct schema-level testing: the dialog's native date inputs
@@ -583,11 +589,17 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
   // Stryker disable next-line BooleanLiteral: every path that opens the dialog (Add-event button, deep-link hydration) runs resetEventForm → setAdvancedOpen(false) before Radix mounts the <details>, so the initial state value never reaches the DOM
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
-  /** value → label map for the local task select. */
+  /** value → label map for the local task select. The due-date suffix
+   * resolves through the catalog (2026-10-01 audit, 05-3). */
   const taskItems: Record<string, string> = {
     [NONE]: t("common.none"),
     ...Object.fromEntries(
-      linkableHealthTasks.map((t) => [String(t.id), `${resolveTaskTitle(t, language)} (due ${formatDate(t.due_date)})`]),
+      linkableHealthTasks.map((task) => [
+        String(task.id),
+        `${resolveTaskTitle(task, language)} ${t("health.form.taskDueSuffix", {
+          date: formatDate(task.due_date),
+        })}`,
+      ]),
     ),
   };
 
@@ -978,7 +990,14 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
         const stillOwnsFarm = captureFarmScope();
         try {
           const response = await previewMutation.mutateAsync({ data: target });
-          if (response.status !== 200) return;
+          if (response.status !== 200) {
+            // Contract drift guard: the preview endpoint promises 200. A
+            // success envelope with another status used to dead-end the
+            // first "Review targets" click with zero feedback — surface it
+            // exactly like a failed preview instead (2026-10-01 audit, 05-Info).
+            setRecordError(t("health.toast.reviewFailed"));
+            return;
+          }
           const currentScope = getValues("scope");
           const currentTaskIdValue = getValues("task_id");
           const currentTaskId =
@@ -1357,7 +1376,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                   <TableCell>{e.product_name ?? "—"}</TableCell>
                   <TableCell>{e.disease_target ?? "—"}</TableCell>
                   <TableCell>{e.dose ?? "—"}</TableCell>
-                  <TableCell>{e.route ?? "—"}</TableCell>
+                  <TableCell>{enumLabel("adminRoute", e.route, language)}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatMoney(e.cost)}</TableCell>
                   <TableCell>
                     {e.next_due_date ? (
@@ -1615,7 +1634,9 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                         <li key={animal.id}>
                           <span className="font-medium">{animal.tag_number}</span>
                           {animal.name ? ` · ${animal.name}` : ""}
-                          {age != null ? ` · ${age} mo` : ""}
+                          {age != null
+                            ? ` · ${t("health.form.reviewedAgeMonths", { count: age })}`
+                            : ""}
                         </li>
                       );
                     })}
@@ -1723,7 +1744,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                 <Select
                   value={wRoute || NONE}
                   onValueChange={(v) => setValue("route", v)}
-                  items={ROUTE_ITEMS}
+                  items={routeItems(language)}
                 >
                   <SelectTrigger id="event-route" className="w-full">
                     <SelectValue />
@@ -1732,7 +1753,7 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                     <SelectItem value={NONE}>—</SelectItem>
                     {ROUTES.map((r) => (
                       <SelectItem key={r} value={r}>
-                        {r}
+                        {enumLabel("adminRoute", r, language)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1831,9 +1852,10 @@ function HealthPageContent({ perms }: { perms: PermissionsState }) {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value={NONE}>{t("common.none")}</SelectItem>
-                      {linkableHealthTasks.map((t) => (
-                        <SelectItem key={t.id} value={String(t.id)}>
-                          {resolveTaskTitle(t, language)} (due {formatDate(t.due_date)})
+                      {linkableHealthTasks.map((task) => (
+                        <SelectItem key={task.id} value={String(task.id)}>
+                          {resolveTaskTitle(task, language)}{" "}
+                          {t("health.form.taskDueSuffix", { date: formatDate(task.due_date) })}
                         </SelectItem>
                       ))}
                     </SelectContent>

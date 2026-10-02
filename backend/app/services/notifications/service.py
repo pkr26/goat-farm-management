@@ -32,7 +32,9 @@ The daily digest aggregates each worker's duties due today (``task_scope``)
 into one SMS per opted-in recipient; alert callers pass a stable ``payload``
 whose hash IS the dedupe identity (e.g. "finding:42:CONFIRMED"). A recipient
 whose membership is inactive gets NO digest at all — not even a "no duties"
-SMS (2026-09-29 audit).
+SMS (2026-09-29 audit) — and no same-day alert either: every fan-out skips
+inactive memberships and tombstoned accounts the same way
+(2026-10-01 audit, 03-1).
 """
 
 from __future__ import annotations
@@ -51,7 +53,15 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.config import Settings
-from ...models import Farm, NotificationLog, NotificationRecipient, Task, TaskStatus
+from ...models import (
+    Farm,
+    FarmMembership,
+    NotificationLog,
+    NotificationRecipient,
+    Task,
+    TaskStatus,
+    User,
+)
 from ...models.notifications import ALERT_CLASSES
 from ...utils import today
 from .providers import (
@@ -337,7 +347,6 @@ async def _digest_text_for_recipient(
     worker, tombstoned account) gets NO digest SMS, not even a "no duties"
     one: spending daily-cap budget on a deactivated worker is pure cost
     (2026-09-29 audit)."""
-    from ...models import FarmMembership, User
     from ...services.tasks import task_scope  # local import: avoids cycle at module load
 
     row = (
@@ -378,13 +387,17 @@ async def _digest_text_for_recipient(
     )
     if not titles:
         return f"Herdly {reference.isoformat()}: no duties today. Good work!"
-    parts = [f"Herdly {reference.isoformat()}: {len(titles)} duties today"]
+    # The headline must state the TRUE workload: a worker with 25 due duties
+    # used to be told "10 duties today" because the count was the capped
+    # sample, not the total (2026-10-01 audit, 03-4). The body stays capped.
+    total = int((await db.execute(scoped.with_only_columns(func.count()))).scalar_one())
+    parts = [f"Herdly {reference.isoformat()}: {total} duties today"]
     if overdue:
         parts.append(f"{len(overdue)} overdue (incl. today's list)")
     for title in titles[:5]:
         parts.append(f"- {title[:60]}")
-    if len(titles) > 5:
-        parts.append(f"... and {len(titles) - 5} more")
+    if total > 5:
+        parts.append(f"... and {total - 5} more")
     return "\n".join(parts)
 
 
@@ -445,9 +458,18 @@ async def farms_ready_for_digest(
     minute, so readiness is a catch-up window — same-day local time >= the
     configured digest time — not exact-minute equality (a farm whose minute
     was jumped over would otherwise get no digest that day). The once-per-day
-    guard is the log's day dedupe: a farm with a settled DAILY_DIGEST row for
-    its local today is done. Quiet-hours placeholders (SKIPPED_QUIET) do not
-    settle the day — the digest fires once the window opens.
+    guard is the log's day dedupe, which is PER RECIPIENT
+    (farm, recipient, class, payload, local day): a farm is done for the day
+    only when every digest-deliverable recipient — opted in, membership
+    active, account not tombstoned, the exact set ``run_digest_for_farm``
+    would attempt — holds a settled row for its local today. One recipient's
+    settled row no longer settles the whole farm, so a crash after recipient
+    1 of 5 leaves the farm ready for the remaining four, whose dedupe slots
+    are still unclaimed and therefore re-enter safely (never a duplicate —
+    2026-10-01 audit, 03-3). A farm with no deliverable recipients has no
+    digest work and never consumes a batch slot. Quiet-hours placeholders
+    (SKIPPED_QUIET) do not settle a recipient's day — the digest fires once
+    the window opens.
 
     Readiness and the settled-check run in SQL BEFORE the batch limit, so a
     farm that is already done never consumes a batch slot: with more farms
@@ -471,14 +493,34 @@ async def farms_ready_for_digest(
     digest_minute_of_day = (
         settings.notifications_digest_hour * 60 + settings.notifications_digest_minute
     )
-    settled_today = (
+    settled_for_recipient = (
         select(NotificationLog.id)
         .where(
             NotificationLog.farm_id == Farm.id,
+            NotificationLog.recipient_id == NotificationRecipient.id,
             NotificationLog.alert_class == "DAILY_DIGEST",
             NotificationLog.local_date == local_date,
             NotificationLog.status != "SKIPPED_QUIET",
         )
+        # Explicit correlation: this EXISTS spans two enclosing levels (Farm
+        # outside, NotificationRecipient one level up), and auto-correlation
+        # only strips FROM entries against the immediately enclosing query.
+        .correlate(Farm, NotificationRecipient)
+        .exists()
+    )
+    recipient_still_due = (
+        select(NotificationRecipient.id)
+        .join(FarmMembership, FarmMembership.id == NotificationRecipient.membership_id)
+        .join(User, FarmMembership.user_id == User.id)
+        .where(
+            NotificationRecipient.farm_id == Farm.id,
+            NotificationRecipient.daily_digest.is_(True),
+            FarmMembership.farm_id == Farm.id,
+            FarmMembership.is_active.is_(True),
+            User.deleted_at.is_(None),
+            ~settled_for_recipient,
+        )
+        .correlate(Farm)
         .exists()
     )
     return list(
@@ -488,7 +530,7 @@ async def farms_ready_for_digest(
                 .where(
                     and_(
                         minutes_of_day >= digest_minute_of_day,
-                        ~settled_today,
+                        recipient_still_due,
                     )
                 )
                 .order_by(Farm.id)
@@ -512,7 +554,15 @@ async def notify_alert_class(
     payload: str,
     now_local: datetime | None = None,
 ) -> int:
-    """Fan an alert out to every recipient opted into its class."""
+    """Fan an alert out to every recipient opted into its class.
+
+    Recipients whose membership is inactive (deactivated worker, tombstoned
+    account) get NO alert: deactivation only flips the membership flag and
+    the opted-in recipient row survives it, so without this guard — the same
+    one the digest path has carried since the 2026-09-29 audit — a removed
+    worker's phone keeps receiving paid SMS indefinitely
+    (2026-10-01 audit, 03-1).
+    """
     column = {
         "SCREENING_FLAG": NotificationRecipient.screening_flags,
         "KIDDING_WATCH": NotificationRecipient.kidding_watch,
@@ -525,8 +575,15 @@ async def notify_alert_class(
     recipients = list(
         (
             await db.execute(
-                select(NotificationRecipient).where(
-                    NotificationRecipient.farm_id == farm.id, column.is_(True)
+                select(NotificationRecipient)
+                .join(FarmMembership, FarmMembership.id == NotificationRecipient.membership_id)
+                .join(User, FarmMembership.user_id == User.id)
+                .where(
+                    NotificationRecipient.farm_id == farm.id,
+                    column.is_(True),
+                    FarmMembership.farm_id == farm.id,
+                    FarmMembership.is_active.is_(True),
+                    User.deleted_at.is_(None),
                 )
             )
         ).scalars()

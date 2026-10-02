@@ -376,6 +376,27 @@ describe("PlannerPage backward plan", () => {
     expect(screen.getAllByText("78.2").length).toBeGreaterThan(0);
   });
 
+  it("surfaces the evaluation's cash-floor figures (2026-10-01 audit, 06-8)", async () => {
+    const user = userEvent.setup();
+    await renderLoaded();
+
+    await user.click(screen.getByRole("button", { name: "Add target" }));
+    const count = within(desktopTable("min-w-[720px]")).getByLabelText("Count");
+    await user.clear(count);
+    await user.type(count, "20");
+    await user.click(screen.getByRole("button", { name: "Plan" }));
+
+    // The evaluation prints `after` (it exists): the cash bottoms out at
+    // -₹3,000 in month 4 and the plan still needs ₹3,000 of working
+    // capital — the payload always carried these, but the planner only ever
+    // printed NPV/shortfall/purchases. A loan-taking farmer sizes credit
+    // off exactly these two numbers.
+    expect(await screen.findByText("Minimum cash (month 4)")).toBeInTheDocument();
+    expect(screen.getByText("-₹3,000")).toBeInTheDocument();
+    expect(screen.getByText("Additional working capital")).toBeInTheDocument();
+    expect(screen.getByText("₹3,000")).toBeInTheDocument();
+  });
+
   it("saves the current targets as a named plan", async () => {
     const saved: { body: Record<string, unknown> | null } = { body: null };
     const user = userEvent.setup();

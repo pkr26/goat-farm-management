@@ -17,7 +17,7 @@ import json
 import logging
 import struct
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -1249,8 +1249,15 @@ async def test_rotation_primary_failure_falls_back_mid_cycle(
     assert summary.flagged == 1
     async with get_sessionmaker()() as db:
         runs = list((await db.execute(select(ScreeningRun))).scalars())
-    gate = next(run for run in runs if run.stage == "GATE")
-    assert gate.provider == "backup"
+    # The failed primary attempt and the serving fallback each leave their
+    # own run row (2026-10-01 audit, 02-3), so select by outcome — never the
+    # first GATE row an unordered scan happens to return.
+    gate_runs = [run for run in runs if run.stage == "GATE"]
+    serving = [run for run in gate_runs if run.run_status == "OK"]
+    failed = [run for run in gate_runs if run.run_status == "ERROR"]
+    assert [run.provider for run in serving] == ["backup"]
+    assert [run.provider for run in failed] == ["primary-down"]
+    gate = serving[0]
     assert gate.detail is not None
     assert gate.detail.get("fallbacks_failed") == ["primary-down"]
 
@@ -1449,6 +1456,143 @@ async def test_provider_failure_records_error_run_and_recovers(
     async with get_sessionmaker()() as db:
         refreshed = (await db.execute(select(ScreeningImage))).scalar_one()
     assert refreshed.status == "FLAGGED"
+
+
+async def test_partial_specialist_failure_keeps_its_regions_gate_observation(
+    client: httpx.AsyncClient,
+) -> None:
+    """(2026-10-01 audit, 02-2) The gate-observation fallback used to fire
+    only when ZERO specialist conditions survived. One specialist answering
+    while another region's call failed produced a FLAGGED photo with no
+    reviewable finding for the missed region — and FLAGGED is terminal for
+    retries, so the observation was lost for good. Each failed kind must
+    keep its own gate observations in the queue, attributed to the gate run."""
+    headers = await owner_with_farm(client, email="partial-specialist@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    capture_day = today().isoformat()
+
+    storage = FakeStorage()
+    storage.objects[f"raw/{farm_id}/{capture_day}/two_regions.jpg"] = _jpeg_bytes(2000, 1000)
+
+    two_region_flag = json.dumps(
+        {
+            "flagged": True,
+            "confidence": 0.74,
+            "quality_problem": False,
+            "observations": [
+                {
+                    "region": "mouth",
+                    "label": "crusty scabs near lips",
+                    "confidence": 0.66,
+                    "note": "raised crusty lesions consistent with orf",
+                },
+                {
+                    "region": "eye",
+                    "label": "watery red left eye",
+                    "confidence": 0.61,
+                    "note": "corneal clouding with discharge",
+                },
+            ],
+        }
+    )
+
+    @dataclass
+    class EyeSpecialistDownProvider:
+        name: str = "eye-down"
+        model: str = "fake-gate-1"
+
+        async def complete(self, image_jpeg: bytes, system_prompt: str) -> ProviderAnswer:
+            if "veterinary specialist" in system_prompt:
+                if "the eyes and eyelids" in system_prompt:
+                    raise ProviderError("eye specialist outage")
+                return ProviderAnswer(
+                    text=SKIN_ANSWER, provider=self.name, model=self.model, latency_ms=1
+                )
+            return ProviderAnswer(
+                text=two_region_flag, provider=self.name, model=self.model, latency_ms=1
+            )
+
+    async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
+        summary = await run_screening_cycle(
+            db,
+            _cycle_settings(),
+            # FakeStorage ducks the ScreeningStorage contract; the strict
+            # ratchet grandfathered the pre-existing call sites, not new ones.
+            cast(ScreeningStorage, storage),
+            ProviderRotation([EyeSpecialistDownProvider()]),
+        )
+
+    assert summary.flagged == 1
+    async with get_sessionmaker()() as db:
+        image = (await db.execute(select(ScreeningImage))).scalar_one()
+        runs = list((await db.execute(select(ScreeningRun))).scalars())
+        findings = list((await db.execute(select(ScreeningFinding))).scalars())
+
+    assert image.status == "FLAGGED"
+    eye_runs = [run for run in runs if run.stage == "SPECIALIST_EYE"]
+    skin_runs = [run for run in runs if run.stage == "SPECIALIST_SKIN"]
+    assert [run.run_status for run in eye_runs] == ["ERROR"]
+    assert [run.run_status for run in skin_runs] == ["OK"]
+
+    by_label = {finding.label: finding for finding in findings}
+    # The specialist that answered still refines its own region...
+    assert set(by_label) == {"ORF", "watery red left eye"}
+    assert by_label["ORF"].region == "mouth"
+    assert by_label["ORF"].run_id == skin_runs[0].id
+    # ...while the missed region's gate observation reaches the vet queue,
+    # attributed to the gate run that originally saw it.
+    eye_finding = by_label["watery red left eye"]
+    gate_run = next(run for run in runs if run.stage == "GATE")
+    assert eye_finding.region == "eye"
+    assert eye_finding.run_id == gate_run.id
+    assert eye_finding.status == "PENDING_REVIEW"
+
+
+async def test_fallback_chain_failures_are_billed_as_run_rows(
+    client: httpx.AsyncClient,
+) -> None:
+    """(2026-10-01 audit, 02-3) One provider call = one run row: the failed
+    attempts inside the detect and gate fallback chains were never recorded,
+    so a fully-draining chain spent N paid calls while the daily per-farm
+    budget counted 1."""
+    headers = await owner_with_farm(client, email="fallback-ledger@farm.in")
+    farm_id = int(headers["X-Farm-Id"])
+    capture_day = today().isoformat()
+
+    storage = FakeStorage()
+    storage.objects[f"raw/{farm_id}/{capture_day}/pen_group.jpg"] = _jpeg_bytes(2000, 1000)
+
+    failing = CountingProvider(name="chain-down", fail=True)
+    backup = CountingProvider(name="chain-backup", detect_boxes=[[100, 100, 600, 300]])
+    rotation = ProviderRotation([failing, backup])
+    if rotation.primary_for(today()) is not failing:
+        rotation = ProviderRotation([backup, failing])
+
+    async with get_sessionmaker()() as db:
+        await _register_fake_objects(db, farm_id, storage)
+        summary = await run_screening_cycle(
+            db,
+            _cycle_settings(crop_detection=True),
+            cast(ScreeningStorage, storage),  # ducks the contract (see above)
+            rotation,
+        )
+
+    # The photo still aggregates its (flagged) crop — the outage was ridden
+    # out by the fallback, never surfaced to the tenant.
+    assert summary.flagged == 1
+    async with get_sessionmaker()() as db:
+        runs = list((await db.execute(select(ScreeningRun))).scalars())
+
+    for stage in ("DETECT", "GATE"):
+        stage_runs = [run for run in runs if run.stage == stage]
+        outcomes = sorted((run.provider, run.run_status) for run in stage_runs)
+        assert outcomes == [("chain-backup", "OK"), ("chain-down", "ERROR")], (stage, outcomes)
+    failed_rows = [run for run in runs if run.run_status == "ERROR"]
+    assert {run.error for run in failed_rows} == {"screening provider call failed (PROVIDER_ERROR)"}
+    # Every paid attempt reached a provider exactly once per chain stage.
+    assert failing.calls == 2
+    assert backup.calls == 3  # detect + gate + the flagged crop's skin specialist
 
 
 async def test_review_detail_never_presigns_the_mutable_raw_key(
@@ -4022,9 +4166,14 @@ async def test_cycle_falls_over_when_primary_answers_garbage_json(
         runs = list((await db.execute(select(ScreeningRun))).scalars())
 
     assert (summary.claimed, summary.healthy) == (1, 1)
-    assert all(run.run_status == "OK" for run in runs)
-    gate = next(run for run in runs if run.stage == "GATE")
-    assert gate.provider == "backup"
+    # The paid-but-failed primary attempt records its own ERROR row
+    # (2026-10-01 audit, 02-3); the photo itself still lands healthy.
+    gate_runs = [run for run in runs if run.stage == "GATE"]
+    serving = [run for run in gate_runs if run.run_status == "OK"]
+    failed = [run for run in gate_runs if run.run_status == "ERROR"]
+    assert [run.provider for run in serving] == ["backup"]
+    assert [run.provider for run in failed] == ["garbage"]
+    gate = serving[0]
     assert gate.detail is not None
     assert gate.detail.get("fallbacks_failed") == ["garbage"]
     assert garbage.calls == 1  # it failed the contract, not the transport

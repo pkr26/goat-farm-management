@@ -22,7 +22,7 @@ import httpx
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 from sqlalchemy import delete, event, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -967,6 +967,111 @@ def test_totp_encryption_previous_keyring_is_bounded_and_needs_a_current_key() -
         Settings(totp_encryption_previous_keys=[VALID_TOTP_ENCRYPTION_KEY] * 4)
     with pytest.raises(ValidationError, match="requires a current"):
         Settings(totp_encryption_previous_keys=[VALID_TOTP_ENCRYPTION_KEY])
+
+
+# --- File-delivered secrets (2026-10-01 audit, 09-1) ---------------------------
+
+
+def test_secret_file_delivery_overrides_the_plain_environment_value(tmp_path: Path) -> None:
+    secret_file = tmp_path / "idempotency_request_hmac_secret"
+    secret_file.write_text(f"  {VALID_IDEMPOTENCY_HMAC_SECRET}  \n")
+    settings = Settings(
+        idempotency_request_hmac_secret=SecretStr("plain-env-secret-that-must-lose-000001"),
+        idempotency_request_hmac_secret_file=secret_file,
+    )
+    assert settings.idempotency_request_hmac_secret.get_secret_value() == (
+        VALID_IDEMPOTENCY_HMAC_SECRET
+    )
+
+
+def test_plain_secret_environment_delivery_still_works_and_empty_file_var_is_unset() -> None:
+    # Compose's optional interpolation yields an empty string for unset *_FILE
+    # knobs; that exact value must behave as "unset" so env-var deployments
+    # keep working untouched after the upgrade.
+    settings = Settings(
+        idempotency_request_hmac_secret=SecretStr(VALID_IDEMPOTENCY_HMAC_SECRET),
+        idempotency_request_hmac_secret_file="",  # type: ignore[arg-type]
+    )
+    assert settings.idempotency_request_hmac_secret.get_secret_value() == (
+        VALID_IDEMPOTENCY_HMAC_SECRET
+    )
+
+
+def test_secret_file_variable_is_read_from_the_process_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    secret_file = tmp_path / "msg91_auth_key"
+    secret_file.write_text("msg91-key-from-file\n")
+    monkeypatch.setenv("GOATFARM_MSG91_AUTH_KEY_FILE", str(secret_file))
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert settings.msg91_auth_key is not None
+    assert settings.msg91_auth_key.get_secret_value() == "msg91-key-from-file"
+
+
+def test_file_delivered_totp_key_is_trimmed_and_still_format_validated(tmp_path: Path) -> None:
+    key_file = tmp_path / "totp_encryption_key"
+    key_file.write_text(f"{VALID_TOTP_ENCRYPTION_KEY}\n")
+    settings = Settings(totp_encryption_key_file=key_file)
+    assert settings.totp_encryption_key is not None
+    assert settings.totp_encryption_key.get_secret_value() == VALID_TOTP_ENCRYPTION_KEY
+
+    # The file value must pass the same canonical 32-byte base64url check the
+    # plain field enforces, even though field validation has already run.
+    bad_key_file = tmp_path / "bad_totp_encryption_key"
+    bad_key_file.write_text("not-base64url\n")
+    with pytest.raises(ValidationError, match="GOATFARM_TOTP_ENCRYPTION_KEY"):
+        Settings(totp_encryption_key_file=bad_key_file)
+
+
+def test_missing_secret_file_fails_closed_in_production(tmp_path: Path) -> None:
+    kwargs = _valid_production_totp_kwargs()
+    kwargs["totp_encryption_key_file"] = tmp_path / "does-not-exist"
+    with pytest.raises(ValidationError, match="GOATFARM_TOTP_ENCRYPTION_KEY_FILE"):
+        Settings(**kwargs)  # type: ignore[arg-type]
+
+
+def test_blank_secret_file_fails_closed(tmp_path: Path) -> None:
+    blank_file = tmp_path / "s3_secret_access_key"
+    blank_file.write_text("   \n")
+    with pytest.raises(ValidationError, match="GOATFARM_S3_SECRET_ACCESS_KEY_FILE"):
+        Settings(s3_secret_access_key_file=blank_file)
+
+
+def test_file_delivered_database_url_replaces_and_normalizes(tmp_path: Path) -> None:
+    url_file = tmp_path / "database_url"
+    url_file.write_text("postgresql+asyncpg://api:filepw@db.example.com:5432/goatfarm\n")
+    settings = Settings(
+        database_url="postgresql+asyncpg://plain:plainpw@other.example.com:5432/goatfarm",
+        database_url_file=url_file,
+    )
+    assert settings.database_url == "postgresql+asyncpg://api:filepw@db.example.com:5432/goatfarm"
+
+    # A file value violating the URL contract fails exactly like a plain one.
+    broken_file = tmp_path / "broken_database_url"
+    broken_file.write_text("postgres://nope\n")
+    with pytest.raises(ValidationError, match="GOATFARM_DATABASE_URL"):
+        Settings(database_url_file=broken_file)
+
+
+def test_migration_and_worker_projections_read_file_delivered_secrets(tmp_path: Path) -> None:
+    migration_url_file = tmp_path / "migration_database_url"
+    migration_url_file.write_text("postgresql+asyncpg://mig:filepw@db:5432/goatfarm\n")
+    migration = MigrationSettings(migration_database_url_file=migration_url_file)
+    assert migration.migration_database_url == "postgresql+asyncpg://mig:filepw@db:5432/goatfarm"
+
+    worker_url_file = tmp_path / "worker_database_url"
+    worker_url_file.write_text("postgresql+asyncpg://worker:filepw@db:5432/goatfarm\n")
+    s3_key_file = tmp_path / "s3_secret_access_key"
+    s3_key_file.write_text("worker-s3-secret\n")
+    worker = ScreeningWorkerSettings(
+        database_url="postgresql+asyncpg://plain:plainpw@db:5432/goatfarm",
+        database_url_file=worker_url_file,
+        s3_secret_access_key=SecretStr("plain-s3-secret"),
+        s3_secret_access_key_file=s3_key_file,
+    )
+    assert worker.database_url == "postgresql+asyncpg://worker:filepw@db:5432/goatfarm"
+    assert worker.s3_secret_access_key is not None
+    assert worker.s3_secret_access_key.get_secret_value() == "worker-s3-secret"
 
 
 def test_production_rejects_refresh_cookie_without_host_prefix() -> None:

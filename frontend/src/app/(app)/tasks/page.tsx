@@ -190,6 +190,23 @@ function sameTaskOffsets(left: TaskOffsets, right: TaskOffsets): boolean {
   return TASK_TABS.every((taskTab) => left[taskTab] === right[taskTab]);
 }
 
+/** One urgency vocabulary for BOTH renderings of a duty (the below-md card
+ * and the desktop row). The mobile card used to flag only due-today while
+ * the desktop row flagged the whole 2-day "due soon" window, so the same
+ * duty changed highlight across the md breakpoint (2026-10-01 audit, 06-5).
+ */
+function taskIsOverdue(task: TaskOut, today: string): boolean {
+  return task.status === "PENDING" && task.due_date < today;
+}
+
+function taskIsDueSoon(task: TaskOut, today: string): boolean {
+  return (
+    task.status === "PENDING" &&
+    !taskIsOverdue(task, today) &&
+    daysBetween(today, task.due_date) <= 2
+  );
+}
+
 
 
 
@@ -261,8 +278,8 @@ function TaskTable({
        * (same pattern as the animals register). */}
       <div className="space-y-2 md:hidden">
         {tasks.map((task) => {
-          const overdue = task.status === "PENDING" && task.due_date < today;
-          const dueToday = task.status === "PENDING" && task.due_date === today;
+          const overdue = taskIsOverdue(task, today);
+          const dueSoon = taskIsDueSoon(task, today);
           const finishedAt =
             task.status === "SKIPPED" ? task.skipped_at : task.completed_at;
           // Stryker disable next-line LogicalOperator: completed rows always carry finishedAt (the endpoint only returns finished duties for that tab), so the conjunction is a tautology on reachable data
@@ -271,7 +288,7 @@ function TaskTable({
           return (
             <div key={task.id} className="space-y-2 rounded-xl border bg-card p-3 shadow-xs">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant={overdue ? "destructive" : dueToday ? "warning" : "secondary"}>
+                <Badge variant={overdue ? "destructive" : dueSoon ? "warning" : "secondary"}>
                   {formatDate(task.due_date)}
                 </Badge>
                 {overdue && (
@@ -285,7 +302,9 @@ function TaskTable({
                   </Badge>
                 )}
                 {completedTab && (
-                  <StatusBadge status={task.status}>{task.status}</StatusBadge>
+                  <StatusBadge status={task.status}>
+                    {enumLabel("taskStatus", task.status, language)}
+                  </StatusBadge>
                 )}
               </div>
               <div>
@@ -375,9 +394,8 @@ function TaskTable({
           </TableHeader>
           <TableBody>
             {tasks.map((t2) => {
-              const overdue = t2.status === "PENDING" && t2.due_date < today;
-              const dueSoon =
-                t2.status === "PENDING" && !overdue && daysBetween(today, t2.due_date) <= 2;
+              const overdue = taskIsOverdue(t2, today);
+              const dueSoon = taskIsDueSoon(t2, today);
               const actorName = finishedActorName(t2);
               return (
                 <TableRow key={t2.id}>
@@ -454,7 +472,9 @@ function TaskTable({
                   <TableCell>{animalCell(t2)}</TableCell>
                   {completedTab && (
                     <TableCell>
-                      <StatusBadge status={t2.status}>{t2.status}</StatusBadge>
+                      <StatusBadge status={t2.status}>
+                        {enumLabel("taskStatus", t2.status, language)}
+                      </StatusBadge>
                       {t2.status !== "VERIFIED" && t2.needs_verification && (
                         <span className="ml-1 text-xs text-muted-foreground">
                           {t("tasks.awaitingMarker")}
@@ -776,6 +796,11 @@ function TasksPageContent({ perms }: { perms: PermissionsState }) {
   const workerSelectOptions = (team?.memberships ?? []).filter((m) => m.is_active);
   const createMutation = useCreateTaskApiTasksPost();
   const createFlight = useSingleFlight();
+  /** Identifies one open/submit cycle of this never-unmounting dialog, so a
+   *  submission that resolves after the operator dismissed (and possibly
+   *  reopened) it cannot close or reset the fresh session — the finance
+   *  add-dialog's attempt fence (2026-10-01 audit, 06-3). */
+  const createAttempt = useRef(0);
   const dutySchema = useMemo(() => makeDutySchema(t), [t]);
   const {
     register,
@@ -804,6 +829,8 @@ function TasksPageContent({ perms }: { perms: PermissionsState }) {
     // Stryker disable next-line CallExpression: the New-duty button clears createError on every open, so the submit-start clear is unobservable within a dialog session
     setCreateError(null);
     const farmScope = captureFarmScope();
+    // Stryker disable next-line UpdateOperator: a monotonically decreasing attempt counter mismatches a captured value exactly as reliably as an increasing one
+    const attempt = ++createAttempt.current;
     try {
       await createMutation.mutateAsync({
         data: {
@@ -817,14 +844,18 @@ function TasksPageContent({ perms }: { perms: PermissionsState }) {
           assigned_user_id: noneToNull(values.assigned_user_id),
         },
       });
+      // The write landed: confirm it and refresh the board whatever the
+      // dialog has since done — unless the farm changed, in which case this
+      // continuation belongs to the previous farm's UI.
       if (!farmScope()) return;
       toast.success(t("tasks.toast.created"));
       invalidateFarmData(queryClient);
+      if (createAttempt.current !== attempt) return;
       setOpen(false);
       // Stryker disable next-line CallExpression: shouldUnregister drops every field when the dialog unmounts, so the explicit reset is redundant with the remount defaults (pinned by the reopen-blank test passing under the mutant)
       reset(dutyDefaults());
     } catch (err) {
-      if (!farmScope()) return;
+      if (!farmScope() || createAttempt.current !== attempt) return;
       const message = mutationErrorMessage(err, t("common.somethingWentWrong"));
       setCreateError(message);
       toast.error(message);
@@ -845,7 +876,11 @@ function TasksPageContent({ perms }: { perms: PermissionsState }) {
     if (boundedOffset === offsets[taskTab]) return;
     const nextOffsets = { ...offsets, [taskTab]: boundedOffset };
     setNavigationOverride({ sourceParamsKey: paramsKey, tab: taskTab, offsets: nextOffsets });
-    router.push(taskListUrl({ pathname, paramsKey, tab: taskTab, offsets: nextOffsets }));
+    // The URL is only ever replaced (never pushed) — Back returns to the page
+    // the user came from, not to every visited page offset, matching the
+    // purchases/feeding/simulation/insurance pagers and the tab changes right
+    // above (which also replace) (2026-10-01 audit, 06-6).
+    router.replace(taskListUrl({ pathname, paramsKey, tab: taskTab, offsets: nextOffsets }));
   }
 
   if (query.isLoading || !payload) {
@@ -1014,13 +1049,19 @@ function TasksPageContent({ perms }: { perms: PermissionsState }) {
       <Dialog
         open={open}
         onOpenChange={(nextOpen) => {
-          // The continuation closes and resets this form. Letting Escape or
-          // the backdrop dismiss it mid-write allowed a fresh dialog session
-          // to open and then be wiped by that late completion.
-          if (!nextOpen && (isSubmitting || createFlight.pending)) return;
+          // Never block dismissal on an in-flight write (the finance rule,
+          // 2026-09-20 P3): Escape, the backdrop and the X must always work,
+          // even on a slow rural connection — a blocked close was an up-to-
+          // 60s unclosable modal. The continuation is fenced by
+          // createAttempt instead, so a late resolve cannot close or reset a
+          // dialog the operator has since reopened (2026-10-01 audit, 06-3).
+          if (!nextOpen) {
+            // Stryker disable next-line CallExpression: the New-duty button clears createError on every open, so skipping the close-time clear is unobservable
+            setCreateError(null);
+            // Stryker disable next-line AssignmentOperator: a monotonically decreasing attempt counter mismatches a captured value exactly as reliably as an increasing one
+            createAttempt.current += 1;
+          }
           setOpen(nextOpen);
-          // Stryker disable next-line BooleanLiteral, ConditionalExpression, CallExpression: the New-duty button clears createError on every open, so skipping the close-time clear is unobservable
-          if (!nextOpen) setCreateError(null);
         }}
       >
         <DialogContent className="sm:max-w-lg">
@@ -1028,7 +1069,13 @@ function TasksPageContent({ perms }: { perms: PermissionsState }) {
             <DialogTitle>{t("tasks.newDuty")}</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">{t("tasks.form.intro")}</p>
-          <form onSubmit={handleSubmit(onSubmit)} noValidate>
+          {/* Build the submit handler at event time, not during render:
+              onSubmit reads the createAttempt ref, and refs must not be read
+              while rendering (same shape as the finance add-dialog). */}
+          <form
+            onSubmit={(event) => void handleSubmit(onSubmit)(event)}
+            noValidate
+          >
             <fieldset
               disabled={isSubmitting || createFlight.pending}
               className="space-y-4"

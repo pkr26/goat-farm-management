@@ -65,13 +65,16 @@ class NotificationPrefsIn(StrictInputModel):
     """
 
     phone: str = Field(min_length=10, max_length=20, pattern=r"^\+?[0-9]{10,19}$")
-    daily_digest: bool = False
-    screening_flags: bool = False
-    kidding_watch: bool = False
-    overdue_critical: bool = False
-    feed_reorder: bool = False
-    movement_restriction: bool = False
-    verified: bool = False
+    # StrictBool, like every other mutating boolean (2026-10-01 audit, 04-3):
+    # a lax bool here would let 1/"true"/"off" flip an alert opt-in where the
+    # sibling worker-status endpoint answers 422 for the same payload.
+    daily_digest: StrictBool = False
+    screening_flags: StrictBool = False
+    kidding_watch: StrictBool = False
+    overdue_critical: StrictBool = False
+    feed_reorder: StrictBool = False
+    movement_restriction: StrictBool = False
+    verified: StrictBool = False
 
 
 class NotificationPrefsOut(BaseModel):

@@ -28,6 +28,7 @@ from ..schemas.common import (
     lifecycle_conflict,
 )
 from ..services import (
+    BreedingChronologyError,
     IdempotencyKey,
     LitterSizeError,
     breeding_candidate_counts,
@@ -324,6 +325,13 @@ async def create_breeding(
                 actor_is_owner=user.id == farm.owner_id,
             )
             br_id = br.id
+        except BreedingChronologyError as exc:
+            # A service dated before a participant's recorded birth/purchase
+            # is a deterministic chronology fact about the request — 422 like
+            # every other chronology fence, not a raced lifecycle conflict
+            # (2026-10-01 audit, 02-6).
+            await db.rollback()
+            raise HTTPException(status_code=422, detail=str(exc)) from None
         except ValueError as exc:
             # Lifecycle/biology conflict (unresolved breeding, VWP, inbreeding
             # fence, species protocol) — raced or forged request.

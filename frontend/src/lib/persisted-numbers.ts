@@ -1,4 +1,6 @@
 /** Smallest non-zero values that survive backend storage normalization. */
+import { formatNumber } from "@/lib/format";
+
 export const MIN_PERSISTED_KG = 0.0005;
 export const MIN_PERSISTED_MONEY = 0.005;
 
@@ -7,10 +9,13 @@ export const MIN_PERSISTED_MONEY_MESSAGE = "Amount must be ₹0 or at least ₹0
 
 /** Render stock-ledger quantities without hiding gram-scale values.  Keep one
  * decimal for ordinary whole-kilogram readings while preserving all three
- * decimals the API stores when they are significant. */
+ * decimals the API stores when they are significant. Digit grouping follows
+ * the active UI language through the shared formatNumber (te-IN under
+ * Telugu) instead of a hardcoded en-IN — the exact class the 2026-09-28
+ * audit fixed for every sibling surface (2026-10-01 audit, 07-L4). */
 export function formatPersistedKg(value: number): string {
   if (!Number.isFinite(value)) return "—";
-  return value.toLocaleString("en-IN", {
+  return formatNumber(value, {
     minimumFractionDigits: 1,
     maximumFractionDigits: 3,
   });

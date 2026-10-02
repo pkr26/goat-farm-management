@@ -28,7 +28,6 @@ const flag = (name, fallback = null) => {
 };
 const STATUS = flag("--status", "SURVIVED");
 const WORKERS = Number(flag("--workers", 6));
-const CAP = Number(flag("--cap", 400));
 const PREFIX = flag("--file-prefix", "");
 const EXTRA = flag("--extra-files", "")
   .split(",")
@@ -67,14 +66,6 @@ function dedicatedTestsOf(mutant, covering) {
     (t) => t.includes(`/${stem}.`) && /\.test\.tsx?$/.test(t) && !exact.includes(t),
   );
   return [...new Set([...exact, ...stemMatch])];
-}
-
-function spreadSample(indices, n) {
-  if (indices.length <= n) return indices;
-  const step = indices.length / n;
-  const out = [];
-  for (let i = 0; i < n; i++) out.push(indices[Math.floor(i * step)]);
-  return [...new Set(out)];
 }
 
 async function main() {

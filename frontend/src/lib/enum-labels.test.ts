@@ -49,6 +49,39 @@ describe("enumLabel", () => {
     expect(enumLabel("disposalMethod", "DEEP_BURIAL", "te")).toBe("లోతుగా పాతడం");
   });
 
+  it("labels the health administration routes, in Telugu too (2026-10-01 audit, 05-2)", () => {
+    // The route family must never leak the wire codes to a screen.
+    expect(enumLabel("adminRoute", "SC")).toBe("SC (subcutaneous)");
+    expect(enumLabel("adminRoute", "IM")).toBe("IM (intramuscular)");
+    expect(enumLabel("adminRoute", "IV")).toBe("IV (intravenous)");
+    expect(enumLabel("adminRoute", "ORAL")).toBe("Oral");
+    expect(enumLabel("adminRoute", "TOPICAL")).toBe("Topical");
+    expect(enumLabel("adminRoute", "INTRANASAL")).toBe("Intranasal");
+    expect(enumLabel("adminRoute", "INTRANASAL", "te")).toBe("ముక్కు ద్వారా");
+    expect(enumLabel("adminRoute", "ORAL", "te")).toBe("నోటి ద్వారా");
+    expect(enumLabel("adminRoute", "SC", "te")).toBe("SC (చర్మం కింద)");
+  });
+
+  it("labels the duty-board lifecycle, in Telugu too (2026-10-01 audit, 06-1)", () => {
+    // The Completed tab chips and the purchase open-task chips must never
+    // leak the wire codes to a screen.
+    expect(enumLabel("taskStatus", "PENDING")).toBe("Pending");
+    expect(enumLabel("taskStatus", "DONE")).toBe("Done");
+    expect(enumLabel("taskStatus", "SKIPPED")).toBe("Skipped");
+    expect(enumLabel("taskStatus", "VERIFIED")).toBe("Verified");
+    expect(enumLabel("taskStatus", "PENDING", "te")).toBe("పెండింగ్");
+    expect(enumLabel("taskStatus", "DONE", "te")).toBe("పూర్తయింది");
+    expect(enumLabel("taskStatus", "SKIPPED", "te")).toBe("వదిలివేయబడింది");
+    expect(enumLabel("taskStatus", "VERIFIED", "te")).toBe("ధృవీకరించబడింది");
+  });
+
+  it("labels the team membership chip states, in Telugu too (2026-10-01 audit, 06-2)", () => {
+    expect(enumLabel("status", "ACTIVE")).toBe("Active");
+    expect(enumLabel("status", "INACTIVE")).toBe("Inactive");
+    expect(enumLabel("status", "ACTIVE", "te")).toBe("సక్రియం");
+    expect(enumLabel("status", "INACTIVE", "te")).toBe("క్రియారహితం");
+  });
+
   it("labels the goat buckets", () => {
     expect(enumLabel("bucket", "PREGNANCY_EARLY")).toBe("Pregnancy A");
     expect(enumLabel("bucket", "MALE_KIDS")).toBe("Male kids");

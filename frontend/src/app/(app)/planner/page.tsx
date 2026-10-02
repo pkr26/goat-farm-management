@@ -1138,6 +1138,37 @@ function PlannerPageContent({ perms }: { perms: PermissionsState }) {
               </CardDescription>
             </CardHeader>
             <CardContent>
+              {/* Cash-floor figures the evaluation already carries. For a
+               * loan-taking farmer the minimum-cash month is the most
+               * decision-relevant number in the payload — the simulation page
+               * shows the same trio for its runs, while the planner used to
+               * print only NPV/shortfall/purchases (2026-10-01 audit, 06-8). */}
+              <dl className="mb-4 grid gap-2 sm:grid-cols-2">
+                <div className="flex items-baseline justify-between gap-3 rounded-lg border p-3">
+                  <dt className="text-sm text-muted-foreground">
+                    {t("planner.eval.minimumCash", { month: evaluation.minimum_cash_month })}
+                  </dt>
+                  <dd
+                    className={`text-sm font-medium tabular-nums ${
+                      evaluation.minimum_cash_balance < 0 ? "text-destructive" : ""
+                    }`}
+                  >
+                    {formatMoney(evaluation.minimum_cash_balance)}
+                  </dd>
+                </div>
+                <div className="flex items-baseline justify-between gap-3 rounded-lg border p-3">
+                  <dt className="text-sm text-muted-foreground">
+                    {t("planner.eval.workingCapital")}
+                  </dt>
+                  <dd
+                    className={`text-sm font-medium tabular-nums ${
+                      evaluation.additional_working_capital_required > 0 ? "text-destructive" : ""
+                    }`}
+                  >
+                    {formatMoney(evaluation.additional_working_capital_required)}
+                  </dd>
+                </div>
+              </dl>
               {/* Below md the 7-column evaluation becomes a card per target. */}
               <div className="space-y-2 md:hidden">
                 {report.plan.before.targets.map((fill, index) => {

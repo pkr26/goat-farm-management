@@ -580,7 +580,10 @@ def test_seeded_monte_carlo_reports_liquidity_and_event_risk() -> None:
     mc = first.monte_carlo
     assert len(mc.liquidity_percentiles.p50) == 12
     assert 0.0 <= mc.prob_liquidity_shortfall <= 1.0
-    assert 0.0 <= mc.prob_dscr_below_one <= 1.0
+    # A 12-month horizon under the default 12-month moratorium has no
+    # principal-repaying year, so the MC DSCR breach probability is
+    # unmeasurable: None, never a reassuring 0.0 (2026-10-01 audit, 08-H1).
+    assert mc.prob_dscr_below_one is None
 
 
 def test_annual_event_probability_one_produces_a_bounded_shock_path() -> None:

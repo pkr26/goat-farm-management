@@ -217,7 +217,11 @@ describe("TasksPage independent pagination", () => {
     expect(seenParams.at(-1)?.get("upcoming_offset")).toBe("100");
     expect(seenParams.at(-1)?.get("awaiting_offset")).toBe("50");
     expect(seenParams.at(-1)?.get("completed_offset")).toBe("50");
-    expect(hrefParams(nav.push).get("from")).toBe("dashboard");
+    // Page turns replace (never push) — Back leaves the route instead of
+    // walking through every visited offset (2026-10-01 audit, 06-6).
+    expect(hrefParams(nav.replace).get("from")).toBe("dashboard");
+    expect(hrefParams(nav.replace).get("overdue_offset")).toBe("100");
+    expect(nav.push).not.toHaveBeenCalled();
     expect(await screen.findByText("Showing 101–127 of 127 overdue tasks")).toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Today (137)" }));
@@ -284,7 +288,10 @@ describe("TasksPage independent pagination", () => {
 
     await user.click(within(todayPager).getByRole("button", { name: "Next" }));
     await waitFor(() => expect(seenParams.at(-1)?.get("today_offset")).toBe("67"));
-    expect(hrefParams(nav.push).get("today_offset")).toBe("67");
+    // Page turns replace (never push) — Back leaves the route instead of
+    // walking through every visited offset (2026-10-01 audit, 06-6).
+    expect(hrefParams(nav.replace).get("today_offset")).toBe("67");
+    expect(nav.push).not.toHaveBeenCalledWith(expect.stringMatching(/today_offset/));
   });
 
   it("clamps all stale bucket offsets in one replacement after totals shrink", async () => {
@@ -330,7 +337,8 @@ describe("TasksPage independent pagination", () => {
 
     await user.click(within(todayPager).getByRole("button", { name: "Next" }));
     await waitFor(() => expect(seenParams.at(-1)?.get("today_offset")).toBe("50"));
-    expect(hrefParams(nav.push).get("tab")).toBe("today");
-    expect(hrefParams(nav.push).get("awaiting_offset")).toBe("50");
+    // Tab-page turns replace like every sibling pager (2026-10-01 audit, 06-6).
+    expect(hrefParams(nav.replace).get("tab")).toBe("today");
+    expect(hrefParams(nav.replace).get("awaiting_offset")).toBe("50");
   });
 });

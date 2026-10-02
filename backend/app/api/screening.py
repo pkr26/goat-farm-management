@@ -72,6 +72,7 @@ from ..schemas.screening import (
 from ..services.idempotency import IdempotencyKey, execute_idempotent
 from ..services.screening import ScreeningStorageError, storage_for_settings
 from ..utils import today, utcnow
+from ._shared import sms_safe_text
 
 router = APIRouter(prefix="/api/screening", tags=["screening"], responses=COMMON_ERROR_RESPONSES)
 
@@ -349,12 +350,16 @@ async def review_finding(
     if payload.status == "CONFIRMED":
         # ITEM 4 alert hook: a vet-confirmed screening finding is the
         # same-day signal the owner opted into. Best-effort, own session.
+        # (2026-10-01 audit, 01-4) the model-authored label is free text
+        # interpolated into the SMS body — URL-ish tokens are neutralized
+        # before they reach emit_alert.
         from ..services.notifications import emit_alert
 
         await emit_alert(
             farm.id,
             "SCREENING_FLAG",
-            f"Herdly: screening finding #{finding.id} ({finding.label}) was CONFIRMED by the vet.",
+            f"Herdly: screening finding #{finding.id} "
+            f"({sms_safe_text(finding.label)}) was CONFIRMED by the vet.",
             f"finding:{finding.id}:CONFIRMED",
         )
     return ScreeningFindingReviewOut.model_validate(finding)

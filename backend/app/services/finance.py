@@ -182,15 +182,22 @@ async def _book_premium(
     )
 
 
-async def _spawn_renewal_task(db: AsyncSession, farm_id: int, policy: InsurancePolicy) -> None:
-    """Queue the accountant's renewal duty for a future-dated policy.
+async def _spawn_renewal_task(
+    db: AsyncSession, farm_id: int, policy: InsurancePolicy, reference: date
+) -> None:
+    """Queue the accountant's renewal duty when the horizon still leads it.
 
-    A renewal date that has already arrived gets no task: the 30-day lead has
-    passed, and a backdated duty would only bury the register's real work.
-    The duty names the policy number (herd-level rows have no animal to
-    link) and carries the animal for per-animal policies.
+    A renewal date inside the 30-day lead gets no task: the lead-adjusted due
+    date has already arrived (or would arrive today), and a duty may never be
+    born overdue — a backdated duty would only bury the register's real work
+    (2026-10-01 audit, 03-2; the old guard tested the renewal date itself, so
+    a 14-day horizon minted a duty already 16 days overdue). The duty names
+    the policy number (herd-level rows have no animal to link) and carries
+    the animal for per-animal policies.
     """
     due = policy.renewal_date - timedelta(days=INSURANCE_RENEWAL_LEAD_DAYS)
+    if due <= reference:
+        return
     await _add_task(
         db,
         farm_id,
@@ -322,7 +329,10 @@ async def create_insurance_policy(
         recorded_by_id=created_by_id,
     )
     if renewal_date > reference:
-        await _spawn_renewal_task(db, farm.id, policy)
+        # The lead gate itself lives in _spawn_renewal_task (2026-10-01
+        # audit, 03-2): a horizon inside the 30-day lead is legal cover but
+        # no longer spawns an already-overdue duty.
+        await _spawn_renewal_task(db, farm.id, policy, reference)
     return policy
 
 
@@ -398,7 +408,10 @@ async def renew_insurance_policy(
         recorded_by_id=recorded_by_id,
     )
     if renewal_date > recorded_on:
-        await _spawn_renewal_task(db, farm.id, policy)
+        # Same lead gate as creation (2026-10-01 audit, 03-2): renewing
+        # inside the final 30 days of a still-renewable window must not mint
+        # a duty that is overdue the moment it appears.
+        await _spawn_renewal_task(db, farm.id, policy, recorded_on)
     return policy
 
 

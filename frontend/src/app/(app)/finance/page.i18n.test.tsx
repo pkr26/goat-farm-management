@@ -92,6 +92,24 @@ async function openAddDialogInTelugu() {
 }
 
 describe("FinancePage new-transaction dialog — Telugu", () => {
+  it("renders the ledger type chips in Telugu (2026-10-01 audit, 06-2)", async () => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "te");
+    renderWithProviders(
+      <LanguageProvider>
+        <FinancePage />
+      </LanguageProvider>,
+    );
+    await screen.findByText("మొత్తం ఆదాయం (మొత్తం కాలం)");
+
+    // Both renderings of the INCOME transaction (below-md card and desktop
+    // row) resolve the chip through the txType family — the badge's own
+    // humanize fallback is English-only ("Income").
+    const chips = await screen.findAllByText("ఆదాయం");
+    expect(chips.length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("Income")).not.toBeInTheDocument();
+    expect(screen.queryByText("Expense")).not.toBeInTheDocument();
+  });
+
   it("renders the dialog fields in Telugu and shows zod validation in Telugu", async () => {
     const { user, dialog } = await openAddDialogInTelugu();
 

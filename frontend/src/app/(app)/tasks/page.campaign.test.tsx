@@ -731,29 +731,36 @@ describe("TasksPage — campaign kills, second wave", () => {
     expect(teamGets).toBe(0);
   });
 
-  it("tints only overdue and due-today badges and keeps future rows neutral", async () => {
+  it("tints overdue and the shared 2-day due-soon window on mobile; keeps later rows neutral (2026-10-01 audit, 06-5)", async () => {
     server.use(
       http.get("/api/tasks", () =>
         HttpResponse.json(
           boardPayload({
             today: [
-              makeTask({ id: 81, title: "Future duty", due_date: addDays(TODAY, 2) }),
+              makeTask({ id: 84, title: "Later duty", due_date: addDays(TODAY, 3) }),
+              makeTask({ id: 85, title: "Soon duty", due_date: addDays(TODAY, 2) }),
               makeTask({ id: 82, title: "Due now", due_date: TODAY }),
               makeTask({ id: 83, title: "Late duty", due_date: addDays(TODAY, -1) }),
             ],
-            today_total: 3,
+            today_total: 4,
           }),
         ),
       ),
     );
     renderWithProviders(<TasksPage />);
-    await loadedBoard(3);
+    await loadedBoard(4);
     const cards = mobileCardList();
 
-    const futureBadge = within(cards).getByText(formatDate(addDays(TODAY, 2)));
-    expect(futureBadge.className).toContain("bg-secondary");
-    expect(futureBadge.className).not.toContain("bg-warning-tint");
-    expect(futureBadge.className).not.toContain("bg-destructive/10");
+    const laterBadge = within(cards).getByText(formatDate(addDays(TODAY, 3)));
+    expect(laterBadge.className).toContain("bg-secondary");
+    expect(laterBadge.className).not.toContain("bg-warning-tint");
+    expect(laterBadge.className).not.toContain("bg-destructive/10");
+
+    // The 2-day window now tints the mobile card exactly like the desktop
+    // row — the two renderings of one list flag the same duties (the card
+    // used to flag only due-today).
+    const soonBadge = within(cards).getByText(formatDate(addDays(TODAY, 2)));
+    expect(soonBadge.className).toContain("bg-warning-tint");
 
     const todayBadge = within(cards).getByText(formatDate(TODAY));
     expect(todayBadge.className).toContain("bg-warning-tint");
@@ -812,13 +819,17 @@ describe("TasksPage — campaign kills, second wave", () => {
     const doneCards = mobileCardList();
     await within(doneCards).findByText("Skipped sweep");
     const skippedCard = cardFor("Skipped sweep");
-    expect(within(skippedCard).getByText("SKIPPED")).toBeInTheDocument();
+    // Chips resolve through the taskStatus label family — the raw wire codes
+    // used to render verbatim (2026-10-01 audit, 06-1).
+    expect(within(skippedCard).getByText("Skipped")).toBeInTheDocument();
+    expect(within(skippedCard).queryByText("SKIPPED")).not.toBeInTheDocument();
     expect(
       within(skippedCard).getByText(t("tasks.skipReasonLabel", { reason: "Rain flooded the pen" })),
     ).toBeInTheDocument();
 
     const doneCard = cardFor("Done and dusted");
-    expect(within(doneCard).getByText("DONE")).toBeInTheDocument();
+    expect(within(doneCard).getByText("Done")).toBeInTheDocument();
+    expect(within(doneCard).queryByText("DONE")).not.toBeInTheDocument();
     expect(within(doneCard).queryByText(/Reason:/)).not.toBeInTheDocument();
     expect(within(doneCard).getByText(/by Raju/)).toBeInTheDocument();
 
@@ -1184,15 +1195,16 @@ describe("TasksPage dialogs — campaign kills", () => {
     await user.type(within(dialog).getByLabelText(t("tasks.skip.reason")), "not needed");
     await user.click(within(dialog).getByRole("button", { name: t("tasks.skip.confirm") }));
     expect(await within(dialog).findByText(t("tasks.skip.inFlight"))).toBeInTheDocument();
-    // Dismissal is locked while the write is in flight.
+    // Dismissal is honoured while the write is in flight (2026-10-01 audit,
+    // 06-3): Escape closes the dialog, and the single-flighted write still
+    // lands and toasts.
     await user.keyboard("{Escape}");
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     releaseSkip();
     await waitFor(() => expect(toastMocks.success).toHaveBeenCalledWith(t("tasks.toast.skipped")));
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
-  it("locks the recurring confirm dialog against dismissal while the write is out", async () => {
+  it("honours dismissal of the recurring confirm dialog while the write is out (2026-10-01 audit, 06-3)", async () => {
     let releaseComplete!: () => void;
     server.use(
       http.get("/api/tasks", () =>
@@ -1214,12 +1226,12 @@ describe("TasksPage dialogs — campaign kills", () => {
     await user.click(within(mobileCardList()).getByRole("button", { name: t("tasks.complete") }));
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: t("tasks.recurConfirm.confirm") }));
-    // The write is on the wire: Escape must not dismiss the dialog.
+    // The write is on the wire: Escape must still dismiss the dialog — the
+    // continuation is fenced by the dialog attempt counter instead.
     await user.keyboard("{Escape}");
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     releaseComplete();
     await waitFor(() => expect(toastMocks.success).toHaveBeenCalledWith(t("tasks.toast.completed")));
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   it("completes a recurring duty through its confirm dialog, with copy, error banner and Escape", async () => {

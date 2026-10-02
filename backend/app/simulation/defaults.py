@@ -99,6 +99,12 @@ def osmanabadi(system: System = "stall_fed") -> SimulationAssumptions:
     calibration, auto-fill the Bakrid festival months for the run's own
     horizon, and hold males finishing near a festival for the festival sale —
     the largest price event of the year is priced from month 1.
+
+    Framing (2026-10-01 audit, 08-M7): this preset is the complete, valid
+    REFERENCE unit, not a bankability claim — at 2025-26 cost levels the
+    leveraged 50+2 shape projects a deeply negative NPV, so treat it as a
+    stress-conservative baseline. Any re-baselining toward a
+    bankable-plausible unit is an owner decision (deferred).
     """
     a = SimulationAssumptions()
     a.sales.festival_sale_months = bakrid_festival_months(

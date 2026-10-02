@@ -215,7 +215,14 @@ const MONTHS = [
 
 /** ISO date string (YYYY-MM-DD) → "5 Aug 2026"; empty/invalid → "—".
  * Telugu sessions render through Intl te-IN ("5 ఆగ 2026"); English keeps the
- * hand-built abbreviation table so existing output stays byte-identical. */
+ * hand-built abbreviation table so existing output stays byte-identical.
+ *
+ * A full ISO datetime input renders the FARM-TIMEZONE calendar date of the
+ * instant, never the date written in the string: `2026-08-05T23:30:00Z` is
+ * already 6 Aug in IST, and every other datetime consumer (formatFarmDateTime,
+ * the overdue logic via farmToday) already thinks in farm time — rendering
+ * the string's wall date stranded this helper one calendar day behind them
+ * for any future caller that passes a datetime (2026-10-01 audit, 07-L5). */
 export function formatDate(iso: string | null | undefined, lang?: "en" | "te"): string {
   if (!iso) return "—";
   // Accept the documented date-only value, a syntactically complete ISO
@@ -227,13 +234,19 @@ export function formatDate(iso: string | null | undefined, lang?: "en" | "te"): 
   );
   if (!match) return "—";
   const [y, m, d] = match.slice(1, 4).map(Number);
-  const date = exactUtcCalendarDate(y, m, d);
-  if (date === null) return "—";
+  let calendar = { y, m, d };
   const timestampSuffix = match[4];
   if (timestampSuffix) {
     const paddedDate = `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-    if (Number.isNaN(new Date(`${paddedDate}${timestampSuffix}`).getTime())) return "—";
+    const instant = new Date(`${paddedDate}${timestampSuffix}`);
+    if (Number.isNaN(instant.getTime())) return "—";
+    const [fy, fm, fd] = todayInTimeZone(activeFarmTimezone, instant)
+      .split("-")
+      .map(Number);
+    calendar = { y: fy, m: fm, d: fd };
   }
+  const date = exactUtcCalendarDate(calendar.y, calendar.m, calendar.d);
+  if (date === null) return "—";
   if ((lang ?? getActiveLanguage()) === "te") {
     return new Intl.DateTimeFormat("te-IN", {
       day: "numeric",
@@ -242,5 +255,5 @@ export function formatDate(iso: string | null | undefined, lang?: "en" | "te"): 
       timeZone: "UTC",
     }).format(date);
   }
-  return `${d} ${MONTHS[m - 1]} ${y}`;
+  return `${calendar.d} ${MONTHS[calendar.m - 1]} ${calendar.y}`;
 }

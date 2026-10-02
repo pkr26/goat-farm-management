@@ -97,7 +97,9 @@ describe("formatDate — MONTHS table", () => {
     // "999-01-01T10:30:00Z" (unpadded year) is not parseable, so a missing
     // zero-fill would render the em dash instead of the calendar date.
     expect(formatDate("0999-01-01T10:30:00Z")).toBe("1 Jan 999");
-    expect(formatDate("0999-12-31T23:59:59Z")).toBe("31 Dec 999");
+    // 23:59:59Z is already the next farm day (IST) since the 2026-10-01
+    // audit, 07-L5 — and the zero-fill must still carry the year rollover.
+    expect(formatDate("0999-12-31T23:59:59Z")).toBe("1 Jan 1000");
   });
 });
 

@@ -27,6 +27,7 @@ from ..schemas.ops_simulation import (
 )
 from ..simulation.daily_ops import (
     DailyOpsInput,
+    DailyOpsResultCapExceeded,
     build_daily_ledger,
     run_daily_ops,
 )
@@ -49,6 +50,10 @@ SimView = Annotated[set[str], Depends(require_perm("simulation.view"))]
 # must bound the whole payload: with the cap on the ledger alone, a maximal
 # 500-head 365-day run (182,500 head-days) serialized tens of MB on the event
 # loop whenever the caller simply omitted the ledger flag (red-team RT-KL-2).
+# It is now also enforced OUTPUT-side on the standing herd (births included,
+# 2026-10-01 audit, 08-M6): the input check below prices what was asked for,
+# while the engine aborts if in-sim births grow the result past this same
+# ceiling.
 MAX_RESULT_HEAD_DAYS = MAX_LEDGER_HEAD_DAYS
 
 # In-sim births multiply the herd the pricing formula never saw: measured
@@ -124,7 +129,15 @@ async def run_daily_ops_simulation(
     )
 
     def work() -> DailyOpsRunOut:
-        result = run_daily_ops(daily_input)
+        # Output-side ceiling on the STANDING herd, births included: input
+        # head-days alone never bounded the materialized result, because
+        # in-sim births multiply the days/journeys/feeding lists ~10x past
+        # what was priced and admitted (2026-10-01 audit, 08-M6). The cap
+        # aborts the run with a clean 422 instead of serializing tens of MB.
+        try:
+            result = run_daily_ops(daily_input, max_result_head_days=MAX_RESULT_HEAD_DAYS)
+        except DailyOpsResultCapExceeded as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         # model_dump/ledger of a maximal herd is seconds of CPU and tens of MB;
         # serialize off the event loop (same defense as /run: a non-finite
         # figure would crash JSON encoding).

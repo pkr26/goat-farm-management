@@ -1072,6 +1072,15 @@ def build_narrative_report(
             f"loses money in {_pct(mc.prob_npv_negative)} of runs and runs short of operating "
             f"cash in {_pct(mc.prob_liquidity_shortfall)}.{events_sentence}"
         )
+        # The MC DSCR breach probability carries the same None contract as the
+        # deterministic min_dscr: unmeasurable (no principal-repaying year in
+        # any run), never a reassuring 0.0 (2026-10-01 audit, 08-H1).
+        if mc.prob_dscr_below_one is None:
+            risk_paragraphs.append(
+                "No Monte Carlo run contained a principal-repaying year, so the "
+                "debt-service coverage breach probability is not measurable for this "
+                "financing shape — it is reported as unavailable, not as zero."
+            )
         # Sampling uncertainty: with only N runs the percentiles themselves
         # are estimates. The bootstrap 95% interval says where the true
         # percentile plausibly sits given this run count.

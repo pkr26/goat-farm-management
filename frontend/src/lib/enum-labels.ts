@@ -30,7 +30,16 @@ function titleCase(value: string): string {
 const SIMPLE_LABELS: Record<string, Record<string, string>> = {
   sex: { M: "Male", F: "Female" },
   source: { BORN: "Born on farm", PURCHASED: "Purchased" },
-  status: { ACTIVE: "Active", SOLD: "Sold", DEAD: "Dead", CULLED: "Culled" },
+  // `status` also carries INACTIVE for the team register's membership chip:
+  // the team page fed StatusBadge "ACTIVE"/"INACTIVE" with no children, so
+  // Telugu readers got the English humanize fallback (2026-10-01 audit, 06-2).
+  status: {
+    ACTIVE: "Active",
+    SOLD: "Sold",
+    DEAD: "Dead",
+    CULLED: "Culled",
+    INACTIVE: "Inactive",
+  },
   kidStatus: { ALIVE: "Alive", STILLBORN: "Stillborn", DIED: "Died" },
   ease: { NORMAL: "Normal", ASSISTED: "Assisted", DIFFICULT: "Difficult", CAESAREAN: "Caesarean" },
   shift: { MORNING: "Morning", AFTERNOON: "Afternoon", NIGHT: "Night" },
@@ -62,6 +71,28 @@ const SIMPLE_LABELS: Record<string, Record<string, string>> = {
     OTHER: "Other",
   },
   txType: { INCOME: "Income", EXPENSE: "Expense" },
+  // Duty-board lifecycle (tasks.TaskOut.status). The Completed tab and the
+  // purchase-batch open-task list rendered the raw wire codes ("SKIPPED",
+  // "VERIFIED", "PENDING") because StatusBadge's humanize fallback never runs
+  // once children are supplied (2026-10-01 audit, 06-1).
+  taskStatus: {
+    PENDING: "Pending",
+    DONE: "Done",
+    SKIPPED: "Skipped",
+    VERIFIED: "Verified",
+  },
+  // Health event administration routes (healthEventInRoute). Vets know the
+  // Latin abbreviations, so they ride along with the expansion; the raw
+  // SCREAMING_SNAKE codes used to render verbatim in the route select and the
+  // event log (2026-10-01 audit, 05-2).
+  adminRoute: {
+    SC: "SC (subcutaneous)",
+    IM: "IM (intramuscular)",
+    IV: "IV (intravenous)",
+    ORAL: "Oral",
+    TOPICAL: "Topical",
+    INTRANASAL: "Intranasal",
+  },
   taskCategory: {
     VACCINE: "Vaccination",
     DEWORMING: "Deworming",
@@ -177,6 +208,7 @@ const TE_LABELS: { [K in EnumKind]?: Record<string, string> } = {
     SOLD: "అమ్మబడింది",
     DEAD: "మరణించింది",
     CULLED: "తొలగించబడింది",
+    INACTIVE: "క్రియారహితం",
   },
   kidStatus: { ALIVE: "బతికుంది", STILLBORN: "మృత జననం", DIED: "మరణించింది" },
   ease: {
@@ -214,6 +246,20 @@ const TE_LABELS: { [K in EnumKind]?: Record<string, string> } = {
     OTHER: "ఇతర",
   },
   txType: { INCOME: "ఆదాయం", EXPENSE: "ఖర్చు" },
+  taskStatus: {
+    PENDING: "పెండింగ్",
+    DONE: "పూర్తయింది",
+    SKIPPED: "వదిలివేయబడింది",
+    VERIFIED: "ధృవీకరించబడింది",
+  },
+  adminRoute: {
+    SC: "SC (చర్మం కింద)",
+    IM: "IM (కండరంలో)",
+    IV: "IV (సిరలో)",
+    ORAL: "నోటి ద్వారా",
+    TOPICAL: "చర్మం మీద",
+    INTRANASAL: "ముక్కు ద్వారా",
+  },
   taskCategory: {
     VACCINE: "టీకా",
     DEWORMING: "పురుగుల మందు",
@@ -312,6 +358,8 @@ export type EnumKind =
   | "birthType"
   | "txCategory"
   | "txType"
+  | "taskStatus"
+  | "adminRoute"
   | "taskCategory"
   | "mortalityCause"
   | "outcome"

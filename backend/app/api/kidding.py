@@ -35,8 +35,8 @@ from ..schemas.kidding import (
 )
 from ..services import (
     IdempotencyKey,
+    InputShapeError,
     KidSpec,
-    LitterSizeError,
     execute_idempotent,
     record_kidding,
     require_farm_not_future,
@@ -386,8 +386,10 @@ async def create_kidding(
                 created_by_id=user.id,
             )
             record_id = record.id
-        except LitterSizeError as exc:
-            # A litter above the species cap is input-shape validation.
+        except InputShapeError as exc:
+            # A litter above the species cap, or a kidding date outside the
+            # gestation window, is input-shape validation (LitterSizeError
+            # subclasses InputShapeError).
             await db.rollback()
             raise HTTPException(status_code=422, detail=str(exc)) from None
         except ValueError as exc:

@@ -333,18 +333,20 @@ describe("HealthPage wire contracts and closed-control labels", () => {
     expect(routeTrigger).toHaveTextContent("—");
 
     await user.click(routeTrigger);
+    // 2026-10-01 audit, 05-2: options carry the enum-label family, never the
+    // raw wire codes.
     expect((await screen.findAllByRole("option")).map((option) => option.textContent)).toEqual([
       "—",
-      "SC",
-      "IM",
-      "IV",
-      "ORAL",
-      "TOPICAL",
-      "INTRANASAL",
+      "SC (subcutaneous)",
+      "IM (intramuscular)",
+      "IV (intravenous)",
+      "Oral",
+      "Topical",
+      "Intranasal",
     ]);
 
-    await user.click(screen.getByRole("option", { name: "ORAL" }));
-    expect(routeTrigger).toHaveTextContent("ORAL");
+    await user.click(screen.getByRole("option", { name: "Oral" }));
+    expect(routeTrigger).toHaveTextContent("Oral");
 
     await pickOption(user, within(dialog).getByRole("button", { name: "Animal *" }), /G-003/);
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));

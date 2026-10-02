@@ -65,10 +65,19 @@ code moved since.
     `bytes[6] & 0x0f → 0x0e` / `bytes[8] & 0x3f → 0x3e` (m09367/77): the
     version nibble (4) and variant bits come from the OR masks; the cleared
     bit is random-entropy bit 0, outside both.
-12. **Dead catalog arms** — task-title `name === "date"` (m09869): no
-    taskGen template interpolates a bare `{date}`; the arm exists for
-    future keys. The value-coercion ternary (m09871/72/73): template
-    interpolation stringifies numbers identically.
+12. **Value-coercion ternary** — task-title `localizedArg`'s numeric
+    fallback (m09871/72/73): template interpolation stringifies numbers
+    identically. (This class formerly also claimed the `name === "date"`
+    arm, m09869, as a "dead catalog arm" — no taskGen template interpolates
+    a bare `{date}`. That equivalence was CONTRACT-scoped on the backend
+    taskGen catalog's field names, not mathematical, so it was
+    reclassified and killed (2026-10-01 audit, 10-4):
+    `src/lib/task-title.nulls.test.ts` pins that an ISO-date-valued arg
+    interpolates byte-for-byte unless it is NAMED `date`/`*_date` —
+    verified to fail against the mutant ("Reorder 1 Oct 2026" vs the raw
+    "2026-10-01"). m09869 registers as killed in the next campaign; the
+    committed `results.jsonl`/`survivors.json` still carry its Phase B
+    SURVIVED verdict from this one.)
 13. **Inert no-op control flow** — offline-queue `if (stopped) continue →
     break` (m09643) and the post-5xx `continue → break` (m09677): following
     records are skipped by the stopped guard either way;

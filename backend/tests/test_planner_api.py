@@ -164,10 +164,12 @@ async def test_backward_plan_survives_schema_max_target_count(client: httpx.Asyn
         risk_runs=0,
     )
     resp = await client.post("/api/planner/plan", json=document, headers=headers)
-    assert resp.status_code in (200, 422), resp.text  # never a 500
-    if resp.status_code == 200:
-        for purchase in resp.json()["plan"]["recommended_purchases"]:
-            assert purchase["count"] <= 100_000
+    # count=100_000 is exactly the schema ceiling, so the document validates
+    # and the plan returns 200 with chunked purchases — never a 500 and never
+    # a spurious 422 (settled 2026-10-01 audit, 10-3).
+    assert resp.status_code == 200, resp.text
+    for purchase in resp.json()["plan"]["recommended_purchases"]:
+        assert purchase["count"] <= 100_000
 
 
 # ---------------------------------------------------------------------------
