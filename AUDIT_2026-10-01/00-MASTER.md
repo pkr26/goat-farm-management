@@ -353,3 +353,59 @@ stash round-trips), and the full verification battery was re-run green.
 Known follow-ups: e2e execution against the docker stack; mutation-campaign
 re-run to re-score the touched modules (campaigns are offline artifacts);
 default-preset economics awaiting the business owner.
+
+## 9. Independent verification of the remediation (2026-10-02)
+
+Every fix was re-verified independently of the engineers who wrote it, using a
+mechanical protocol: revert the fix's source files to the pre-fix state
+(`main`), run the claimed regression test — it must FAIL — restore, re-run — it
+must PASS. All fixes were first committed to a safety branch
+(`audit-remediation-2026-10-02`) so round-trips could never destroy work.
+
+### Verdict matrix
+
+| Stage | Scope | Verified (round-trip) | Verified (static¹) | Not load-bearing² | Failed |
+|-------|-------|----------------------:-------------------:|------------------:|-------:|
+| Lead | 4 Highs (H1–H4) | 4 | — | — | 0 |
+| Verifier 1 | tracks 01, 02, 03 | 13 | 1 | 1 (03-5) | 0 |
+| Verifier 2 | tracks 05, 06, 07 | 22 | 1 | 2 (07-L4, 08-tint) | 0 |
+| Verifier 3 | tracks 04, 08 | 10 | 4 | 3 (08-M4, L9, L14) | 0 |
+| Verifier 4 | tracks 09, 10 + consolidation | 9 | 1 | — | 0 |
+| **Total** | **all 70 remediation items** | **58** | **7** | **6** | **0** |
+
+¹ Comment/doc-only fixes and coverage-gap fixes where the test IS the fix —
+verified by diff review, grep of the audit markers, and running the new tests.
+² Fix present and judged correct, but its regression test also passes on the
+pre-fix code in this environment: 03-5 and 08-M4/L9/L14 are deliberate
+invariant pins (numeric-neutral today, documented in their docstrings — the
+Bakrid clamp additionally cannot diverge on PostgreSQL 16, now noted in the
+test); 07-L4 and the 08-H1 null-tint test were genuinely weak and were
+**strengthened** in the verification round itself (delegation recorded via a
+formatNumber mock; tone asserted on a new `data-tone` semantic attribute added
+to StatCard per the repo's own AGENTS.md state-styling rule). Both strengthened
+tests now fail against the pre-fix source and pass against the fix.
+
+Failure modes observed in round-trips (all valid proof): assertion failures and
+collection/import errors where the fix introduced a symbol the tests import.
+
+### Post-verification gates (all green)
+
+- Backend: full suite 4,973 passed / 4 skipped; ruff format + lint; mypy
+  --strict app+scripts; tests ratchet at 1778.
+- Frontend: typecheck; lint (max-warnings 0); vitest default 5,077 /
+  libcore 539 / components 494 — all passed after the StatCard attribute
+  addition and test strengthening.
+- Contract: openapi.json + orval client regenerate with zero drift beyond the
+  intentional H3 change.
+- m09869 kill re-proven under the campaign's own MUTANT_ID protocol; mutation
+  report numbers independently recomputed twice (both match).
+
+### Residual notes
+
+- The three by-design invariant pins (03-5, 08-M4, 08-L14, 08-L9) protect
+  against future divergence rather than today's values; their docstrings now
+  say so explicitly.
+- Playwright e2e remain unexecuted in this environment (need the live stack);
+  the flaky-failure gate added to CI was dry-run verified on synthetic reports.
+- Deferred business decision unchanged: re-baselining the default simulation
+  preset.
