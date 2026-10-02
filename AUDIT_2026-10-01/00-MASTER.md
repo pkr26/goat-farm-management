@@ -409,3 +409,67 @@ collection/import errors where the fix introduced a symbol the tests import.
   the flaky-failure gate added to CI was dry-run verified on synthetic reports.
 - Deferred business decision unchanged: re-baselining the default simulation
   preset.
+
+## 10. The two deferred items — decided and implemented (2026-10-02)
+
+### 10.1 MFA challenge replay: durable DB-backed single-use guard
+
+**Decision (industry standard applied): RFC 6238 requires the verifier to
+detect replay of a used exchange; NIST SP 800-63B requires single-use
+authentication assertions. A restart-window replay is a compliance gap, not
+a tolerable quirk — the previously "accepted" tradeoff is replaced.**
+
+Implemented: new `consumed_mfa_challenges` table (migration `f4a8c2e6d1b9`,
+downgrade drops it; `restore_floor.sh` allowlist extended). The claim is an
+`INSERT ... ON CONFLICT DO NOTHING` inside the login-success transaction:
+committed consumption ⟺ successful exchange (a later-failing request no
+longer burns a challenge — stricter than the old burn-on-consume), restarts
+lose nothing, and concurrent replays are arbitrated by the unique jti
+(exactly one winner; the loser blocks until the winner commits, then sees
+the conflict). Expired rows are swept opportunistically, bounding the table
+to one TTL window. The brute-force LEDGERS stay in memory by documented
+decision: they are abuse-cost throttles that fail closed (every guess still
+pays Argon2 and still fails), and production boot continues to refuse
+multi-worker topologies — see the revised `MemoryLimiterBackend` docstring.
+
+Verified: 48/48 TOTP tests including two new regression tests —
+`test_challenge_replay_guard_is_durable_across_a_restart` (asserts the DB
+row exists and refuses the replay; round-trip FAILS on pre-fix source) and
+`test_concurrent_challenge_exchange_succeeds_exactly_once` (two racers,
+two different still-valid ±1-drift codes, exactly one 200 — an invariant
+pin that holds in both implementations and guards the new one's race
+safety). mypy --strict clean, tests ratchet holds at 1778, alembic single
+head, deployment-artifact allowlist tests green.
+
+### 10.2 Default simulation preset: re-baselining REJECTED — decision record
+
+**Decision (industry standard applied): model-risk/reference-case practice
+(NREL-style reference cases; model-validation guidance generally) prohibits
+tuning sourced inputs to reach a desired output. The default stays the
+sourced, stress-conservative reference case, now by recorded decision
+rather than deferral.**
+
+The evidence gathered before deciding (all computed from the engine):
+- Operating result: accounting profit ≈ −₹89k TOTAL over 120 months on a
+  ₹2.0M project — the unit runs at ≈ operating break-even.
+- The sign flipper is price: break-even meat price ≈ ₹457/kg vs the sourced
+  ₹370/kg farm-gate default (+24%). Only unsourced price hikes or cost cuts
+  manufacture positive NPV.
+- Financing is not the cause: unlevered NPV ≈ −₹876k (worse than levered:
+  11% debt sits below the 12% discount rate).
+- System is not the cause: semi-intensive ≈ −₹1,234k unlevered — slower
+  field growth outweighs the 30% free-grazing DM.
+- Terminal value is already included (₹2.25M at 0.90/1.0 realization) —
+  the audit's arithmetic was complete.
+
+Therefore the audit's option A ("re-baseline to a bankable-plausible
+unit") is rejected on integrity grounds, and option B is completed to
+standard: decision records in `assumptions.py` (full rationale) and
+`defaults.py::osmanabadi` (summary), while the run narrative already
+surfaces the diagnostics a user needs (break-even price vs assumed market
+with safety margin, accounting result vs capital charge). No numbers, no
+goldens, no wire contract changed (module docstrings only — export
+verified zero drift). Observation recorded for a future owner pass: the
+semi-intensive preset inherits the stall-fed 151-place shed costing;
+correcting it needs a citable housing-cost source and was not invented
+here.
